@@ -3,7 +3,10 @@ name: Build VodClipper.exe
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -36,7 +39,46 @@ jobs:
           Copy-Item tools dist/VodClipper/tools -Recurse -Force
           Copy-Item README.txt dist/VodClipper/README.txt
 
-      - name: Smoke test (exe starts and serves the app)
+      - name: Make a test stream (video + spoken words)
+        shell: pwsh
+        run: |
+          $t = $env:RUNNER_TEMP
+          try {
+            Add-Type -AssemblyName System.Speech
+            $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+            $s.Rate = -1
+            $s.SetOutputToWaveFile("$t\speech.wav")
+            $s.Speak("No way, he just did that. Chat, clip it right now. That was absolutely insane.")
+            $s.Dispose()
+          } catch { Write-Host "Speech synthesis unavailable: $_" }
+          $ff = "tools\ffmpeg.exe"
+          if (Test-Path "$t\speech.wav") {
+            & $ff -v error -y -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=60" -f lavfi -i "anoisesrc=color=pink:amplitude=0.01:duration=60" -i "$t\speech.wav" `
+              -filter_complex "[2:a]adelay=30000|30000,volume=3[s];[1:a][s]amix=inputs=2:normalize=0[a]" `
+              -map 0:v -map "[a]" -t 60 -c:v libx264 -preset ultrafast -c:a aac "$t\test.mp4"
+          } else {
+            & $ff -v error -y -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=60" -f lavfi -i "sine=frequency=300:duration=60" `
+              -t 60 -c:v libx264 -preset ultrafast -c:a aac "$t\test.mp4"
+          }
+          Get-Item "$t\test.mp4" | Format-List Name, Length
+
+      - name: Self-test inside the exe
+        shell: pwsh
+        run: |
+          $t = $env:RUNNER_TEMP
+          $env:VODCLIPPER_WORK = "$t\vc-work"
+          $p = Start-Process dist/VodClipper/VodClipper.exe -ArgumentList "--selftest", "$t\selftest.json", "$t\test.mp4" -PassThru
+          if (-not $p.WaitForExit(900000)) { Stop-Process -Id $p.Id -Force; Write-Host "::error title=selftest::timed out" }
+          Get-Content "$env:LOCALAPPDATA\VodClipper\vodclipper.log" -ErrorAction SilentlyContinue | Select-Object -Last 60
+          if (-not (Test-Path "$t\selftest.json")) { Write-Host "::error title=selftest::no report written"; exit 1 }
+          $r = Get-Content "$t\selftest.json" -Raw | ConvertFrom-Json
+          foreach ($c in $r.checks) {
+            $d = ($c.detail -replace "`r?`n", " | ")
+            if ($c.ok) { Write-Host "::notice title=OK $($c.name)::$d" } else { Write-Host "::error title=FAIL $($c.name)::$d" }
+          }
+          if (-not $r.ok) { exit 1 }
+
+      - name: Smoke test (app server starts)
         shell: pwsh
         run: |
           $env:VODCLIPPER_WORK = "$env:RUNNER_TEMP\vc-work"
@@ -46,12 +88,27 @@ jobs:
             Start-Sleep 2
             try { $r = Invoke-RestMethod http://127.0.0.1:7860/api/status; if ($r.version) { $ok = $true; break } } catch {}
           }
-          Get-Content "$env:LOCALAPPDATA\VodClipper\vodclipper.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
-          if ($ok) { $r | ConvertTo-Json; Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null }
-          Start-Sleep 2; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-          if (-not $ok) { throw "VodClipper.exe did not start" }
+          if ($ok) {
+            $page = (Invoke-WebRequest http://127.0.0.1:7860/ -UseBasicParsing).Content
+            Write-Host "::notice title=OK app server::status $($r | ConvertTo-Json -Compress); page $($page.Length) bytes"
+            Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null
+          }
+          Start-Sleep 3; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { Write-Host "::error title=FAIL app server::did not start"; exit 1 }
 
       - uses: actions/upload-artifact@v4
         with:
           name: VodClipper-windows
           path: dist/VodClipper
+
+      - name: Publish download (GitHub Release)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Compress-Archive -Path dist/VodClipper -DestinationPath VodClipper-windows.zip -Force
+          $size = [math]::Round((Get-Item VodClipper-windows.zip).Length / 1MB)
+          gh release delete latest --yes --cleanup-tag 2>$null
+          $notes = "Unzip anywhere, open the VodClipper folder and double-click VodClipper.exe. Built and self-tested on Windows from commit ${{ github.sha }}."
+          gh release create latest VodClipper-windows.zip --title "VodClipper for Windows" --notes $notes --target ${{ github.sha }}
+          Write-Host "::notice title=OK release::VodClipper-windows.zip ($size MB) published"
