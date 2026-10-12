@@ -164,7 +164,7 @@ def selftest(out_json: str, media: str = "") -> int:
             clips = engine.pick_clips(an, count=3, length=15, chat=chat)
             rec("analyze", bool(clips), f"{info['duration']:.0f}s video, top clip "
                 f"{engine.fmt_ts(clips[0].start)}-{engine.fmt_ts(clips[0].end)} ({clips[0].reason})" if clips else "no clips")
-            heard = []
+            heard, rlog = [], []
             real = engine.transcribe
 
             def spy(*a, **k):
@@ -177,11 +177,12 @@ def selftest(out_json: str, media: str = "") -> int:
             engine.render_clip(media, start, start + 14, out,
                                engine.RenderOpts(layout="split", cam=(0.02, 0.03, 0.25, 0.25),
                                                  whisper_model="tiny", language="en"),
-                               title="Self test", log=lambda m: print("  " + m, flush=True))
+                               title="Self test", log=lambda m: (print("  " + m, flush=True), rlog.append(m)))
             oi = engine.probe(out)
             rec("render 1080x1920", (oi["width"], oi["height"]) == (1080, 1920) and oi["has_audio"],
                 f"{oi['width']}x{oi['height']}, {oi['duration']:.1f}s, audio={oi['has_audio']}")
-            rec("captions (Whisper)", len(heard) >= 3, " ".join(heard)[:300] or "no words heard")
+            rec("captions (Whisper)", len(heard) >= 3,
+                (" ".join(heard)[:200] or "no words heard") + " || log: " + " / ".join(rlog)[-300:])
         except Exception as e:
             rec("render pipeline", False, traceback.format_exc()[-400:])
     else:

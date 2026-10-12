@@ -50,7 +50,8 @@ jobs:
             $s.SetOutputToWaveFile("$t\speech.wav")
             $s.Speak("No way, he just did that. Chat, clip it right now. That was absolutely insane.")
             $s.Dispose()
-          } catch { Write-Host "Speech synthesis unavailable: $_" }
+          } catch { Write-Host "::warning title=speech::Speech synthesis unavailable: $_" }
+          if (Test-Path "$t\speech.wav") { Write-Host "::notice title=speech::$((Get-Item "$t\speech.wav").Length) bytes of test speech" }
           $ff = "tools\ffmpeg.exe"
           if (Test-Path "$t\speech.wav") {
             & $ff -v error -y -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=60" -f lavfi -i "anoisesrc=color=pink:amplitude=0.01:duration=60" -i "$t\speech.wav" `
@@ -72,9 +73,12 @@ jobs:
           Get-Content "$env:LOCALAPPDATA\VodClipper\vodclipper.log" -ErrorAction SilentlyContinue | Select-Object -Last 60
           if (-not (Test-Path "$t\selftest.json")) { Write-Host "::error title=selftest::no report written"; exit 1 }
           $r = Get-Content "$t\selftest.json" -Raw | ConvertFrom-Json
+          $passed = ($r.checks | Where-Object { $_.ok } | ForEach-Object { $_.name }) -join ", "
+          Write-Host "::notice title=Passed ($(@($r.checks | Where-Object { $_.ok }).Count) of $($r.checks.Count))::$passed"
           foreach ($c in $r.checks) {
             $d = ($c.detail -replace "`r?`n", " | ")
-            if ($c.ok) { Write-Host "::notice title=OK $($c.name)::$d" } else { Write-Host "::error title=FAIL $($c.name)::$d" }
+            if (-not $c.ok) { Write-Host "::error title=FAIL $($c.name)::$d" }
+            elseif ($c.name -match "captions|render|analyze|encoder|yt-dlp|Twitch") { Write-Host "::notice title=$($c.name)::$d" }
           }
           if (-not $r.ok) { exit 1 }
 
