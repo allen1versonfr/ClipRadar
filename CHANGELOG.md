@@ -3,6 +3,13 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.0.1] - 2026-10-12
+
+### Fixed
+- Updates keep working now that the GitHub repository has moved to allen1versonfr/vodclipper.
+  - VodClipper points at the new address.
+  - It follows GitHub's redirect for a moved repository, and keeps the access token for private ones.
+
 ## [3.0.0] - 2026-10-12
 
 VodClipper 3. Live mode is now hands-free: start it, go watch the stream, and clips are titled, checked and rendered on their own while you watch.
@@ -158,11 +165,12 @@ First release.
 - Word-by-word captions with Whisper.
 - 1080×1920 MP4 export using your GPU's video encoder, with automatic fallback to the CPU.
 
-[3.0.0]: https://github.com/ali1qbal/vodclipper/compare/v2.2.0...v3.0.0
-[2.2.0]: https://github.com/ali1qbal/vodclipper/compare/v2.1.0...v2.2.0
-[2.1.0]: https://github.com/ali1qbal/vodclipper/compare/v2.0.0...v2.1.0
-[2.0.0]: https://github.com/ali1qbal/vodclipper/releases/tag/v2.0.0
-[1.3.0]: https://github.com/ali1qbal/vodclipper/commit/dcb1473
-[1.2.0]: https://github.com/ali1qbal/vodclipper/commit/76be94b
-[1.1.0]: https://github.com/ali1qbal/vodclipper/commit/bb53c2c
-[1.0.0]: https://github.com/ali1qbal/vodclipper/commit/b40b498
+[3.0.1]: https://github.com/allen1versonfr/vodclipper/compare/v3.0.0...v3.0.1
+[3.0.0]: https://github.com/allen1versonfr/vodclipper/compare/v2.2.0...v3.0.0
+[2.2.0]: https://github.com/allen1versonfr/vodclipper/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/allen1versonfr/vodclipper/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/allen1versonfr/vodclipper/releases/tag/v2.0.0
+[1.3.0]: https://github.com/allen1versonfr/vodclipper/commit/dcb1473
+[1.2.0]: https://github.com/allen1versonfr/vodclipper/commit/76be94b
+[1.1.0]: https://github.com/allen1versonfr/vodclipper/commit/bb53c2c
+[1.0.0]: https://github.com/allen1versonfr/vodclipper/commit/b40b498

@@ -21,12 +21,13 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import paths
 from version import VERSION
 
-REPO = "ali1qbal/vodclipper"
+REPO = "allen1versonfr/vodclipper"
 API = os.environ.get("VODCLIPPER_UPDATE_API", f"https://api.github.com/repos/{REPO}/releases/latest")
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 SETUP_ASSET = "VodClipper-Setup.exe"
@@ -137,13 +138,18 @@ def _request(url: str, timeout: float = 15, accept: str = "application/vnd.githu
         headers["Authorization"] = f"Bearer {tok}"
     req = urllib.request.Request(url, headers=headers)
     if tok:
-        # private assets redirect to a signed download link that must NOT get the token
         try:
             return urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout)
         except urllib.error.HTTPError as e:
-            if e.code in (301, 302, 303, 307, 308) and e.headers.get("Location"):
-                return _request(e.headers["Location"], timeout, accept="application/octet-stream", auth=False)
-            raise
+            loc = e.headers.get("Location") if e.code in (301, 302, 303, 307, 308) else None
+            if not loc:
+                raise
+            loc = urllib.parse.urljoin(url, loc)
+            if urllib.parse.urlsplit(loc).netloc == urllib.parse.urlsplit(url).netloc:
+                # same API host: a renamed or moved repository. Keep the token.
+                return _request(loc, timeout, accept=accept, auth=True)
+            # private assets redirect to a signed download link that must NOT get the token
+            return _request(loc, timeout, accept="application/octet-stream", auth=False)
     return urllib.request.urlopen(req, timeout=timeout)
 
 

@@ -105,7 +105,7 @@ def main():
                VODCLIPPER_IRC=f"127.0.0.1:{IRC_PORT}:plain",
                VODCLIPPER_TIKTOK_API=f"http://127.0.0.1:{TT_PORT}",
                VODCLIPPER_TIKTOK_AUTH=f"http://127.0.0.1:{TT_PORT}/v2/auth/authorize/",
-               VODCLIPPER_UPDATE_API=f"http://127.0.0.1:{GH_PORT}/repos/ali1qbal/vodclipper/releases/latest",
+               VODCLIPPER_UPDATE_API=f"http://127.0.0.1:{GH_PORT}/repos/allen1versonfr/vodclipper/releases/latest",
                VODCLIPPER_TEST="1", VODCLIPPER_WAIT_POLL="3")
     cmd = shlex.split(a.app, posix=(os.name != "nt")) + ["--browser"]
     app = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -337,6 +337,11 @@ def main():
         u = post("/api/update/token", {"token": "github_pat_" + "e2e" * 10})
         rec("private repository: token finds the update", u.get("available") and u.get("token") and u.get("latest") == "99.0.0",
             {k: u.get(k) for k in ("state", "available", "latest", "token_hint", "error")})
+        mock_github.STATE["moved"] = True
+        u = post("/api/update/check")
+        rec("renamed private repository: still finds the update", u.get("available") and not u.get("error"),
+            {k: u.get(k) for k in ("state", "available", "latest", "error")})
+        mock_github.STATE["moved"] = False
         post("/api/update/token", {"token": ""})
         mock_github.STATE["token"] = ""
 

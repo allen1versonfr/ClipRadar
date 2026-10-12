@@ -3,14 +3,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ali1qbal/vodclipper/releases/latest"><img alt="Version 3.0.0" src="https://img.shields.io/badge/version-3.0.0-4c8dff?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 3.0.1" src="https://img.shields.io/badge/version-3.0.1-4c8dff?style=flat-square"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-keep%20a%20changelog-1f2329?style=flat-square"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/ali1qbal/vodclipper/releases/latest/download/VodClipper-Setup.exe"><b>Download for Windows</b></a>
+  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest/download/VodClipper-Setup.exe"><b>Download for Windows</b></a>
   &nbsp;·&nbsp;
   <a href="#features">Features</a>
   &nbsp;·&nbsp;
@@ -68,11 +68,11 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 
 ## Install
 
-1. Download **[VodClipper-Setup.exe](https://github.com/ali1qbal/vodclipper/releases/latest/download/VodClipper-Setup.exe)** and run it. It installs for your user only, so there's no admin prompt, and adds Start menu and desktop shortcuts.
+1. Download **[VodClipper-Setup.exe](https://github.com/allen1versonfr/vodclipper/releases/latest/download/VodClipper-Setup.exe)** and run it. It installs for your user only, so there's no admin prompt, and adds Start menu and desktop shortcuts.
 2. The first time you open it, VodClipper offers to download FFmpeg, yt-dlp and TwitchDownloader for you.
 3. After that, VodClipper keeps itself up to date. New versions show up in the status bar and in **Settings › Updates**.
 
-Prefer not to install? Use [VodClipper-portable.zip](https://github.com/ali1qbal/vodclipper/releases/latest/download/VodClipper-portable.zip) instead. Unzip it anywhere and run `VodClipper.exe`.
+Prefer not to install? Use [VodClipper-portable.zip](https://github.com/allen1versonfr/vodclipper/releases/latest/download/VodClipper-portable.zip) instead. Unzip it anywhere and run `VodClipper.exe`.
 
 > [!NOTE]
 > The app isn't code-signed yet, so Windows SmartScreen may warn you the first time. Choose **More info › Run anyway**.
@@ -106,7 +106,7 @@ Until TikTok audits your developer app, direct posts can only be private ("Only 
 You need Windows and Python 3.10–3.13 (`install.bat` offers to install Python 3.12 with winget if it’s missing).
 
 ```bat
-git clone https://github.com/ali1qbal/vodclipper
+git clone https://github.com/allen1versonfr/vodclipper
 cd vodclipper
 scripts\install.bat      &rem create a virtualenv and install dependencies
 scripts\run.bat          &rem run from source (opens in your browser)

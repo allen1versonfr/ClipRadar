@@ -218,7 +218,7 @@ jobs:
           # ---- in-app update: the installed app finds a "newer" release, downloads its Setup,
           #      closes, the installer upgrades it in place and reopens it
           $gh = Start-Process python -ArgumentList "tests/mock_github.py","9491","v99.0.0","$(Resolve-Path dist\VodClipper-Setup.exe)" -PassThru -WindowStyle Hidden
-          $env:VODCLIPPER_UPDATE_API = "http://127.0.0.1:9491/repos/ali1qbal/vodclipper/releases/latest"
+          $env:VODCLIPPER_UPDATE_API = "http://127.0.0.1:9491/repos/allen1versonfr/vodclipper/releases/latest"
           $p = Start-Process "$app\VodClipper.exe" -ArgumentList "--browser" -PassThru
           $u = $null
           foreach ($n in 1..40) { Start-Sleep 2; try { $u = Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/update/check -Body '{}' -ContentType 'application/json'; break } catch {} }
