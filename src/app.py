@@ -199,17 +199,22 @@ def selftest(out_json: str, media: str = "") -> int:
                                        title_x=0.5, title_y=0.3)
             engine.render_clip(media, start, start + 3, out2, styled, title="Chat's \"best\" moment",
                                words=[{"start": 0.1, "end": 1.4, "word": "FIXED"}, {"start": 1.4, "end": 2.5, "word": "TEXT"}])
-            png = os.path.join(os.path.dirname(out_json), "selftest_styled.png")
-            subprocess.run([engine.ffmpeg(), "-v", "error", "-y", "-ss", "0.7", "-i", out2, "-frames:v", "1",
-                            "-f", "rawvideo", "-pix_fmt", "rgb24", png], check=True, creationflags=engine.CREATE_NO_WINDOW)
-            raw = open(png, "rb").read()
+            # same clip without captions: whatever differs between the two frames is the captions
+            out3 = os.path.join(os.path.dirname(out_json), "selftest_plain.mp4")
+            plain = engine.RenderOpts(**{**styled.__dict__, "captions": False})
+            engine.render_clip(media, start, start + 3, out3, plain, title="Chat's \"best\" moment", words=[])
             import numpy as np
-            px = np.frombuffer(raw, dtype=np.uint8).reshape(1920, 1080, 3).astype(int)
-            green = (px[:, :, 1] > 200) & (px[:, :, 0] < 90) & (px[:, :, 2] < 90)
-            ys, xs = np.nonzero(green)
-            where = f"{len(xs)} highlight px" + (f" centred at {xs.mean() / 1080:.2f}, {ys.mean() / 1920:.2f}" if len(xs) else "")
-            rec("styled captions render where they were placed", len(xs) > 800 and abs(xs.mean() / 1080 - 0.33) < 0.12
-                and abs(ys.mean() / 1920 - 0.6) < 0.06, where)
+
+            def frame(path):
+                raw = subprocess.run([engine.ffmpeg(), "-v", "error", "-ss", "0.7", "-i", path, "-frames:v", "1",
+                                      "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True,
+                                     creationflags=engine.CREATE_NO_WINDOW).stdout
+                return np.frombuffer(raw, dtype=np.uint8).reshape(1920, 1080, 3).astype(int)
+            diff = np.abs(frame(out2) - frame(out3)).sum(axis=2) > 90
+            ys, xs = np.nonzero(diff)
+            where = f"{len(xs)} caption px" + (f" centred at {xs.mean() / 1080:.2f}, {ys.mean() / 1920:.2f}" if len(xs) else "")
+            rec("styled captions render where they were placed", len(xs) > 3000 and abs(xs.mean() / 1080 - 0.35) < 0.08
+                and abs(ys.mean() / 1920 - 0.6) < 0.05, where)
         except Exception as e:
             rec("render pipeline", False, traceback.format_exc()[-400:])
     else:
