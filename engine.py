@@ -943,9 +943,10 @@ def _load_whisper(model_size: str, log: Log):
     raise RuntimeError("Couldn't load Whisper. " + " | ".join(errors))
 
 
-def transcribe(wav: str, model_size: str, language: str, log: Log) -> list:
+def transcribe(audio, model_size: str, language: str, log: Log) -> list:
+    """audio: path or 16 kHz mono float32 numpy array."""
     model = _load_whisper(model_size, log)
-    segs, _ = model.transcribe(wav, language=language or None, word_timestamps=True,
+    segs, _ = model.transcribe(audio, language=language or None, word_timestamps=True,
                                vad_filter=True, beam_size=5,
                                vad_parameters={"min_silence_duration_ms": 400})
     words = []
@@ -1103,23 +1104,24 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         if not whisper_available():
             log("Captions skipped: faster-whisper isn't installed (run install.bat).")
         else:
-            wav = os.path.join(work, f"{stem}.wav")
-            run([ffmpeg(), "-v", "error", "-y", "-nostdin", "-ss", f"{clip_start:.3f}",
-                 "-t", f"{length:.3f}", "-i", video, "-map", "0:a:0", "-vn", "-ac", "1",
-                 "-ar", "16000", wav])
+            # decode with our ffmpeg straight to 16 kHz mono float samples; Whisper takes the array
+            # directly, so captions don't depend on PyAV's file-reading API
+            p = subprocess.run([ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{clip_start:.3f}",
+                                "-t", f"{length:.3f}", "-i", video, "-map", "0:a:0", "-vn", "-ac", "1",
+                                "-ar", "16000", "-f", "f32le", "-"], capture_output=True,
+                               stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
+            audio = np.frombuffer(p.stdout, dtype=np.float32).copy() if p.returncode == 0 else None
             progress(0.08)
             check()
-            log("Transcribing speech for captions...")
-            try:
-                words = transcribe(wav, o.whisper_model, o.language, log)
-            except Exception as e:
-                log(f"Captions skipped: {str(e)[:200]}")
-                words = []
-            finally:
+            if audio is None or audio.size < 1600:
+                log("Captions skipped: couldn't read this clip's audio.")
+            else:
+                log("Transcribing speech for captions...")
                 try:
-                    os.remove(wav)
-                except OSError:
-                    pass
+                    words = transcribe(audio, o.whisper_model, o.language, log)
+                except Exception as e:
+                    log(f"Captions skipped: {str(e)[:200]}")
+                    words = []
             if not words:
                 log("No speech found in this clip.")
     progress(0.3)
