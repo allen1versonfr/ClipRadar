@@ -37,6 +37,7 @@ import paths
 import tiktok
 import titles
 import tools_setup
+import updater
 
 from version import VERSION
 HERE = paths.RES_DIR
@@ -663,6 +664,8 @@ class Handler(BaseHTTPRequestHandler):
                 "running": busy(),
                 "live": (live_active().id if live_active() else ""),
             })
+        if p == "/api/update":
+            return self._json(updater.view())
         if p == "/api/ping":
             last_ping[0] = time.time()
             return self._json({"ok": True})
@@ -766,6 +769,25 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/pick_file":
             kind = body.get("kind", "video")
             return self._json({"path": pick_file(kind)})
+
+        if p == "/api/update/check":
+            return self._json(updater.check(log=_say))
+        if p == "/api/update/settings":
+            updater.set_prefs(bool(body.get("auto", True)))
+            return self._json(updater.view())
+        if p == "/api/update/install":
+            if not updater.installed():
+                return self._err("This copy of VodClipper wasn't installed with Setup, so it can't update itself. "
+                                 "Download the new version from GitHub instead.", 400)
+            v = updater.view()
+            if not v["available"]:
+                return self._err("You already have the latest version.", 400)
+            if v["state"] in ("downloading", "installing"):
+                return self._json(v)
+            if busy():
+                return self._err("Finish or stop what's running (a download, render or live recording), then update.", 409)
+            threading.Thread(target=_install_update, daemon=True).start()
+            return self._json(updater.view())
 
         if p == "/api/quit":
             self._json({"ok": True})
@@ -1023,6 +1045,27 @@ class Handler(BaseHTTPRequestHandler):
         return self._err("not found", 404)
 
 
+def _say(msg: str):
+    print(msg, flush=True)
+
+
+def _install_update():
+    """Download the new installer if needed, start it, then close so it can replace the app."""
+    try:
+        v = updater.view()
+        path = updater._file[0] if v["state"] == "ready" and updater._file[0] and os.path.isfile(updater._file[0]) \
+            else updater.download(log=_say)
+        if busy():
+            raise RuntimeError("Something started while the update downloaded. Update again when it's finished.")
+        updater.launch_installer(path, log=_say)
+    except Exception as e:
+        with updater._lock:
+            updater.state.update(state="error", error=str(e))
+        return
+    time.sleep(1.5)            # let the window show "Installing…"
+    shutdown_hook[0]()
+
+
 def uninstaller_path() -> str:
     """The Inno Setup uninstaller sits next to VodClipper.exe when it was installed with Setup."""
     if not paths.FROZEN:
@@ -1105,6 +1148,7 @@ def start(port: int = PORT):
     if not _worker_started[0]:
         _worker_started[0] = True
         threading.Thread(target=queue_worker, daemon=True).start()
+        updater.start_background(log=_say)
     return srv, f"http://127.0.0.1:{port}"
 
 

@@ -36,6 +36,7 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 - **Three vertical layouts:** facecam above gameplay, full crop, or blurred fit. Choose the caption position, highlight colour, size and words per line.
 - **Background render queue.** Clips render to 1080×1920 MP4 on your GPU's encoder (NVIDIA, Intel or AMD), falling back to the CPU automatically.
 - **Post to TikTok** through TikTok's official Content Posting API, either directly or to your drafts. Nothing is ever posted without you clicking Post.
+- **Updates itself.** When a new release is posted on GitHub, VodClipper offers it in the app. One click downloads it, installs it and reopens the app.
 - **Tidy on disk.** Delete VODs and Delete all clips buttons are built in, and a real uninstaller is included.
 
 ## Screenshots
@@ -55,6 +56,7 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 
 1. Download **[VodClipper-Setup.exe](https://github.com/ali1qbal/vodclipper/releases/latest/download/VodClipper-Setup.exe)** and run it. It installs for your user only, so there's no admin prompt, and adds Start menu and desktop shortcuts.
 2. The first time you open it, VodClipper offers to download FFmpeg, yt-dlp and TwitchDownloader for you.
+3. After that, VodClipper keeps itself up to date. New versions show up in the status bar and in **Settings › Updates**.
 
 Prefer not to install? Use [VodClipper-portable.zip](https://github.com/ali1qbal/vodclipper/releases/latest/download/VodClipper-portable.zip) instead. Unzip it anywhere and run `VodClipper.exe`.
 
@@ -123,7 +125,7 @@ Every push builds the exe on Windows in GitHub Actions, then:
 
 - runs the app's built-in self-test (`VodClipper.exe --selftest`): rendering, captions on real Whisper output and auto titles;
 - runs `tests/e2e.py` against the built exe, with a simulated live stream served over HLS, a fake Twitch IRC chat and a mock of TikTok's OAuth and Content Posting API;
-- installs and uninstalls the app with the real installer.
+- installs the app with the real installer, updates it in place through the app's own updater (against a mock GitHub release), then uninstalls it.
 
 Run the end-to-end tests locally against the source:
 

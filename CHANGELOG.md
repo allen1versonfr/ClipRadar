@@ -3,6 +3,19 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-10-12
+
+### Added
+- **Automatic updates.** VodClipper checks GitHub for new releases when it starts and every few hours after that.
+  - When there's a new version, the status bar shows **Update to x.y.z** and Settings › Updates lists what's new.
+  - **Update now** downloads the new installer, checks it against GitHub's checksum, closes VodClipper, upgrades it in place and opens it again. Your clips, projects, settings and TikTok sign-in are kept.
+  - Portable copies link to the download page instead.
+  - Automatic checks can be turned off in Settings › Updates.
+- CI updates an installed copy of the app to a new release and checks that it reopens.
+
+### Changed
+- Settings has a separate Updates section, and About now holds only the uninstaller and the log location.
+
 ## [2.0.0] - 2026-10-12
 
 The live update. VodClipper can now clip a channel while it's on air and post straight to TikTok. The whole interface has also been rebuilt.
@@ -85,6 +98,7 @@ First release.
 - Word-by-word captions with Whisper.
 - 1080×1920 MP4 export using your GPU's video encoder, with automatic fallback to the CPU.
 
+[2.1.0]: https://github.com/ali1qbal/vodclipper/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ali1qbal/vodclipper/releases/tag/v2.0.0
 [1.3.0]: https://github.com/ali1qbal/vodclipper/commit/dcb1473
 [1.2.0]: https://github.com/ali1qbal/vodclipper/commit/76be94b

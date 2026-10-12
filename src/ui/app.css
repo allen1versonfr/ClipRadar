@@ -381,3 +381,16 @@ dialog.modal::backdrop{background:rgba(0,0,0,.55)}
   .exports{grid-template-columns:1fr;overflow:auto}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* updates */
+.upd-title{font-weight:600;color:var(--tx0)}
+.upd-state{font-size:12px;color:var(--tx2);margin-top:2px}
+.upd-state.ok{color:var(--ok)}
+.upd-state.new{color:var(--accent)}
+.upd-state.err{color:var(--danger)}
+.upd-notes{border:1px solid var(--line);border-radius:var(--r);background:var(--bg0)}
+.upd-notes-head{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line);font-size:12px}
+.upd-notes-body{padding:10px 12px;max-height:220px;overflow:auto;font-size:12px;color:var(--tx1);white-space:pre-wrap;line-height:1.55}
+.sb-update{display:flex;align-items:center;gap:6px;border:0;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:500;padding:2px 9px;border-radius:999px}
+.sb-update:hover{background:var(--accent);color:#fff}
+.sb-update i{width:6px;height:6px;border-radius:50%;background:currentColor}

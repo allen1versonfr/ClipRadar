@@ -13,6 +13,14 @@ INSTALL
   No-install option: VodClipper-portable.zip. Unzip anywhere and run
   VodClipper.exe. To remove it, delete the folder.
 
+UPDATES
+  VodClipper checks GitHub for a new version when it starts (and every few
+  hours). When there is one, "Update to x.y.z" appears in the status bar.
+  Settings > Updates shows what's new; Update now downloads it, closes
+  VodClipper, installs it and opens VodClipper again. Your clips, projects and
+  settings are kept. Turn off "Check for updates automatically" there if you
+  prefer to check yourself. The portable version links to the download page.
+
 UNINSTALL
   Any of these:
     - Settings > Apps > Installed apps > VodClipper > Uninstall

@@ -370,9 +370,27 @@
           <div class="store-rows" id="storeRows"></div>
         </section>
 
+        <section class="panel set" id="setUpdates">
+          <header><svg class="ic"><use href="#i-refresh"/></svg><h2>Updates</h2></header>
+          <div class="row upd-row">
+            <div class="grow">
+              <div class="upd-title">VodClipper <span class="tnum" id="verText"></span></div>
+              <div class="upd-state" id="updState">Not checked yet</div>
+            </div>
+            <button class="btn" id="updCheck">Check for updates</button>
+            <button class="btn primary" id="updGo" hidden>Update now</button>
+          </div>
+          <div class="meter" id="updMeter" hidden><i id="updBar"></i></div>
+          <div class="upd-notes" id="updNotesWrap" hidden>
+            <div class="upd-notes-head"><b id="updNotesTitle">What's new</b><a href="#" id="updPage">Release notes on GitHub</a></div>
+            <div class="upd-notes-body" id="updNotes"></div>
+          </div>
+          <label class="fld switch-label">Check for updates automatically<span class="switch"><input type="checkbox" id="updAuto" checked><i></i></span></label>
+        </section>
+
         <section class="panel set">
           <header><h2>About</h2></header>
-          <div class="row"><span>VodClipper <span class="tnum" id="verText"></span></span><span class="grow"></span><button class="btn danger" id="uninstallBtn" hidden>Uninstall…</button></div>
+          <div class="row"><span>Made for streamers. Not affiliated with Twitch or TikTok.</span><span class="grow"></span><button class="btn danger" id="uninstallBtn" hidden>Uninstall…</button></div>
           <p class="fine">If something goes wrong, the log file is at %LOCALAPPDATA%\VodClipper\vodclipper.log.</p>
         </section>
       </div>
@@ -381,7 +399,7 @@
 
   <footer class="statusbar">
     <div class="sb-tasks" id="sbTasks"><span class="muted">Ready</span></div>
-    <div class="sb-right"><span id="sbTools"></span><span class="muted tnum" id="sbVer"></span></div>
+    <div class="sb-right"><button class="sb-update" id="sbUpdate" hidden></button><span id="sbTools"></span><span class="muted tnum" id="sbVer"></span></div>
   </footer>
 </div>
 

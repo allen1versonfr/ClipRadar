@@ -1,4 +1,4 @@
-; VodClipper installer (Inno Setup 6). Built by .github/workflows/build-exe.yml:
+; VodClipper installer (Inno Setup 6). Built by .github/workflows/build.yml:
 ;   ISCC.exe /DAppVersion=2.0.0 installer\vodclipper.iss   ->  dist\VodClipper-Setup.exe
 ;
 ; Installs per-user (no admin prompt) to %LOCALAPPDATA%\Programs\VodClipper, adds Start menu
@@ -7,6 +7,9 @@
 ; The uninstaller also removes VodClipper's app data (downloaded tools, caption models, logs)
 ; and asks whether to delete the VODs and clips folder too (default: keep them).
 ; Scripted uninstall that also deletes them:  unins000.exe /VERYSILENT /DELETECLIPS=1
+;
+; In-app updates run the new Setup as:  VodClipper-Setup.exe /SILENT /SUPPRESSMSGBOXES /UPDATE=1
+; It waits for VodClipper to close itself, upgrades in place and opens VodClipper again.
 
 #ifndef AppVersion
   #define AppVersion "1.0"
@@ -64,6 +67,8 @@ Root: HKCU; Subkey: "Software\VodClipper"; Flags: uninsdeletekey
 
 [Run]
 Filename: "{app}\VodClipper.exe"; Description: "Open VodClipper"; Flags: nowait postinstall skipifsilent
+; after an in-app update, reopen VodClipper
+Filename: "{app}\VodClipper.exe"; Flags: nowait; Check: IsAppUpdate
 
 [UninstallRun]
 ; stop VodClipper (and any ffmpeg/download it started) so its files can be removed
@@ -77,12 +82,26 @@ var
   ClipsDir: String;
   DataDir: String;
 
+function IsAppUpdate(): Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Code: Integer;
 begin
-  { close a running VodClipper before upgrading it }
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im VodClipper.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  if IsAppUpdate() then
+  begin
+    { started by VodClipper itself, which is closing: give it a moment, then make sure it's gone.
+      No /t here: this installer is VodClipper's child and must not be killed with it. }
+    Sleep(2500);
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /im VodClipper.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    Sleep(500);
+  end
+  else
+    { close a running VodClipper before upgrading it }
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im VodClipper.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Result := '';
 end;
 

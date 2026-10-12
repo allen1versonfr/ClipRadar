@@ -30,8 +30,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import fake_irc      # noqa: E402
 import mock_tiktok   # noqa: E402
+import mock_github   # noqa: E402
 
-PORT, IRC_PORT, TT_PORT, HLS_PORT = 7870, 9461, 9471, 9481
+PORT, IRC_PORT, TT_PORT, HLS_PORT, GH_PORT = 7870, 9461, 9471, 9481, 9491
 B = f"http://127.0.0.1:{PORT}"
 checks: list = []
 diag: dict = {}
@@ -98,11 +99,13 @@ def main():
         os.makedirs(d)
     fake_irc.start_in_thread(IRC_PORT, [72])
     mock_tiktok.start(TT_PORT)
+    mock_github.start(GH_PORT, "v99.0.0")
 
     env = dict(os.environ, VODCLIPPER_WORK=work, VODCLIPPER_DATA=data, VODCLIPPER_PORT=str(PORT),
                VODCLIPPER_IRC=f"127.0.0.1:{IRC_PORT}:plain",
                VODCLIPPER_TIKTOK_API=f"http://127.0.0.1:{TT_PORT}",
-               VODCLIPPER_TIKTOK_AUTH=f"http://127.0.0.1:{TT_PORT}/v2/auth/authorize/")
+               VODCLIPPER_TIKTOK_AUTH=f"http://127.0.0.1:{TT_PORT}/v2/auth/authorize/",
+               VODCLIPPER_UPDATE_API=f"http://127.0.0.1:{GH_PORT}/repos/ali1qbal/vodclipper/releases/latest")
     cmd = shlex.split(a.app, posix=(os.name != "nt")) + ["--browser"]
     app = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     producer = None
@@ -241,6 +244,26 @@ def main():
             f"freed {d.get('freed', 0) // 1000} KB of {st['vods']['bytes'] // 1000} KB")
         d = post("/api/delete", {"what": "clips"})
         rec("delete all clips", d.get("deleted", 0) >= 1 and get("/api/storage")["clips"]["count"] == 0, d)
+        # ------------------------------------------------------------ updates
+        u = post("/api/update/check")
+        rec("update check finds a newer release", u.get("available") and u.get("latest") == "99.0.0" and u.get("state") == "idle",
+            {k: u.get(k) for k in ("state", "available", "latest", "current", "error", "can_install")})
+        rec("update notes are readable", "Something new" in u.get("notes", "") and "**" not in u.get("notes", "")
+            and "Download" not in u.get("notes", ""), u.get("notes", "")[:120])
+        rec("automatic update checks run", mock_github.STATE["hits"] >= 2, f"{mock_github.STATE['hits']} checks")
+        i = post("/api/update/install")
+        rec("a copy without Setup won't try to install", i.get("_status") == 400 and "installed" in i.get("error", ""), i.get("error"))
+        a1 = post("/api/update/settings", {"auto": False})
+        a2 = get("/api/update")
+        post("/api/update/settings", {"auto": True})
+        rec("automatic checks can be turned off", a1.get("auto") is False and a2.get("auto") is False, a2.get("auto"))
+        mock_github.STATE["tag"] = "v1.0.0"
+        u = post("/api/update/check")
+        rec("older release isn't offered", u.get("available") is False and u.get("state") == "idle", u.get("latest"))
+        mock_github.STATE["tag"] = "nightly"
+        u = post("/api/update/check")
+        rec("odd release tag is reported, not crashed on", u.get("state") == "error" and u.get("available") is False, u.get("error"))
+
         page = urllib.request.urlopen(B + "/", timeout=20).read()
         rec("UI loads", b"<html" in page.lower(), f"{len(page)} bytes")
     except Exception:

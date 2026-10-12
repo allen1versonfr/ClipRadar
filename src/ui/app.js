@@ -1175,8 +1175,72 @@ async function deleteStuff(what) {
   await Promise.all([loadStorage(), loadRecent(), refreshQueue()]);
 }
 
+/* =============================================================== updates */
+let upd = {}, updTimer = null, updAnnounced = '';
+async function loadUpdate() {
+  clearTimeout(updTimer);
+  try { upd = await api('/api/update'); } catch { updTimer = setTimeout(loadUpdate, 30000); return; }
+  renderUpdate();
+  const fast = ['checking', 'downloading', 'installing'].includes(upd.state);
+  updTimer = setTimeout(loadUpdate, fast ? 700 : (!upd.checked && upd.auto ? 4000 : 60000));
+}
+function renderUpdate() {
+  const u = upd;
+  const st = $('#updState');
+  let text, cls = '';
+  if (u.state === 'checking') text = 'Checking for updates…';
+  else if (u.state === 'downloading') { text = `Downloading version ${u.latest}… ${Math.round(u.progress * 100)}%`; cls = 'new'; }
+  else if (u.state === 'installing') { text = `Installing version ${u.latest}. VodClipper will close and reopen.`; cls = 'new'; }
+  else if (u.state === 'error') { text = u.error; cls = 'err'; }
+  else if (u.available) { text = `Version ${u.latest} is available${u.state === 'ready' ? ' and downloaded' : ''}.`; cls = 'new'; }
+  else if (u.checked) { text = `You're up to date. Checked ${ago(u.checked)}.`; cls = 'ok'; }
+  else text = 'Not checked yet.';
+  st.textContent = text; st.className = 'upd-state ' + cls;
+  const busyU = ['checking', 'downloading', 'installing'].includes(u.state);
+  $('#updCheck').disabled = busyU;
+  const go = $('#updGo');
+  go.hidden = !u.available;
+  go.disabled = busyU;
+  go.innerHTML = u.can_install ? (u.state === 'downloading' ? 'Downloading…' : u.state === 'installing' ? 'Installing…' : 'Update now')
+                               : 'Download from GitHub';
+  $('#updMeter').hidden = u.state !== 'downloading';
+  $('#updBar').style.width = Math.round((u.progress || 0) * 100) + '%';
+  $('#updNotesWrap').hidden = !(u.available && u.notes);
+  $('#updNotesTitle').textContent = `What's new in ${u.latest}`;
+  $('#updNotes').textContent = u.notes || '';
+  $('#updAuto').checked = u.auto !== false;
+  const sb = $('#sbUpdate');
+  sb.hidden = !u.available;
+  sb.innerHTML = u.state === 'downloading' ? `<i></i>Downloading update ${Math.round(u.progress * 100)}%`
+               : u.state === 'installing' ? '<i></i>Installing update…' : `<i></i>Update to ${esc(u.latest)}`;
+  if (u.available && updAnnounced !== u.latest && !busyU) {
+    updAnnounced = u.latest;
+    toast(`VodClipper ${u.latest} is available. Open Settings to update.`, '', 7000);
+  }
+}
+async function startUpdate() {
+  if (!upd.can_install) return openUrl(upd.page);
+  const ok = await ask({ title: `Update to VodClipper ${upd.latest}?`,
+    body: 'VodClipper will download the update, close, install it and open again. Your clips, projects and settings are kept.',
+    ok: 'Update now' });
+  if (!ok) return;
+  try { upd = await api('/api/update/install', {}); renderUpdate(); loadUpdate(); }
+  catch (e) { toast(e.message, 'err', 8000); }
+}
+$('#updGo').onclick = startUpdate;
+$('#sbUpdate').onclick = () => { setView('settings'); $('#setUpdates').scrollIntoView({ block: 'center', behavior: 'smooth' }); };
+$('#updCheck').onclick = async () => {
+  upd.state = 'checking'; renderUpdate();
+  try { upd = await api('/api/update/check', {}); } catch (e) { toast(e.message, 'err'); }
+  renderUpdate(); loadUpdate();
+};
+$('#updAuto').onchange = async e => {
+  try { upd = await api('/api/update/settings', { auto: e.target.checked }); renderUpdate(); } catch (err) { toast(err.message, 'err'); }
+};
+$('#updPage').onclick = e => { e.preventDefault(); openUrl(upd.page); };
+
 /* =============================================================== boot */
 setInterval(() => { fetch('/api/ping').catch(() => {}); }, 60000);
 setInterval(loadStatus, 5000);
 loadStatus().then(() => { updateStatusBar(); });
-loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb();
+loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); loadUpdate();

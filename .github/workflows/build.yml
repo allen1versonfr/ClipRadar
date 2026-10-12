@@ -202,6 +202,33 @@ jobs:
           Check "app sees its uninstaller" ($st.uninstaller -eq $true)
           $reg = (Get-ItemProperty "HKCU:\Software\VodClipper" -ErrorAction SilentlyContinue).ClipsFolder
           Check "clips folder recorded for uninstaller" ($reg -eq $root) $reg
+
+          # ---- in-app update: the installed app finds a "newer" release, downloads its Setup,
+          #      closes, the installer upgrades it in place and reopens it
+          $gh = Start-Process python -ArgumentList "tests/mock_github.py","9491","v99.0.0","$(Resolve-Path dist\VodClipper-Setup.exe)" -PassThru -WindowStyle Hidden
+          $env:VODCLIPPER_UPDATE_API = "http://127.0.0.1:9491/repos/ali1qbal/vodclipper/releases/latest"
+          $p = Start-Process "$app\VodClipper.exe" -ArgumentList "--browser" -PassThru
+          $u = $null
+          foreach ($n in 1..40) { Start-Sleep 2; try { $u = Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/update/check -Body '{}' -ContentType 'application/json'; break } catch {} }
+          Check "installed app finds the update" ($u -and $u.available -and $u.can_install) ($u | ConvertTo-Json -Compress)
+          $go = $null
+          try { $go = Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/update/install -Body '{}' -ContentType 'application/json' } catch { $go = $_.ErrorDetails.Message }
+          Check "update starts" ($go -and ($go.state -in @("downloading", "ready", "installing"))) ($go | ConvertTo-Json -Compress)
+          $closed = $p.WaitForExit(180000)
+          Check "app closes for the update" $closed
+          $back = $null
+          foreach ($n in 1..60) { Start-Sleep 3; try { $back = Invoke-RestMethod http://127.0.0.1:7860/api/status; break } catch {} }
+          Check "app reopens after updating" ($back -ne $null) "$($back.version)"
+          $ulog = "$data\updates\update-install.log"
+          $utail = if (Test-Path $ulog) { (Get-Content $ulog -Tail 4) -join " | " } else { "no installer log" }
+          Check "update installed" ((Test-Path $ulog) -and ((Get-Content $ulog -Raw) -match "Installation process succeeded")) $utail
+          Check "desktop shortcut kept after update" (Test-Path $deskLnk)
+          Check "still listed once in Settings > Apps" ((Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).DisplayName -eq "VodClipper")
+          try { Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null } catch {}
+          Start-Sleep 4
+          Get-Process VodClipper -ErrorAction SilentlyContinue | Stop-Process -Force
+          Stop-Process -Id $gh.Id -Force -ErrorAction SilentlyContinue
+          Remove-Item Env:VODCLIPPER_UPDATE_API -ErrorAction SilentlyContinue
           Uninstall @()
           Check "uninstall removed app" (-not (Test-Path $app))
           Check "uninstall removed app data" (-not (Test-Path $data))
