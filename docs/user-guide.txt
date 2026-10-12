@@ -24,7 +24,7 @@ UNINSTALL
 BUILD IT YOURSELF (optional)
   Every push to the repo builds and tests the installer on Windows (GitHub
   Actions) and publishes it as the "latest" release. To build on your own PC
-  instead, double-click build_exe.bat.
+  instead, run scripts\build_exe.bat from the source code.
 
 USE
   VodClipper has four sections in the left sidebar: Home, Review, Exports and

@@ -38,7 +38,7 @@ import tiktok
 import titles
 import tools_setup
 
-VERSION = "2.0"
+from version import VERSION
 HERE = paths.RES_DIR
 WORKROOT = str(paths.WORKROOT)
 PORT = int(os.environ.get("VODCLIPPER_PORT", "7860"))
@@ -645,7 +645,8 @@ class Handler(BaseHTTPRequestHandler):
             path = os.path.realpath(os.path.join(base, p[4:]))
             if path.startswith(base + os.sep):
                 # no long caching: after an update the window must pick up the new app.js/app.css
-                return self._send_file(path, cache=path.endswith((".svg", ".ico", ".png")))
+                ctype = "font/woff" if path.endswith(".woff") else None
+                return self._send_file(path, ctype, cache=path.endswith((".svg", ".ico", ".png", ".woff")))
             return self._err("forbidden", 403)
         if p == "/api/status":
             ts = tools_setup.status()

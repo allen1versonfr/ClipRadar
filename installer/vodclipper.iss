@@ -1,5 +1,5 @@
 ; VodClipper installer (Inno Setup 6). Built by .github/workflows/build-exe.yml:
-;   ISCC.exe /DAppVersion=1.3 installer.iss      ->  dist\VodClipper-Setup.exe
+;   ISCC.exe /DAppVersion=2.0.0 installer\vodclipper.iss   ->  dist\VodClipper-Setup.exe
 ;
 ; Installs per-user (no admin prompt) to %LOCALAPPDATA%\Programs\VodClipper, adds Start menu
 ; and desktop shortcuts, and registers an uninstaller in Windows Settings > Apps.
@@ -18,6 +18,9 @@ AppName=VodClipper
 AppVersion={#AppVersion}
 AppVerName=VodClipper {#AppVersion}
 AppPublisher=VodClipper
+AppPublisherURL=https://github.com/ali1qbal/vodclipper
+AppSupportURL=https://github.com/ali1qbal/vodclipper/issues
+AppUpdatesURL=https://github.com/ali1qbal/vodclipper/releases
 VersionInfoVersion={#AppVersion}
 DefaultDirName={localappdata}\Programs\VodClipper
 DefaultGroupName=VodClipper
@@ -26,9 +29,9 @@ DisableDirPage=auto
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-OutputDir=dist
+OutputDir=..\dist
 OutputBaseFilename=VodClipper-Setup
-SetupIconFile=ui\icon.ico
+SetupIconFile=..\src\ui\icon.ico
 UninstallDisplayIcon={app}\VodClipper.exe
 UninstallDisplayName=VodClipper
 Compression=lzma2
@@ -48,7 +51,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
-Source: "dist\VodClipper\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\VodClipper\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\VodClipper"; Filename: "{app}\VodClipper.exe"

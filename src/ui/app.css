@@ -1,4 +1,8 @@
-/* VodClipper. Neutral graphite UI, one accent, native Windows type. */
+@font-face{font-family:"Inter";font-style:normal;font-weight:400;font-display:block;src:url(fonts/Inter-Regular.woff) format("woff")}
+@font-face{font-family:"Inter";font-style:normal;font-weight:500;font-display:block;src:url(fonts/Inter-Medium.woff) format("woff")}
+@font-face{font-family:"Inter";font-style:normal;font-weight:600;font-display:block;src:url(fonts/Inter-SemiBold.woff) format("woff")}
+@font-face{font-family:"Inter";font-style:normal;font-weight:700;font-display:block;src:url(fonts/Inter-Bold.woff) format("woff")}
+/* VodClipper. Neutral graphite UI, one accent, Inter type. */
 :root{
   --bg0:#0e0f11;      /* app chrome: top bar, rail, status bar */
   --bg1:#141518;      /* main surfaces */
@@ -20,8 +24,10 @@
   --r:6px;
   --r-lg:8px;
   color-scheme:dark;
-  font-family:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  font-family:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Arial,sans-serif;
   font-size:13px;
+  font-feature-settings:"cv11","calt";
+  -webkit-font-smoothing:antialiased;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -33,7 +39,7 @@ button:disabled{cursor:default;opacity:.45}
 :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
-h1{font-size:20px;font-weight:600;margin:0 0 16px;letter-spacing:-.005em}
+h1{font-size:20px;font-weight:600;margin:0 0 16px;letter-spacing:-.017em}
 h2{font-size:14px;font-weight:600;margin:0}
 h3{font-size:13px;font-weight:600;margin:0}
 code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;background:var(--bg0);border:1px solid var(--line);border-radius:4px;padding:3px 6px}

@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-cd /d "%~dp0"
+cd /d "%~dp0.."
 title Build VodClipper.exe
 echo.
 echo   Building VodClipper.exe
@@ -54,7 +54,7 @@ if not exist "tools\ffmpeg.exe" set "NEED=%NEED% ffmpeg"
 if not exist "tools\ffprobe.exe" if not defined NEED set "NEED=ffmpeg"
 if not exist "tools\TwitchDownloaderCLI.exe" set "NEED=%NEED% twitchdownloader"
 set "NEED=%NEED% ytdlp"
-"%VPY%" tools_setup.py --dest tools %NEED%
+"%VPY%" src\tools_setup.py --dest tools %NEED%
 if not exist "tools\ffmpeg.exe" (
   echo   Note: ffmpeg didn't download. The app will offer to download it on first launch.
 )
@@ -64,11 +64,11 @@ echo   [3/4] Packaging (this is the slow part)...
 set "PKG=--onedir"
 if "%MODE%"=="onefile" set "PKG=--onefile"
 "%VPY%" -m PyInstaller --noconfirm --clean --log-level WARN %PKG% --windowed ^
-  --name VodClipper --icon "ui\icon.ico" --add-data "ui;ui" ^
+  --name VodClipper --icon "src\ui\icon.ico" --add-data "src\ui;ui" --paths src ^
   --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime ^
   --collect-all av --collect-all webview --collect-submodules yt_dlp --collect-data certifi ^
   --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog ^
-  app.py
+  src\app.py
 if errorlevel 1 ( echo. & echo   Packaging failed. Scroll up for the error. & pause & exit /b 1 )
 
 if "%MODE%"=="onefile" (
@@ -82,7 +82,7 @@ if not exist "%EXE%" ( echo   Build finished but VodClipper.exe is missing. & pa
 
 echo   [4/4] Finishing up...
 if exist tools xcopy /e /i /y /q tools "%OUT%\tools" >nul
-copy /y README.txt "%OUT%\README.txt" >nul
+copy /y docs\user-guide.txt "%OUT%\README.txt" >nul
 
 rem desktop shortcut
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^

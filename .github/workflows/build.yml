@@ -1,9 +1,15 @@
-name: Build VodClipper.exe
+name: Build and test
 
+# Every push builds the Windows app and runs the full test suite on it.
+# Pushing a version tag (v2.0.0) also publishes a GitHub Release with the
+# installer, the portable zip, and the notes for that version from CHANGELOG.md.
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["**.md", "docs/images/**"]
 
 permissions:
   contents: write
@@ -26,7 +32,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          python tools_setup.py --dest tools ffmpeg twitchdownloader ytdlp
+          python src/tools_setup.py --dest tools ffmpeg twitchdownloader ytdlp
           foreach ($t in "ffmpeg.exe","ffprobe.exe","TwitchDownloaderCLI.exe","yt-dlp.exe") {
             if (-not (Test-Path "tools\$t")) { Write-Host "::error title=FAIL tool download::$t missing"; exit 1 }
           }
@@ -34,17 +40,17 @@ jobs:
       - name: Build exe
         run: >
           python -m PyInstaller --noconfirm --clean --log-level WARN --onedir --windowed
-          --name VodClipper --icon ui/icon.ico --add-data "ui;ui"
+          --name VodClipper --icon src/ui/icon.ico --add-data "src/ui;ui" --paths src
           --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime
           --collect-all av --collect-all webview --collect-submodules yt_dlp --collect-data certifi
           --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog
-          app.py
+          src/app.py
 
       - name: Add tools and readme
         shell: pwsh
         run: |
           Copy-Item tools dist/VodClipper/tools -Recurse -Force
-          Copy-Item README.txt dist/VodClipper/README.txt
+          Copy-Item docs/user-guide.txt dist/VodClipper/README.txt
 
       - name: Make a test stream (video + spoken words)
         shell: pwsh
@@ -136,8 +142,8 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
           if (-not (Test-Path $iscc)) { $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source }
-          $ver = (Select-String -Path server.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
-          & $iscc /Q "/DAppVersion=$ver" installer.iss
+          $ver = (Select-String -Path src/version.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          & $iscc /Q "/DAppVersion=$ver" installer\vodclipper.iss
           if (-not (Test-Path dist\VodClipper-Setup.exe)) { Write-Host "::error title=FAIL installer::not built"; exit 1 }
           $mb = [math]::Round((Get-Item dist\VodClipper-Setup.exe).Length / 1MB)
           Write-Host "::notice title=installer::VodClipper-Setup.exe v$ver ($mb MB)"
@@ -223,19 +229,21 @@ jobs:
             dist/VodClipper
             dist/VodClipper-Setup.exe
 
-      - name: Publish download (GitHub Release)
+      - name: Publish release (version tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = (Select-String -Path src/version.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          if ($tag -ne "v$ver") { Write-Host "::error title=Version mismatch::tag $tag but src/version.py says $ver"; exit 1 }
+          # release notes = this version's section of CHANGELOG.md
+          $log = Get-Content CHANGELOG.md -Raw
+          $m = [regex]::Match($log, "(?ms)^## \[$([regex]::Escape($ver))\][^\n]*\n(.*?)(?=^## \[|\z)")
+          if (-not $m.Success) { Write-Host "::error title=Changelog::no section for $ver in CHANGELOG.md"; exit 1 }
+          $notes = $m.Groups[1].Value.Trim() + "`n`n---`n**Download:** VodClipper-Setup.exe (installer, recommended) or VodClipper-portable.zip (no install). Windows 10 or 11, 64-bit."
+          Set-Content -Path notes.md -Value $notes -Encoding utf8
           Compress-Archive -Path dist/VodClipper -DestinationPath dist/VodClipper-portable.zip -Force
-          gh release delete latest --yes --cleanup-tag 2>$null
-          $notes = @"
-          **VodClipper-Setup.exe** (recommended): installs VodClipper with Start menu and desktop shortcuts. Uninstall it from Settings > Apps, the Start menu, or the Uninstall button in VodClipper.
-
-          **VodClipper-portable.zip**: no install. Unzip anywhere and run VodClipper.exe; delete the folder to remove it.
-
-          Built and tested on Windows from commit ${{ github.sha }}.
-          "@
-          gh release create latest dist/VodClipper-Setup.exe dist/VodClipper-portable.zip --title "VodClipper for Windows" --notes $notes --target ${{ github.sha }}
-          Write-Host "::notice title=OK release::published VodClipper-Setup.exe and VodClipper-portable.zip"
+          gh release create $tag dist/VodClipper-Setup.exe dist/VodClipper-portable.zip --title "VodClipper $ver" --notes-file notes.md --verify-tag
+          Write-Host "::notice title=OK release::VodClipper $ver published"

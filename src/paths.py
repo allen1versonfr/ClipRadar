@@ -39,7 +39,8 @@ if FROZEN:
 
 def tools_dirs() -> list:
     out = []
-    for d in (TOOLS_WRITE, APP_DIR / "tools", RES_DIR / "tools"):
+    extra = [] if FROZEN else [APP_DIR.parent / "tools"]      # repo-root tools/ when run from source
+    for d in [TOOLS_WRITE, APP_DIR / "tools", RES_DIR / "tools", *extra]:
         if d not in out:
             out.append(d)
     return out

@@ -1,13 +1,13 @@
 """
 End-to-end test of a running VodClipper: live clipping and TikTok posting.
 
-It starts the app itself (the built .exe or `python app.py`), a simulated
+It starts the app itself (the built .exe or `python src/app.py`), a simulated
 Twitch stream (ffmpeg writing a live HLS playlist in real time), a fake Twitch
 chat server, and a mock TikTok API, then drives the app over its HTTP API
 exactly like the UI does.
 
   python tests/e2e.py --app "dist/VodClipper/VodClipper.exe" --ffmpeg tools/ffmpeg.exe --out report.json
-  python tests/e2e.py --app "python app.py" --ffmpeg ffmpeg --out report.json
+  python tests/e2e.py --app "python src/app.py" --ffmpeg ffmpeg --out report.json
 """
 
 from __future__ import annotations
