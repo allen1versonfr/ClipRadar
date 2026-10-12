@@ -16,6 +16,7 @@ import shutil
 import ssl
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -50,9 +51,24 @@ def _ctx() -> ssl.SSLContext:
 
 
 def _get_json(url: str) -> dict:
-    req = urllib.request.Request(url, headers={**UA, "Accept": "application/vnd.github+json"})
+    headers = {**UA, "Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token and url.startswith("https://api.github.com/"):
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=30, context=_ctx()) as r:
         return json.loads(r.read().decode("utf-8"))
+
+
+def _latest_tag(repo: str) -> str:
+    """Latest release tag via the github.com redirect (no API rate limit)."""
+    req = urllib.request.Request(f"https://github.com/{repo}/releases/latest", headers=UA, method="HEAD")
+    with urllib.request.urlopen(req, timeout=30, context=_ctx()) as r:
+        final = r.geturl()
+    tag = final.rstrip("/").rsplit("/", 1)[-1]
+    if not tag or tag == "latest":
+        raise RuntimeError("couldn't find the latest release")
+    return tag
 
 
 def download(url: str, dest: str, progress: Progress = _noop, check: Check = _noop) -> str:
@@ -131,16 +147,32 @@ def get_ffmpeg(log: Log = _noop, progress: Progress = _noop, check: Check = _noo
 def get_twitchdownloader(log: Log = _noop, progress: Progress = _noop, check: Check = _noop):
     out = str(paths.TOOLS_WRITE)
     log("Finding the latest TwitchDownloaderCLI...")
-    rel = _get_json(TDL_API)
-    asset = next((a for a in rel.get("assets", [])
-                  if a["name"].startswith("TwitchDownloaderCLI") and "Windows-x64" in a["name"]
-                  and a["name"].endswith(".zip")), None)
-    if not asset:
-        raise RuntimeError("Couldn't find the Windows TwitchDownloaderCLI download.")
+    name = url = None
+    try:
+        rel = _get_json(TDL_API)
+        asset = next((a for a in rel.get("assets", [])
+                      if a["name"].startswith("TwitchDownloaderCLI") and "Windows-x64" in a["name"]
+                      and a["name"].endswith(".zip")), None)
+        if asset:
+            name, url = asset["name"], asset["browser_download_url"]
+    except Exception as e:
+        log(f"  GitHub API unavailable ({str(e)[:60]}), using the releases page instead.")
+    if not url:
+        tag = _latest_tag("lay295/TwitchDownloader")
+        name = f"TwitchDownloaderCLI-{tag}-Windows-x64.zip"
+        url = f"https://github.com/lay295/TwitchDownloader/releases/download/{tag}/{name}"
     with tempfile.TemporaryDirectory() as td:
         z = os.path.join(td, "tdl.zip")
-        log(f"Downloading {asset['name']}...")
-        download(asset["browser_download_url"], z, progress, check)
+        log(f"Downloading {name}...")
+        for attempt in range(3):
+            try:
+                download(url, z, progress, check)
+                break
+            except Exception as e:
+                if "Cancelled" in str(e) or attempt == 2:
+                    raise
+                log(f"  retrying ({str(e)[:60]})")
+                time.sleep(3 * (attempt + 1))
         extract_named(z, ["TwitchDownloaderCLI.exe"], out)
     log("TwitchDownloaderCLI ready.")
 
