@@ -158,8 +158,6 @@ def download(log=print) -> str:
     with _lock:
         if not state["available"] or not _asset.get("browser_download_url"):
             raise RuntimeError("There's no update to download.")
-        if state["state"] in ("downloading", "installing"):
-            raise RuntimeError("The update is already downloading.")
         url, size, digest = _asset["browser_download_url"], int(_asset.get("size") or 0), _asset.get("digest") or ""
         ver = state["latest"]
         state.update(state="downloading", progress=0.0, error="")

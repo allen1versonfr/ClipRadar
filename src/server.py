@@ -786,6 +786,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(v)
             if busy():
                 return self._err("Finish or stop what's running (a download, render or live recording), then update.", 409)
+            if not _update_running.acquire(blocking=False):
+                return self._json(updater.view())
+            with updater._lock:     # show progress right away
+                updater.state.update(state="downloading", progress=0.0, error="")
             threading.Thread(target=_install_update, daemon=True).start()
             return self._json(updater.view())
 
@@ -1049,11 +1053,14 @@ def _say(msg: str):
     print(msg, flush=True)
 
 
+_update_running = threading.Lock()
+
+
 def _install_update():
     """Download the new installer if needed, start it, then close so it can replace the app."""
     try:
-        v = updater.view()
-        path = updater._file[0] if v["state"] == "ready" and updater._file[0] and os.path.isfile(updater._file[0]) \
+        f = updater._file[0]
+        path = f if f and os.path.isfile(f) and f.endswith(f"-{updater.state['latest']}.exe") \
             else updater.download(log=_say)
         if busy():
             raise RuntimeError("Something started while the update downloaded. Update again when it's finished.")
@@ -1061,6 +1068,7 @@ def _install_update():
     except Exception as e:
         with updater._lock:
             updater.state.update(state="error", error=str(e))
+        _update_running.release()
         return
     time.sleep(1.5)            # let the window show "Installing…"
     shutdown_hook[0]()
