@@ -3,6 +3,40 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] - 2026-10-12
+
+VodClipper 3. Live mode is now hands-free: start it, go watch the stream, and clips are titled, checked and rendered on their own while you watch.
+
+### Added
+- **Hands-free live mode** (the new default).
+  - Every moment is titled, run through the content check, and rendered with your Text and Layout style without you touching anything.
+  - Finished clips appear in Exports as the stream goes on.
+  - **Review each clip** mode keeps the old way of working.
+- **Wait for the stream to start.** Start VodClipper before you go live (or before the streamer you clip does) and recording begins by itself.
+- **Keep watching after the stream ends.** VodClipper waits for the channel's next stream and starts again.
+- **Clip hotkey, Ctrl+Alt+C.** Clips the last 30 seconds from any window while you watch or play, with a sound to confirm it. You can turn it off in Settings › Live clipping.
+- **How many clips.** Choose Fewer, Normal, More or Lots, before or during a stream.
+  - Each level sets how big a moment has to be and how far apart automatic clips are.
+  - Past broadcasts can now suggest up to 100 clips.
+- **Content check** (the "TOS scanner"), optional, in Settings › Content check.
+  - Checks what each clip says, its title and its post caption for hate slurs, self-harm and harassment, personal info (phone numbers, emails and street addresses), violence, sexual terms, drugs, swearing and gambling, plus your own blocked words.
+  - Flags show on each clip and in Exports.
+- **Censoring.** Flagged words can be hidden in captions and titles ("f***"), muted, or bleeped in the audio. You choose which categories get censored.
+- Hands-free holds back clips with serious flags so you can look at them first, instead of rendering them.
+- Optionally send finished hands-free clips to your TikTok drafts automatically. You still finish each post in the TikTok app.
+- **Failed renders explain themselves.**
+  - Each failure says what went wrong in plain words (drive full, file open in another program, encoder or captions problem, damaged source…) and what to do about it, with the technical details underneath.
+  - Retry from the clip, from Exports, or retry everything that failed at once.
+- **Updates from a private repository.** Add a read-only GitHub token in Settings › Updates and the built-in updater can see private releases. The token is stored encrypted.
+
+### Changed
+- The live controls are now a **How many clips** menu and a **Hands-free** switch, replacing Sensitivity and Auto-render.
+- The live status shows when it's waiting for the stream, and the Live button in the title bar takes you back to live clipping from anywhere.
+- Lists in Review and Exports update in place, so thumbnails no longer flicker while a stream is running.
+
+### Fixed
+- Live sessions started from a stream link now use the channel name as their title.
+
 ## [2.2.0] - 2026-10-12
 
 Editing tools inspired by CapCut.
@@ -124,6 +158,7 @@ First release.
 - Word-by-word captions with Whisper.
 - 1080×1920 MP4 export using your GPU's video encoder, with automatic fallback to the CPU.
 
+[3.0.0]: https://github.com/ali1qbal/vodclipper/compare/v2.2.0...v3.0.0
 [2.2.0]: https://github.com/ali1qbal/vodclipper/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/ali1qbal/vodclipper/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ali1qbal/vodclipper/releases/tag/v2.0.0

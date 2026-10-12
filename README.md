@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ali1qbal/vodclipper/releases/latest"><img alt="Version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-4c8dff?style=flat-square"></a>
+  <a href="https://github.com/ali1qbal/vodclipper/releases/latest"><img alt="Version 3.0.0" src="https://img.shields.io/badge/version-3.0.0-4c8dff?style=flat-square"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-keep%20a%20changelog-1f2329?style=flat-square"></a>
@@ -30,7 +30,13 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 ## Features
 
 - **Finds the moments for you.** Clips are ranked by chat surges (KEKW, POG, "clip it", `?????`) and audio spikes measured against the surrounding minutes. Twitch's muted DMCA sections are ignored.
-- **Live clipping.** Point it at a channel that's on air, and every strong moment shows up for review a few seconds after it happens. There's no limit on clips, and disk use stays flat.
+- **Hands-free live clipping.** Start it and go watch the stream. Every strong moment is titled, checked and rendered on its own, and finished clips land in Exports.
+  - It can wait for the stream to start and keep watching for the next one.
+  - Choose how many clips you want (Fewer, Normal, More or Lots).
+  - Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> from any window to clip the last 30 seconds.
+- **Content check and censoring.** Each clip's words, title and post caption are checked for things TikTok takes down: slurs, self-harm, threats, personal info, sexual terms, drugs, swearing, gambling and your own blocked words.
+  - Flagged words can be hidden in captions, muted or bleeped.
+  - Hands-free holds risky clips back for you to look at first.
 - **Review in TikTok format.** Each suggestion plays in a phone-sized preview with its layout, title and word-by-word captions. Keep it with <kbd>Enter</kbd>, skip it with <kbd>X</kbd>, and move between clips with <kbd>↑</kbd> <kbd>↓</kbd>.
 - **Auto titles and captions.** Whisper transcribes each clip. The title is the best line said near the peak, or one that fits the mood, and every clip gets a post caption with hashtags.
 - **Edit like CapCut.** Drag the title and captions anywhere on the frame, fix any caption line by typing over it, and add your own captions.
@@ -38,8 +44,8 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
   - Four title styles.
   - Eight bundled fonts, including Montserrat, Anton, Bebas Neue and Bangers.
 - **Three vertical layouts:** facecam above gameplay, full crop, or blurred fit.
-- **Background render queue.** Clips render to 1080×1920 MP4 on your GPU's encoder (NVIDIA, Intel or AMD), falling back to the CPU automatically.
-- **Post to TikTok** through TikTok's official Content Posting API, either directly or to your drafts. Nothing is ever posted without you clicking Post.
+- **Background render queue.** Clips render to 1080×1920 MP4 on your GPU's encoder (NVIDIA, Intel or AMD), falling back to the CPU automatically. If one fails, VodClipper says why in plain words and gives you a Retry button.
+- **Post to TikTok** through TikTok's official Content Posting API, either directly or to your drafts. Hands-free mode can also send finished clips to your drafts automatically; you finish each post in the TikTok app.
 - **Updates itself.** When a new release is posted on GitHub, VodClipper offers it in the app. One click downloads it, installs it and reopens the app.
 - **Tidy on disk.** Delete VODs and Delete all clips buttons are built in, and a real uninstaller is included.
 
@@ -47,16 +53,16 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 
 <table>
   <tr>
+    <td width="50%"><img src="docs/images/live.png" alt="Hands-free live clipping: moments are titled, checked and rendered while the stream runs"><p align="center"><sub><b>Hands-free live:</b> clips render on their own while you watch</sub></p></td>
+    <td width="50%"><img src="docs/images/home.png" alt="Home: past broadcast or live channel with hands-free options"><p align="center"><sub><b>Home:</b> hands-free mode, how many clips, wait for the stream</sub></p></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/content-check.png" alt="Content check settings with censoring"><p align="center"><sub><b>Content check:</b> flag, hide, mute or bleep</sub></p></td>
+    <td width="50%"><img src="docs/images/exports.png" alt="Exports showing a failed render with its reason and a Retry button"><p align="center"><sub><b>Exports:</b> failures say why, with Retry</sub></p></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/images/text.png" alt="Text tab: caption and title styles and fonts, with captions dragged into place"><p align="center"><sub><b>Text:</b> styles, fonts and drag-to-place text</sub></p></td>
     <td width="50%"><img src="docs/images/captions.png" alt="Captions tab: fixing a caption line by typing"><p align="center"><sub><b>Captions:</b> fix what was heard, line by line</sub></p></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/images/live.png" alt="Live mode: moments appear while the stream is on air"><p align="center"><sub><b>Live mode:</b> moments appear while the stream is still on air</sub></p></td>
-    <td width="50%"><img src="docs/images/exports.png" alt="Exports with the TikTok post form"><p align="center"><sub><b>Exports:</b> rendered clips and the TikTok post form</sub></p></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/images/home.png" alt="Home: start from a past broadcast or a live channel"><p align="center"><sub><b>Home:</b> start from a past broadcast or a live channel</sub></p></td>
-    <td width="50%"><img src="docs/images/settings.png" alt="Settings: TikTok account, tools and storage"><p align="center"><sub><b>Settings:</b> TikTok, tools, storage and updates</sub></p></td>
   </tr>
 </table>
 
@@ -78,7 +84,7 @@ Prefer not to install? Use [VodClipper-portable.zip](https://github.com/ali1qbal
 | | |
 |---|---|
 | **Past broadcast** | Paste a VOD link (`twitch.tv/videos/…`) or browse to a recording on your PC, then press **Find clips**. |
-| **Live channel** | Enter a channel name or `twitch.tv/name` and press **Start live clipping**. The first minute or two is spent learning what "normal" sounds like for the stream. |
+| **Live channel** | Enter a channel name or `twitch.tv/name`, pick **Hands-free** (clips render on their own) or **Review each clip**, choose how many clips you want, and press **Start live clipping**. It can start before the stream does. The first minute or two is spent learning what "normal" sounds like for the stream. |
 | **Review** | Keep (<kbd>Enter</kbd>) or skip (<kbd>X</kbd>) each suggestion. Trim it and edit the title (<kbd>T</kbd> cycles through ideas). Fix captions in the **Captions** tab, pick styles and fonts in **Text**, and set the layout in **Layout**. Drag the title or captions on the preview to move them. During a live session, <kbd>C</kbd> clips the last 30 seconds. |
 | **Exports** | Kept clips render here, named after their titles, with the post caption saved next to them as `.txt`. Select one to watch it or post it. |
 
@@ -119,11 +125,14 @@ src/
   live.py         live recording, chat reader, moment detection
   tiktok.py       TikTok OAuth (PKCE) and Content Posting API client
   titles.py       auto titles and post captions
+  safety.py       content check (TOS scanner) and censoring
+  hotkey.py       Ctrl+Alt+C clip hotkey on Windows
+  updater.py      in-app updates from GitHub releases
   tools_setup.py  downloads FFmpeg, yt-dlp and TwitchDownloader
-  ui/             HTML/CSS/JS interface (Inter typeface, OFL)
+  ui/             HTML/CSS/JS interface, Inter and caption fonts (OFL / Apache)
 scripts/          install, run and build scripts
 installer/        Inno Setup script
-tests/            end-to-end tests with a fake Twitch chat and mock TikTok API
+tests/            unit tests, and end-to-end tests with a fake Twitch chat and mock TikTok and GitHub APIs
 docs/             user guide and images
 ```
 
@@ -131,13 +140,15 @@ docs/             user guide and images
 
 Every push builds the exe on Windows in GitHub Actions, then:
 
-- runs the app's built-in self-test (`VodClipper.exe --selftest`): rendering, captions on real Whisper output and auto titles;
-- runs `tests/e2e.py` against the built exe, with a simulated live stream served over HLS, a fake Twitch IRC chat and a mock of TikTok's OAuth and Content Posting API;
+- runs the content-check unit tests (`tests/test_safety.py`);
+- runs the app's built-in self-test (`VodClipper.exe --selftest`): rendering, captions on real Whisper output, auto titles, styled text placement and bleeping;
+- runs `tests/e2e.py` against the built exe: hands-free live clipping from a simulated stream that starts late (served over HLS), a fake Twitch IRC chat, the clip hotkey, the content check holding a clip back, a failed render being explained and retried, bleeping, automatic TikTok drafts against a mock of TikTok's API, and private-repository updates;
 - installs the app with the real installer, updates it in place through the app's own updater (against a mock GitHub release), then uninstalls it.
 
 Run the end-to-end tests locally against the source:
 
 ```bash
+python tests/test_safety.py
 python tests/e2e.py --app "python src/app.py" --ffmpeg ffmpeg
 ```
 

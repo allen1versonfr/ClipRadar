@@ -20,7 +20,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-STATE = {"tag": "v99.0.0", "file": "", "data": b"MZ not really an installer\n", "hits": 0, "downloads": 0}
+STATE = {"tag": "v99.0.0", "file": "", "data": b"MZ not really an installer\n", "hits": 0, "downloads": 0,
+         "token": "", "leaked": 0}
 
 
 def _blob() -> bytes:
@@ -42,9 +43,28 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def _private_ok(self) -> bool:
+        """When a token is set the repository behaves like a private one."""
+        return not STATE["token"] or self.headers.get("Authorization") == f"Bearer {STATE['token']}"
+
     def do_GET(self):
         host = self.headers.get("Host")
+        if self.path.endswith("/releases/assets/1"):
+            if not self._private_ok() or self.headers.get("Accept") != "application/octet-stream":
+                return self._json({"message": "Not Found"}, 404)
+            self.send_response(302)
+            self.send_header("Location", f"http://{host}/signed/VodClipper-Setup.exe?sig=abc")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.path.startswith("/signed/"):
+            if self.headers.get("Authorization"):
+                STATE["leaked"] += 1        # the real signed URL rejects requests that carry a token
+                return self._json({"message": "Only one auth mechanism allowed"}, 400)
+            self.path = "/download/VodClipper-Setup.exe"
         if self.path.endswith("/releases/latest"):
+            if not self._private_ok():
+                return self._json({"message": "Not Found"}, 404)
             STATE["hits"] += 1
             if not self.headers.get("User-Agent"):
                 return self._json({"message": "Request forbidden by administrative rules. Please make sure your request has a User-Agent header"}, 403)
@@ -59,12 +79,15 @@ class H(BaseHTTPRequestHandler):
                     "name": "VodClipper-Setup.exe", "size": len(blob),
                     "digest": "sha256:" + hashlib.sha256(blob).hexdigest(),
                     "browser_download_url": f"http://{host}/download/VodClipper-Setup.exe",
+                    "url": f"http://{host}/repos/ali1qbal/vodclipper/releases/assets/1",
                 }, {
                     "name": "VodClipper-portable.zip", "size": 3,
                     "browser_download_url": f"http://{host}/download/VodClipper-portable.zip",
                 }],
             })
         if self.path == "/download/VodClipper-Setup.exe":
+            if STATE["token"] and not self.headers.get("Authorization") and "signed" not in self.requestline:
+                return self._json({"message": "Not Found"}, 404)   # private: browser links need a login
             STATE["downloads"] += 1
             blob = _blob()
             self.send_response(200)
@@ -82,7 +105,7 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/__set":
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
-            STATE.update({k: v for k, v in body.items() if k in ("tag", "file")})
+            STATE.update({k: v for k, v in body.items() if k in ("tag", "file", "token")})
             return self._json({"ok": True})
         self._json({"message": "Not Found"}, 404)
 

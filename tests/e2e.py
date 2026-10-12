@@ -72,7 +72,7 @@ def wait_job(jid, timeout=300):
     return wait(lambda: (lambda j: j if j["status"] != "running" else None)(get(f"/api/job/{jid}")), timeout)
 
 
-def make_stream_source(ffmpeg, path, seconds=150, burst=70):
+def make_stream_source(ffmpeg, path, seconds=210, burst=70):
     subprocess.run([ffmpeg, "-v", "error", "-y",
                     "-f", "lavfi", "-i", f"testsrc2=size=1280x720:rate=30:duration={seconds}",
                     "-f", "lavfi", "-i", f"anoisesrc=color=pink:amplitude=0.02:duration={seconds}",
@@ -105,7 +105,8 @@ def main():
                VODCLIPPER_IRC=f"127.0.0.1:{IRC_PORT}:plain",
                VODCLIPPER_TIKTOK_API=f"http://127.0.0.1:{TT_PORT}",
                VODCLIPPER_TIKTOK_AUTH=f"http://127.0.0.1:{TT_PORT}/v2/auth/authorize/",
-               VODCLIPPER_UPDATE_API=f"http://127.0.0.1:{GH_PORT}/repos/ali1qbal/vodclipper/releases/latest")
+               VODCLIPPER_UPDATE_API=f"http://127.0.0.1:{GH_PORT}/repos/ali1qbal/vodclipper/releases/latest",
+               VODCLIPPER_TEST="1", VODCLIPPER_WAIT_POLL="3")
     cmd = shlex.split(a.app, posix=(os.name != "nt")) + ["--browser"]
     app = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     producer = None
@@ -134,22 +135,24 @@ def main():
         import threading
         threading.Thread(target=hls_srv.serve_forever, daemon=True).start()
         stream_url = f"http://127.0.0.1:{HLS_PORT}/live.m3u8"
-        producer = subprocess.Popen([a.ffmpeg, "-v", "error", "-re", "-i", src, "-c", "copy", "-f", "hls",
-                                     "-hls_time", "2", "-hls_list_size", "8",
-                                     "-hls_flags", "delete_segments+omit_endlist", playlist])
-        wait(lambda: os.path.exists(playlist), 20, 0.5)
-        time.sleep(3)
         opts = {"layout": "split", "cam": [0.015, 0.028, 0.25, 0.25], "captions": True,
                 "whisper_model": a.model, "hw_encode": True}
         bad = post("/api/live/start", {"source": "not a channel!!"})
         rec("live rejects a bad channel", bad.get("_status") == 400, bad.get("error"))
+        # hands-free, started before the stream is up: it should wait for it
         v = post("/api/live/start", {"source": stream_url, "chat_channel": "testchan", "length": 20, "warmup": 30,
-                                     "buffer_minutes": 1, "auto_render": True, "opts": opts, "model": a.model})
+                                     "buffer_minutes": 1, "hands_free": True, "wait_for_live": True,
+                                     "frequency": "normal", "opts": opts, "model": a.model})
         sid = v.get("id")
         rec("live session starts", sid, v.get("status"))
+        waiting = wait(lambda: get(f"/api/live/{sid}")["status"] == "waiting", 20)
+        rec("waits for an offline stream to start", waiting, get(f"/api/live/{sid}")["status"])
         twice = post("/api/live/start", {"source": stream_url})
         rec("only one live session at a time", twice.get("_status") == 409, twice.get("error"))
         rec("busy while live", get("/api/status")["running"])
+        producer = subprocess.Popen([a.ffmpeg, "-v", "error", "-re", "-i", src, "-c", "copy", "-f", "hls",
+                                     "-hls_time", "2", "-hls_list_size", "8",
+                                     "-hls_flags", "delete_segments+omit_endlist", playlist])
         ok_rec = wait(lambda: get(f"/api/live/{sid}")["status"] == "recording", 60)
         lv = get(f"/api/live/{sid}")
         segdir0 = os.path.join(lv["dir"], "segments")
@@ -167,9 +170,34 @@ def main():
             clipped.get("error", ""))
         two = wait(lambda: (lambda c: c if len(c) >= 2 else None)(get(f"/api/live/{sid}")["clips"]), 60, 2)
         rec("manual clip created", two and any(c.get("manual") for c in two))
+        fr = post(f"/api/live/{sid}/settings", {"frequency": "lots"})
+        rec("clip amount can be changed while live", fr.get("frequency") == "lots", fr.get("frequency"))
+        post(f"/api/live/{sid}/settings", {"frequency": "normal"})
+        hk = get("/api/status").get("hotkey", {})
+        if hk.get("supported"):
+            rec("clip hotkey is registered", hk.get("registered"), hk)
+            before = len(get(f"/api/live/{sid}")["clips"])
+            post("/api/test/hotkey")
+            got = wait(lambda: len(get(f"/api/live/{sid}")["clips"]) > before, 60, 2)
+            rec("clip hotkey clips the stream", got and get(f"/api/live/{sid}")["hotkey_clips"] >= 1,
+                f"{len(get(f'/api/live/{sid}')['clips'])} moments")
         titled = wait(lambda: (lambda c: c if c and all(x["listened"] for x in c) else None)(
             get(f"/api/live/{sid}")["clips"]), 240, 2)
         rec("moments get titles", titled, titled and " | ".join(f"{c['title']} ({c.get('vibe') or '-'})" for c in titled))
+        # content check: a word on your blocked list makes hands-free hold the clip back
+        cfg = post("/api/safety", {"custom": ["twitch"], "hold": True})
+        held_clip = None
+        if get(f"/api/live/{sid}")["status"] == "recording":
+            n0 = len(get(f"/api/live/{sid}")["clips"])
+            post(f"/api/live/{sid}/clip", {"seconds": 15})
+            held_clip = wait(lambda: (lambda c: c[-1] if len(c) > n0 and c[-1]["listened"] else None)(
+                get(f"/api/live/{sid}")["clips"]), 120, 2)
+            queued = held_clip and any(i["pid"] == held_clip["pid"] for i in get("/api/queue")["items"])
+            rec("content check holds a risky clip back", held_clip and held_clip.get("held") and not queued,
+                held_clip and f"{held_clip.get('held')} | flags: {[f['label'] for f in (held_clip.get('safety') or {}).get('flags', [])]}")
+        else:
+            rec("content check holds a risky clip back", False, "stream ended before the test clip")
+        post("/api/safety", {"custom": []})
         rendered = wait(lambda: (lambda q: q if q and all(i["status"] in ("done", "error") for i in q) else None)(
             [i for i in get("/api/queue")["items"] if i["pid"] in [c["pid"] for c in (titled or [])]]), 400, 3)
         okr = rendered and all(i["status"] == "done" for i in rendered) and len(rendered) >= 1
@@ -187,6 +215,37 @@ def main():
         ended = wait(lambda: get(f"/api/live/{sid}")["status"] in ("ended", "stopped"), 60)
         rec("notices the stream ended", ended, get(f"/api/live/{sid}")["status"])
         rec("not busy after the stream ends", wait(lambda: not get("/api/status")["running"], 60))
+
+        # ------------------------------------------------------------ content check, failures and retry
+        sc = post("/api/safety/scan", {"words": [{"start": 0, "end": 0.3, "word": "what"}, {"start": 0.4, "end": 0.8, "word": "the"},
+                                                 {"start": 0.9, "end": 1.3, "word": "fuuuck"}], "title": "Call 555 123 4567"})
+        rec("content check finds swearing and personal info", sorted({f["cat"] for f in sc.get("flags", [])}) == ["personal", "profanity"]
+            and sc.get("level") == "high", [(f["label"], f["text"]) for f in sc.get("flags", [])])
+        base = held_clip or (titled or [None])[0]
+        if base:
+            post("/api/test/fail_next_render")
+            c = dict(base, rank=90, title="Retry me", words=None)
+            it = post("/api/queue/add", {"pid": base["pid"], "clip": c, "opts": opts})
+            failed = wait(lambda: (lambda q: q if q and q["status"] == "error" else None)(
+                next((i for i in get("/api/queue")["items"] if i["id"] == it.get("id")), None)), 60, 1)
+            rec("a failed render says why", failed and "drive is full" in failed["error"] and failed.get("detail"),
+                failed and f"{failed['error']} || {failed.get('detail', '')[:80]}")
+            rt = post("/api/queue/retry", {"id": it.get("id")})
+            again = wait(lambda: (lambda q: q if q and q["status"] in ("done", "error") else None)(
+                next((i for i in get("/api/queue")["items"] if i["id"] == it.get("id")), None)), 240, 2)
+            rec("retry renders it", rt.get("retried") == 1 and again and again["status"] == "done",
+                again and (again.get("name") or again.get("error")))
+            post("/api/safety", {"censor": "bleep"})
+            s0 = base["start"]
+            c = dict(base, rank=91, title="Bleep test", words=[{"start": s0 + 1.0, "end": s0 + 1.4, "word": "fuck", "g": "1"},
+                                                              {"start": s0 + 1.4, "end": s0 + 1.8, "word": "yeah", "g": "1"}])
+            it = post("/api/queue/add", {"pid": base["pid"], "clip": c, "opts": opts})
+            bl = wait(lambda: (lambda q: q if q and q["status"] in ("done", "error") else None)(
+                next((i for i in get("/api/queue")["items"] if i["id"] == it.get("id")), None)), 240, 2)
+            rec("censoring bleeps flagged words", bl and bl["status"] == "done" and bl.get("censored") == 1
+                and any(f["cat"] == "profanity" for f in (bl.get("safety") or {}).get("flags", [])),
+                bl and f"{bl['status']} censored={bl.get('censored')} {bl.get('error', '')}")
+            post("/api/safety", {"censor": "off"})
 
         # ------------------------------------------------------------ TikTok
         rec("TikTok starts disconnected", not get("/api/tiktok")["connected"])
@@ -232,6 +291,13 @@ def main():
             rec("unaudited public post gives a clear message", r and r["status"] == "error" and "Only me" in r["error"],
                 r and r.get("error"))
             mock_tiktok.STATE["unaudited"] = False
+            if base:
+                it = post("/api/queue/add", {"pid": base["pid"], "clip": dict(base, rank=92, title="Draft me"),
+                                             "opts": opts, "auto_draft": True})
+                dr = wait(lambda: (lambda q: q if q and (q.get("tiktok") or {}).get("state") in ("done", "error") else None)(
+                    next((i for i in get("/api/queue")["items"] if i["id"] == it.get("id")), None)), 300, 2)
+                rec("hands-free sends finished clips to drafts", dr and dr["tiktok"]["state"] == "done"
+                    and dr["tiktok"]["mode"] == "draft", dr and dr.get("tiktok"))
         else:
             rec("direct post publishes", False, "no rendered clip to post")
         post("/api/tiktok/disconnect")
@@ -263,6 +329,16 @@ def main():
         mock_github.STATE["tag"] = "nightly"
         u = post("/api/update/check")
         rec("odd release tag is reported, not crashed on", u.get("state") == "error" and u.get("available") is False, u.get("error"))
+        mock_github.STATE.update(tag="v99.0.0", token="github_pat_" + "e2e" * 10)
+        u = post("/api/update/check")
+        rec("private repository: explains the token", u.get("state") == "error" and "private" in u.get("error", ""), u.get("error"))
+        bad_tok = post("/api/update/token", {"token": "hello"})
+        rec("rejects something that isn't a token", bad_tok.get("_status") == 400, bad_tok.get("error"))
+        u = post("/api/update/token", {"token": "github_pat_" + "e2e" * 10})
+        rec("private repository: token finds the update", u.get("available") and u.get("token") and u.get("latest") == "99.0.0",
+            {k: u.get(k) for k in ("state", "available", "latest", "token_hint", "error")})
+        post("/api/update/token", {"token": ""})
+        mock_github.STATE["token"] = ""
 
         page = urllib.request.urlopen(B + "/", timeout=20).read()
         rec("UI loads", b"<html" in page.lower(), f"{len(page)} bytes")

@@ -443,3 +443,45 @@ dialog.modal::backdrop{background:rgba(0,0,0,.55)}
 .cap-empty{padding:24px 14px;color:var(--tx2);font-size:12.5px;line-height:1.55}
 .cap-edit-foot{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid var(--line)}
 #capBlock{display:flex;flex-direction:column;gap:12px}
+
+/* ---------------------------------------------------------------- 3.0: hands-free, content check, failures */
+.live-opts{margin-top:0}
+#liveCard .fld .hint{margin-top:2px}
+.notice.warn,.notice.err{display:block;margin:0;font-size:12.5px;line-height:1.5}
+.notice.err{background:rgba(240,90,94,.08);border-color:rgba(240,90,94,.35)}
+.notice.err b{color:#ff9a9d}
+.notice.warn b{color:#ffd28a}
+.crow .st.held{color:var(--warn)}
+.crow .st.err{color:var(--danger)}
+.crow .ct .risk{display:inline-flex;vertical-align:-2px;margin-right:4px}
+.risk .ic{width:13px;height:13px}
+.risk.high{color:var(--danger)}
+.risk.medium{color:var(--warn)}
+.safe{display:inline-flex;align-items:center;gap:5px}
+.safe .ic{width:13px;height:13px}
+.safe.ok{color:var(--ok)}
+.safe.low{color:var(--tx1)}
+.safe.medium{color:var(--warn)}
+.safe.high{color:var(--danger)}
+ul.flags{margin:5px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--tx1)}
+ul.flags b{font-weight:600;color:var(--tx0)}
+.cline.flag{box-shadow:inset 2px 0 0 var(--warn)}
+.cline.flag .ct{color:var(--warn)}
+.st-err{color:var(--danger);display:inline-flex;gap:5px;align-items:center;font-weight:600}
+.st-err .ic{width:13px;height:13px}
+.err-why{color:var(--tx1);font-size:11.5px;line-height:1.4;max-width:260px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.st-cell .retry{align-self:flex-start;height:24px}
+.ex-safe{margin-top:6px}
+#exErrBox{margin:14px 0 0;display:flex;flex-direction:column;align-items:stretch;gap:10px}
+#exErrBox pre{white-space:pre-wrap;word-break:break-word;font:11px/1.45 "Cascadia Mono",Consolas,monospace;color:var(--tx1);background:var(--bg0);border:1px solid var(--line);border-radius:var(--r);padding:8px;max-height:160px;overflow:auto;margin:6px 0 0}
+#exErrBox summary{cursor:pointer;color:var(--tx1);font-size:12px}
+.sf-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:12px}
+.sf-table th{font-weight:500;color:var(--tx2);text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
+.sf-table td{padding:5px 6px;border-bottom:1px solid var(--line)}
+.sf-table .c{text-align:center;width:70px}
+.sf-table input{accent-color:var(--accent);width:15px;height:15px}
+#sfBody{display:flex;flex-direction:column;gap:14px}
+.kbd{display:inline-block;font:600 11px/1 Inter,sans-serif;padding:3px 6px;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;background:var(--bg1);color:var(--tx0);margin-left:6px}
+.hint.block{display:block;margin-top:4px}
+.upd-token summary{cursor:pointer;color:var(--tx1);font-size:12.5px}
+.upd-token[open] summary{margin-bottom:6px}

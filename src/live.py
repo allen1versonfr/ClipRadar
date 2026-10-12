@@ -53,15 +53,22 @@ def parse_channel(text: str) -> Optional[str]:
 
 
 class NotLive(Exception):
-    pass
+    """The channel isn't streaming (kind "offline") or doesn't exist (kind "missing")."""
+    def __init__(self, msg: str, kind: str = "offline"):
+        super().__init__(msg)
+        self.kind = kind
 
 
 class LiveSession:
-    SENSITIVITY = {"low": 4.0, "normal": 3.0, "high": 2.2}
+    # how many clips: (score a moment needs, seconds between automatic moments)
+    FREQUENCY = {"fewer": (4.0, 120.0), "normal": (3.0, 45.0), "more": (2.4, 20.0), "lots": (1.9, 0.0)}
+    ALIASES = {"low": "fewer", "high": "more"}          # names used before 3.0
+    SENSITIVITY = {"low": 4.0, "normal": 3.0, "high": 2.4, "fewer": 4.0, "more": 2.4, "lots": 1.9}
+    WAIT_POLL = float(os.environ.get("VODCLIPPER_WAIT_POLL", "30"))
 
     def __init__(self, sid: str, source: str, workroot: str, *, length: float = 30, sensitivity: str = "normal",
                  chat_delay: float = 6.0, chat_weight: float = 60, max_height: int = 1080, cookies: str = "",
-                 warmup: float = 90, buffer_minutes: float = 15,
+                 warmup: float = 90, buffer_minutes: float = 15, wait_for_live: bool = False,
                  on_moment: Callable = None, log: Callable = None):
         self.id = sid
         self.source = source.strip()
@@ -80,8 +87,9 @@ class LiveSession:
         engine._save_meta(self.dir, title=self.title, source=self.source, live=True)
 
         self.length = float(length)
-        self.threshold = self.SENSITIVITY.get(sensitivity, 3.0)
-        self.sensitivity = sensitivity
+        self.set_frequency(sensitivity)
+        self.wait_for_live = bool(wait_for_live)
+        self.waited = 0.0
         self.chat_delay = float(chat_delay)
         self.chat_weight = float(chat_weight)
         self.max_height = int(max_height)
@@ -91,7 +99,7 @@ class LiveSession:
         self.on_moment = on_moment or (lambda *a, **k: None)
         self._log = log or (lambda m: None)
 
-        self.status = "starting"          # starting | recording | reconnecting | ended | stopped | error
+        self.status = "starting"          # starting | waiting | recording | reconnecting | ended | stopped | error
         self.error = ""
         self.started = _now()
         self.t0_wall: Optional[float] = None   # wall-clock time of media second 0
@@ -101,6 +109,7 @@ class LiveSession:
         self.chat: list = []                   # (media seconds, text)
         self.chat_lock = threading.Lock()
         self.taken: list = []                  # (start, end) already clipped
+        self.auto_peaks: list = []             # peaks of automatic moments (for spacing)
         self.manual: list = []                 # requested "clip that" end times
         self.moments: list = []                # project ids, filled in by the server
         self.score = np.zeros(0, dtype=np.float32)
@@ -113,6 +122,14 @@ class LiveSession:
         self.irc_ok = False
 
     # ------------------------------------------------------------------ utils
+    def set_frequency(self, level: str):
+        level = self.ALIASES.get(level, level)
+        if level not in self.FREQUENCY:
+            level = "normal"
+        self.frequency = level
+        self.sensitivity = level
+        self.threshold, self.min_gap = self.FREQUENCY[level]
+
     def log(self, msg: str):
         line = f"{time.strftime('%H:%M:%S')}  {msg}"
         self.log_lines = (self.log_lines + [line])[-200:]
@@ -145,6 +162,7 @@ class LiveSession:
             "edge": self.live_edge(), "started": self.started, "curve": curve,
             "chat_per_min": recent, "chat_total": total_chat, "chat_connected": self.irc_ok,
             "moments": list(self.moments), "length": self.length, "sensitivity": self.sensitivity,
+            "frequency": self.frequency, "wait_for_live": self.wait_for_live,
             "pending_manual": len(self.manual), "log": self.log_lines[-12:], "dir": self.dir,
             "warming_up": self.recorded < self.warmup,
         }
@@ -181,12 +199,17 @@ class LiveSession:
         if self.direct:
             if self.source.startswith("http"):
                 try:
+                    import urllib.error
                     import urllib.request
                     with urllib.request.urlopen(self.source, timeout=15) as r:
                         if b"#EXT-X-ENDLIST" in r.read():
                             raise NotLive("The stream has ended.")
                 except NotLive:
                     raise
+                except urllib.error.HTTPError as e:
+                    if e.code == 404:
+                        raise NotLive("The stream isn't live yet.")
+                    raise RuntimeError(f"couldn't load the playlist ({e})")
                 except Exception as e:
                     raise RuntimeError(f"couldn't load the playlist ({e})")
             if os.path.isfile(self.source):
@@ -223,7 +246,7 @@ class LiveSession:
         if re.search(r"not currently live|is offline|offline", err, re.I):
             raise NotLive(f"{self.channel} isn't live right now.")
         if re.search(r"does not exist|404", err, re.I):
-            raise NotLive(f"Couldn't find a Twitch channel called {self.channel}.")
+            raise NotLive(f"Couldn't find a Twitch channel called {self.channel}.", kind="missing")
         raise RuntimeError(engine._clean_ytdlp_error(err) if err else "couldn't get the stream address")
 
     def _record_loop(self):
@@ -235,6 +258,16 @@ class LiveSession:
                 if self.segments:
                     self.status = "ended"
                     self.log(f"Stream ended. {e}")
+                elif self.wait_for_live and e.kind == "offline":
+                    # hands-free: sit and wait for the stream to start
+                    if self.status != "waiting":
+                        self.log(f"{self.channel or 'The stream'} isn't live yet. Checking every {int(self.WAIT_POLL)}s.")
+                    self.status = "waiting"
+                    t = _now()
+                    if self.stop_flag.wait(self.WAIT_POLL):
+                        break
+                    self.waited += _now() - t
+                    continue
                 else:
                     self.status = "error"
                     self.error = str(e)
@@ -246,7 +279,7 @@ class LiveSession:
                 if self.stop_flag.wait(backoff):
                     break
                 backoff = min(60, backoff * 2)
-                if not self.segments and _now() - self.started > 180:
+                if not self.segments and _now() - self.started - self.waited > 180:
                     self.status = "error"
                     self.error = f"Couldn't start recording: {str(e)[:200]}"
                     break
@@ -416,6 +449,9 @@ class LiveSession:
             end = min(float(n), start + L)
             if any(start < te - 2 and end > ts + 2 for ts, te in self.taken):
                 continue
+            if any(abs(i - p) < self.min_gap for p in self.auto_peaks):
+                continue
+            self.auto_peaks.append(i)
             self._make_moment(start, end, float(i), engine._reason(an, i, chat, [t for t, _ in chat], self.chat_delay), an)
         self._scan_from = max(0, limit - int(L))
 

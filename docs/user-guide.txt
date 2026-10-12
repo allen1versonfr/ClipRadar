@@ -20,6 +20,9 @@ UPDATES
   VodClipper, installs it and opens VodClipper again. Your clips, projects and
   settings are kept. Turn off "Check for updates automatically" there if you
   prefer to check yourself. The portable version links to the download page.
+  If VodClipper's GitHub repository is private, the updater needs a read-only
+  access token: Settings > Updates > Private repository explains how to make
+  one. It's stored encrypted for your Windows account.
 
 UNINSTALL
   Any of these:
@@ -69,21 +72,42 @@ USE
       Space play/pause, T new title, M mute, Left/Right seek, C clip (live)
 
   Live mode
-    VodClipper records the stream in the background and reads its chat. Each
-    time chat and the audio spike together it cuts a moment, writes a title and
-    adds it to Review; there's no limit on how many. The first minute or two is
-    spent learning what "normal" sounds like for the stream.
-      Clip last 30s (C)   grab something yourself
-      Sensitivity         low = only big moments, high = more clips
-      Auto-render         render every new moment as it's found
+    Pick a mode on the Home screen:
+      Hands-free         every moment is titled, checked and rendered by itself
+                         with your Text and Layout style. Finished clips appear
+                         in Exports while you watch. (Moments the content check
+                         flags as serious are held back for you in Review.)
+      Review each clip   moments wait in Review; you keep the ones you want.
+    How many clips: Fewer, Normal, More or Lots. You can change it while live.
+    Wait for the stream to start: start before the channel goes live and
+    recording begins by itself. Keep watching: after the stream ends,
+    VodClipper waits for the channel's next stream and starts again.
+    Send finished clips to my TikTok drafts (hands-free, optional): each clip
+    is uploaded to your TikTok inbox; you finish the post in the TikTok app.
+    TikTok only allows a few pending drafts a day.
+      Ctrl+Alt+C          clip the last 30 seconds from ANY window (a sound
+                          confirms it). Turn it off in Settings > Live clipping.
+      Clip last 30s (C)   the same, from inside VodClipper
       Stop                stop recording; you can keep reviewing afterwards
     Only the last 15 minutes of raw stream are kept on disk; moments are cut out
     as they happen, so long streams don't fill your drive. If the connection
-    drops it reconnects, and it stops by itself when the stream ends.
+    drops it reconnects, and it notices when the stream ends.
 
   Exports: finished clips and posting
     Every kept clip renders here, named after its title, with its post caption
     saved next to it as a .txt. Select one to watch it and post it to TikTok.
+    If a clip fails to render, its row says why (for example "your drive is
+    full") and what to do, with a Retry button. Retry failed retries them all.
+
+CONTENT CHECK (Settings > Content check)
+  Checks what each clip says, its title and its post caption for things that
+  get TikTok videos removed or held back: hate slurs, self-harm and
+  harassment, personal info (phone numbers, emails, street addresses),
+  violence, sexual terms, drugs, swearing, gambling, and your own blocked
+  words (your real name, your town...). Flags show on each clip.
+  When something is flagged: just flag it, hide it in captions ("f***"),
+  mute it, or bleep it. Choose which kinds get censored in the Censor column.
+  It reads words only. It can't see the picture or recognise music.
 
   Auto titles
     VodClipper listens to each clip (Whisper) and reads how chat reacted, then

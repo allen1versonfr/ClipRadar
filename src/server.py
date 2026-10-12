@@ -37,6 +37,8 @@ import live
 import paths
 import tiktok
 import titles
+import hotkey
+import safety
 import tools_setup
 import updater
 
@@ -165,13 +167,26 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
            for w in words_abs if d["start"] - 0.2 <= w["start"] <= d["end"]]
     info = titles.generate(rel, _chat_window(pr, d["start"], d["end"]),
                            peak_rel=d.get("peak", d["start"]) - d["start"], used=used)
+    cfg = safety.load_config()
     if not d.get("user_title"):
-        d["title"] = info["title"]
-        d["post"] = info["post"]
-    d["titles"] = info["titles"]
+        d["title"] = safety.mask_text(info["title"], cfg)
+        d["post"] = safety.mask_text(info["post"], cfg)
+    d["titles"] = [safety.mask_text(t, cfg) for t in info["titles"]]
     d["vibe"] = info["vibe"]
     d["emoji"] = info["emoji"]
+    d["safety"] = safety.scan(rel, d["title"], d.get("post", ""), cfg)
     used.add(d["title"].lower())
+
+
+def rescan_all():
+    """Content-check settings changed: re-check every clip that has been listened to."""
+    cfg = safety.load_config()
+    for pr in list(projects.values()):
+        for d in pr.get("clips", []):
+            if d.get("listened"):
+                rel = [{"start": w["start"] - d["start"], "end": w["end"] - d["start"], "word": w["word"]}
+                       for w in d.get("words", []) if d["start"] - 0.2 <= w["start"] <= d["end"]]
+                d["safety"] = safety.scan(rel, d.get("title", ""), d.get("post", ""), cfg)
 
 
 def clip_dicts(pid: str, clips: list) -> list:
@@ -462,33 +477,121 @@ def _render_item(it: dict):
     def prog(x):
         it["progress"] = round(max(0.0, min(1.0, x)), 3)
 
+    if TEST_HOOKS.get("fail_next_render"):
+        TEST_HOOKS["fail_next_render"] = False
+        raise OSError(28, "No space left on device")
+
+    cfg = safety.load_config()
+    censoring = cfg.get("enabled", True) and cfg.get("censor", "off") != "off"
     words = None
     it["source_title"] = pr["title"]
-    if ro.captions and it.get("words") is not None:
+    if it.get("words") is not None:
         # captions corrected by hand in the app
         words = [dict(w, start=w["start"] - it["start"], end=w["end"] - it["start"])
                  for w in it["words"] if it["start"] - 0.2 <= w["start"] < it["end"]]
-    elif ro.captions and pr["info"]["has_audio"] and engine.whisper_available():
+    elif (ro.captions or censoring) and pr["info"]["has_audio"] and engine.whisper_available():
         it["step"] = "Listening for captions"
         abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check)
         words = [{"start": w["start"] - it["start"], "end": w["end"] - it["start"], "word": w["word"]}
                  for w in abs_words if w["start"] < it["end"]]
+    # content check: flag, and (if switched on) mask and bleep what it finds
+    title, post = it["title"], it.get("post", "")
+    spans, mode = [], "off"
+    if cfg.get("enabled", True):
+        res = safety.scan(words or [], title, post, cfg)
+        it["safety"] = {"level": res["level"], "flags": res["flags"][:20]}
+        if censoring:
+            words, spans, mode = safety.censored(words or [], res, cfg)
+            title, post = safety.mask_text(title, cfg), safety.mask_text(post, cfg)
+            it["censored"] = sum(1 for f in res["flags"] if f["cat"] in cfg.get("censor_categories", []))
+    if not ro.captions:
+        words = []
     it["step"] = "Rendering"
     path = os.path.join(outdir, name)
-    engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=it["title"],
-                       progress=prog, check=check, words=words,
+    engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=title,
+                       progress=prog, check=check, words=words, censor=spans, censor_mode=mode,
                        log=lambda m: print("  " + m, flush=True))
     # caption to paste when posting, saved next to the video
-    if it.get("post"):
+    if post:
+        it["post"] = post
         try:
             with open(os.path.splitext(path)[0] + ".txt", "w", encoding="utf-8") as f:
-                f.write(it["post"] + "\n")
+                f.write(post + "\n")
         except OSError:
             pass
     it["name"] = name
     it["path"] = path
     it["folder"] = outdir
     it["url"] = f"/files/{it['pid']}/tiktok/{name}?v={int(time.time() * 1000)}"
+
+
+TEST_HOOKS = {"fail_next_render": False}
+
+
+def friendly_render_error(e: Exception) -> tuple:
+    """(what went wrong and what to do, in plain words; technical details)."""
+    raw = str(e) or type(e).__name__
+    low = raw.lower()
+    errno_ = getattr(e, "errno", None) or getattr(e, "winerror", None)
+    rules = [
+        (errno_ in (28, 112) or "no space left" in low or "not enough space" in low,
+         "Your drive is full. Free up space (Settings › Storage › Delete VODs), then retry."),
+        (errno_ in (13, 32) or "permission denied" in low or "being used by another process" in low,
+         "The clip's file is open in another program, like a video player. Close it, then retry."),
+        ("vod for this clip was deleted" in low or "no such file" in low and "input" not in low,
+         "The stream recording for this clip was deleted, so it can't be rendered any more."),
+        ("cannot allocate memory" in low or isinstance(e, MemoryError) or "out of memory" in low,
+         "Your PC ran out of memory. Close some programs, then retry."),
+        ("error initializing filter 'subtitles'" in low or "libass" in low or "fontconfig" in low,
+         "The captions couldn't be drawn. Try the Classic font in the Text tab, then retry."),
+        ("error while opening encoder" in low or "nvenc" in low or "qsv" in low or "amf" in low,
+         "The video encoder failed. Turn off \"Use the GPU to encode\" in the Layout tab, then retry."),
+        ("invalid data found" in low or "moov atom" in low or "end of file" in low,
+         "The source video is damaged or incomplete, so this part couldn't be read."),
+        ("timed out" in low or "timeout" in low,
+         "Rendering took too long and was stopped. Retry; if it keeps happening, try a shorter clip."),
+    ]
+    for hit, msg in rules:
+        if hit:
+            return msg, raw[-1500:]
+    first = raw.strip().splitlines()[-1] if raw.strip() else type(e).__name__
+    return f"Rendering stopped with an error: {first[:200]}", raw[-1500:]
+
+
+def start_tiktok_post(it: dict, mode: str, body: dict) -> dict:
+    """Upload a finished clip to TikTok (direct post or drafts) as a background job."""
+    job = new_job("tiktok")
+    it["tiktok"] = {"state": "posting", "mode": mode, "job": job["id"], "at": time.time(),
+                    "auto": bool(body.get("auto"))}
+
+    def go():
+        try:
+            r = tiktok.post_video(
+                it["path"], mode=mode, title=body.get("title", ""), privacy=body.get("privacy", ""),
+                allow_comment=bool(body.get("allow_comment")), allow_duet=bool(body.get("allow_duet")),
+                allow_stitch=bool(body.get("allow_stitch")), brand_organic=bool(body.get("brand_organic")),
+                brand_content=bool(body.get("brand_content")),
+                progress=job_progress(job, 0, 1), step=job_step(job), check=job_check(job))
+        except Exception as e:
+            it["tiktok"] = {"state": "error", "mode": mode, "error": str(e), "at": time.time()}
+            raise
+        url = tiktok.post_url(r.get("post_id", ""))
+        it["tiktok"] = {"state": "done", "mode": mode, "status": r["status"], "post_id": r.get("post_id", ""),
+                        "url": url, "at": time.time(), "auto": bool(body.get("auto"))}
+        return dict(r, url=url)
+    run_job(job, go)
+    return job
+
+
+def _after_render(it: dict):
+    """Hands-free extras once a clip is ready."""
+    if it.get("auto_draft") and not it.get("tiktok"):
+        st = tiktok.status()
+        if st.get("connected"):
+            try:
+                start_tiktok_post(it, "draft", {"title": it.get("post", "") or it.get("title", ""), "auto": True})
+            except Exception as e:
+                it["tiktok"] = {"state": "error", "mode": "draft", "error": str(e), "at": time.time()}
 
 
 def queue_worker():
@@ -513,11 +616,19 @@ def queue_worker():
                 with queue_lock:
                     if it in queue:
                         queue.remove(it)
+                continue
             except Exception as e:
                 it["status"] = "error"
-                it["error"] = (str(e) or type(e).__name__)[:400]
-                if not isinstance(e, RuntimeError):
+                it["error"], it["detail"] = friendly_render_error(e)
+                it["attempts"] = it.get("attempts", 0) + 1
+                print(f"  Render failed: {it['error']} ({it['detail'][:300]})", flush=True)
+                if not isinstance(e, (RuntimeError, OSError)):
                     traceback.print_exc()
+                continue
+            try:
+                _after_render(it)
+            except Exception:
+                traceback.print_exc()
 
 
 # --------------------------------------------------------------------------
@@ -529,7 +640,18 @@ SERVER_PORT = [PORT]
 
 
 def live_active():
-    return next((s for s in live_sessions.values() if s.status in ("starting", "recording", "reconnecting")), None)
+    return next((s for s in live_sessions.values() if s.status in ("starting", "waiting", "recording", "reconnecting")), None)
+
+
+def on_hotkey():
+    """Ctrl+Alt+C anywhere in Windows: clip the last 30 seconds of the live stream."""
+    sess = live_active()
+    if sess and sess.status in ("recording", "reconnecting"):
+        sess.clip_now(30)
+        sess.hotkey_clips = getattr(sess, "hotkey_clips", 0) + 1
+        hotkey.beep(True)
+    else:
+        hotkey.beep(False)
 
 
 def live_on_moment(sess, m: dict):
@@ -551,18 +673,82 @@ def live_on_moment(sess, m: dict):
     extra = sess.extra
 
     def done(_pid):
-        if extra.get("auto_render"):
-            c = dict(d, rank=m["number"])
-            c["post"] = d.get("post", "")
-            queue_add(mid, c, extra.get("opts") or {})
-            d["auto_queued"] = True
+        if not extra.get("auto_render"):
+            return
+        cfg = safety.load_config()
+        sf = d.get("safety") or {}
+        if cfg.get("enabled", True) and cfg.get("hold", True) and sf.get("level") == "high":
+            # hands-free never renders a clip that could get the account in trouble: it waits for you
+            worst = next((f for f in sf.get("flags", []) if f["severity"] == 3), {})
+            d["held"] = f"Held for review: {worst.get('label', 'flagged')}" + (
+                f" ({worst.get('text')})" if worst.get("text") else "")
+            sess.log(f"Moment {m['number']} held back by the content check")
+            return
+        c = dict(d, rank=m["number"])
+        c["post"] = d.get("post", "")
+        it = queue_add(mid, c, extra.get("opts") or {})
+        it["auto_draft"] = bool(extra.get("auto_draft"))
+        d["auto_queued"] = True
     start_listening(mid, [d["id"]], extra.get("model") or "small", extra.get("language") or "", on_done=done)
+
+
+def start_live_session(src: str, body: dict):
+    """Create and start a live session. body holds every setting so 'keep watching' can start the next one."""
+    sid = uuid.uuid4().hex[:8]
+    sess = live.LiveSession(
+        sid, src, WORKROOT, length=float(body.get("length", 30)),
+        sensitivity=body.get("frequency") or body.get("sensitivity", "normal"),
+        chat_delay=float(body.get("chat_delay", 6)),
+        chat_weight=float(body.get("chat_weight", 60)), max_height=int(body.get("max_height", 1080)),
+        cookies=body.get("cookies") or "", warmup=float(body.get("warmup", 90)),
+        buffer_minutes=float(body.get("buffer_minutes", 15)),
+        wait_for_live=bool(body.get("wait_for_live", False)),
+        on_moment=live_on_moment, log=lambda m: print("  [live] " + m, flush=True))
+    if body.get("chat_channel"):
+        sess.channel = live.parse_channel(body["chat_channel"]) or sess.channel
+        if sess.channel and sess.title == "stream (live)":
+            sess.title = f"{sess.channel} (live)"
+            engine._save_meta(sess.dir, title=sess.title, source=sess.source, live=True)
+    hands_free = bool(body.get("hands_free", body.get("auto_render")))
+    sess.extra = {"auto_render": hands_free, "opts": dict(body.get("opts") or {}),
+                  "model": body.get("model") or "small", "language": body.get("language") or "",
+                  "auto_draft": bool(body.get("auto_draft")), "keep_watching": bool(body.get("keep_watching")),
+                  "params": dict(body, source=src), "user_stopped": False}
+    live_sessions[sid] = sess
+    sess.start()
+    if sess.extra["keep_watching"]:
+        threading.Thread(target=_watch_for_next, args=(sess,), daemon=True).start()
+    return sess
+
+
+def _watch_for_next(sess):
+    """'Keep watching': when a stream ends on its own, wait for the channel's next stream."""
+    while sess.status not in ("ended", "stopped", "error"):
+        time.sleep(1)
+    if sess.status != "ended" or sess.extra.get("user_stopped") or not sess.extra.get("keep_watching"):
+        return
+    params = dict(sess.extra["params"])
+    params.update(wait_for_live=True, opts=sess.extra.get("opts"), auto_draft=sess.extra.get("auto_draft"),
+                  hands_free=sess.extra.get("auto_render"), frequency=sess.frequency,
+                  model=sess.extra.get("model"), language=sess.extra.get("language"))
+    try:
+        nxt = start_live_session(params["source"], params)
+        sess.extra["next"] = nxt.id
+        sess.log("Waiting for the next stream.")
+    except Exception as e:
+        sess.log(f"Couldn't keep watching: {e}")
 
 
 def live_view(sess) -> dict:
     v = sess.public()
     v["clips"] = [projects[mid]["clips"][0] for mid in sess.moments if mid in projects and projects[mid]["clips"]]
     v["auto_render"] = bool(sess.extra.get("auto_render"))
+    v["hands_free"] = v["auto_render"]
+    v["auto_draft"] = bool(sess.extra.get("auto_draft"))
+    v["keep_watching"] = bool(sess.extra.get("keep_watching"))
+    v["held"] = sum(1 for c in v["clips"] if c.get("held"))
+    v["hotkey_clips"] = getattr(sess, "hotkey_clips", 0)
+    v["next"] = sess.extra.get("next", "")
     v["listening"] = any(j["status"] == "running" and j["kind"] == "listen" for j in
                          (jobs.get(projects[mid].get("listen_job", "")) or {"status": "", "kind": ""}
                           for mid in sess.moments if mid in projects))
@@ -704,9 +890,14 @@ class Handler(BaseHTTPRequestHandler):
                 "version": VERSION,
                 "running": busy(),
                 "live": (live_active().id if live_active() else ""),
+                "hotkey": hotkey.status(),
             })
         if p == "/api/update":
             return self._json(updater.view())
+        if p == "/api/safety":
+            return self._json(safety.public_config())
+        if p == "/api/hotkey":
+            return self._json(hotkey.status())
         if p == "/api/ping":
             last_ping[0] = time.time()
             return self._json({"ok": True})
@@ -813,6 +1004,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/update/check":
             return self._json(updater.check(log=_say))
+        if p == "/api/update/token":
+            try:
+                updater.set_token(str(body.get("token") or ""))
+            except ValueError as e:
+                return self._err(str(e))
+            return self._json(updater.check(log=_say))
         if p == "/api/update/settings":
             updater.set_prefs(bool(body.get("auto", True)))
             return self._json(updater.view())
@@ -891,21 +1088,9 @@ class Handler(BaseHTTPRequestHandler):
             src = (body.get("source") or "").strip()
             sid = uuid.uuid4().hex[:8]
             try:
-                sess = live.LiveSession(
-                    sid, src, WORKROOT, length=float(body.get("length", 30)),
-                    sensitivity=body.get("sensitivity", "normal"), chat_delay=float(body.get("chat_delay", 6)),
-                    chat_weight=float(body.get("chat_weight", 60)), max_height=int(body.get("max_height", 1080)),
-                    cookies=body.get("cookies") or "", warmup=float(body.get("warmup", 90)),
-                    buffer_minutes=float(body.get("buffer_minutes", 15)),
-                    on_moment=live_on_moment, log=lambda m: print("  [live] " + m, flush=True))
+                sess = start_live_session(src, dict(body))
             except ValueError as e:
                 return self._err(str(e))
-            if body.get("chat_channel"):
-                sess.channel = live.parse_channel(body["chat_channel"]) or sess.channel
-            sess.extra = {"auto_render": bool(body.get("auto_render")), "opts": dict(body.get("opts") or {}),
-                          "model": body.get("model") or "small", "language": body.get("language") or ""}
-            live_sessions[sid] = sess
-            sess.start()
             return self._json(live_view(sess))
 
         m = re.fullmatch(r"/api/live/(\w+)/(stop|clip|settings)", p)
@@ -915,6 +1100,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("That live session is gone.", 404)
             act = m.group(2)
             if act == "stop":
+                sess.extra["user_stopped"] = True
+                if sess.status == "waiting":
+                    sess.status = "stopped"
                 threading.Thread(target=sess.stop, daemon=True).start()
             elif act == "clip":
                 if sess.status not in ("recording", "reconnecting"):
@@ -925,9 +1113,14 @@ class Handler(BaseHTTPRequestHandler):
                     sess.extra["auto_render"] = bool(body["auto_render"])
                 if "opts" in body:
                     sess.extra["opts"] = dict(body["opts"] or {})
-                if body.get("sensitivity") in live.LiveSession.SENSITIVITY:
-                    sess.sensitivity = body["sensitivity"]
-                    sess.threshold = live.LiveSession.SENSITIVITY[body["sensitivity"]]
+                level = body.get("frequency") or body.get("sensitivity")
+                if level:
+                    sess.set_frequency(level)
+                for k in ("auto_draft", "keep_watching"):
+                    if k in body:
+                        sess.extra[k] = bool(body[k])
+                if "hands_free" in body:
+                    sess.extra["auto_render"] = bool(body["hands_free"])
                 for k in ("model", "language"):
                     if k in body:
                         sess.extra[k] = body[k]
@@ -956,26 +1149,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self._err("That clip isn't rendered (or its file was deleted).")
                     if (it.get("tiktok") or {}).get("state") == "posting":
                         return self._err("This clip is already being posted.")
-                    job = new_job("tiktok")
                     mode = "draft" if body.get("mode") == "draft" else "direct"
-                    it["tiktok"] = {"state": "posting", "mode": mode, "job": job["id"], "at": time.time()}
-
-                    def go():
-                        try:
-                            r = tiktok.post_video(
-                                it["path"], mode=mode, title=body.get("title", ""), privacy=body.get("privacy", ""),
-                                allow_comment=bool(body.get("allow_comment")), allow_duet=bool(body.get("allow_duet")),
-                                allow_stitch=bool(body.get("allow_stitch")), brand_organic=bool(body.get("brand_organic")),
-                                brand_content=bool(body.get("brand_content")),
-                                progress=job_progress(job, 0, 1), step=job_step(job), check=job_check(job))
-                        except Exception as e:
-                            it["tiktok"] = {"state": "error", "mode": mode, "error": str(e), "at": time.time()}
-                            raise
-                        url = tiktok.post_url(r.get("post_id", ""))
-                        it["tiktok"] = {"state": "done", "mode": mode, "status": r["status"], "post_id": r.get("post_id", ""),
-                                        "url": url, "at": time.time()}
-                        return dict(r, url=url)
-                    run_job(job, go)
+                    job = start_tiktok_post(it, mode, body)
                     return self._json({"job": job["id"]})
             except tiktok.TikTokError as e:
                 return self._err(str(e), 400)
@@ -1046,6 +1221,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
                 it = queue_add(pid, body.get("clip") or {}, body.get("opts") or {})
+                it["auto_draft"] = bool(body.get("auto_draft"))
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
             except RuntimeError as e:
@@ -1062,12 +1238,36 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
 
         if p == "/api/queue/retry":
+            n = 0
             with queue_lock:
-                it = next((x for x in queue if x["id"] == body.get("id")), None)
-                if it and it["status"] == "error":
-                    it.update(status="queued", progress=0.0, error="", step="Waiting", cancel=False)
+                for it in queue:
+                    if it["status"] == "error" and (body.get("id") in (it["id"], "all")):
+                        it.update(status="queued", progress=0.0, error="", detail="", step="Waiting", cancel=False)
+                        n += 1
             queue_wake.set()
-            return self._json({"ok": True})
+            if not n:
+                return self._err("Nothing to retry.", 404)
+            return self._json({"ok": True, "retried": n})
+
+        if p.startswith("/api/test/") and os.environ.get("VODCLIPPER_TEST") == "1":
+            act = p[len("/api/test/"):]
+            if act == "fail_next_render":
+                TEST_HOOKS["fail_next_render"] = True
+                return self._json({"ok": True})
+            if act == "hotkey":
+                return self._json({"ok": hotkey.simulate()})
+            return self._err("not found", 404)
+
+        if p == "/api/safety":
+            safety.save_config(body or {})
+            rescan_all()
+            return self._json(safety.public_config())
+        if p == "/api/safety/scan":
+            ws = _clean_words(body.get("words")) or []
+            return self._json(safety.scan(ws, str(body.get("title") or ""), str(body.get("post") or "")))
+        if p == "/api/hotkey":
+            hotkey.set_enabled(bool(body.get("enabled", True)))
+            return self._json(hotkey.status())
 
         if p == "/api/open_folder":
             folder = body.get("folder", "")
@@ -1198,6 +1398,7 @@ def start(port: int = PORT):
         _worker_started[0] = True
         threading.Thread(target=queue_worker, daemon=True).start()
         updater.start_background(log=_say)
+        hotkey.start(on_hotkey)
     return srv, f"http://127.0.0.1:{port}"
 
 

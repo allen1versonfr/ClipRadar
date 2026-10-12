@@ -215,6 +215,29 @@ def selftest(out_json: str, media: str = "") -> int:
             where = f"{len(xs)} caption px" + (f" centred at {xs.mean() / 1080:.2f}, {ys.mean() / 1920:.2f}" if len(xs) else "")
             rec("styled captions render where they were placed", len(xs) > 3000 and abs(xs.mean() / 1080 - 0.35) < 0.08
                 and abs(ys.mean() / 1920 - 0.6) < 0.05, where)
+            # censoring: a bleep replaces the flagged word's audio
+            import safety
+            ws = [{"start": 0.2, "end": 0.6, "word": "okay"}, {"start": 1.0, "end": 1.5, "word": "fuck"},
+                  {"start": 1.7, "end": 2.2, "word": "this"}]
+            cfg = dict(safety.DEFAULTS, censor="bleep")
+            res = safety.scan(ws, cfg=cfg)
+            ws2, spans, mode = safety.censored(ws, res, cfg)
+            out4 = os.path.join(os.path.dirname(out_json), "selftest_bleep.mp4")
+            engine.render_clip(media, start, start + 3, out4, engine.RenderOpts(layout="split", hw_encode=False),
+                               words=ws2, censor=spans, censor_mode=mode)
+            pcm = np.frombuffer(subprocess.run([engine.ffmpeg(), "-v", "error", "-i", out4, "-ac", "1", "-ar", "16000",
+                                                "-f", "f32le", "-"], capture_output=True, check=True,
+                                               creationflags=engine.CREATE_NO_WINDOW).stdout, dtype=np.float32)
+
+            def tone(a, b):
+                seg = pcm[int(a * 16000):int(b * 16000)]
+                sp = np.abs(np.fft.rfft(seg * np.hanning(len(seg))))
+                f = np.fft.rfftfreq(len(seg), 1 / 16000)
+                return float(sp[(f > 950) & (f < 1050)].sum() / max(sp.sum(), 1e-9))
+            rec("content check bleeps flagged words", res["level"] == "low" and ws2[1]["word"] == "f***"
+                and tone(1.05, 1.45) > 0.5 and tone(2.4, 2.9) < 0.3,
+                f"flags {[f['cat'] for f in res['flags']]}, caption {ws2[1]['word']!r}, "
+                f"1 kHz share {tone(1.05, 1.45):.2f} in the word vs {tone(2.4, 2.9):.2f} after")
         except Exception as e:
             rec("render pipeline", False, traceback.format_exc()[-400:])
     else:

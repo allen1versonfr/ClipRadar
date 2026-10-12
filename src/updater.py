@@ -91,16 +91,59 @@ def view() -> dict:
     with _lock:
         v = dict(state)
     v["can_install"] = installed()
+    tok = get_token()
+    v["token"] = bool(tok)
+    v["token_hint"] = ("…" + tok[-4:]) if tok else ""
     v["auto"] = prefs()["auto"]
     return v
 
 
-def _request(url: str, timeout: float = 15):
-    req = urllib.request.Request(url, headers={
-        "Accept": "application/vnd.github+json",
-        "User-Agent": f"VodClipper/{VERSION}",
-        "X-GitHub-Api-Version": "2022-11-28",
-    })
+TOKEN_FILE = paths.DATA_DIR / "github.dat"
+
+
+def get_token() -> str:
+    """GitHub access token for a private repository (stored encrypted), or ''."""
+    try:
+        from tiktok import _unprotect
+        return _unprotect(TOKEN_FILE.read_bytes()).decode("utf-8").strip()
+    except Exception:
+        return ""
+
+
+def set_token(tok: str):
+    tok = (tok or "").strip()
+    if not tok:
+        try:
+            TOKEN_FILE.unlink()
+        except OSError:
+            pass
+        return
+    if not re.fullmatch(r"(ghp_|github_pat_|gho_|ghs_)[A-Za-z0-9_]{20,255}", tok):
+        raise ValueError("That doesn't look like a GitHub token. They start with github_pat_ or ghp_.")
+    from tiktok import _protect
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TOKEN_FILE.write_bytes(_protect(tok.encode("utf-8")))
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+def _request(url: str, timeout: float = 15, accept: str = "application/vnd.github+json", auth: bool = True):
+    headers = {"Accept": accept, "User-Agent": f"VodClipper/{VERSION}", "X-GitHub-Api-Version": "2022-11-28"}
+    tok = get_token() if auth else ""
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    req = urllib.request.Request(url, headers=headers)
+    if tok:
+        # private assets redirect to a signed download link that must NOT get the token
+        try:
+            return urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code in (301, 302, 303, 307, 308) and e.headers.get("Location"):
+                return _request(e.headers["Location"], timeout, accept="application/octet-stream", auth=False)
+            raise
     return urllib.request.urlopen(req, timeout=timeout)
 
 
@@ -136,9 +179,17 @@ def check(log=print) -> dict:
                          size=int(asset.get("size") or 0), checked=time.time(), error="")
         log(f"Update check: latest {tag}, running {VERSION}{' (update available)' if avail else ''}")
     except urllib.error.HTTPError as e:
-        msg = "GitHub is limiting update checks right now. Try again in an hour." if e.code in (403, 429) \
-            else ("Couldn't find VodClipper's releases on GitHub. If the repository is private, "
-                  "updates can only be downloaded from GitHub by hand.") if e.code == 404 else f"Couldn't check for updates (GitHub said {e.code})."
+        has_tok = bool(get_token())
+        if e.code == 401:
+            msg = "GitHub didn't accept your access token. Check it (or remove it) under Private repository below."
+        elif e.code in (403, 429):
+            msg = "GitHub is limiting update checks right now. Try again in an hour."
+        elif e.code == 404:
+            msg = ("Your access token can't see VodClipper's releases. Give it read access to the repository's contents."
+                   if has_tok else "Couldn't find VodClipper's releases. The repository is private: add a GitHub "
+                   "access token under Private repository below, or make the repository public.")
+        else:
+            msg = f"Couldn't check for updates (GitHub said {e.code})."
         with _lock:
             state.update(state="error", error=msg, checked=time.time())
     except ValueError as e:
@@ -160,6 +211,7 @@ def download(log=print) -> str:
         if not state["available"] or not _asset.get("browser_download_url"):
             raise RuntimeError("There's no update to download.")
         url, size, digest = _asset["browser_download_url"], int(_asset.get("size") or 0), _asset.get("digest") or ""
+        api_url = _asset.get("url") or ""
         ver = state["latest"]
         state.update(state="downloading", progress=0.0, error="")
     DOWNLOADS.mkdir(parents=True, exist_ok=True)
@@ -173,7 +225,9 @@ def download(log=print) -> str:
     try:
         h = hashlib.sha256()
         got = 0
-        with _request(url, timeout=60) as r, open(part, "wb") as f:
+        src = _request(api_url, timeout=60, accept="application/octet-stream") if (api_url and get_token()) \
+            else _request(url, timeout=60, auth=False)
+        with src as r, open(part, "wb") as f:
             total = size or int(r.headers.get("Content-Length") or 0)
             while True:
                 chunk = r.read(1 << 20)

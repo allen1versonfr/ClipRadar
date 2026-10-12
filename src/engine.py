@@ -1357,8 +1357,10 @@ def video_encoder(o: RenderOpts) -> tuple:
 
 def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o: RenderOpts,
                 title: str = "", log: Log = _noop, progress: Progress = _noop,
-                check: Check = _noop, words: Optional[list] = None) -> str:
-    """words: transcript (times relative to clip_start) to caption with; transcribed here if None."""
+                check: Check = _noop, words: Optional[list] = None,
+                censor: Optional[list] = None, censor_mode: str = "off") -> str:
+    """words: transcript (times relative to clip_start) to caption with; transcribed here if None.
+    censor: [(start, end)] spans (relative) to mute ("mute") or bleep ("bleep")."""
     info = probe(video)
     clip_start = max(0.0, clip_start)
     clip_end = min(info["duration"] or clip_end, clip_end)
@@ -1415,14 +1417,31 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             sub += f":fontsdir={font_dir_name}"
         vf = vf.replace("format=yuv420p[v]", f"format=yuv420p,{sub}[v]")
 
-    tmp_name = f"{stem}.part.mp4"
+    # censoring: silence flagged words, and for "bleep" lay a 1 kHz tone over them
+    af = ""
+    spans = [(max(0.0, a), min(length, b)) for a, b in (censor or []) if b > a and a < length]
+    if spans and info["has_audio"] and censor_mode in ("mute", "bleep"):
+        on = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in spans)
+        tail = "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000"
+        if censor_mode == "bleep":
+            af = (f";[0:a:0]volume=0:enable='{on}'[am];"
+                  f"sine=frequency=1000:sample_rate=48000:duration={length:.3f},volume=0.6,"
+                  f"volume=0:enable='not({on})'[bp];"
+                  f"[am][bp]amix=inputs=2:duration=first:normalize=0,{tail}[a]")
+        else:
+            af = f";[0:a:0]volume=0:enable='{on}',{tail}[a]"
+        vf = vf + af
+
+    tmp_name = f"vc_{tag}.part.mp4"
     tmp_path = os.path.join(work, tmp_name)
 
     def encode(enc_args: list):
         cmd = [ffmpeg(), "-v", "error", "-y", "-nostdin", "-progress", "pipe:1", "-nostats",
                "-ss", f"{clip_start:.3f}", "-t", f"{length:.3f}", "-i", video,
                "-filter_complex", vf, "-map", "[v]"]
-        if info["has_audio"]:
+        if info["has_audio"] and af:
+            cmd += ["-map", "[a]", "-c:a", "aac", "-b:a", "192k", "-ar", "48000"]
+        elif info["has_audio"]:
             cmd += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "192k",
                     "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000", "-ar", "48000"]
         cmd += [*enc_args, "-pix_fmt", "yuv420p", "-r", str(o.fps), "-movflags", "+faststart",

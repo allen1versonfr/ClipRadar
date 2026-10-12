@@ -75,7 +75,7 @@
               <button class="btn" id="browseSrc">Browse…</button>
             </div>
             <div class="form-grid">
-              <label>Clips to suggest<input class="input" type="number" id="count" min="3" max="40" value="10"></label>
+              <label>Clips to suggest<input class="input" type="number" id="count" min="3" max="100" value="10"></label>
               <label>Clip length<span class="unit-input"><input class="input" type="number" id="length" min="10" max="90" step="5" value="30"><i>sec</i></span></label>
               <label>Rank by<span class="range-row"><span class="tiny">Audio</span><input type="range" id="cw" min="0" max="100" step="5" value="60" aria-label="Chat versus audio"><span class="tiny">Chat</span></span></label>
             </div>
@@ -98,17 +98,27 @@
           <section class="panel source" id="liveCard">
             <header>
               <svg class="ic lg"><use href="#i-radio"/></svg>
-              <div><h2>Live channel</h2><p>Clip a stream while it's on air. Moments show up for review as they happen.</p></div>
+              <div><h2>Live channel</h2><p>Clip a stream while it's on air, so you can just watch.</p></div>
             </header>
             <div class="row">
               <input class="input grow" id="liveSrc" placeholder="Channel name or twitch.tv/name" spellcheck="false" autocomplete="off" aria-label="Twitch channel">
             </div>
-            <div class="form-grid">
-              <label>Clip length<span class="unit-input"><input class="input" type="number" id="liveLength" min="10" max="90" step="5" value="30"><i>sec</i></span></label>
-              <label>Sensitivity<select class="input" id="liveSens"><option value="low">Low: big moments only</option><option value="normal" selected>Normal</option><option value="high">High: more clips</option></select></label>
-              <label class="switch-label stacked">Render automatically<span class="switch"><input type="checkbox" id="liveAuto"><i></i></span></label>
+            <div class="fld">Mode
+              <div class="seg" id="liveMode"><button data-v="hands" class="on">Hands-free</button><button data-v="review">Review each clip</button></div>
+              <span class="hint" id="liveModeHint"></span>
             </div>
-            <p class="fine">Keeps the last 15 minutes of the stream on disk and cuts each moment out as it happens. Nothing is posted without you.</p>
+            <div class="form-grid two">
+              <div class="fld">How many clips
+                <div class="seg" id="liveFreq"><button data-v="fewer">Fewer</button><button data-v="normal" class="on">Normal</button><button data-v="more">More</button><button data-v="lots">Lots</button></div>
+              </div>
+              <label>Clip length<span class="unit-input"><input class="input" type="number" id="liveLength" min="10" max="90" step="5" value="30"><i>sec</i></span></label>
+            </div>
+            <div class="checks col live-opts">
+              <label class="chk"><input type="checkbox" id="liveWait" checked><span>Wait for the stream to start<small>Start now even if the channel is offline. Recording begins when it goes live.</small></span></label>
+              <label class="chk"><input type="checkbox" id="liveKeep"><span>Keep watching after the stream ends<small>Waits for the channel's next stream and starts again.</small></span></label>
+              <label class="chk" id="liveDraftWrap"><input type="checkbox" id="liveDraft"><span>Send finished clips to my TikTok drafts<small id="liveDraftHint">You finish each post in the TikTok app. Connect TikTok in Settings first.</small></span></label>
+            </div>
+            <p class="fine" id="liveHotkeyNote">Keeps the last 15 minutes of the stream on disk and cuts each moment out as it happens.</p>
             <div class="err" id="liveErr"></div>
             <footer><button class="btn primary" id="goLive"><svg class="ic"><use href="#i-radio"/></svg>Start live clipping</button></footer>
           </section>
@@ -174,8 +184,10 @@
                     <dt>Time</dt><dd class="tnum" id="cTime"></dd>
                     <dt>Signal</dt><dd id="cWhy"></dd>
                     <dt>Mood</dt><dd id="cVibe"></dd>
+                    <dt>Content</dt><dd id="cSafe"></dd>
                   </dl>
                 </div>
+                <div class="notice" id="cNotice" hidden></div>
                 <label class="fld">Title on the video
                   <span class="row"><input class="input grow" id="titleInput" maxlength="90" placeholder="No title"><button class="btn icon-only" id="nextTitle" title="Suggest another title (T)"><svg class="ic"><use href="#i-refresh"/></svg></button></span>
                 </label>
@@ -290,6 +302,7 @@
             <h1>Exports</h1>
             <span class="muted tnum" id="exSum"></span>
             <span class="grow"></span>
+            <button class="btn" id="exRetryAll" hidden><svg class="ic"><use href="#i-refresh"/></svg><span>Retry failed</span></button>
             <button class="btn" id="exFolder"><svg class="ic"><use href="#i-folder"/></svg>Open folder</button>
           </div>
           <div class="table-wrap">
@@ -313,7 +326,13 @@
                 <div class="insp-title" id="exTitle"></div>
                 <div class="muted small ellipsis" id="exFile"></div>
                 <div class="row wrap"><button class="btn sm" id="exShow"><svg class="ic"><use href="#i-folder"/></svg>Show in folder</button><button class="btn sm" id="exCopy"><svg class="ic"><use href="#i-copy"/></svg>Copy caption</button></div>
+                <div class="ex-safe small" id="exSafe"></div>
               </div>
+            </div>
+            <div class="notice err" id="exErrBox" hidden>
+              <div><b>This clip didn't render.</b> <span id="exErrMsg"></span></div>
+              <details id="exErrMore"><summary>Technical details</summary><pre id="exErrDetail"></pre></details>
+              <div class="row"><button class="btn primary sm" id="exRetry"><svg class="ic"><use href="#i-refresh"/></svg>Retry</button><button class="btn sm" id="exRemove">Remove</button></div>
             </div>
 
             <div class="tt" id="ttPanel">
@@ -385,6 +404,33 @@
           <p class="fine">Until TikTok reviews your app, direct posts are limited to private (Only me). Sending to drafts works either way; you finish the post in the TikTok app. Your sign-in is stored encrypted for your Windows account.</p>
         </section>
 
+        <section class="panel set" id="setSafety">
+          <header><svg class="ic"><use href="#i-alert"/></svg><h2>Content check</h2><span class="grow"></span><label class="switch"><input type="checkbox" id="sfOn" checked><i></i></label></header>
+          <p class="muted">Checks what each clip says, its title and its post caption for things that get TikTok videos taken down or held back, before anything is posted.</p>
+          <div id="sfBody">
+            <table class="sf-table">
+              <thead><tr><th>Look for</th><th class="c">Check</th><th class="c">Censor</th></tr></thead>
+              <tbody id="sfCats"></tbody>
+            </table>
+            <div class="fld">When something is flagged
+              <div class="seg" id="sfCensor"><button data-v="off">Just flag it</button><button data-v="mask">Hide in captions</button><button data-v="mute">Mute it</button><button data-v="bleep">Bleep it</button></div>
+              <span class="hint" id="sfCensorHint"></span>
+            </div>
+            <label class="fld switch-label">Hands-free: hold back clips with serious flags<span class="switch"><input type="checkbox" id="sfHold" checked><i></i></span></label>
+            <label class="fld">Your own blocked words
+              <textarea class="input" id="sfCustom" rows="2" placeholder="Your real name, your town, a friend's gamertag… separated by commas"></textarea>
+              <span class="hint">Always treated as serious. Use it to keep personal details out of clips.</span>
+            </label>
+            <p class="fine">The check reads words only. It can't see what's on screen or recognise music, so it's a safety net, not a guarantee.</p>
+          </div>
+        </section>
+
+        <section class="panel set" id="setLive">
+          <header><svg class="ic"><use href="#i-radio"/></svg><h2>Live clipping</h2></header>
+          <label class="fld switch-label"><span>Clip hotkey <span class="kbd" id="hkKeys">Ctrl+Alt+C</span><span class="hint block" id="hkState"></span></span><span class="switch"><input type="checkbox" id="hkOn" checked><i></i></span></label>
+          <p class="fine">Works from any window while live clipping is running, so you can keep watching the stream or playing. You'll hear a short sound when the clip is taken.</p>
+        </section>
+
         <section class="panel set">
           <header><svg class="ic"><use href="#i-exports"/></svg><h2>Downloads and tools</h2></header>
           <div class="form-grid two">
@@ -417,6 +463,11 @@
             <div class="upd-notes-body" id="updNotes"></div>
           </div>
           <label class="fld switch-label">Check for updates automatically<span class="switch"><input type="checkbox" id="updAuto" checked><i></i></span></label>
+          <details class="upd-token" id="updTokenBox">
+            <summary>Private repository <span class="muted" id="updTokenState"></span></summary>
+            <p class="fine">If VodClipper's GitHub repository is private, updates need a read-only access token. On GitHub: Settings › Developer settings › Fine-grained tokens › Generate. Pick only the vodclipper repository and give it <b>Contents: Read-only</b>. It's stored encrypted for your Windows account.</p>
+            <div class="row"><input class="input grow" id="updToken" type="password" placeholder="github_pat_…" autocomplete="off" spellcheck="false"><button class="btn" id="updTokenSave">Save</button><button class="btn" id="updTokenClear" hidden>Remove</button></div>
+          </details>
         </section>
 
         <section class="panel set">
