@@ -47,8 +47,19 @@ USE
   Review: decide what to keep
     The suggested clips are listed on the left. The middle shows the selected
     clip exactly as the TikTok will look (layout, title, word-by-word captions).
-    The inspector on the right has the clip's title, post caption and trim
-    controls (Clip tab), and the layout and caption style (Format tab).
+    The inspector on the right has four tabs:
+      Clip       title, post caption and trim
+      Captions   every caption line with its time. Click a line to jump to it,
+                 type over it to fix a word (Enter to save), x to delete it,
+                 or Add caption at playhead to write your own. Undo all edits
+                 brings back what Whisper heard.
+      Text       caption style (Pop, Highlight, Karaoke, Glow, Clean), title
+                 style (white, dark or colour box, outline), fonts, size and
+                 highlight colour
+      Layout     cam + game, full crop or blur fit, facecam box, zoom
+    Drag the title or the captions on the preview to move them; a line shows
+    when they're centred, and the shaded areas are covered by TikTok's own
+    buttons. Text > Reset positions puts them back.
     The hype timeline along the bottom shows the whole stream; click a
     highlighted range to jump to that clip, or (for VODs) click anywhere else to
     preview that moment and make a clip there.

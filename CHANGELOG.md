@@ -3,6 +3,32 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - 2026-10-12
+
+Editing tools inspired by CapCut.
+
+### Added
+- **Move the title and captions.** Drag either one on the phone preview to place it anywhere.
+  - A guide shows when the text is centred, and the parts of the frame that TikTok's own buttons cover are marked.
+  - **Reset positions** puts both back in their usual places.
+- **Fix captions by hand.** The new **Captions** tab lists every caption line with its time.
+  - Click a line to jump to it, then type to correct what Whisper heard, delete a line, or add your own caption at the playhead.
+  - A line you edit stays together as one caption, and **Undo all edits** brings back the original transcript.
+  - Rendered clips use your corrected captions.
+- **Caption styles:** Pop, Highlight (a colour box behind the spoken word), Karaoke, Glow and Clean, plus an option to switch off the pop-in animation.
+- **Title styles:** white box, dark box, colour box or outline, with a size slider.
+- **Eight fonts for titles and captions:** Classic, Montserrat, Poppins, Inter, Anton, Bebas Neue, Bangers and Luckiest Guy. They're bundled with the app, so clips look the same on every PC.
+- The self-test now renders a clip with hand-edited captions, a bundled font and moved text, and checks where the text lands.
+
+### Changed
+- The clip inspector is split into **Clip**, **Captions**, **Text** and **Layout** tabs.
+- README badges no longer depend on GitHub's API, so they show up while the repository is private. CI checks that the version badge and changelog match `src/version.py`.
+- Updated the GitHub Actions used by the build to their Node 24 versions.
+
+### Fixed
+- Clips whose title contains an apostrophe or quotes now render. The subtitles file now gets a plain internal name instead of one built from the title.
+- When the repository can't be reached for updates, the message now explains why.
+
 ## [2.1.0] - 2026-10-12
 
 ### Added
@@ -98,6 +124,7 @@ First release.
 - Word-by-word captions with Whisper.
 - 1080×1920 MP4 export using your GPU's video encoder, with automatic fallback to the CPU.
 
+[2.2.0]: https://github.com/ali1qbal/vodclipper/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/ali1qbal/vodclipper/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ali1qbal/vodclipper/releases/tag/v2.0.0
 [1.3.0]: https://github.com/ali1qbal/vodclipper/commit/dcb1473

@@ -19,11 +19,20 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
+      - name: Check version numbers agree
+        shell: pwsh
+        run: |
+          $ver = (Select-String -Path src/version.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          $bad = @()
+          if (-not (Select-String -Path README.md -SimpleMatch "badge/version-$ver-" -Quiet)) { $bad += "README version badge" }
+          if (-not (Select-String -Path CHANGELOG.md -SimpleMatch "## [$ver]" -Quiet)) { $bad += "CHANGELOG section" }
+          if ($bad) { Write-Host "::error title=Version $ver::update $($bad -join ' and ') for $ver"; exit 1 }
 
       - name: Install packages
         run: python -m pip install -U pip && python -m pip install -r requirements.txt pywebview pyinstaller
@@ -250,7 +259,7 @@ jobs:
           if ($passed.Count -ne $results.Count) { exit 1 }
           exit 0
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: VodClipper-windows
           path: |

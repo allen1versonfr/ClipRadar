@@ -189,6 +189,27 @@ def selftest(out_json: str, media: str = "") -> int:
             t = titles.generate(heard_words, [m for _, m in chat if _ > 30], peak_rel=6.0)
             rec("auto title", bool(t["title"]) and bool(t["quote"]),
                 f"{t['title']} | vibe: {t['vibe'] or 'none'} | others: {' / '.join(t['titles'][1:4])}")
+            # hand-edited captions, a bundled font, a highlight box and dragged positions
+            fonts = sorted(p.name for p in engine.fonts_dir().glob("*.*") if p.suffix in (".ttf", ".otf"))
+            rec("caption fonts bundled", len(fonts) >= 7, ", ".join(fonts))
+            out2 = os.path.join(os.path.dirname(out_json), "selftest_styled.mp4")
+            styled = engine.RenderOpts(layout="split", cam=(0.02, 0.03, 0.25, 0.25), caption_style="box",
+                                       caption_font="montserrat", caption_color="#00FF00", caption_pos="custom",
+                                       cap_x=0.35, cap_y=0.6, title_font="anton", title_style="dark",
+                                       title_x=0.5, title_y=0.3)
+            engine.render_clip(media, start, start + 3, out2, styled, title="Chat's \"best\" moment",
+                               words=[{"start": 0.1, "end": 1.4, "word": "FIXED"}, {"start": 1.4, "end": 2.5, "word": "TEXT"}])
+            png = os.path.join(os.path.dirname(out_json), "selftest_styled.png")
+            subprocess.run([engine.ffmpeg(), "-v", "error", "-y", "-ss", "0.7", "-i", out2, "-frames:v", "1",
+                            "-f", "rawvideo", "-pix_fmt", "rgb24", png], check=True, creationflags=engine.CREATE_NO_WINDOW)
+            raw = open(png, "rb").read()
+            import numpy as np
+            px = np.frombuffer(raw, dtype=np.uint8).reshape(1920, 1080, 3).astype(int)
+            green = (px[:, :, 1] > 200) & (px[:, :, 0] < 90) & (px[:, :, 2] < 90)
+            ys, xs = np.nonzero(green)
+            where = f"{len(xs)} highlight px" + (f" centred at {xs.mean() / 1080:.2f}, {ys.mean() / 1920:.2f}" if len(xs) else "")
+            rec("styled captions render where they were placed", len(xs) > 800 and abs(xs.mean() / 1080 - 0.33) < 0.12
+                and abs(ys.mean() / 1920 - 0.6) < 0.06, where)
         except Exception as e:
             rec("render pipeline", False, traceback.format_exc()[-400:])
     else:

@@ -27,6 +27,7 @@ import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Optional
 from urllib.parse import urlparse, parse_qs, unquote
 
 import numpy as np
@@ -359,6 +360,31 @@ def _safe_name(text: str) -> str:
     return text[:60].rstrip(". ")
 
 
+def _frac(v, default: float) -> float:
+    try:
+        return min(1.0, max(0.0, float(v)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _clean_words(ws) -> Optional[list]:
+    """Caption words edited in the app (absolute times), or None when the clip wasn't edited."""
+    if not isinstance(ws, list):
+        return None
+    out = []
+    for w in ws[:5000]:
+        try:
+            st, en, txt = float(w["start"]), float(w["end"]), str(w["word"]).strip()[:60]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if txt:
+            item = {"start": st, "end": max(en, st + 0.05), "word": txt}
+            if w.get("g") is not None:
+                item["g"] = str(w["g"])[:24]
+            out.append(item)
+    return sorted(out, key=lambda w: w["start"])
+
+
 def _ropts(o: dict) -> engine.RenderOpts:
     return engine.RenderOpts(
         layout=o.get("layout", "split"),
@@ -372,6 +398,16 @@ def _ropts(o: dict) -> engine.RenderOpts:
         caption_size=int(o.get("caption_size", 100)),
         words_per_line=int(o.get("words_per_line", 3)),
         uppercase=bool(o.get("uppercase", True)),
+        caption_style=str(o.get("caption_style", "pop")),
+        caption_font=str(o.get("caption_font", "classic")),
+        caption_anim=bool(o.get("caption_anim", True)),
+        cap_x=_frac(o.get("cap_x"), 0.5),
+        cap_y=_frac(o.get("cap_y"), 0.7),
+        title_style=str(o.get("title_style", "box")),
+        title_font=str(o.get("title_font", "classic")),
+        title_size=int(o.get("title_size", 100)),
+        title_x=_frac(o.get("title_x"), 0.5),
+        title_y=_frac(o.get("title_y"), 0.05),
         whisper_model=o.get("whisper_model", "small"),
         language=o.get("language", ""),
         hw_encode=bool(o.get("hw_encode", True)),
@@ -379,7 +415,7 @@ def _ropts(o: dict) -> engine.RenderOpts:
 
 
 def queue_public(it: dict) -> dict:
-    d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path")}
+    d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path", "words")}
     d["duration"] = round(it["end"] - it["start"], 2)
     return d
 
@@ -393,7 +429,8 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
           "post": str(c.get("post") or "")[:2200], "thumb": c.get("thumb", ""),
           "source_title": projects[pid]["title"] if pid in projects else "",
           "opts": dict(opts or {}), "status": "queued", "progress": 0.0, "step": "Waiting",
-          "error": "", "cancel": False, "created": time.time(), "tiktok": None}
+          "error": "", "cancel": False, "created": time.time(), "tiktok": None,
+          "words": _clean_words(c.get("words"))}
     with queue_lock:
         queue.append(it)
     queue_wake.set()
@@ -427,7 +464,11 @@ def _render_item(it: dict):
 
     words = None
     it["source_title"] = pr["title"]
-    if ro.captions and pr["info"]["has_audio"] and engine.whisper_available():
+    if ro.captions and it.get("words") is not None:
+        # captions corrected by hand in the app
+        words = [dict(w, start=w["start"] - it["start"], end=w["end"] - it["start"])
+                 for w in it["words"] if it["start"] - 0.2 <= w["start"] < it["end"]]
+    elif ro.captions and pr["info"]["has_audio"] and engine.whisper_available():
         it["step"] = "Listening for captions"
         abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check)
         words = [{"start": w["start"] - it["start"], "end": w["end"] - it["start"], "word": w["word"]}

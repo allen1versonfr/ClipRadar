@@ -137,7 +137,8 @@ def check(log=print) -> dict:
         log(f"Update check: latest {tag}, running {VERSION}{' (update available)' if avail else ''}")
     except urllib.error.HTTPError as e:
         msg = "GitHub is limiting update checks right now. Try again in an hour." if e.code in (403, 429) \
-            else "No releases found." if e.code == 404 else f"Couldn't check for updates (GitHub said {e.code})."
+            else ("Couldn't find VodClipper's releases on GitHub. If the repository is private, "
+                  "updates can only be downloaded from GitHub by hand.") if e.code == 404 else f"Couldn't check for updates (GitHub said {e.code})."
         with _lock:
             state.update(state="error", error=msg, checked=time.time())
     except ValueError as e:

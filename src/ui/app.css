@@ -394,3 +394,52 @@ dialog.modal::backdrop{background:rgba(0,0,0,.55)}
 .sb-update{display:flex;align-items:center;gap:6px;border:0;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:500;padding:2px 9px;border-radius:999px}
 .sb-update:hover{background:var(--accent);color:#fff}
 .sb-update i{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+/* caption fonts (also used by the renderer) */
+@font-face{font-family:"VC Montserrat";src:url(fonts/captions/Montserrat-Black.ttf) format("truetype")}
+@font-face{font-family:"VC Poppins";src:url(fonts/captions/Poppins-Black.ttf) format("truetype")}
+@font-face{font-family:"VC Inter";src:url(fonts/captions/Inter-Black.otf) format("opentype")}
+@font-face{font-family:"VC Anton";src:url(fonts/captions/Anton-Regular.ttf) format("truetype")}
+@font-face{font-family:"VC Bebas";src:url(fonts/captions/BebasNeue-Regular.ttf) format("truetype")}
+@font-face{font-family:"VC Bangers";src:url(fonts/captions/Bangers-Regular.ttf) format("truetype")}
+@font-face{font-family:"VC Luckiest";src:url(fonts/captions/LuckiestGuy-Regular.ttf) format("truetype")}
+
+/* text tab: style tiles and font grid */
+.tabs button{padding:0 9px}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.sec-h .hint{margin:0}
+.sec-switch h3{font-size:13px}
+.tiles{display:grid;gap:6px}
+.tiles.t4{grid-template-columns:repeat(4,1fr)}
+.tiles.t5{grid-template-columns:repeat(5,1fr)}
+.tile{display:flex;flex-direction:column;align-items:center;gap:6px;padding:0 0 6px;border:1px solid var(--line2);border-radius:var(--r);background:var(--bg2);color:var(--tx1);font-size:11px;overflow:hidden}
+.tile:hover{border-color:var(--tx2);color:var(--tx0)}
+.tile.on{border-color:var(--accent);color:var(--tx0);box-shadow:0 0 0 1px var(--accent)}
+.tile .sw{width:100%;height:46px;display:flex;align-items:center;justify-content:center;gap:4px;background:linear-gradient(135deg,#3a2a5c,#1d2b45);font:900 11px/1 "Arial Black","Segoe UI",sans-serif;color:#fff;white-space:nowrap}
+.tile .sw b{font-weight:inherit;padding:1px 3px;border-radius:4px}
+.font-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.font-grid button{height:34px;border:1px solid var(--line2);border-radius:var(--r);background:var(--bg2);color:var(--tx0);font-size:13px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px}
+.font-grid button:hover{border-color:var(--tx2)}
+.font-grid button.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+
+/* captions tab: line editor */
+.cap-edit{flex:1;display:flex;flex-direction:column;min-height:0}
+.cap-edit-head{padding:12px 14px 8px}
+.cap-edit-head .hint{margin:0}
+.cap-lines{flex:1;overflow:auto;padding:0 8px 8px;display:flex;flex-direction:column;gap:2px}
+.cline{display:grid;grid-template-columns:44px minmax(0,1fr) 26px;align-items:center;gap:6px;padding:3px 6px;border-radius:var(--r);border:1px solid transparent}
+.cline:hover{background:var(--bg2)}
+.cline.on{background:var(--accent-soft);border-color:rgba(76,141,255,.35)}
+.cline .ct{font-size:11.5px;color:var(--tx2);cursor:pointer}
+.cline.on .ct{color:var(--accent)}
+.cline input{height:30px;border:1px solid transparent;background:transparent;border-radius:5px;padding:0 8px;color:var(--tx0);font-size:13px;width:100%}
+.cline input:hover{border-color:var(--line2)}
+.cline input:focus{border-color:var(--accent);background:var(--bg1);outline:0}
+.cline input:disabled{color:var(--tx1)}
+.cline .del{width:26px;height:26px;border:0;background:transparent;color:var(--tx2);border-radius:5px;display:flex;align-items:center;justify-content:center;opacity:0}
+.cline:hover .del{opacity:1}
+.cline .del:hover{background:var(--bg3);color:var(--danger)}
+.cline.edited input{color:#ffd666}
+.cap-empty{padding:24px 14px;color:var(--tx2);font-size:12.5px;line-height:1.55}
+.cap-edit-foot{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid var(--line)}
+#capBlock{display:flex;flex-direction:column;gap:12px}

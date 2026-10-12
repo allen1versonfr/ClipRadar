@@ -21,6 +21,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -1006,11 +1007,21 @@ class RenderOpts:
     game_zoom: float = 1.0          # >1 zooms gameplay in
     game_x: float = 0.5             # horizontal focus of gameplay crop 0..1
     captions: bool = True
-    caption_pos: str = "auto"       # auto | top | middle | bottom
+    caption_pos: str = "auto"       # auto | top | middle | bottom | custom (cap_x, cap_y)
     caption_color: str = "#FFE600"  # highlight color for the spoken word
     caption_size: int = 100         # percent
     words_per_line: int = 3
     uppercase: bool = True
+    caption_style: str = "pop"      # pop | box | karaoke | glow | clean
+    caption_font: str = "classic"   # key of FONTS
+    caption_anim: bool = True       # words pop in
+    cap_x: float = 0.5              # custom caption centre, fractions of the frame
+    cap_y: float = 0.7
+    title_style: str = "box"        # box | dark | accent | outline
+    title_font: str = "classic"
+    title_size: int = 100           # percent
+    title_x: float = 0.5            # title centre x and top y, fractions of the frame
+    title_y: float = 0.05           # top of the title box
     whisper_model: str = "small"
     language: str = ""              # "" = auto-detect
     hw_encode: bool = True
@@ -1066,6 +1077,8 @@ def build_filter(info: dict, o: RenderOpts) -> tuple:
     else:
         raise ValueError(f"unknown layout {o.layout}")
 
+    if o.caption_pos == "custom":
+        return f, min(max(o.cap_y * H, 120), H - 120)
     pos = {"top": H * 0.22, "middle": H * 0.5, "bottom": H * 0.78}.get(o.caption_pos, cap_y)
     return f, min(max(pos, 260), H - 220)
 
@@ -1154,15 +1167,88 @@ def _ass_escape(s: str) -> str:
             .replace("\r", " ").replace("\n", " "))
 
 
-def _font() -> str:
-    return "Arial Black" if sys.platform == "win32" else "DejaVu Sans"
+# Caption and title fonts. "classic" is the system's heaviest sans; the rest ship in ui/fonts/captions
+# (OFL / Apache licensed) and are handed to libass with fontsdir. Values: (file, family name in the file).
+FONTS = {
+    "classic": ("", ""),
+    "montserrat": ("Montserrat-Black.ttf", "Montserrat Black"),
+    "poppins": ("Poppins-Black.ttf", "Poppins Black"),
+    "inter": ("Inter-Black.otf", "Inter Black"),
+    "anton": ("Anton-Regular.ttf", "Anton"),
+    "bebas": ("BebasNeue-Regular.ttf", "Bebas Neue"),
+    "bangers": ("Bangers-Regular.ttf", "Bangers"),
+    "luckiest": ("LuckiestGuy-Regular.ttf", "Luckiest Guy"),
+}
+# condensed faces look small at the same point size; scale them up to a similar visual size
+FONT_SCALE = {"inter": 1.05, "anton": 1.3, "bebas": 1.4, "bangers": 1.25}
+CAPTION_STYLES = ("pop", "box", "karaoke", "glow", "clean")
+TITLE_STYLES = ("box", "dark", "accent", "outline")
+
+
+def fonts_dir() -> Path:
+    return Path(paths.RES_DIR) / "ui" / "fonts" / "captions"
+
+
+def _font(key: str = "classic") -> tuple:
+    """(family name for ASS, bold flag, font file or '')"""
+    file, family = FONTS.get(key, FONTS["classic"])
+    if file and (fonts_dir() / file).is_file():
+        return family, 0, file          # already a heavy cut: no fake bold
+    return ("Arial Black" if sys.platform == "win32" else "DejaVu Sans"), -1, ""
+
+
+def fonts_for(o: "RenderOpts") -> list:
+    """Font files the ASS needs from the bundled set."""
+    out = []
+    for key in ({o.caption_font, o.title_font}):
+        f = _font(key)[2]
+        if f:
+            out.append(str(fonts_dir() / f))
+    return out
+
+
+def _chunks(words: list, o: "RenderOpts", clip_len: float) -> list:
+    chunks: list = []
+    cur: list = []
+    for w in words:
+        if w["start"] >= clip_len:
+            break
+        prev = cur[-1] if cur else None
+        if prev and (w.get("g") or prev.get("g")):
+            brk = w.get("g") != prev.get("g")      # a line typed in the app stays one caption
+        else:
+            brk = bool(cur) and (len(cur) >= max(1, o.words_per_line)
+                                 or w["start"] - prev["end"] > 0.6
+                                 or prev["word"][-1:] in ".?!")
+        if brk:
+            chunks.append(cur)
+            cur = []
+        cur.append(w)
+    if cur:
+        chunks.append(cur)
+    return chunks
 
 
 def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, title: str = "") -> str:
-    font = _font()
     hi = _ass_color(o.caption_color)
-    base_fs = int(86 * max(50, min(160, o.caption_size)) / 100)
-    title_fs = 64
+    cfont, cbold, _ = _font(o.caption_font)
+    tfont, tbold, _ = _font(o.title_font)
+    style = o.caption_style if o.caption_style in CAPTION_STYLES else "pop"
+    tstyle = o.title_style if o.title_style in TITLE_STYLES else "box"
+    base_fs = int(86 * max(50, min(160, o.caption_size)) / 100 * FONT_SCALE.get(o.caption_font, 1.0))
+    title_fs = int(64 * max(50, min(160, o.title_size)) / 100 * FONT_SCALE.get(o.title_font, 1.0))
+    bord = max(4, base_fs // 12)
+    white, black, dark = "&H00FFFFFF", "&H00000000", "&H00141414"
+    if style == "clean":
+        cap_style = f"Style: Cap,{cfont},{base_fs},{white},{white},{black},&H64000000,{cbold},0,0,0,100,100,1,0,1,0,4,5,70,70,0,1"
+    else:
+        cap_style = f"Style: Cap,{cfont},{base_fs},{white},{white},{black},&H96000000,{cbold},0,0,0,100,100,1,0,1,{bord},3,5,70,70,0,1"
+    tpad = max(8, title_fs // 4)
+    if tstyle == "outline":
+        t_style = f"Style: Title,{tfont},{title_fs},{white},{white},{black},&H96000000,{tbold},0,0,0,100,100,0,0,1,{max(4, title_fs // 10)},3,8,90,90,0,1"
+    else:
+        fill, boxc = {"box": (dark, white), "dark": (white, "&H1A141414"), "accent": (dark, hi.rstrip("&"))}[tstyle]
+        t_style = f"Style: Title,{tfont},{title_fs},{fill},{fill},{boxc},{boxc},{tbold},0,0,0,100,100,0,0,3,{tpad},0,8,90,90,0,1"
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
@@ -1172,34 +1258,25 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,{font},{base_fs},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,1,0,1,{max(4, base_fs // 12)},3,5,70,70,0,1
-Style: Title,{font},{title_fs},&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,16,0,8,90,90,0,1
+{cap_style}
+{t_style}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = []
     if title.strip():
-        lines.append(f"Dialogue: 1,{_ass_time(0)},{_ass_time(clip_len)},Title,,0,0,0,,"
-                     f"{{\\an8\\pos({W // 2},{110})}}{_ass_escape(title.strip())}")
+        tx = int(min(max(o.title_x, 0.3), 0.7) * W)
+        th = min(tx, W - tx) - 90           # wrap the title inside the frame around its own centre
+        ty = int(min(max(o.title_y, 0.0), 0.92) * H) + (tpad if tstyle != "outline" else 0)
+        lines.append(f"Dialogue: 1,{_ass_time(0)},{_ass_time(clip_len)},Title,,{tx - th},{W - tx - th},0,,"
+                     f"{{\\an8\\pos({tx},{ty})}}{_ass_escape(title.strip())}")
 
-    # group words into short punchy chunks
-    chunks: list = []
-    cur: list = []
-    for w in words:
-        if w["start"] >= clip_len:
-            break
-        brk = bool(cur) and (len(cur) >= max(1, o.words_per_line)
-                             or w["start"] - cur[-1]["end"] > 0.6
-                             or cur[-1]["word"][-1:] in ".?!")
-        if brk:
-            chunks.append(cur)
-            cur = []
-        cur.append(w)
-    if cur:
-        chunks.append(cur)
-
+    x = int(min(max(o.cap_x if o.caption_pos == "custom" else 0.5, 0.3), 0.7) * W)
+    half = min(x, W - x) - 70               # wrap captions inside the frame around their own centre
+    ml, mr = x - half, W - x - half
     y = int(center_y)
+    chunks = _chunks(words, o, clip_len)
     for ci, ch in enumerate(chunks):
         texts = [_ass_escape(w["word"].upper() if o.uppercase else w["word"]) for w in ch]
         chars = sum(len(t) for t in texts) + len(texts) - 1
@@ -1216,10 +1293,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             en = ch[wi + 1]["start"] if wi + 1 < len(ch) else chunk_end
             if en <= st:
                 en = st + 0.08
-            parts = [f"{{\\c{hi}}}{t}{{\\c&H00FFFFFF&}}" if k == wi else t for k, t in enumerate(texts)]
-            pop = r"{\fscx114\fscy114\t(0,100,\fscx100\fscy100)}" if wi == 0 else ""
-            lines.append(f"Dialogue: 0,{_ass_time(st)},{_ass_time(en)},Cap,,0,0,0,,"
-                         f"{{\\an5\\pos({W // 2},{y})\\fs{fs}}}{pop}{' '.join(parts)}")
+            parts = []
+            for k, t in enumerate(texts):
+                if style == "pop":
+                    parts.append(f"{{\\c{hi}}}{t}{{\\c{white}&}}" if k == wi else t)
+                elif style == "glow":
+                    parts.append(f"{{\\fscx112\\fscy112}}{t}{{\\fscx100\\fscy100}}" if k == wi else t)
+                elif style == "karaoke":
+                    parts.append(f"{{\\c{hi}}}{t}{{\\c{white}&}}" if k <= wi else t)
+                elif style == "box":
+                    parts.append(f"{{\\3c{hi}\\bord{max(8, int(fs * 0.22))}\\c{dark}&}}{t}{{\\3c{black}&\\bord{max(4, fs // 12)}\\c{white}&}}"
+                                 if k == wi else t)
+                else:
+                    parts.append(t)
+            lead = ""
+            if style == "glow":
+                lead = f"\\3c{hi}\\bord{max(4, fs // 12)}\\blur{max(5, fs // 8)}"
+            if style == "box":
+                lead = f"\\bord{max(4, fs // 12)}"
+            pop = r"{\fscx114\fscy114\t(0,100,\fscx100\fscy100)}" if (wi == 0 and o.caption_anim and style != "clean") else ""
+            lines.append(f"Dialogue: 0,{_ass_time(st)},{_ass_time(en)},Cap,,{ml},{mr},0,,"
+                         f"{{\\an5\\pos({x},{y})\\fs{fs}{lead}}}{pop}{' '.join(parts)}")
     return header + "\n".join(lines) + "\n"
 
 
@@ -1273,8 +1367,12 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     work = os.path.dirname(os.path.abspath(out_path))
     os.makedirs(work, exist_ok=True)
     stem = Path(out_path).stem
-    ass_name = f"{stem}.ass"
+    tag = uuid.uuid4().hex[:8]
+    # ASCII names: the subtitles filter can't take quotes or other specials from a clip title
+    ass_name = f"vc_{tag}.ass"
     ass_path = os.path.join(work, ass_name)
+    font_dir_name = f"vc_fonts_{tag}"
+    font_dir = os.path.join(work, font_dir_name)
 
     if words is not None:
         words = list(words) if o.captions else []
@@ -1307,8 +1405,15 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     if use_ass:
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(build_ass(words, o, cap_y, length, title))
-        # bare filename + cwd=work sidesteps Windows drive-letter escaping in the subtitles filter
-        vf = vf.replace("format=yuv420p[v]", f"format=yuv420p,subtitles={ass_name}[v]")
+        # bare filenames + cwd=work sidestep Windows drive-letter escaping in the subtitles filter
+        sub = f"subtitles=filename={ass_name}"
+        need = fonts_for(o)
+        if need:
+            os.makedirs(font_dir, exist_ok=True)
+            for fp in need:
+                shutil.copy2(fp, font_dir)
+            sub += f":fontsdir={font_dir_name}"
+        vf = vf.replace("format=yuv420p[v]", f"format=yuv420p,{sub}[v]")
 
     tmp_name = f"{stem}.part.mp4"
     tmp_path = os.path.join(work, tmp_name)
@@ -1354,6 +1459,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             raise RuntimeError("ffmpeg render failed:\n" + "\n".join(err.strip().splitlines()[-10:]))
         os.replace(tmp_path, out_path)
     finally:
+        shutil.rmtree(font_dir, ignore_errors=True)
         for p in (tmp_path, ass_path):
             try:
                 os.remove(p)

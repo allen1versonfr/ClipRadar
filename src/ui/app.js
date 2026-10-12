@@ -64,6 +64,8 @@ let ttStatus = {};
 let vodJob = null, ttJob = null, setupJob = null;
 const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, game_x: 0.5, game_zoom: 1.0,
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
+  caption_style: 'pop', caption_font: 'classic', caption_anim: true, cap_x: 0.5, cap_y: 0.7,
+  title_style: 'box', title_font: 'classic', title_size: 100, title_x: 0.5, title_y: 0.05,
   whisper_model: 'small', language: '', hw_encode: true };
 const opts = Object.assign({}, DEFAULTS, store.get('opts', {}));
 const SWATCHES = ['#ffe600', '#ffffff', '#4fd1ff', '#5ee6a8', '#ff6b8b'];
@@ -271,7 +273,7 @@ function prepClip(c) {
   return c;
 }
 function mergeClip(c, s) {
-  c.listened = s.listened; c.words = s.words || []; c.titles = s.titles || []; c.vibe = s.vibe; c.emoji = s.emoji;
+  c.listened = s.listened; if (!c.wordsEdited) c.words = s.words || []; c.titles = s.titles || []; c.vibe = s.vibe; c.emoji = s.emoji;
   c.reason = s.reason; c.post = s.post;
   if (!c.userTitle && s.title) c.title = s.title;
 }
@@ -483,6 +485,7 @@ function showInspector() {
 }
 function fillInspector() {
   const c = curClip(); if (!c || mode !== 'clip') return;
+  if (!$('#pane-captions').hidden && !$('#capLines').contains(document.activeElement)) renderCapEditor();
   $('#cRank').textContent = W.kind === 'live' ? `Moment ${c.moment || rankOf(c)}${c.manual ? ' (clipped by you)' : ''}` : `Clip ${rankOf(c)} of ${W.clips.length}`;
   $('#cTime').textContent = `${fmt(absOf(c, c.start))} to ${fmt(absOf(c, c.end))} (${Math.round(c.end - c.start)}s)`;
   $('#cWhy').textContent = c.reason || '';
@@ -535,6 +538,7 @@ async function keep() {
   const c = curClip(); if (!c || c.state === 'kept' || mode !== 'clip') return;
   const clip = { id: c.id, rank: W.kind === 'live' ? (c.moment || rankOf(c)) : rankOf(c), start: c.start, end: c.end,
                  title: c.title.trim(), post: $('#postInput').value || postFor(c), thumb: c.thumb };
+  if (c.wordsEdited) clip.words = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end);
   queueEpoch++;
   try { const it = await api('/api/queue/add', { pid: c.pid, clip, opts: JSON.parse(JSON.stringify(opts)) }); queueItems.push(it); queueEpoch++; }
   catch (e) { toast(e.message, 'err'); return; }
@@ -564,7 +568,8 @@ $('#goExports').onclick = () => setView('exports');
 $('#inspTabs').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
   $$('#inspTabs button').forEach(x => x.classList.toggle('on', x === b));
-  $('#pane-clip').hidden = b.dataset.t !== 'clip'; $('#pane-format').hidden = b.dataset.t !== 'format';
+  ['clip', 'captions', 'text', 'layout'].forEach(t => { $('#pane-' + t).hidden = b.dataset.t !== t; });
+  if (b.dataset.t === 'captions') renderCapEditor();
 };
 
 /* --- re-ranking (VOD only) --- */
@@ -631,7 +636,7 @@ function updateMute() { $('#muteIcon').setAttribute('href', vod.muted ? '#i-mute
 updateMute();
 function togglePlay() { if (vod.paused) vod.play().catch(() => {}); else vod.pause(); }
 $('#playBtn').onclick = togglePlay;
-phone.addEventListener('click', togglePlay);
+phone.addEventListener('click', () => { if (suppressClick) { suppressClick = false; return; } togglePlay(); });
 $('#muteBtn').onclick = () => { vod.muted = !vod.muted; store.set('muted', vod.muted); updateMute(); };
 $('#scrub').addEventListener('pointerdown', e => {
   const c = curClip(); if (mode !== 'clip' || !c) return;
@@ -698,59 +703,148 @@ function layoutDraw(g, src, sw, sh, Wd, Ht) {
   else g.drawImage(src, 0, (Ht - fh) / 2, Wd, fh);
   return Ht / 2 + fh / 2 + Ht * 170 / 1920;
 }
-function drawTitle(g, text, Wd) {
-  const k = Wd / 1080;
-  g.font = `900 ${Math.round(64 * k)}px "Arial Black", "Segoe UI", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
+const FONTS = {
+  classic: { label: 'Classic', css: "'Arial Black', 'Segoe UI Black', 'Segoe UI', sans-serif", w: 900, scale: 1 },
+  montserrat: { label: 'Montserrat', css: "'VC Montserrat'", w: 400, scale: 1 },
+  poppins: { label: 'Poppins', css: "'VC Poppins'", w: 400, scale: 1 },
+  inter: { label: 'Inter', css: "'VC Inter'", w: 400, scale: 1.05 },
+  anton: { label: 'Anton', css: "'VC Anton'", w: 400, scale: 1.3 },
+  bebas: { label: 'Bebas', css: "'VC Bebas'", w: 400, scale: 1.4 },
+  bangers: { label: 'Bangers', css: "'VC Bangers'", w: 400, scale: 1.25 },
+  luckiest: { label: 'Luckiest', css: "'VC Luckiest'", w: 400, scale: 1 },
+};
+const fontOf = k => FONTS[k] || FONTS.classic;
+const fontCss = (k, px) => { const f = fontOf(k); return `${f.w} ${Math.round(px)}px ${f.css}`; };
+// load the bundled faces so the first preview frame already uses them
+Object.keys(FONTS).filter(k => k !== 'classic').forEach(k => document.fonts.load(fontCss(k, 40)).then(() => { dirty = true; }).catch(() => {}));
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const hit = { title: null, cap: null };   // where the title and captions were drawn (canvas px), for dragging
+
+function drawTitle(g, text, Wd, Ht) {
+  const k = Wd / 1080, st = opts.title_style;
+  const fs = 64 * clamp(opts.title_size, 50, 160) / 100 * fontOf(opts.title_font).scale * k;
+  const pad = Math.max(8, Math.floor(64 * clamp(opts.title_size, 50, 160) / 100 * fontOf(opts.title_font).scale / 4)) * k;
+  g.font = fontCss(opts.title_font, fs); g.textAlign = 'center'; g.textBaseline = 'top';
   const words = text.trim().split(/\s+/), lines = []; let line = '';
-  for (const w of words) { const t = line ? line + ' ' + w : w; if (g.measureText(t).width > Wd - 2 * 90 * k - 32 * k && line) { lines.push(line); line = w; } else line = t; }
+  const x = clamp(opts.title_x, .3, .7) * Wd, top = clamp(opts.title_y, 0, .92) * Ht;
+  const wrapW = 2 * (Math.min(x, Wd - x) - 90 * k);
+  for (const w of words) { const t = line ? line + ' ' + w : w; if (g.measureText(t).width > wrapW && line) { lines.push(line); line = w; } else line = t; }
   if (line) lines.push(line);
-  const lh = 76 * k, pad = 16 * k, bw = Math.max(...lines.map(l => g.measureText(l).width)) + 2 * pad;
-  g.fillStyle = '#fff'; g.fillRect((Wd - bw) / 2, 110 * k - pad, bw, lines.length * lh + 2 * pad - (lh - 64 * k));
-  g.fillStyle = '#141414'; lines.forEach((l, i) => g.fillText(l, Wd / 2, 110 * k + i * lh));
+  const lh = fs * 1.19, tw = Math.max(...lines.map(l => g.measureText(l).width));
+  if (st === 'outline') {
+    const ob = Math.max(4, Math.floor(fs / k / 10)) * k;
+    g.lineJoin = 'round'; g.lineWidth = ob * 2; g.strokeStyle = '#000'; g.fillStyle = '#fff';
+    lines.forEach((l, i) => { g.strokeText(l, x, top + i * lh); g.fillText(l, x, top + i * lh); });
+    hit.title = { x: x - tw / 2 - ob, y: top - ob, w: tw + 2 * ob, h: lines.length * lh + ob };
+    return;
+  }
+  const [fill, boxc] = st === 'dark' ? ['#fff', 'rgba(20,20,20,.9)'] : st === 'accent' ? ['#141414', opts.caption_color] : ['#141414', '#fff'];
+  const bw = tw + 2 * pad, bh = lines.length * lh + 2 * pad - (lh - fs);
+  g.fillStyle = boxc; g.fillRect(x - bw / 2, top, bw, bh);
+  g.fillStyle = fill; lines.forEach((l, i) => g.fillText(l, x, top + pad + i * lh));
+  hit.title = { x: x - bw / 2, y: top, w: bw, h: bh };
 }
-function captionAt(words, t, c) {
-  const ws = words.filter(w => w.start >= c.start - 0.2 && w.start < c.end);
+function chunksFor(c) {
+  const ws = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end);
   const chunks = []; let ch = [];
   for (const w of ws) {
-    const brk = ch.length && (ch.length >= Math.max(1, opts.words_per_line) || w.start - ch[ch.length - 1].end > 0.6 || /[.?!]$/.test(ch[ch.length - 1].word));
+    const prev = ch[ch.length - 1];
+    // a line typed in the Captions tab stays together (g); otherwise break by length, pauses and sentence ends
+    const brk = ch.length && ((w.g || prev.g) ? w.g !== prev.g
+      : (ch.length >= Math.max(1, opts.words_per_line) || w.start - prev.end > 0.6 || /[.?!]$/.test(prev.word)));
     if (brk) { chunks.push(ch); ch = []; }
     ch.push(w);
   }
   if (ch.length) chunks.push(ch);
-  for (let i = 0; i < chunks.length; i++) {
-    const k = chunks[i], last = k[k.length - 1];
+  return chunks.map((k, i) => {
+    const last = k[k.length - 1];
     let end = i + 1 < chunks.length ? Math.min(Math.max(last.end, last.end + 0.3), chunks[i + 1][0].start) : last.end + 0.4;
-    end = Math.min(end, c.end);
-    if (t >= k[0].start && t < end) {
-      let hi = 0; k.forEach((w, j) => { if (w.start <= t) hi = j; });
-      return { texts: k.map(w => opts.uppercase ? w.word.toUpperCase() : w.word), hi };
+    return { words: k, start: k[0].start, end: Math.min(end, c.end) };
+  });
+}
+function captionAt(c, t) {
+  for (const ch of chunksFor(c)) {
+    if (t >= ch.start && t < ch.end) {
+      let hi = 0; ch.words.forEach((w, j) => { if (w.start <= t) hi = j; });
+      return { texts: ch.words.map(w => opts.uppercase ? w.word.toUpperCase() : w.word), hi, t0: ch.start, wt: ch.words[hi].start };
     }
   }
   return null;
 }
-function drawCaption(g, cap, capY, Wd, Ht) {
-  const k = Wd / 1080;
+function capAnchor(capY, Wd, Ht) {
+  if (opts.caption_pos === 'custom') return [clamp(opts.cap_x, .3, .7) * Wd, clamp(opts.cap_y * Ht, Ht * 120 / 1920, Ht - Ht * 120 / 1920)];
   capY = { top: Ht * .22, middle: Ht * .5, bottom: Ht * .78 }[opts.caption_pos] ?? capY;
-  capY = Math.min(Math.max(capY, Ht * 260 / 1920), Ht - Ht * 220 / 1920);
-  const chars = cap.texts.join(' ').length, fsBase = 86 * opts.caption_size / 100;
-  const fs = (chars <= 16 ? fsBase : Math.max(fsBase * .75, fsBase * 18 / chars)) * k;
-  g.font = `900 ${Math.round(fs)}px "Arial Black", "Segoe UI", sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+  return [Wd / 2, clamp(capY, Ht * 260 / 1920, Ht - Ht * 220 / 1920)];
+}
+function drawCaption(g, cap, capY, Wd, Ht, t) {
+  const k = Wd / 1080, st = opts.caption_style, hi = opts.caption_color;
+  const [cx, cy] = capAnchor(capY, Wd, Ht);
+  const chars = cap.texts.join(' ').length, fsBase = 86 * opts.caption_size / 100 * fontOf(opts.caption_font).scale;
+  const fs1080 = chars <= 16 ? fsBase : Math.max(fsBase * .75, fsBase * 18 / chars), fs = fs1080 * k;
+  g.font = fontCss(opts.caption_font, fs); g.textAlign = 'left'; g.textBaseline = 'middle';
   const sp = g.measureText(' ').width, widths = cap.texts.map(w => g.measureText(w).width);
-  const maxW = Wd - 2 * 70 * k, lines = [[]]; let lw = 0;
+  const maxW = 2 * (Math.min(cx, Wd - cx) - 70 * k), lines = [[]]; let lw = 0;
   cap.texts.forEach((w, i) => { if (lw && lw + sp + widths[i] > maxW) { lines.push([]); lw = 0; } lines[lines.length - 1].push(i); lw += (lw ? sp : 0) + widths[i]; });
-  const lh = fs * 1.15, y0 = capY - (lines.length - 1) * lh / 2;
+  const lh = fs * 1.15, y0 = cy - (lines.length - 1) * lh / 2;
+  const bord = Math.max(4, Math.floor(fs1080 / 12)) * k;
+  // pop-in: the chunk scales from 114% to 100% over its first 0.1 s (same as the render)
+  const age = t - cap.t0, sc = opts.caption_anim && st !== 'clean' && age >= 0 && age < .1 ? 1.14 - .14 * age / .1 : 1;
+  g.save(); g.translate(cx, cy); g.scale(sc, sc); g.translate(-cx, -cy);
+  let minX = Infinity, maxX = -Infinity;
   lines.forEach((idx, li) => {
     const lwid = idx.reduce((a, i) => a + widths[i], 0) + sp * (idx.length - 1);
-    let x = (Wd - lwid) / 2;
+    let x = cx - lwid / 2; minX = Math.min(minX, x); maxX = Math.max(maxX, x + lwid);
+    const y = y0 + li * lh;
     idx.forEach(i => {
-      g.lineWidth = Math.max(3, fs / 6); g.strokeStyle = '#000'; g.lineJoin = 'round'; g.strokeText(cap.texts[i], x, y0 + li * lh);
-      g.fillStyle = i === cap.hi ? opts.caption_color : '#fff'; g.fillText(cap.texts[i], x, y0 + li * lh); x += widths[i] + sp;
+      const on = i === cap.hi, word = cap.texts[i];
+      g.lineJoin = 'round';
+      g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetX = g.shadowOffsetY = 0;
+      if (st === 'clean') {
+        g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 6 * k; g.shadowOffsetX = g.shadowOffsetY = 4 * k;
+        g.fillStyle = '#fff'; g.fillText(word, x, y);
+      } else if (st === 'glow') {
+        const s2 = on ? 1.12 : 1;
+        g.save(); g.translate(x + widths[i] / 2, y); g.scale(s2, s2); g.translate(-(x + widths[i] / 2), -y);
+        g.shadowColor = hi; g.shadowBlur = Math.max(5, fs1080 / 8) * k * 1.6;
+        g.lineWidth = bord * 2; g.strokeStyle = hi; g.strokeText(word, x, y);
+        g.shadowBlur = 0; g.fillStyle = '#fff'; g.fillText(word, x, y);
+        g.restore();
+      } else if (st === 'box' && on) {
+        g.lineWidth = Math.max(8, Math.floor(fs1080 * .22)) * k * 2; g.strokeStyle = hi; g.strokeText(word, x, y);
+        g.fillStyle = '#141414'; g.fillText(word, x, y);
+      } else {
+        g.lineWidth = bord * 2; g.strokeStyle = '#000'; g.strokeText(word, x, y);
+        g.fillStyle = (st === 'pop' && on) || (st === 'karaoke' && i <= cap.hi) ? hi : '#fff';
+        g.fillText(word, x, y);
+      }
+      x += widths[i] + sp;
     });
   });
+  g.restore();
+  hit.cap = { x: minX - bord, y: y0 - lh / 2 - bord, w: maxX - minX + 2 * bord, h: lines.length * lh + 2 * bord };
 }
+function drawGuides(g, Wd, Ht) {
+  // what TikTok's own buttons and caption cover, so text can be kept clear of them
+  g.save();
+  g.fillStyle = 'rgba(255,70,90,.13)';
+  g.fillRect(Wd * .86, Ht * .36, Wd * .14, Ht * .5); g.fillRect(0, Ht * .86, Wd, Ht * .14); g.fillRect(0, 0, Wd, Ht * .06);
+  g.fillStyle = 'rgba(255,255,255,.55)'; g.font = `500 ${Math.round(Wd / 40)}px Inter, "Segoe UI", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('Covered by TikTok', Wd / 2, Ht * .93);
+  if (dragState && dragState.snapX) { g.strokeStyle = 'rgba(255,214,102,.9)'; g.lineWidth = 1; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(Wd / 2, 0); g.lineTo(Wd / 2, Ht); g.stroke(); }
+  g.restore();
+}
+function drawSelection(g, r, strong) {
+  if (!r) return;
+  g.save(); g.strokeStyle = strong ? '#fff' : 'rgba(255,255,255,.7)'; g.lineWidth = 1.5; g.setLineDash(strong ? [] : [5, 4]);
+  g.strokeRect(r.x - 4, r.y - 4, r.w + 8, r.h + 8);
+  if (strong) { g.fillStyle = '#fff'; [[r.x - 4, r.y - 4], [r.x + r.w + 4, r.y - 4], [r.x - 4, r.y + r.h + 4], [r.x + r.w + 4, r.y + r.h + 4]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill(); }); }
+  g.restore();
+}
+let hoverWhat = null, phoneHover = false, dragState = null, suppressClick = false;
 function renderPhone() {
   const Wd = phone.width, Ht = phone.height, g = pg;
   g.fillStyle = '#000'; g.fillRect(0, 0, Wd, Ht);
+  hit.title = hit.cap = null;
   if (!W) return;
   let src = null, sw = 0, sh = 0;
   if (vodOk && vod.readyState >= 2 && vod.videoWidth) { src = vod; sw = vod.videoWidth; sh = vod.videoHeight; }
@@ -760,18 +854,66 @@ function renderPhone() {
     const capY = layoutDraw(g, src, sw, sh, Wd, Ht);
     const c = curClip();
     if (mode === 'clip' && c) {
-      if (c.title.trim()) drawTitle(g, c.title, Wd);
+      if (dragState) drawGuides(g, Wd, Ht);
+      if (c.title.trim()) drawTitle(g, c.title, Wd, Ht);
       if (opts.captions) {
-        const cap = captionAt(c.words, vod.currentTime, c);
-        if (cap) drawCaption(g, cap, capY, Wd, Ht);
-        else if (!c.listened && status.whisper) badge = 'Listening for captions…';
+        const cap = captionAt(c, vod.currentTime);
+        if (cap) drawCaption(g, cap, capY, Wd, Ht, vod.currentTime);
+        else if (phoneHover || (dragState && dragState.what === 'cap')) {
+          // nothing being said right now: show a stand-in so the captions can still be placed
+          g.save(); g.globalAlpha = .55;
+          const first = chunksFor(c)[0];
+          drawCaption(g, { texts: first ? first.words.map(w => opts.uppercase ? w.word.toUpperCase() : w.word) : ['YOUR', 'CAPTIONS'], hi: 0, t0: -9 }, capY, Wd, Ht, 0);
+          g.restore();
+        }
+        if (!cap && !c.listened && status.whisper && !phoneHover) badge = 'Listening for captions…';
       }
+      const sel = dragState ? dragState.what : hoverWhat;
+      if (sel) drawSelection(g, hit[sel], !!dragState);
     }
     if (!vodOk) badge = 'Still frame: this video can\'t play in the preview';
   }
   if (mode === 'free') badge = badge || 'Preview';
   $('#phoneBadge').textContent = badge;
 }
+
+/* --- drag the title and captions around the frame --- */
+function phonePt(e) { const r = phone.getBoundingClientRect(); return [(e.clientX - r.left) * phone.width / r.width, (e.clientY - r.top) * phone.height / r.height]; }
+function hitTest(x, y) {
+  const inside = r => r && x >= r.x - 10 && x <= r.x + r.w + 10 && y >= r.y - 10 && y <= r.y + r.h + 10;
+  if (inside(hit.title)) return 'title';
+  if (inside(hit.cap)) return 'cap';
+  return null;
+}
+phone.addEventListener('pointerdown', e => {
+  if (mode !== 'clip' || !curClip() || e.button !== 0) return;
+  const [x, y] = phonePt(e), what = hitTest(x, y); if (!what) return;
+  const r = hit[what], Wd = phone.width, Ht = phone.height;
+  dragState = { what, ox: x - (r.x + r.w / 2), oy: what === 'title' ? y - r.y : y - (r.y + r.h / 2), moved: false, sx: x, sy: y, snapX: false };
+  if (what === 'cap' && opts.caption_pos !== 'custom') { opts.cap_x = .5; opts.cap_y = (r.y + r.h / 2) / Ht; }
+  phone.setPointerCapture(e.pointerId); dirty = true;
+});
+phone.addEventListener('pointermove', e => {
+  const [x, y] = phonePt(e), Wd = phone.width, Ht = phone.height;
+  if (dragState) {
+    if (!dragState.moved && Math.hypot(x - dragState.sx, y - dragState.sy) < 4) return;
+    dragState.moved = true;
+    let fx = (x - dragState.ox) / Wd; dragState.snapX = Math.abs(fx - .5) < .025; if (dragState.snapX) fx = .5;
+    if (dragState.what === 'title') { opts.title_x = clamp(fx, .3, .7); opts.title_y = clamp((y - dragState.oy) / Ht, 0, .92); }
+    else { opts.caption_pos = 'custom'; opts.cap_x = clamp(fx, .3, .7); opts.cap_y = clamp((y - dragState.oy) / Ht, 120 / 1920, 1 - 120 / 1920); }
+    dirty = true; return;
+  }
+  const h = mode === 'clip' ? hitTest(x, y) : null;
+  phone.style.cursor = h ? 'move' : 'pointer';
+  if (h !== hoverWhat) { hoverWhat = h; dirty = true; }
+});
+phone.addEventListener('pointerup', () => {
+  if (!dragState) return;
+  suppressClick = dragState.moved; dragState = null; dirty = true;
+  if (suppressClick) syncControls();
+});
+phone.addEventListener('pointerenter', () => { phoneHover = true; dirty = true; });
+phone.addEventListener('pointerleave', () => { phoneHover = false; if (hoverWhat) { hoverWhat = null; } dirty = true; });
 function tick() {
   requestAnimationFrame(tick);
   if (!W || view !== 'review') return;
@@ -786,7 +928,7 @@ function tick() {
   } else if (mode === 'free') {
     $('#scrubFill').style.width = '0'; $('#timeText').textContent = fmt(vod.currentTime); $('#freeAt').textContent = fmt(vod.currentTime);
   } else { $('#scrubFill').style.width = '0'; $('#timeText').textContent = '0:00 / 0:00'; }
-  if (dirty || !vod.paused) { dirty = false; renderPhone(); }
+  if (dirty || !vod.paused) { dirty = false; renderPhone(); if (!$('#pane-captions').hidden) syncCapActive(); }
   if (!vod.paused) drawHeatSoon();
 }
 requestAnimationFrame(tick);
@@ -875,7 +1017,16 @@ function syncControls() {
   $('#wpl').value = opts.words_per_line; $('#wplOut').textContent = opts.words_per_line;
   $('#model').value = opts.whisper_model; $('#lang').value = opts.language; $('#upper').checked = opts.uppercase;
   $('#hw').checked = opts.hw_encode;
+  $('#capAnim').checked = opts.caption_anim;
+  $('#titleSize').value = opts.title_size; $('#titleSizeOut').textContent = opts.title_size + '%';
+  $$('#titleStyles .tile').forEach(b => b.classList.toggle('on', b.dataset.v === opts.title_style));
+  $$('#capStyles .tile').forEach(b => b.classList.toggle('on', b.dataset.v === opts.caption_style));
+  $$('#titleFont button').forEach(b => b.classList.toggle('on', b.dataset.v === opts.title_font));
+  $$('#capFont button').forEach(b => b.classList.toggle('on', b.dataset.v === opts.caption_font));
+  $$('#capStyles .sw b').forEach(b => styleTileWord(b, b.closest('.tile').dataset.v));
+  $$('#titleStyles .tile').forEach(b => styleTitleTile(b.querySelector('.sw span'), b.dataset.v));
   placeBox(); dirty = true; store.set('opts', opts);
+  if (view === 'review' && !$('#pane-captions').hidden) renderCapEditor();
   if (W && W.kind === 'live' && W.live && W.live.auto_render) liveSettingsSoon();
 }
 let lsTimer = 0; function liveSettingsSoon() { clearTimeout(lsTimer); lsTimer = setTimeout(() => liveSettings({ opts: JSON.parse(JSON.stringify(opts)), model: opts.whisper_model, language: opts.language }), 600); }
@@ -894,6 +1045,130 @@ $('#lang').onchange = e => { opts.language = e.target.value; syncControls(); rel
 $('#upper').onchange = e => { opts.uppercase = e.target.checked; syncControls(); };
 $('#hw').onchange = e => { opts.hw_encode = e.target.checked; syncControls(); };
 function relisten() { if (W && W.kind === 'vod') { W.clips.forEach(c => { c.listened = false; }); listen(); } }
+
+
+/* --- Text tab: title and caption styles, fonts --- */
+const TITLE_STYLES = [['box', 'White box'], ['dark', 'Dark box'], ['accent', 'Color box'], ['outline', 'Outline']];
+const CAP_STYLES = [['pop', 'Pop'], ['box', 'Highlight'], ['karaoke', 'Karaoke'], ['glow', 'Glow'], ['clean', 'Clean']];
+function styleTitleTile(el, v) {
+  Object.assign(el.style, { padding: '3px 6px', borderRadius: '2px', background: 'none', color: '#fff', webkitTextStroke: '0', textShadow: 'none' });
+  if (v === 'box') Object.assign(el.style, { background: '#fff', color: '#141414' });
+  if (v === 'dark') Object.assign(el.style, { background: 'rgba(20,20,20,.92)' });
+  if (v === 'accent') Object.assign(el.style, { background: opts.caption_color, color: '#141414' });
+  if (v === 'outline') Object.assign(el.style, { textShadow: '0 0 2px #000,0 0 2px #000,0 0 2px #000' });
+}
+function styleTileWord(b, v) {
+  const hi = opts.caption_color, sw = b.parentElement;
+  sw.style.textShadow = v === 'clean' ? '1px 2px 3px rgba(0,0,0,.7)' : v === 'glow' ? `0 0 6px ${hi},0 0 2px ${hi}` : '0 0 2px #000,0 0 2px #000';
+  Object.assign(b.style, { background: 'none', color: '#fff', textShadow: '' });
+  if (v === 'pop' || v === 'karaoke') b.style.color = hi;
+  if (v === 'box') Object.assign(b.style, { background: hi, color: '#141414', textShadow: 'none' });
+  if (v === 'glow') b.style.fontSize = '15px';
+  sw.querySelectorAll('i').forEach(i => { i.style.color = v === 'karaoke' ? hi : '#fff'; });
+}
+$('#titleStyles').innerHTML = TITLE_STYLES.map(([v, l]) => `<button class="tile" data-v="${v}"><span class="sw"><span>Title</span></span>${l}</button>`).join('');
+$('#capStyles').innerHTML = CAP_STYLES.map(([v, l]) => `<button class="tile" data-v="${v}"><span class="sw"><i>HI</i><b>YOU</b></span>${l}</button>`).join('');
+const fontButtons = () => Object.entries(FONTS).map(([k, f]) => `<button data-v="${k}" style="font:${fontCss(k, ({ montserrat: 9.5, luckiest: 11, poppins: 12, classic: 11.5 })[k] || 13 * f.scale)}" title="${f.label}">${f.label}</button>`).join('');
+$('#titleFont').innerHTML = fontButtons(); $('#capFont').innerHTML = fontButtons();
+$('#titleStyles').onclick = e => { const b = e.target.closest('.tile'); if (b) { opts.title_style = b.dataset.v; syncControls(); } };
+$('#capStyles').onclick = e => { const b = e.target.closest('.tile'); if (b) { opts.caption_style = b.dataset.v; syncControls(); } };
+$('#titleFont').onclick = e => { const b = e.target.closest('button'); if (b) { opts.title_font = b.dataset.v; syncControls(); } };
+$('#capFont').onclick = e => { const b = e.target.closest('button'); if (b) { opts.caption_font = b.dataset.v; syncControls(); } };
+$('#titleSize').oninput = e => { opts.title_size = +e.target.value; syncControls(); };
+$('#capAnim').onchange = e => { opts.caption_anim = e.target.checked; syncControls(); };
+$('#resetPos').onclick = () => { Object.assign(opts, { title_x: DEFAULTS.title_x, title_y: DEFAULTS.title_y, cap_x: .5, cap_y: .7, caption_pos: 'auto' }); syncControls(); toast('Title and captions are back in their usual places.', '', 2500); };
+
+/* --- Captions tab: fix what Whisper heard --- */
+let capRows = [], capActive = -1, capGroup = Date.now() % 1e6;
+const fmtT = t => { t = Math.max(0, t); const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? '0' : ''}${s.toFixed(1)}`; };
+function renderCapEditor() {
+  const box = $('#capLines'), c = mode === 'clip' ? curClip() : null;
+  capActive = -1;
+  if (!c) { capRows = []; box.innerHTML = '<div class="cap-empty">Pick a clip to see its captions.</div>'; $('#capAdd').disabled = true; $('#capReset').hidden = true; return; }
+  const kept = c.state === 'kept';
+  $('#capAdd').disabled = kept || !opts.captions;
+  $('#capReset').hidden = !c.wordsEdited || kept;
+  capRows = chunksFor(c);
+  if (!opts.captions) { box.innerHTML = '<div class="cap-empty">Captions are turned off. Turn them on in the Text tab.</div>'; return; }
+  if (!capRows.length) {
+    box.innerHTML = `<div class="cap-empty">${!c.listened && status.whisper ? 'Listening to this clip… its captions will show up here in a moment.'
+      : status.whisper ? 'No speech found in this clip. Use Add caption to write your own.' : 'Captions need Whisper, which isn\'t available in this install. You can still add captions by hand.'}</div>`;
+    return;
+  }
+  box.innerHTML = capRows.map((r, i) => `<div class="cline${r.words.some(w => w.edited) ? ' edited' : ''}" data-i="${i}">
+      <span class="ct tnum" title="Jump here">${fmtT(r.start - c.start)}</span>
+      <input data-i="${i}" value="${esc(r.words.map(w => w.word).join(' '))}" spellcheck="true" ${kept ? 'disabled' : ''} aria-label="Caption at ${fmtT(r.start - c.start)}">
+      <button class="del" data-del="${i}" title="Delete this caption" ${kept ? 'hidden' : ''}><svg class="ic"><use href="#i-x"/></svg></button></div>`).join('');
+  syncCapActive(true);
+}
+function editWords(c) {
+  // first edit: keep the original transcript so the edits can be undone
+  if (!c.wordsEdited) { c.wordsOrig = c.words.map(w => ({ ...w })); c.words = c.words.map(w => ({ ...w })); c.wordsEdited = true; }
+}
+function applyCapEdit(i, text) {
+  const c = curClip(); if (!c || c.state === 'kept') return;
+  editWords(c);
+  const row = chunksFor(c)[i]; if (!row) return;
+  const toks = text.trim().split(/\s+/).filter(Boolean);
+  const g = ++capGroup;
+  let fresh;
+  if (toks.length === row.words.length) fresh = row.words.map((w, j) => ({ ...w, word: toks[j], g, edited: w.edited || toks[j] !== w.word }));
+  else {
+    // spread the new words over the line's own time, without running into the next line
+    const after = c.words.find(w => w.start > row.words[row.words.length - 1].start && !row.words.includes(w));
+    const a = row.words[0].start;
+    let b = Math.max(row.words[row.words.length - 1].end, row.end);
+    if (after) b = Math.min(b, after.start - 0.01);
+    b = Math.max(b, a + 0.1);
+    const d = (b - a) / Math.max(1, toks.length);
+    fresh = toks.map((t, j) => ({ start: +(a + j * d).toFixed(3), end: +(a + (j + 1) * d - 0.01).toFixed(3), word: t, g, edited: true }));
+  }
+  c.words = c.words.filter(w => !row.words.includes(w)).concat(fresh).sort((x, y) => x.start - y.start);
+  renderCapEditor(); dirty = true;
+}
+function seekClip(t) { const c = curClip(); if (!c) return; vod.pause(); try { vod.currentTime = clamp(t, c.start, c.end - 0.05); } catch {} dirty = true; }
+function syncCapActive(force) {
+  if (!capRows.length) return;
+  const t = vod.currentTime, i = capRows.findIndex(r => t >= r.start && t < r.end);
+  if (i === capActive && !force) return;
+  capActive = i;
+  $$('#capLines .cline').forEach(el => el.classList.toggle('on', +el.dataset.i === i));
+  const el = $(`#capLines .cline[data-i="${i}"]`);
+  if (el && !$('#capLines').contains(document.activeElement)) el.scrollIntoView({ block: 'nearest' });
+}
+$('#capLines').addEventListener('focusin', e => { const inp = e.target.closest('input'); if (inp && capRows[+inp.dataset.i]) seekClip(capRows[+inp.dataset.i].start + 0.01); });
+$('#capLines').addEventListener('click', e => {
+  const d = e.target.closest('[data-del]'); if (d) { applyCapEdit(+d.dataset.del, ''); return; }
+  const r = e.target.closest('.cline'); if (r && !e.target.closest('input')) seekClip(capRows[+r.dataset.i].start + 0.01);
+});
+$('#capLines').addEventListener('keydown', e => {
+  const inp = e.target.closest('input'); if (!inp) return;
+  if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+  else if (e.key === 'Escape') { inp.value = capRows[+inp.dataset.i].words.map(w => w.word).join(' '); inp.blur(); }
+});
+$('#capLines').addEventListener('change', e => {
+  const inp = e.target.closest('input'); if (!inp) return;
+  const row = capRows[+inp.dataset.i]; if (!row || inp.value.trim() === row.words.map(w => w.word).join(' ')) return;
+  applyCapEdit(+inp.dataset.i, inp.value);
+});
+$('#capAdd').onclick = () => {
+  const c = curClip(); if (!c || c.state === 'kept') return;
+  editWords(c);
+  let t = clamp(vod.currentTime, c.start, c.end - 1);
+  const inRow = chunksFor(c).find(r => t >= r.start && t < r.end); if (inRow) t = Math.min(inRow.end, c.end - 0.4);
+  const nextW = c.words.find(w => w.start > t + 0.01);
+  const len = Math.max(0.4, Math.min(1.2, (nextW ? nextW.start - 0.01 : c.end) - t)), g = ++capGroup;
+  const nw = [{ start: +t.toFixed(3), end: +(t + len / 2).toFixed(3), word: 'New', g, edited: true }, { start: +(t + len / 2).toFixed(3), end: +(t + len).toFixed(3), word: 'caption', g, edited: true }];
+  c.words = c.words.concat(nw).sort((x, y) => x.start - y.start);
+  renderCapEditor(); dirty = true;
+  const i = capRows.findIndex(r => r.words.includes(c.words.find(w => w === nw[0] || (w.start === nw[0].start && w.word === 'New'))));
+  const inp = $(`#capLines input[data-i="${i}"]`); if (inp) { inp.focus(); inp.select(); }
+};
+$('#capReset').onclick = () => {
+  const c = curClip(); if (!c || !c.wordsEdited) return;
+  c.words = c.wordsOrig || []; c.wordsEdited = false; delete c.wordsOrig;
+  renderCapEditor(); dirty = true; toast('Captions are back to what Whisper heard.', '', 2500);
+};
 
 const frame = $('#frame'), box = $('#box'), picker = $('#picker');
 let frameKey = '';

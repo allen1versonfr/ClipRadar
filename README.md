@@ -3,9 +3,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ali1qbal/vodclipper/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/ali1qbal/vodclipper?style=flat-square&label=release&color=4c8dff"></a>
-  <a href="https://github.com/ali1qbal/vodclipper/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/ali1qbal/vodclipper/build.yml?branch=main&style=flat-square&label=build"></a>
+  <a href="https://github.com/ali1qbal/vodclipper/releases/latest"><img alt="Version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-4c8dff?style=flat-square"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
+  <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-keep%20a%20changelog-1f2329?style=flat-square"></a>
 </p>
 
@@ -33,7 +33,11 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 - **Live clipping.** Point it at a channel that's on air, and every strong moment shows up for review a few seconds after it happens. There's no limit on clips, and disk use stays flat.
 - **Review in TikTok format.** Each suggestion plays in a phone-sized preview with its layout, title and word-by-word captions. Keep it with <kbd>Enter</kbd>, skip it with <kbd>X</kbd>, and move between clips with <kbd>↑</kbd> <kbd>↓</kbd>.
 - **Auto titles and captions.** Whisper transcribes each clip. The title is the best line said near the peak, or one that fits the mood, and every clip gets a post caption with hashtags.
-- **Three vertical layouts:** facecam above gameplay, full crop, or blurred fit. Choose the caption position, highlight colour, size and words per line.
+- **Edit like CapCut.** Drag the title and captions anywhere on the frame, fix any caption line by typing over it, and add your own captions.
+  - Five caption styles: Pop, Highlight, Karaoke, Glow and Clean.
+  - Four title styles.
+  - Eight bundled fonts, including Montserrat, Anton, Bebas Neue and Bangers.
+- **Three vertical layouts:** facecam above gameplay, full crop, or blurred fit.
 - **Background render queue.** Clips render to 1080×1920 MP4 on your GPU's encoder (NVIDIA, Intel or AMD), falling back to the CPU automatically.
 - **Post to TikTok** through TikTok's official Content Posting API, either directly or to your drafts. Nothing is ever posted without you clicking Post.
 - **Updates itself.** When a new release is posted on GitHub, VodClipper offers it in the app. One click downloads it, installs it and reopens the app.
@@ -43,12 +47,16 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/live.png" alt="Live mode: moments appear while the stream is on air"><p align="center"><sub><b>Live mode:</b> moments appear while the stream is still on air</sub></p></td>
-    <td width="50%"><img src="docs/images/format.png" alt="Format tab: layout, facecam crop and caption style"><p align="center"><sub><b>Format:</b> layout, facecam crop and caption style</sub></p></td>
+    <td width="50%"><img src="docs/images/text.png" alt="Text tab: caption and title styles and fonts, with captions dragged into place"><p align="center"><sub><b>Text:</b> styles, fonts and drag-to-place text</sub></p></td>
+    <td width="50%"><img src="docs/images/captions.png" alt="Captions tab: fixing a caption line by typing"><p align="center"><sub><b>Captions:</b> fix what was heard, line by line</sub></p></td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/images/live.png" alt="Live mode: moments appear while the stream is on air"><p align="center"><sub><b>Live mode:</b> moments appear while the stream is still on air</sub></p></td>
     <td width="50%"><img src="docs/images/exports.png" alt="Exports with the TikTok post form"><p align="center"><sub><b>Exports:</b> rendered clips and the TikTok post form</sub></p></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/images/home.png" alt="Home: start from a past broadcast or a live channel"><p align="center"><sub><b>Home:</b> start from a past broadcast or a live channel</sub></p></td>
+    <td width="50%"><img src="docs/images/settings.png" alt="Settings: TikTok account, tools and storage"><p align="center"><sub><b>Settings:</b> TikTok, tools, storage and updates</sub></p></td>
   </tr>
 </table>
 
@@ -71,7 +79,7 @@ Prefer not to install? Use [VodClipper-portable.zip](https://github.com/ali1qbal
 |---|---|
 | **Past broadcast** | Paste a VOD link (`twitch.tv/videos/…`) or browse to a recording on your PC, then press **Find clips**. |
 | **Live channel** | Enter a channel name or `twitch.tv/name` and press **Start live clipping**. The first minute or two is spent learning what "normal" sounds like for the stream. |
-| **Review** | Keep (<kbd>Enter</kbd>) or skip (<kbd>X</kbd>) each suggestion. Trim it, edit the title (<kbd>T</kbd> cycles through ideas) and set the layout in the Format tab. During a live session, <kbd>C</kbd> clips the last 30 seconds. |
+| **Review** | Keep (<kbd>Enter</kbd>) or skip (<kbd>X</kbd>) each suggestion. Trim it and edit the title (<kbd>T</kbd> cycles through ideas). Fix captions in the **Captions** tab, pick styles and fonts in **Text**, and set the layout in **Layout**. Drag the title or captions on the preview to move them. During a live session, <kbd>C</kbd> clips the last 30 seconds. |
 | **Exports** | Kept clips render here, named after their titles, with the post caption saved next to them as `.txt`. Select one to watch it or post it. |
 
 Clips are saved to `Videos\VodClipper`. The full guide ships with the app as `README.txt`, and you can also read it in [docs/user-guide.txt](docs/user-guide.txt).
