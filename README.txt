@@ -17,7 +17,7 @@ UNINSTALL
   Any of these:
     - Settings > Apps > Installed apps > VodClipper > Uninstall
     - Start menu > Uninstall VodClipper
-    - In VodClipper: More options > Storage > Uninstall
+    - In VodClipper: Settings > About > Uninstall
   It removes the app, its downloaded tools, caption models and logs, then asks
   whether to delete your VODs and clips too (it keeps them unless you say Yes).
 
@@ -27,40 +27,70 @@ BUILD IT YOURSELF (optional)
   instead, double-click build_exe.bat.
 
 USE
-  1. Open VodClipper. It opens in its own window.
-     If ffmpeg or the downloaders are missing it offers a "Download them" button.
-  2. Paste a VOD link (https://www.twitch.tv/videos/123456789), or press
-     Browse to pick a video on your PC, then press Find clips. Recent VODs
-     appear on the start screen so you can jump back in without re-downloading.
-  3. Review: the suggested clips line up on the left and play one at a time
-     in the middle, already in TikTok format (your layout, captions and title,
-     live). For each one:
-       Keep and render (Enter)   sends it to the render queue
-       Skip (X)                  sets it aside (see the Skipped tab)
-       Up / Down arrows          previous / next clip, like scrolling TikTok
-     Trim with the -5s/+5s buttons, or play to the exact spot and press Here.
-     Click anywhere on the hype timeline to preview any moment and make a clip
-     there. Moving the Clips, Length or Chat vs audio sliders re-ranks instantly.
-  4. Auto titles: VodClipper listens to each clip (Whisper) and reads how chat
-     reacted, then writes a title: usually the best line you said near the
-     peak, otherwise one that fits the vibe (funny, hype, shock, fail...).
-     Press New title (T) to cycle through other ideas, or type your own.
-     Each clip also gets a post caption with hashtags; Copy caption puts it
-     on your clipboard. Swear words are masked in titles.
-  5. Format: the right-hand Layout tab sets the layout:
-       Cam + game  facecam on top, gameplay below (drag a box over your cam)
-       Full crop   gameplay cropped to fill the screen
-       Blur fit    the whole 16:9 frame over a blurred background
-     The Captions tab sets caption style, size, accuracy and language.
-  6. Render queue: kept clips render one after another in the background
-     while you keep reviewing. Press Watch on a finished one to play the real
-     file in the phone. Files are named after their titles, with the post
-     caption saved next to each as a .txt. They're in your Videos\VodClipper
-     folder (Open folder button).
+  VodClipper has four sections in the left sidebar: Home, Review, Exports and
+  Settings. The status bar at the bottom shows what's running in the background.
+
+  Home: start a project
+    Past broadcast   paste a VOD link (twitch.tv/videos/...) or Browse to a video
+                     on your PC, then Find clips.
+    Live channel     enter a channel name (or twitch.tv/name) and press Start live
+                     clipping while the stream is on air.
+
+  Review: decide what to keep
+    The suggested clips are listed on the left. The middle shows the selected
+    clip exactly as the TikTok will look (layout, title, word-by-word captions).
+    The inspector on the right has the clip's title, post caption and trim
+    controls (Clip tab), and the layout and caption style (Format tab).
+    The hype timeline along the bottom shows the whole stream; click a
+    highlighted range to jump to that clip, or (for VODs) click anywhere else to
+    preview that moment and make a clip there.
+      Keep and render (Enter)   renders it in the background
+      Skip (X)                  sets it aside (Skipped tab)
+      Up / Down arrows          previous / next clip
+      Space play/pause, T new title, M mute, Left/Right seek, C clip (live)
+
+  Live mode
+    VodClipper records the stream in the background and reads its chat. Each
+    time chat and the audio spike together it cuts a moment, writes a title and
+    adds it to Review; there's no limit on how many. The first minute or two is
+    spent learning what "normal" sounds like for the stream.
+      Clip last 30s (C)   grab something yourself
+      Sensitivity         low = only big moments, high = more clips
+      Auto-render         render every new moment as it's found
+      Stop                stop recording; you can keep reviewing afterwards
+    Only the last 15 minutes of raw stream are kept on disk; moments are cut out
+    as they happen, so long streams don't fill your drive. If the connection
+    drops it reconnects, and it stops by itself when the stream ends.
+
+  Exports: finished clips and posting
+    Every kept clip renders here, named after its title, with its post caption
+    saved next to it as a .txt. Select one to watch it and post it to TikTok.
+
+  Auto titles
+    VodClipper listens to each clip (Whisper) and reads how chat reacted, then
+    writes a title: usually the best line said near the peak, otherwise one that
+    fits the mood (funny, hype, surprise, fail, wholesome). The refresh button
+    next to the title (or T) cycles through other ideas, and you can type your
+    own. Each clip also gets a post caption with hashtags, which you can edit.
+
+POSTING TO TIKTOK
+  TikTok only lets registered apps post, so you set up your own (free) TikTok
+  developer app once. Settings > TikTok walks you through it:
+    1. Create an app at developers.tiktok.com.
+    2. Add the Login Kit and Content Posting API products; turn on Direct Post.
+    3. In Login Kit, pick the Desktop platform and add the redirect URI shown
+       in Settings (http://127.0.0.1:*/callback/).
+    4. Paste the Client key and Client secret into Settings and press
+       Save and connect. Sign in to TikTok in the browser window that opens.
+  Then, in Exports, select a clip, check the caption, choose who can view it,
+  and press Post (or Send to drafts to finish posting in the TikTok app).
+  Until TikTok reviews your developer app, direct posts can only be private
+  ("Only me"); that's TikTok's rule for new apps. Drafts work either way.
+  VodClipper never posts on its own; every post is a click you make.
 
 FREEING UP SPACE
-  Downloaded VODs are big (several GB per stream). The start screen and
-  More options > Storage show how much space VodClipper is using:
+  Downloaded VODs are big (several GB per stream). Settings > Storage shows
+  how much space VodClipper is using:
     Delete VODs       removes downloaded streams (and their chat/thumbnails).
                       Your rendered clips are kept. Videos of your own that you
                       opened with Browse are never deleted.
@@ -70,12 +100,12 @@ FREEING UP SPACE
 HOW CLIPS ARE PICKED
   - Chat: sudden surges in messages, weighted for KEKW, LUL, POG, "clip it",
     ????? and similar. Chat reacts a few seconds late, so it's shifted back
-    (More options > Chat delay).
+    (Home > Past broadcast > Advanced > Chat delay).
   - Audio: moments much louder than the few minutes around them. Twitch's
     muted (DMCA) sections are ignored instead of counted as boring.
   - With no chat log it ranks by audio only.
   - Local video? Put its chat next to it as <videoname>.chat.json, or choose
-    the file under More options. TwitchDownloader chat JSON works.
+    the file under Home > Past broadcast > Advanced. TwitchDownloader chat JSON works.
 
 CAPTIONS
   Made with Whisper. The first render with captions downloads the model
@@ -85,9 +115,9 @@ CAPTIONS
   and falls back to the CPU on its own.
 
 TROUBLESHOOTING
-  - Twitch downloads suddenly fail: More options > Update downloader.
+  - Twitch downloads suddenly fail: Settings > Downloads and tools > Update downloader.
     No rebuild needed.
-  - Subscriber-only VOD: More options > Sign in with > the browser where you're
+  - Subscriber-only VOD: Settings > Downloads and tools > Sign in to Twitch with > the browser where you're
     logged in to Twitch (close that browser first). Firefox works best.
   - The window doesn't open: VodClipper falls back to your web browser.
     Installing Microsoft's "WebView2 Runtime" brings the app window back.

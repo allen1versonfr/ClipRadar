@@ -179,13 +179,22 @@ def _project_dirs(workroot: str) -> list:
 
 
 def _vod_files(pdir: str) -> list:
-    """Downloaded video files in a project folder, including half-finished downloads."""
+    """Downloaded video in a project folder: the VOD (incl. half-finished downloads), or for a live
+    session its recording buffer and the cut-out moments."""
     out = []
     for f in os.listdir(pdir):
         p = os.path.join(pdir, f)
         if os.path.isfile(p) and (f.startswith("vod.") or f.startswith("chat_raw")):
             out.append(p)
+    for sub in ("segments", "moments"):
+        d = os.path.join(pdir, sub)
+        if os.path.isdir(d):
+            out += [os.path.join(d, f) for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))]
     return out
+
+
+def _has_vod(pdir: str) -> bool:
+    return any(os.path.splitext(f)[1].lower() in VIDEO_EXTS | {".ts"} for f in _vod_files(pdir))
 
 
 def _clip_files(pdir: str) -> list:
@@ -215,15 +224,15 @@ def _dir_size(d: str) -> int:
 
 def storage_summary(workroot: str) -> dict:
     vods, clips = [], []
-    other = 0
+    other, vod_count = 0, 0
     for pdir in _project_dirs(workroot):
         v = [f for f in _vod_files(pdir) if not f.endswith(".json")]
         vods += v
+        vod_count += 1 if _has_vod(pdir) else 0
         clips += [f for f in _clip_files(pdir) if f.lower().endswith(".mp4")]
         other += _dir_size(os.path.join(pdir, "thumbs"))
     return {
-        "vods": {"count": len([f for f in vods if os.path.splitext(f)[1].lower() in VIDEO_EXTS]),
-                 "bytes": _size(vods)},
+        "vods": {"count": vod_count, "bytes": _size(vods)},
         "clips": {"count": len(clips), "bytes": _size(clips)},
         "other_bytes": other,
         "workroot": workroot,
@@ -254,8 +263,7 @@ def _remove(paths_: list) -> tuple:
 
 def _prune(pdir: str):
     """Remove a project folder once it holds neither a VOD nor any clips."""
-    has_vod = any(os.path.splitext(f)[1].lower() in VIDEO_EXTS for f in _vod_files(pdir))
-    if not has_vod and not _clip_files(pdir):
+    if not _has_vod(pdir) and not _clip_files(pdir):
         shutil.rmtree(pdir, ignore_errors=True)
     else:
         tdir = os.path.join(pdir, "tiktok")
@@ -268,7 +276,7 @@ def delete_vods(workroot: str) -> dict:
     files, count = [], 0
     for pdir in _project_dirs(workroot):
         v = _vod_files(pdir)
-        count += len([f for f in v if os.path.splitext(f)[1].lower() in VIDEO_EXTS])
+        count += 1 if _has_vod(pdir) else 0
         files += v
         chat = os.path.join(pdir, "chat.json")
         if os.path.isfile(chat):
@@ -278,9 +286,10 @@ def delete_vods(workroot: str) -> dict:
             files += [os.path.join(tdir, f) for f in os.listdir(tdir)]
     freed, failed = _remove(files)
     for pdir in _project_dirs(workroot):
-        tdir = os.path.join(pdir, "thumbs")
-        if os.path.isdir(tdir) and not os.listdir(tdir):
-            os.rmdir(tdir)
+        for sub in ("thumbs", "segments", "moments"):
+            d = os.path.join(pdir, sub)
+            if os.path.isdir(d) and not os.listdir(d):
+                os.rmdir(d)
         _prune(pdir)
     return {"deleted": count, "freed": freed, "failed": failed}
 
@@ -310,6 +319,8 @@ def recent_projects(workroot: str, limit: int = 8) -> list:
         except Exception:
             continue
         src = m.get("source", "")
+        if m.get("live"):
+            continue
         if not src or (m.get("local") and not os.path.exists(src)):
             continue
         if not m.get("local") and not _video_in(os.path.join(workroot, d)):
@@ -854,21 +865,37 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
     if info["has_audio"]:
         loud = audio_loudness(video, dur, progress, check)[:n]
         loud = np.pad(loud, (0, max(0, n - len(loud))), constant_values=-90)
+    else:
+        log("No audio track found, ranking by chat only.")
+        loud = None
+    if len(chat) > 20:
+        log(f"Scoring {len(chat):,} chat messages...")
+    an = score_signals(loud, chat, n, dur, chat_delay, chat_weight_pct)
+    if loud is not None and (loud < -75).mean() > 0.2:
+        log(f"{int((loud < -75).mean() * 100)}% of the audio is silent or muted.")
+    progress(1.0)
+    return an
+
+
+def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: float,
+                  chat_delay: float = 6.0, chat_weight_pct: float = 60) -> "Analysis":
+    """Per-second hype score from loudness (dB per second) and chat. Shared by VODs and live mode."""
+    if loud is not None and len(loud):
+        loud = np.asarray(loud, dtype=np.float32)[:n]
+        loud = np.pad(loud, (0, max(0, n - len(loud))), constant_values=-90)
         # Twitch mutes DMCA'd parts: treat dead silence as "no info" rather than "boring"
         muted = loud < -75
         short = _rolling(loud, 4, "mean")
         base = _rolling(np.where(muted, np.median(loud[~muted]) if (~muted).any() else -60, loud), 180, "median")
         audio = np.clip(_robust_z(short - base), -3, 8)
         audio[muted] = np.minimum(audio[muted], 0)
-        if muted.mean() > 0.2:
-            log(f"{int(muted.mean() * 100)}% of the audio is silent or muted.")
+        has_audio = True
     else:
-        log("No audio track found, ranking by chat only.")
         audio = np.zeros(n, dtype=np.float32)
+        has_audio = False
 
     has_chat = len(chat) > 20
     if has_chat:
-        log(f"Scoring {len(chat):,} chat messages...")
         rate = np.zeros(n, dtype=np.float32)
         for t, msg in chat:
             s = int(t - chat_delay)  # chat reacts a few seconds late; shift it back
@@ -882,9 +909,8 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
     else:
         chat_z = np.zeros(n, dtype=np.float32)
 
-    an = Analysis(dur, chat_z, audio, has_chat, info["has_audio"])
+    an = Analysis(duration, chat_z, audio, has_chat, has_audio)
     an.combine(chat_weight_pct)
-    progress(1.0)
     return an
 
 
@@ -1295,7 +1321,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             cmd += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "192k",
                     "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000", "-ar", "48000"]
         cmd += [*enc_args, "-pix_fmt", "yuv420p", "-r", str(o.fps), "-movflags", "+faststart",
-                "-metadata", "comment=Made with VodClipper", tmp_name]
+                tmp_name]
         p = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
                              creationflags=CREATE_NO_WINDOW)

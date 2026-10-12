@@ -107,6 +107,22 @@ jobs:
           Start-Sleep 3; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           if (-not $ok) { Write-Host "::error title=FAIL app server::did not start"; exit 1 }
 
+      - name: End-to-end test (live clipping + TikTok posting)
+        shell: pwsh
+        run: |
+          python tests/e2e.py --app "dist/VodClipper/VodClipper.exe" --ffmpeg tools/ffmpeg.exe --out "$env:RUNNER_TEMP\e2e.json" --model tiny
+          $code = $LASTEXITCODE
+          if (-not (Test-Path "$env:RUNNER_TEMP\e2e.json")) { Write-Host "::error title=e2e::no report"; exit 1 }
+          $r = Get-Content "$env:RUNNER_TEMP\e2e.json" -Raw | ConvertFrom-Json
+          $passed = @($r.checks | Where-Object { $_.ok })
+          Write-Host "::notice title=E2E passed ($($passed.Count) of $($r.checks.Count))::$(($passed | ForEach-Object { $_.name }) -join ', ')"
+          foreach ($c in $r.checks) {
+            $d = ($c.detail -replace "`r?`n", " | ")
+            if (-not $c.ok) { Write-Host "::error title=FAIL $($c.name)::$d" }
+            elseif ($c.name -match "moment|titles|direct post|drafts|encrypted|auto-render") { Write-Host "::notice title=$($c.name)::$d" }
+          }
+          exit $code
+
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: |

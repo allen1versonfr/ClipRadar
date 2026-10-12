@@ -61,8 +61,8 @@ def run_window(url: str) -> bool:
         return False
 
     window = webview.create_window(
-        "VodClipper", url, width=1440, height=920, min_size=(900, 620),
-        background_color="#141A2E", text_select=True)
+        "VodClipper", url, width=1480, height=920, min_size=(1100, 700),
+        background_color="#141518", text_select=True)
 
     def native_pick(kind: str) -> str:
         types = (("Chat logs (*.json;*.gz)", "All files (*.*)") if kind == "chat" else

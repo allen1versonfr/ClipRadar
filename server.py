@@ -32,11 +32,13 @@ from urllib.parse import urlparse, parse_qs, unquote
 import numpy as np
 
 import engine
+import live
 import paths
+import tiktok
 import titles
 import tools_setup
 
-VERSION = "1.4"
+VERSION = "2.0"
 HERE = paths.RES_DIR
 WORKROOT = str(paths.WORKROOT)
 PORT = int(os.environ.get("VODCLIPPER_PORT", "7860"))
@@ -52,6 +54,8 @@ def shutdown_all(wait: float = 6.0):
     for j in list(jobs.values()):
         if j["status"] == "running":
             j["cancel"] = True
+    for sess in list(live_sessions.values()):
+        threading.Thread(target=sess.stop, daemon=True).start()
     for it in list(queue):
         it["cancel"] = True
         if it["status"] == "queued":
@@ -176,7 +180,7 @@ def clip_dicts(pid: str, clips: list) -> list:
     for c in clips:
         d = asdict(c) if not isinstance(c, dict) else dict(c)
         t = d["start"] + (d["end"] - d["start"]) * 0.6
-        name = f"t_{int(t)}.jpg"
+        name = f"t_{pr.get('thumb_prefix', '')}{int(t)}.jpg"
         path = os.path.join(tdir, name)
         if not os.path.exists(path):
             try:
@@ -184,6 +188,8 @@ def clip_dicts(pid: str, clips: list) -> list:
             except Exception:
                 pass
         d["thumb"] = f"/files/{pid}/thumbs/{name}"
+        d["pid"] = pid
+        d["vod"] = f"/vod/{pid}"
         d.setdefault("words", [])
         d.setdefault("listened", False)
         # quick first title from chat alone; replaced once the clip has been listened to
@@ -288,7 +294,7 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
         return [w for w in tx["words"] if a <= w["start"] < b]
 
 
-def start_listening(pid: str, order: list, model: str, lang: str):
+def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
     """Background job: transcribe each suggested clip and give it a proper title."""
     pr = projects[pid]
     old = jobs.get(pr.get("listen_job", ""))
@@ -321,10 +327,19 @@ def start_listening(pid: str, order: list, model: str, lang: str):
                 except Exception as e:
                     job_logger(job)(f"Couldn't transcribe clip: {str(e)[:160]}")
             used = {c["title"].lower() for c in pr["clips"] if c is not d and c.get("listened")}
+            sess = live_sessions.get(pr.get("live", ""))
+            if sess:   # live moments are separate projects; don't repeat titles across the stream
+                used |= {projects[m]["clips"][0]["title"].lower() for m in sess.moments
+                         if m != pid and m in projects and projects[m]["clips"] and projects[m]["clips"][0].get("listened")}
             d["words"] = words
             _title_clip(pr, d, words, used)
             d["listened"] = True
             job["progress"] = (n + 1) / max(1, len(todo))
+        if on_done:
+            try:
+                on_done(pid)
+            except Exception:
+                traceback.print_exc()
         return {"ok": True}
     run_job(job, go)
     return job
@@ -363,7 +378,25 @@ def _ropts(o: dict) -> engine.RenderOpts:
 
 
 def queue_public(it: dict) -> dict:
-    return {k: v for k, v in it.items() if k not in ("opts", "cancel", "path")}
+    d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path")}
+    d["duration"] = round(it["end"] - it["start"], 2)
+    return d
+
+
+def queue_add(pid: str, c: dict, opts: dict) -> dict:
+    start_, end_ = float(c["start"]), float(c["end"])
+    if end_ - start_ < 1:
+        raise RuntimeError("That clip is too short.")
+    it = {"id": uuid.uuid4().hex[:8], "pid": pid, "clip_id": c.get("id"), "rank": int(c.get("rank") or 0),
+          "start": start_, "end": end_, "title": str(c.get("title") or "")[:120],
+          "post": str(c.get("post") or "")[:2200], "thumb": c.get("thumb", ""),
+          "source_title": projects[pid]["title"] if pid in projects else "",
+          "opts": dict(opts or {}), "status": "queued", "progress": 0.0, "step": "Waiting",
+          "error": "", "cancel": False, "created": time.time(), "tiktok": None}
+    with queue_lock:
+        queue.append(it)
+    queue_wake.set()
+    return it
 
 
 def queue_busy() -> bool:
@@ -392,6 +425,7 @@ def _render_item(it: dict):
         it["progress"] = round(max(0.0, min(1.0, x)), 3)
 
     words = None
+    it["source_title"] = pr["title"]
     if ro.captions and pr["info"]["has_audio"] and engine.whisper_available():
         it["step"] = "Listening for captions"
         abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check)
@@ -442,6 +476,66 @@ def queue_worker():
                 it["error"] = (str(e) or type(e).__name__)[:400]
                 if not isinstance(e, RuntimeError):
                     traceback.print_exc()
+
+
+# --------------------------------------------------------------------------
+# live mode
+# --------------------------------------------------------------------------
+
+live_sessions: dict = {}
+SERVER_PORT = [PORT]
+
+
+def live_active():
+    return next((s for s in live_sessions.values() if s.status in ("starting", "recording", "reconnecting")), None)
+
+
+def live_on_moment(sess, m: dict):
+    """A live session found a moment: register it as a small project, title it, maybe render it."""
+    mid = uuid.uuid4().hex[:8]
+    pr = {"video": m["video"], "chat": m["chat"], "title": f"{sess.title}, moment {m['number']}",
+          "workdir": sess.dir, "analysis": m["analysis"], "info": engine.probe(m["video"]), "clips": [],
+          "chat_delay": sess.chat_delay, "source": sess.source, "clips_ver": 0, "live": sess.id,
+          "thumb_prefix": f"m{m['number']}_"}
+    projects[mid] = pr
+    clip = m["clip"]
+    clip.id = m["number"]
+    pr["clips"] = clip_dicts(mid, [clip])
+    d = pr["clips"][0]
+    d.update(moment=m["number"], manual=m["manual"], live=sess.id, created=time.time(),
+             at=round(m["offset"] + clip.peak, 1), abs_start=round(m["offset"] + clip.start, 1),
+             abs_end=round(m["offset"] + clip.end, 1))
+    sess.moments.append(mid)
+    extra = sess.extra
+
+    def done(_pid):
+        if extra.get("auto_render"):
+            c = dict(d, rank=m["number"])
+            c["post"] = d.get("post", "")
+            queue_add(mid, c, extra.get("opts") or {})
+            d["auto_queued"] = True
+    start_listening(mid, [d["id"]], extra.get("model") or "small", extra.get("language") or "", on_done=done)
+
+
+def live_view(sess) -> dict:
+    v = sess.public()
+    v["clips"] = [projects[mid]["clips"][0] for mid in sess.moments if mid in projects and projects[mid]["clips"]]
+    v["auto_render"] = bool(sess.extra.get("auto_render"))
+    v["listening"] = any(j["status"] == "running" and j["kind"] == "listen" for j in
+                         (jobs.get(projects[mid].get("listen_job", "")) or {"status": "", "kind": ""}
+                          for mid in sess.moments if mid in projects))
+    return v
+
+
+def _callback_page(ok: bool, msg: str) -> bytes:
+    color = "#3ec28f" if ok else "#f0565a"
+    head = "TikTok connected" if ok else "TikTok sign-in didn't finish"
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>VodClipper</title>
+<style>body{{margin:0;height:100vh;display:grid;place-items:center;background:#111214;color:#ececee;
+font:15px "Segoe UI",system-ui,sans-serif}}div{{max-width:420px;padding:28px;border:1px solid #2a2b31;border-radius:8px;
+background:#17181b}}h1{{font-size:18px;margin:0 0 8px;display:flex;gap:10px;align-items:center}}
+h1 i{{width:10px;height:10px;border-radius:50%;background:{color};display:inline-block}}p{{color:#a4a7b0;margin:0}}</style>
+</head><body><div><h1><i></i>{head}</h1><p>{msg}</p></div></body></html>""".encode("utf-8")
 
 
 # --------------------------------------------------------------------------
@@ -550,7 +644,8 @@ class Handler(BaseHTTPRequestHandler):
             base = os.path.realpath(HERE / "ui")
             path = os.path.realpath(os.path.join(base, p[4:]))
             if path.startswith(base + os.sep):
-                return self._send_file(path, cache=True)
+                # no long caching: after an update the window must pick up the new app.js/app.css
+                return self._send_file(path, cache=path.endswith((".svg", ".ico", ".png")))
             return self._err("forbidden", 403)
         if p == "/api/status":
             ts = tools_setup.status()
@@ -565,12 +660,32 @@ class Handler(BaseHTTPRequestHandler):
                 "frozen": paths.FROZEN,
                 "version": VERSION,
                 "running": busy(),
+                "live": (live_active().id if live_active() else ""),
             })
         if p == "/api/ping":
             last_ping[0] = time.time()
             return self._json({"ok": True})
         if p == "/api/recent":
             return self._json(engine.recent_projects(WORKROOT))
+        m = re.fullmatch(r"/api/live/(\w+)", p)
+        if m:
+            sess = live_sessions.get(m.group(1))
+            return self._json(live_view(sess)) if sess else self._err("That live session is gone.", 404)
+        if p == "/api/tiktok":
+            return self._json(tiktok.status())
+        if p == "/callback/" or p == "/callback":
+            params = {k: v[0] for k, v in q.items()}
+            try:
+                who = tiktok.handle_callback(params)
+                page = _callback_page(True, f"Signed in{' as ' + who if who else ''}. You can close this tab and go back to VodClipper.")
+            except tiktok.TikTokError as e:
+                page = _callback_page(False, str(e))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(page)))
+            self.end_headers()
+            self.wfile.write(page)
+            return
         if p == "/api/queue":
             with queue_lock:
                 items = [queue_public(it) for it in queue]
@@ -602,7 +717,7 @@ class Handler(BaseHTTPRequestHandler):
                 t = float(q.get("t", ["0"])[0])
             except ValueError:
                 t = 0.0
-            out = os.path.join(pr["workdir"], "thumbs", f"frame_{int(t)}.jpg")
+            out = os.path.join(pr["workdir"], "thumbs", f"frame_{pr.get('thumb_prefix', '')}{int(t)}.jpg")
             os.makedirs(os.path.dirname(out), exist_ok=True)
             if not os.path.exists(out):
                 try:
@@ -660,6 +775,8 @@ class Handler(BaseHTTPRequestHandler):
             what = body.get("what")
             if what not in ("vods", "clips"):
                 return self._err("Unknown delete request.")
+            if live_active():
+                return self._err("Stop live clipping first, then delete.", 409)
             if busy():
                 return self._err("Wait for the current download or render to finish (or cancel it), then try again.", 409)
             # stop background listening so it isn't reading a VOD while it's deleted
@@ -697,6 +814,111 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
             threading.Timer(0.5, lambda: shutdown_hook[0]()).start()
             return
+
+        if p == "/api/live/start":
+            if live_active():
+                return self._err("Live clipping is already running. Stop it first.", 409)
+            if not engine.which("ffmpeg"):
+                return self._err("ffmpeg is missing. Download the tools first.")
+            src = (body.get("source") or "").strip()
+            sid = uuid.uuid4().hex[:8]
+            try:
+                sess = live.LiveSession(
+                    sid, src, WORKROOT, length=float(body.get("length", 30)),
+                    sensitivity=body.get("sensitivity", "normal"), chat_delay=float(body.get("chat_delay", 6)),
+                    chat_weight=float(body.get("chat_weight", 60)), max_height=int(body.get("max_height", 1080)),
+                    cookies=body.get("cookies") or "", warmup=float(body.get("warmup", 90)),
+                    buffer_minutes=float(body.get("buffer_minutes", 15)),
+                    on_moment=live_on_moment, log=lambda m: print("  [live] " + m, flush=True))
+            except ValueError as e:
+                return self._err(str(e))
+            if body.get("chat_channel"):
+                sess.channel = live.parse_channel(body["chat_channel"]) or sess.channel
+            sess.extra = {"auto_render": bool(body.get("auto_render")), "opts": dict(body.get("opts") or {}),
+                          "model": body.get("model") or "small", "language": body.get("language") or ""}
+            live_sessions[sid] = sess
+            sess.start()
+            return self._json(live_view(sess))
+
+        m = re.fullmatch(r"/api/live/(\w+)/(stop|clip|settings)", p)
+        if m:
+            sess = live_sessions.get(m.group(1))
+            if not sess:
+                return self._err("That live session is gone.", 404)
+            act = m.group(2)
+            if act == "stop":
+                threading.Thread(target=sess.stop, daemon=True).start()
+            elif act == "clip":
+                if sess.status not in ("recording", "reconnecting"):
+                    return self._err("Recording hasn't started yet." if sess.status == "starting" else "The stream isn't recording.")
+                sess.clip_now(float(body.get("seconds", 30)))
+            else:
+                if "auto_render" in body:
+                    sess.extra["auto_render"] = bool(body["auto_render"])
+                if "opts" in body:
+                    sess.extra["opts"] = dict(body["opts"] or {})
+                if body.get("sensitivity") in live.LiveSession.SENSITIVITY:
+                    sess.sensitivity = body["sensitivity"]
+                    sess.threshold = live.LiveSession.SENSITIVITY[body["sensitivity"]]
+                for k in ("model", "language"):
+                    if k in body:
+                        sess.extra[k] = body[k]
+            return self._json(live_view(sess))
+
+        if p.startswith("/api/tiktok/"):
+            act = p[len("/api/tiktok/"):]
+            try:
+                if act == "config":
+                    tiktok.configure(body.get("client_key", ""), body.get("client_secret", ""))
+                    return self._json(tiktok.status())
+                if act == "connect":
+                    url = tiktok.auth_url(SERVER_PORT[0])
+                    if body.get("open", True):
+                        threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
+                    return self._json({"url": url})
+                if act == "disconnect":
+                    tiktok.disconnect()
+                    return self._json(tiktok.status())
+                if act == "creator":
+                    return self._json(tiktok.creator_info())
+                if act == "post":
+                    with queue_lock:
+                        it = next((x for x in queue if x["id"] == body.get("item")), None)
+                    if not it or it["status"] != "done" or not os.path.exists(it.get("path", "")):
+                        return self._err("That clip isn't rendered (or its file was deleted).")
+                    if (it.get("tiktok") or {}).get("state") == "posting":
+                        return self._err("This clip is already being posted.")
+                    job = new_job("tiktok")
+                    mode = "draft" if body.get("mode") == "draft" else "direct"
+                    it["tiktok"] = {"state": "posting", "mode": mode, "job": job["id"], "at": time.time()}
+
+                    def go():
+                        try:
+                            r = tiktok.post_video(
+                                it["path"], mode=mode, title=body.get("title", ""), privacy=body.get("privacy", ""),
+                                allow_comment=bool(body.get("allow_comment")), allow_duet=bool(body.get("allow_duet")),
+                                allow_stitch=bool(body.get("allow_stitch")), brand_organic=bool(body.get("brand_organic")),
+                                brand_content=bool(body.get("brand_content")),
+                                progress=job_progress(job, 0, 1), step=job_step(job), check=job_check(job))
+                        except Exception as e:
+                            it["tiktok"] = {"state": "error", "mode": mode, "error": str(e), "at": time.time()}
+                            raise
+                        url = tiktok.post_url(r.get("post_id", ""))
+                        it["tiktok"] = {"state": "done", "mode": mode, "status": r["status"], "post_id": r.get("post_id", ""),
+                                        "url": url, "at": time.time()}
+                        return dict(r, url=url)
+                    run_job(job, go)
+                    return self._json({"job": job["id"]})
+            except tiktok.TikTokError as e:
+                return self._err(str(e), 400)
+            return self._err("not found", 404)
+
+        if p == "/api/open_url":
+            url = str(body.get("url", ""))
+            if re.match(r"^https://([a-z0-9-]+\.)*(tiktok\.com|github\.com)/", url):
+                threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
+                return self._json({"ok": True})
+            return self._err("That link isn't allowed.", 400)
 
         if p == "/api/cancel":
             job = jobs.get(body.get("job", ""))
@@ -754,21 +976,12 @@ class Handler(BaseHTTPRequestHandler):
             pid = body.get("pid")
             if pid not in projects:
                 return self._err("This session expired. Press Find clips again.", 404)
-            c = body.get("clip") or {}
             try:
-                start_, end_ = float(c["start"]), float(c["end"])
+                it = queue_add(pid, body.get("clip") or {}, body.get("opts") or {})
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
-            if end_ - start_ < 1:
-                return self._err("That clip is too short.")
-            it = {"id": uuid.uuid4().hex[:8], "pid": pid, "clip_id": c.get("id"), "rank": int(c.get("rank") or 0),
-                  "start": start_, "end": end_, "title": str(c.get("title") or "")[:120],
-                  "post": str(c.get("post") or "")[:2000], "thumb": c.get("thumb", ""),
-                  "opts": dict(body.get("opts") or {}), "status": "queued", "progress": 0.0, "step": "Waiting",
-                  "error": "", "cancel": False, "created": time.time()}
-            with queue_lock:
-                queue.append(it)
-            queue_wake.set()
+            except RuntimeError as e:
+                return self._err(str(e))
             return self._json(queue_public(it))
 
         if p == "/api/queue/remove":
@@ -886,6 +1099,7 @@ def _bind(start: int):
 def start(port: int = PORT):
     """Start the server on a background thread. Returns (server, url)."""
     srv, port = _bind(port)
+    SERVER_PORT[0] = port
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     if not _worker_started[0]:
         _worker_started[0] = True
@@ -895,7 +1109,8 @@ def start(port: int = PORT):
 
 def busy() -> bool:
     """A download, tool setup or render is in progress (background listening doesn't count)."""
-    return queue_busy() or any(j["status"] == "running" and j["kind"] != "listen" for j in jobs.values())
+    return (queue_busy() or live_active() is not None
+            or any(j["status"] == "running" and j["kind"] != "listen" for j in jobs.values()))
 
 
 _worker_started = [False]

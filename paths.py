@@ -16,6 +16,8 @@ APP_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).re
 
 
 def _data_dir() -> Path:
+    if os.environ.get("VODCLIPPER_DATA"):
+        return Path(os.environ["VODCLIPPER_DATA"])
     if not FROZEN:
         return APP_DIR
     if IS_WIN:
