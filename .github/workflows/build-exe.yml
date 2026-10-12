@@ -121,6 +121,13 @@ jobs:
             if (-not $c.ok) { Write-Host "::error title=FAIL $($c.name)::$d" }
             elseif ($c.name -match "moment|titles|direct post|drafts|encrypted|auto-render") { Write-Host "::notice title=$($c.name)::$d" }
           }
+          if ($code -ne 0 -and $r.diag) {
+            foreach ($p in $r.diag.PSObject.Properties) {
+              $txt = (@($p.Value) -join " || ") -replace "`r?`n", " || "
+              if ($txt.Length -gt 3500) { $txt = $txt.Substring($txt.Length - 3500) }
+              Write-Host "::warning title=diag: $($p.Name)::$txt"
+            }
+          }
           exit $code
 
       - name: Build installer (Inno Setup)

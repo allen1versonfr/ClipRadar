@@ -16,8 +16,6 @@ Live mode: clip a Twitch stream while it's still going.
 
 from __future__ import annotations
 
-import csv
-import io
 import math
 import os
 import random
@@ -254,12 +252,11 @@ class LiveSession:
                 self.stop_flag.wait(2)
         if self.status not in ("ended", "error"):
             self.status = "stopped"
-        self._ingest_new()           # pick up the final segment
+        self._ingest_new(final=True)  # pick up the final segment
         self._detect(final=True)
         self.log("Recording stopped.")
 
     def _run_ffmpeg(self, hls: str) -> bool:
-        list_path = os.path.join(self.seg_dir, f"list_{self._run}.csv")
         cmd = [engine.ffmpeg(), "-hide_banner", "-loglevel", "error"]
         if hls.startswith("http"):
             cmd += ["-rw_timeout", "20000000", "-reconnect", "1", "-reconnect_streamed", "1",
@@ -267,11 +264,8 @@ class LiveSession:
         cmd += ["-i", hls, "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy",
                 "-f", "segment", "-segment_time", str(SEG_SECONDS), "-reset_timestamps", "1",
                 "-segment_start_number", str(self._seg_number),
-                "-segment_list", list_path, "-segment_list_type", "csv",
                 os.path.join(self.seg_dir, "seg_%06d.ts")]
         self.log("Recording" if self._run == 1 else "Reconnected")
-        self._list_path = list_path
-        self._list_seen = 0
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                              creationflags=engine.CREATE_NO_WINDOW)
         self._proc = p
@@ -294,39 +288,46 @@ class LiveSession:
             time.sleep(0.5)
         if p.poll() is None:
             self.stop()
-        self._ingest_new()
+        self._ingest_new(final=True)
         if err_tail and not self.stop_flag.is_set():
             self.log("ffmpeg: " + " / ".join(err_tail[-2:])[:200])
         return False
 
-    def _ingest_new(self) -> int:
-        """Read newly finished segments from ffmpeg's list and measure their audio."""
-        path = getattr(self, "_list_path", None)
-        if not path or not os.path.exists(path):
-            return 0
+    def _ingest_new(self, final: bool = False) -> int:
+        """Pick up segments ffmpeg has finished. A segment is finished once the next one exists
+        (or ffmpeg has exited). This doesn't depend on ffmpeg's list file, whose flushing differs
+        between ffmpeg builds and platforms."""
         try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                rows = list(csv.reader(f))
+            names = [f for f in os.listdir(self.seg_dir) if re.fullmatch(r"seg_\d{6}\.ts", f)]
         except OSError:
             return 0
-        new = rows[getattr(self, "_list_seen", 0):]
+        nums = sorted(int(f[4:10]) for f in names if int(f[4:10]) >= self._seg_number)
+        proc_done = self._proc is None or self._proc.poll() is not None
+        if not (final or proc_done) and nums:
+            nums = nums[:-1]                  # the newest one is still being written
         added = 0
-        for row in new:
-            if len(row) < 3:
-                break
-            name = row[0]
-            try:
-                dur = max(0.0, float(row[2]) - float(row[1]))
-            except ValueError:
-                dur = SEG_SECONDS
+        for num in nums:
+            name = f"seg_{num:06d}.ts"
             seg_path = os.path.join(self.seg_dir, name)
+            dur = self._duration(seg_path)
+            if dur <= 0.05:
+                self._seg_number = num + 1   # empty/broken segment: skip it
+                continue
             start = self.segments[-1]["start"] + self.segments[-1]["dur"] if self.segments else 0.0
             self.segments.append({"path": seg_path, "start": start, "dur": dur, "name": name})
-            self._seg_number = max(self._seg_number, int(re.sub(r"\D", "", name) or 0) + 1)
+            self._seg_number = num + 1
             self._measure(seg_path, dur)
-            self._list_seen += 1
             added += 1
         return added
+
+    def _duration(self, path: str) -> float:
+        try:
+            p = subprocess.run([engine.ffprobe(), "-v", "error", "-show_entries", "format=duration",
+                                "-of", "default=nw=1:nk=1", path], capture_output=True, text=True, timeout=30,
+                               stdin=subprocess.DEVNULL, creationflags=engine.CREATE_NO_WINDOW)
+            return float(p.stdout.strip() or 0)
+        except Exception:
+            return 0.0
 
     def _measure(self, seg_path: str, dur: float):
         cmd = [engine.ffmpeg(), "-v", "error", "-nostdin", "-i", seg_path, "-map", "0:a:0?", "-vn",

@@ -34,6 +34,7 @@ import mock_tiktok   # noqa: E402
 PORT, IRC_PORT, TT_PORT = 7870, 9461, 9471
 B = f"http://127.0.0.1:{PORT}"
 checks: list = []
+diag: dict = {}
 
 
 def rec(name, ok, detail=""):
@@ -131,7 +132,15 @@ def main():
         twice = post("/api/live/start", {"source": playlist})
         rec("only one live session at a time", twice.get("_status") == 409, twice.get("error"))
         rec("busy while live", get("/api/status")["running"])
-        rec("recording", wait(lambda: get(f"/api/live/{sid}")["status"] == "recording", 60))
+        ok_rec = wait(lambda: get(f"/api/live/{sid}")["status"] == "recording", 60)
+        lv = get(f"/api/live/{sid}")
+        segdir0 = os.path.join(lv["dir"], "segments")
+        rec("recording", ok_rec, f"status={lv['status']} recorded={lv['recorded']} files={sorted(os.listdir(segdir0))[:6] if os.path.isdir(segdir0) else 'none'}")
+        if not ok_rec:
+            diag["live log (early)"] = lv.get("log", [])
+            lst = [f for f in os.listdir(segdir0) if f.endswith(".csv")] if os.path.isdir(segdir0) else []
+            if lst:
+                diag["segment list"] = open(os.path.join(segdir0, lst[0]), encoding="utf-8", errors="replace").read()[-600:]
         rec("chat connected", wait(lambda: get(f"/api/live/{sid}")["chat_connected"], 30))
         first = wait(lambda: (lambda c: c if c else None)(get(f"/api/live/{sid}")["clips"]), 150, 2)
         rec("found a moment automatically", first, first and f"{first[0]['reason']} at {first[0]['at']}s")
@@ -149,6 +158,7 @@ def main():
         rec("auto-render renders moments", okr,
             rendered and "; ".join(f"{i['status']} {i.get('name') or i.get('error')}" for i in rendered))
         sess = get(f"/api/live/{sid}")
+        diag["live log"] = sess.get("log", [])
         segdir = os.path.join(sess["dir"], "segments")
         on_disk = len([f for f in os.listdir(segdir) if f.endswith(".ts")]) if os.path.isdir(segdir) else 0
         rec("rolling buffer limits disk use", sess["recorded"] < 100 or on_disk * 10 < sess["recorded"],
@@ -229,6 +239,10 @@ def main():
         for p in (producer, app):
             if p and p.poll() is None:
                 p.kill()
+        try:
+            diag["app log"] = open(os.path.join(data, "vodclipper.log"), encoding="utf-8", errors="replace").read().splitlines()[-40:]
+        except OSError:
+            pass
         shutil.rmtree(tmp, ignore_errors=True)
     return finish(a.out)
 
@@ -243,7 +257,7 @@ def _try(fn):
 def finish(out):
     ok = all(c["ok"] for c in checks) and bool(checks)
     with open(out, "w", encoding="utf-8") as f:
-        json.dump({"ok": ok, "checks": checks}, f, indent=1)
+        json.dump({"ok": ok, "checks": checks, "diag": diag}, f, indent=1)
     print("PASSED" if ok else "FAILED", f"{sum(c['ok'] for c in checks)}/{len(checks)}", flush=True)
     return 0 if ok else 1
 
