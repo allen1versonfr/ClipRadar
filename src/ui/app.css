@@ -276,6 +276,7 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .fld.inline{display:grid;grid-template-columns:96px minmax(0,1fr) 40px;align-items:center;gap:10px}
 .fld.inline select{grid-column:span 2}
 .fld.inline output{color:var(--tx0);text-align:right;font-size:12px}
+.fld.switch-label:not(.stacked){flex-direction:row;align-items:center;justify-content:space-between}
 .fld .seg{margin-top:2px}
 .sep{height:1px;background:var(--line);margin:2px -14px}
 .trim{display:grid;grid-template-columns:40px 64px 1fr;gap:6px 8px;align-items:center;color:var(--tx1)}

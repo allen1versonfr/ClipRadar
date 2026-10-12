@@ -311,7 +311,7 @@ function buildHead() {
   } else {
     h.innerHTML = `<span class="live-tag" id="lvTag"><i></i><span id="lvState">Live</span></span>
       <span class="t" title="${esc(W.title)}">${esc(W.live.channel || W.title)}</span>
-      <span class="facts"><span>Recorded <b class="tnum" id="lvRec">0:00</b></span><span>Chat <b class="tnum" id="lvChat">0</b>/min</span><span><b class="tnum" id="lvMoments">0</b> moments</span></span>
+      <span class="facts"><span>Recorded <b class="tnum" id="lvRec">0:00</b></span><span>Chat <b class="tnum" id="lvChat">0</b>/min</span><span><b class="tnum" id="lvMoments">0</b> <span id="lvMomentsWord">moments</span></span></span>
       <span class="acts">
         <select class="input" id="lvSens" title="How big a moment has to be"><option value="low">Low sensitivity</option><option value="normal">Normal sensitivity</option><option value="high">High sensitivity</option></select>
         <label class="switch-label" title="Render every new moment automatically">Auto-render<span class="switch"><input type="checkbox" id="lvAuto"><i></i></span></label>
@@ -336,6 +336,7 @@ function updateLiveHead() {
   $('#lvRec').textContent = fmt(L.recorded);
   $('#lvChat').textContent = L.chat_connected ? L.chat_per_min : '–';
   $('#lvMoments').textContent = W.clips.length;
+  $('#lvMomentsWord').textContent = W.clips.length === 1 ? 'moment' : 'moments';
   const active = ['recording', 'reconnecting', 'starting'].includes(L.status);
   $('#lvClip').disabled = L.status !== 'recording';
   $('#lvStop').disabled = !active;

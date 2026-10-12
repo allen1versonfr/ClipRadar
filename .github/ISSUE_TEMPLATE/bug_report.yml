@@ -1,0 +1,32 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: VodClipper version
+      description: Shown in the bottom-right corner and in Settings › About.
+      placeholder: 2.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where did it happen?
+      options: [Finding clips (VOD), Live mode, Review / preview, Rendering / captions, Posting to TikTok, Install / uninstall, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Paste the end of `%LOCALAPPDATA%\VodClipper\vodclipper.log` (remove anything private).
+      render: text

@@ -23,8 +23,8 @@ UNINSTALL
 
 BUILD IT YOURSELF (optional)
   Every push to the repo builds and tests the installer on Windows (GitHub
-  Actions) and publishes it as the "latest" release. To build on your own PC
-  instead, run scripts\build_exe.bat from the source code.
+  Actions), and every version tag publishes it as a release. To build on your
+  own PC instead, run scripts\build_exe.bat from the source code.
 
 USE
   VodClipper has four sections in the left sidebar: Home, Review, Exports and
@@ -109,7 +109,7 @@ HOW CLIPS ARE PICKED
 
 CAPTIONS
   Made with Whisper. The first render with captions downloads the model
-  (a few hundred MB). "Good" is a solid default. With an NVIDIA GPU and
+  (a few hundred MB). "Balanced" accuracy is a solid default. With an NVIDIA GPU and
   CUDA 12 + cuDNN installed, Whisper uses the GPU; otherwise the CPU.
   Rendering uses your GPU's video encoder (NVIDIA, Intel or AMD) when it can,
   and falls back to the CPU on its own.
