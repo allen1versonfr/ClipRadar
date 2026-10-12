@@ -179,6 +179,16 @@ class LiveSession:
     # ------------------------------------------------------------------ recording
     def _resolve(self) -> str:
         if self.direct:
+            if self.source.startswith("http"):
+                try:
+                    import urllib.request
+                    with urllib.request.urlopen(self.source, timeout=15) as r:
+                        if b"#EXT-X-ENDLIST" in r.read():
+                            raise NotLive("The stream has ended.")
+                except NotLive:
+                    raise
+                except Exception as e:
+                    raise RuntimeError(f"couldn't load the playlist ({e})")
             if os.path.isfile(self.source):
                 with open(self.source, encoding="utf-8", errors="replace") as f:
                     if "#EXT-X-ENDLIST" in f.read():
@@ -279,12 +289,21 @@ class LiveSession:
                 del err_tail[:-6]
         threading.Thread(target=read_err, daemon=True).start()
 
+        last_growth, last_size = time.time(), -1
         while p.poll() is None and not self.stop_flag.is_set():
             got = self._ingest_new()
             if got:
                 self.status = "recording"
                 self._detect()
                 self._cleanup()
+            # watchdog: if no new video arrives for a while, the connection is stuck; reconnect
+            size = self._newest_size()
+            if size != last_size:
+                last_size, last_growth = size, time.time()
+            elif time.time() - last_growth > 45:
+                self.log("No new video for 45s, reconnecting")
+                p.kill()
+                break
             time.sleep(0.5)
         if p.poll() is None:
             self.stop()
@@ -319,6 +338,16 @@ class LiveSession:
             self._measure(seg_path, dur)
             added += 1
         return added
+
+    def _newest_size(self) -> int:
+        try:
+            files = [f for f in os.listdir(self.seg_dir) if f.endswith(".ts")]
+            if not files:
+                return 0
+            newest = max(files)
+            return len(files) * 10**12 + os.path.getsize(os.path.join(self.seg_dir, newest))
+        except OSError:
+            return 0
 
     def _duration(self, path: str) -> float:
         try:

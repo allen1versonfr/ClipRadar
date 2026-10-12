@@ -31,7 +31,7 @@ sys.path.insert(0, HERE)
 import fake_irc      # noqa: E402
 import mock_tiktok   # noqa: E402
 
-PORT, IRC_PORT, TT_PORT = 7870, 9461, 9471
+PORT, IRC_PORT, TT_PORT, HLS_PORT = 7870, 9461, 9471, 9481
 B = f"http://127.0.0.1:{PORT}"
 checks: list = []
 diag: dict = {}
@@ -116,6 +116,21 @@ def main():
         src = os.path.join(tmp, "stream_src.mp4")
         make_stream_source(a.ffmpeg, src)
         playlist = os.path.join(hls, "live.m3u8")
+        # serve the simulated stream over HTTP, the way Twitch serves a live stream
+        import functools
+        from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+        class Quiet(SimpleHTTPRequestHandler):
+            def log_message(self, *a_):
+                pass
+
+            def end_headers(self):
+                self.send_header("Cache-Control", "no-store")
+                super().end_headers()
+        hls_srv = ThreadingHTTPServer(("127.0.0.1", HLS_PORT), functools.partial(Quiet, directory=hls))
+        import threading
+        threading.Thread(target=hls_srv.serve_forever, daemon=True).start()
+        stream_url = f"http://127.0.0.1:{HLS_PORT}/live.m3u8"
         producer = subprocess.Popen([a.ffmpeg, "-v", "error", "-re", "-i", src, "-c", "copy", "-f", "hls",
                                      "-hls_time", "2", "-hls_list_size", "8",
                                      "-hls_flags", "delete_segments+omit_endlist", playlist])
@@ -125,11 +140,11 @@ def main():
                 "whisper_model": a.model, "hw_encode": True}
         bad = post("/api/live/start", {"source": "not a channel!!"})
         rec("live rejects a bad channel", bad.get("_status") == 400, bad.get("error"))
-        v = post("/api/live/start", {"source": playlist, "chat_channel": "testchan", "length": 20, "warmup": 30,
+        v = post("/api/live/start", {"source": stream_url, "chat_channel": "testchan", "length": 20, "warmup": 30,
                                      "buffer_minutes": 1, "auto_render": True, "opts": opts, "model": a.model})
         sid = v.get("id")
         rec("live session starts", sid, v.get("status"))
-        twice = post("/api/live/start", {"source": playlist})
+        twice = post("/api/live/start", {"source": stream_url})
         rec("only one live session at a time", twice.get("_status") == 409, twice.get("error"))
         rec("busy while live", get("/api/status")["running"])
         ok_rec = wait(lambda: get(f"/api/live/{sid}")["status"] == "recording", 60)
