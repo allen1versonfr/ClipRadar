@@ -1,0 +1,57 @@
+name: Build VodClipper.exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages
+        run: python -m pip install -U pip && python -m pip install -r requirements.txt pywebview pyinstaller
+
+      - name: Get ffmpeg, TwitchDownloader and yt-dlp
+        run: python tools_setup.py --dest tools ffmpeg twitchdownloader ytdlp
+
+      - name: Build exe
+        run: >
+          python -m PyInstaller --noconfirm --clean --log-level WARN --onedir --windowed
+          --name VodClipper --icon ui/icon.ico --add-data "ui;ui"
+          --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime
+          --collect-all av --collect-all webview --collect-submodules yt_dlp --collect-data certifi
+          --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog
+          app.py
+
+      - name: Add tools and readme
+        shell: pwsh
+        run: |
+          Copy-Item tools dist/VodClipper/tools -Recurse -Force
+          Copy-Item README.txt dist/VodClipper/README.txt
+
+      - name: Smoke test (exe starts and serves the app)
+        shell: pwsh
+        run: |
+          $env:VODCLIPPER_WORK = "$env:RUNNER_TEMP\vc-work"
+          $p = Start-Process dist/VodClipper/VodClipper.exe -ArgumentList "--browser" -PassThru
+          $ok = $false
+          foreach ($i in 1..40) {
+            Start-Sleep 2
+            try { $r = Invoke-RestMethod http://127.0.0.1:7860/api/status; if ($r.version) { $ok = $true; break } } catch {}
+          }
+          Get-Content "$env:LOCALAPPDATA\VodClipper\vodclipper.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
+          if ($ok) { $r | ConvertTo-Json; Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null }
+          Start-Sleep 2; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { throw "VodClipper.exe did not start" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VodClipper-windows
+          path: dist/VodClipper
