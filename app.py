@@ -19,6 +19,7 @@ import webbrowser
 import paths
 
 paths.ensure_dirs()
+paths.register_folders()
 
 # A windowed .exe has no console: send output to a log file so errors can be reported.
 if sys.stdout is None or sys.stderr is None or paths.FROZEN:

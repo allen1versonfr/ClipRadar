@@ -160,6 +160,142 @@ def _save_meta(workdir: str, **kv):
         json.dump(meta, f, ensure_ascii=False, indent=1)
 
 
+# --------------------------------------------------------------------------
+# storage: what's on disk, and cleaning it up
+# --------------------------------------------------------------------------
+# Only folders VodClipper made (they contain meta.json) are ever touched, and a
+# local video you pointed VodClipper at is never deleted; it lives outside these folders.
+
+def _project_dirs(workroot: str) -> list:
+    if not os.path.isdir(workroot):
+        return []
+    out = []
+    for d in os.listdir(workroot):
+        p = os.path.join(workroot, d)
+        if os.path.isdir(p) and not os.path.islink(p) and os.path.isfile(os.path.join(p, "meta.json")):
+            out.append(p)
+    return out
+
+
+def _vod_files(pdir: str) -> list:
+    """Downloaded video files in a project folder, including half-finished downloads."""
+    out = []
+    for f in os.listdir(pdir):
+        p = os.path.join(pdir, f)
+        if os.path.isfile(p) and (f.startswith("vod.") or f.startswith("chat_raw")):
+            out.append(p)
+    return out
+
+
+def _clip_files(pdir: str) -> list:
+    tdir = os.path.join(pdir, "tiktok")
+    if not os.path.isdir(tdir):
+        return []
+    return [os.path.join(tdir, f) for f in os.listdir(tdir)
+            if os.path.isfile(os.path.join(tdir, f)) and f.lower().endswith((".mp4", ".ass", ".wav"))]
+
+
+def _size(files: list) -> int:
+    total = 0
+    for f in files:
+        try:
+            total += os.path.getsize(f)
+        except OSError:
+            pass
+    return total
+
+
+def _dir_size(d: str) -> int:
+    total = 0
+    for root, _, files in os.walk(d):
+        total += _size([os.path.join(root, f) for f in files])
+    return total
+
+
+def storage_summary(workroot: str) -> dict:
+    vods, clips = [], []
+    other = 0
+    for pdir in _project_dirs(workroot):
+        v = [f for f in _vod_files(pdir) if not f.endswith(".json")]
+        vods += v
+        clips += [f for f in _clip_files(pdir) if f.lower().endswith(".mp4")]
+        other += _dir_size(os.path.join(pdir, "thumbs"))
+    return {
+        "vods": {"count": len([f for f in vods if os.path.splitext(f)[1].lower() in VIDEO_EXTS]),
+                 "bytes": _size(vods)},
+        "clips": {"count": len(clips), "bytes": _size(clips)},
+        "other_bytes": other,
+        "workroot": workroot,
+    }
+
+
+def _remove(paths_: list) -> tuple:
+    freed, failed = 0, []
+    for p in paths_:
+        try:
+            size = os.path.getsize(p)
+        except OSError:
+            continue
+        for attempt in range(3):  # Windows can briefly lock a file that was just being read
+            try:
+                os.remove(p)
+                freed += size
+                break
+            except FileNotFoundError:
+                break
+            except OSError:
+                if attempt == 2:
+                    failed.append(os.path.basename(p))
+                else:
+                    time.sleep(0.4)
+    return freed, failed
+
+
+def _prune(pdir: str):
+    """Remove a project folder once it holds neither a VOD nor any clips."""
+    has_vod = any(os.path.splitext(f)[1].lower() in VIDEO_EXTS for f in _vod_files(pdir))
+    if not has_vod and not _clip_files(pdir):
+        shutil.rmtree(pdir, ignore_errors=True)
+    else:
+        tdir = os.path.join(pdir, "tiktok")
+        if os.path.isdir(tdir) and not os.listdir(tdir):
+            os.rmdir(tdir)
+
+
+def delete_vods(workroot: str) -> dict:
+    """Delete downloaded VODs (+ their chat and thumbnails). Rendered clips are kept."""
+    files, count = [], 0
+    for pdir in _project_dirs(workroot):
+        v = _vod_files(pdir)
+        count += len([f for f in v if os.path.splitext(f)[1].lower() in VIDEO_EXTS])
+        files += v
+        chat = os.path.join(pdir, "chat.json")
+        if os.path.isfile(chat):
+            files.append(chat)
+        tdir = os.path.join(pdir, "thumbs")
+        if os.path.isdir(tdir):
+            files += [os.path.join(tdir, f) for f in os.listdir(tdir)]
+    freed, failed = _remove(files)
+    for pdir in _project_dirs(workroot):
+        tdir = os.path.join(pdir, "thumbs")
+        if os.path.isdir(tdir) and not os.listdir(tdir):
+            os.rmdir(tdir)
+        _prune(pdir)
+    return {"deleted": count, "freed": freed, "failed": failed}
+
+
+def delete_clips(workroot: str) -> dict:
+    """Delete every rendered TikTok clip. Downloaded VODs are kept."""
+    files = []
+    for pdir in _project_dirs(workroot):
+        files += _clip_files(pdir)
+    count = len([f for f in files if f.lower().endswith(".mp4")])
+    freed, failed = _remove(files)
+    for pdir in _project_dirs(workroot):
+        _prune(pdir)
+    return {"deleted": count, "freed": freed, "failed": failed}
+
+
 def recent_projects(workroot: str, limit: int = 8) -> list:
     out = []
     if not os.path.isdir(workroot):

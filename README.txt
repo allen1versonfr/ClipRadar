@@ -4,21 +4,27 @@ Turns a Twitch VOD into vertical TikTok clips. It finds the best moments,
 lets you review and trim them, then renders 1080x1920 MP4s with captions.
 Everything runs on your own PC.
 
-MAKE THE EXE (once)
-  1. Unzip this folder somewhere simple, like C:\VodClipper
-  2. Double-click build_exe.bat and wait 5-10 minutes.
-     It sets up Python if needed, packages everything into VodClipper.exe,
-     and puts a VodClipper shortcut on your desktop.
-  3. From then on, just open VodClipper from the desktop shortcut.
-     The finished app is in the dist\VodClipper folder. Copy that whole folder
-     to use it on another PC; that PC doesn't need Python.
-  Windows may show a SmartScreen warning the first time (the exe isn't signed):
-  More info > Run anyway.
+INSTALL
+  Download VodClipper-Setup.exe from the repo's Releases page and run it.
+  It installs VodClipper for your user (no admin prompt) and adds Start menu
+  and desktop shortcuts. Windows may show a SmartScreen warning because the
+  app isn't signed: More info > Run anyway.
 
-  Prefer a single file? Run:  build_exe.bat onefile
-  (starts slower, because it unpacks itself each launch)
+  No-install option: VodClipper-portable.zip. Unzip anywhere and run
+  VodClipper.exe. To remove it, delete the folder.
 
-  Don't want an exe? install.bat then run.bat runs it from source instead.
+UNINSTALL
+  Any of these:
+    - Settings > Apps > Installed apps > VodClipper > Uninstall
+    - Start menu > Uninstall VodClipper
+    - In VodClipper: More options > Storage > Uninstall
+  It removes the app, its downloaded tools, caption models and logs, then asks
+  whether to delete your VODs and clips too (it keeps them unless you say Yes).
+
+BUILD IT YOURSELF (optional)
+  Every push to the repo builds and tests the installer on Windows (GitHub
+  Actions) and publishes it as the "latest" release. To build on your own PC
+  instead, double-click build_exe.bat.
 
 USE
   1. Open VodClipper. It opens in its own window.
@@ -39,6 +45,15 @@ USE
      The phone preview shows how it will look.
   7. Press Render. Clips are saved in your Videos\VodClipper folder
      (More options > Clips folder > Open).
+
+FREEING UP SPACE
+  Downloaded VODs are big (several GB per stream). The start screen and
+  More options > Storage show how much space VodClipper is using:
+    Delete VODs       removes downloaded streams (and their chat/thumbnails).
+                      Your rendered clips are kept. Videos of your own that you
+                      opened with Browse are never deleted.
+    Delete all clips  removes every rendered TikTok clip. VODs are kept.
+  Both ask for confirmation first.
 
 HOW CLIPS ARE PICKED
   - Chat: sudden surges in messages, weighted for KEKW, LUL, POG, "clip it",

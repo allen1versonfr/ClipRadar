@@ -18,6 +18,7 @@
   font-family:"Archivo",system-ui,"Segoe UI",sans-serif;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html{background:var(--ink)}
 body{margin:0;color:var(--text);font-size:15px;line-height:1.45;
   background:radial-gradient(900px 420px at 80% -120px, #262e5c 0%, transparent 70%) no-repeat, var(--ink);min-height:100vh}
@@ -51,6 +52,27 @@ header img{width:30px;height:30px}
 .banner p span{color:var(--muted);display:block;font-size:13.5px}
 .banner .go{padding:10px 18px;font-size:15px}
 .quit{margin-left:4px}
+.storage{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.st-title{grid-column:1/-1;color:var(--muted);font-size:13.5px}
+.st-row{display:flex;align-items:center;gap:12px;background:var(--ink2);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px}
+.st-row > div{flex:1;min-width:0;display:grid;gap:1px}
+.st-row b{font-weight:600;white-space:nowrap}
+.st-row .btn{white-space:nowrap}
+.st-row span{color:var(--faint);font-size:12.5px}
+#storageHome{margin-top:22px}
+#storageHome .storage{grid-template-columns:1fr}
+#storageHome .st-row{background:var(--panel);border-color:transparent}
+.btn.danger{color:#ff9aa8;border-color:#5b3452}
+.btn.danger:not(:disabled):hover{border-color:var(--hot);color:#ffd3d9}
+dialog.modal{background:var(--panel);color:var(--text);border:1px solid var(--line2);border-radius:var(--r-lg);padding:22px;width:min(440px,calc(100% - 32px));box-shadow:0 24px 60px #000a}
+dialog.modal::backdrop{background:rgba(8,10,22,.72)}
+.modal h3{font-size:19px;margin:0 0 8px}
+.modal p{color:var(--muted);margin:0 0 20px;white-space:pre-line}
+.modal .row{display:flex;justify-content:flex-end;gap:10px}
+.modal .go{padding:10px 18px;font-size:15px}
+.go.danger{background:var(--hot);color:#2b0811}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line2);padding:10px 18px;border-radius:99px;font-size:14px;box-shadow:0 12px 30px #0009;display:none;z-index:50;max-width:calc(100% - 32px)}
+.toast.show{display:block}
 .source input{width:100%;padding:15px 16px;font-size:17px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg)}
 .source input:focus{border-color:var(--line2)}
 .source input::placeholder{color:var(--faint)}
@@ -90,8 +112,8 @@ details.more[open]{flex-basis:100%}
 .empty li{margin:8px 0;padding-left:4px}
 .empty li b{color:var(--text);font-weight:600}
 .recent h3{font-size:15px;margin:6px 0 10px;color:var(--muted);font-weight:600}
-.recent button{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid transparent;border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px}
-.recent button:hover{border-color:var(--line2)}
+#recent button{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid transparent;border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px}
+#recent button:hover{border-color:var(--line2)}
 .recent .rt{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .recent .rs{display:block;color:var(--faint);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
@@ -249,6 +271,7 @@ aside{display:flex;flex-direction:column;gap:16px;align-self:start;position:stic
       <label>Clips folder
         <span class="inrow"><span class="input" id="rootPath" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)"></span><button class="btn" id="openRoot" type="button">Open</button></span>
       </label>
+      <div class="storage" id="storageMore"></div>
     </div>
   </details>
 </div>
@@ -275,8 +298,18 @@ aside{display:flex;flex-direction:column;gap:16px;align-self:start;position:stic
       <li>Drag a box around your facecam and press <b>Render</b>. You get 1080×1920 MP4s with captions.</li>
     </ol>
   </div>
-  <div class="recent" id="recent"></div>
+  <div>
+    <div class="recent" id="recent"></div>
+    <div class="recent" id="storageHome"></div>
+  </div>
 </section>
+
+<dialog class="modal" id="dlg">
+  <h3 id="dlgTitle"></h3>
+  <p id="dlgBody"></p>
+  <div class="row"><button class="btn" id="dlgNo">Cancel</button><button class="go" id="dlgYes">OK</button></div>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>
 
 <main id="work" class="wrap">
@@ -431,13 +464,85 @@ $('#getTools').onclick = () => runSetup(toolsMissing);
 $('#updYtdlp').onclick = () => runSetup(['ytdlp']);
 $('#openRoot').onclick = () => api('/api/open_folder', { folder: 'root' }).catch(e => alert(e.message));
 $('#quitBtn').onclick = async () => {
-  if (status.running && !confirm('A download or render is still running. Quit anyway?')) return;
+  if (status.running && !await ask({ title: 'Quit VodClipper?', body: 'A download or render is still running. It will be stopped.', ok: 'Quit', danger: true })) return;
   await api('/api/quit', {}).catch(()=>{});
   document.body.innerHTML = '<div class="wrap" style="padding-top:80px;color:var(--muted)"><h2 style="color:var(--text)">VodClipper has stopped.</h2><p>You can close this tab. Open VodClipper again to keep going.</p></div>';
 };
 window.askQuit = async () => {
-  if (confirm('A download or render is still running. Quit anyway? It will be stopped.')) await api('/api/quit', {}).catch(()=>{});
+  if (await ask({ title: 'Quit VodClipper?', body: 'A download or render is still running. It will be stopped.', ok: 'Quit', danger: true }))
+    await api('/api/quit', {}).catch(()=>{});
 };
+
+/* ---------- dialog + toast ---------- */
+function ask({ title, body, ok = 'OK', danger = false }){
+  const d = $('#dlg');
+  $('#dlgTitle').textContent = title; $('#dlgBody').textContent = body;
+  $('#dlgYes').textContent = ok; $('#dlgYes').classList.toggle('danger', danger);
+  return new Promise(res => {
+    const done = v => { d.close(); $('#dlgYes').onclick = $('#dlgNo').onclick = d.oncancel = null; res(v); };
+    $('#dlgYes').onclick = () => done(true);
+    $('#dlgNo').onclick = () => done(false);
+    d.oncancel = e => { e.preventDefault(); done(false); };
+    d.showModal(); $('#dlgNo').focus();
+  });
+}
+let toastTimer = 0;
+function toast(msg, ms = 4500){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+/* ---------- storage: delete VODs / delete all clips / uninstall ---------- */
+const fmtBytes = b => b >= 1e9 ? (b/1e9).toFixed(1) + ' GB' : b >= 1e6 ? Math.round(b/1e6) + ' MB' : b > 0 ? Math.max(1, Math.round(b/1e3)) + ' KB' : 'nothing';
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+let storage = null;
+async function loadStorage(){
+  try { storage = await api('/api/storage'); } catch { return; }
+  const v = storage.vods, c = storage.clips;
+  const rows = (home) => `
+    <div class="st-row"><div><b>Downloaded VODs</b><span class="tnum">${v.bytes ? plural(v.count, 'VOD') + ' · ' + fmtBytes(v.bytes) : 'None'}</span></div>
+      <button class="btn danger" data-del="vods" ${v.bytes ? '' : 'disabled'}>Delete VODs</button></div>
+    <div class="st-row"><div><b>Rendered clips</b><span class="tnum">${c.count ? plural(c.count, 'clip') + ' · ' + fmtBytes(c.bytes) : 'None'}</span></div>
+      <button class="btn danger" data-del="clips" ${c.count ? '' : 'disabled'}>Delete all clips</button></div>` +
+    (!home && storage.uninstaller ? `<div class="st-row"><div><b>Uninstall</b><span>Removes VodClipper from this PC</span></div><button class="btn danger" data-del="uninstall">Uninstall…</button></div>` : '');
+  $('#storageMore').innerHTML = '<div class="st-title">Storage</div>' + rows(false);
+  $('#storageHome').innerHTML = (v.bytes || c.count) ? '<h3>Storage</h3><div class="storage">' + rows(true) + '</div>' : '';
+}
+async function deleteStuff(what){
+  if (what === 'uninstall'){
+    const ok = await ask({ title: 'Uninstall VodClipper?', ok: 'Uninstall', danger: true,
+      body: 'VodClipper will close and the Windows uninstaller will open.\nIt asks before deleting your VODs and clips.' });
+    if (!ok) return;
+    try { await api('/api/uninstall', {}); document.body.innerHTML = '<div class="wrap" style="padding-top:80px;color:var(--muted)"><h2 style="color:var(--text)">Uninstalling VodClipper…</h2><p>Follow the uninstaller window.</p></div>'; }
+    catch (e){ toast(e.message, 7000); }
+    return;
+  }
+  const v = storage.vods, c = storage.clips;
+  const ok = what === 'vods'
+    ? await ask({ title: `Delete ${plural(v.count || 0, 'downloaded VOD')}?`, ok: 'Delete VODs', danger: true,
+        body: `Frees ${fmtBytes(v.bytes)}. Your rendered clips are kept, and so are any videos of your own that you opened with Browse.\nYou can download a VOD again from its link.` })
+    : await ask({ title: c.count === 1 ? 'Delete your 1 clip?' : `Delete all ${c.count} clips?`, ok: 'Delete all clips', danger: true,
+        body: `Frees ${fmtBytes(c.bytes)}. This deletes every rendered TikTok clip in ${storage.workroot}. It can't be undone.\nDownloaded VODs are kept.` });
+  if (!ok) return;
+  // let go of files the page is playing so Windows allows deleting them
+  if (what === 'vods'){ vod.pause(); vod.removeAttribute('src'); vod.load(); }
+  document.querySelectorAll('#outputs video').forEach(el => { el.pause(); el.removeAttribute('src'); el.load(); });
+  await new Promise(r => setTimeout(r, 250));
+  let res;
+  try { res = await api('/api/delete', { what }); }
+  catch (e){ toast(e.message, 7000); if (what === 'vods' && P) vod.src = P.vod; return; }
+  if (what === 'clips'){ $('#outputs').innerHTML = ''; $('#outBlock').style.display = 'none'; }
+  if (P && res.closed.includes(P.pid)){
+    P = null; active = null;
+    $('#work').classList.remove('show'); $('#empty').style.display = '';
+  } else if (P && what === 'vods') vod.src = P.vod;
+  const word = what === 'vods' ? 'VOD' : 'clip';
+  toast(res.failed.length
+    ? `Deleted ${plural(res.deleted, word)}. ${res.failed.length} file${res.failed.length === 1 ? ' was' : 's were'} in use: close any player showing ${res.failed.length === 1 ? 'it' : 'them'} and try again.`
+    : `Deleted ${plural(res.deleted, word)} and freed ${fmtBytes(res.freed)}.`, 6000);
+  await Promise.all([loadStorage(), loadRecent()]);
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-del]'); if (b && !b.disabled) deleteStuff(b.dataset.del); });
 async function pick(kind){
   try { const r = await api('/api/pick_file', { kind }); return r.path || ''; } catch { return ''; }
 }
@@ -514,7 +619,7 @@ $('#analyze').onclick = async () => {
       chat_delay: +$('#delay').value, max_height: +$('#maxh').value, cookies: $('#cookies').value });
     const j = await follow(job, UI_A);
     if (j && j.status === 'done'){
-      openProject(j.result);
+      openProject(j.result); loadStorage();
       setTimeout(() => { if ($('#err').textContent === '') $('#progress').classList.remove('show'); }, 1800);
     }
   } catch (e){ $('#progress').classList.add('show'); $('#err').textContent = e.message; }
@@ -861,6 +966,7 @@ $('#render').onclick = async () => {
     });
     if (j && j.result) showOutputs(j.result, sel.length);
     if (j && j.status === 'done') $('#rStep').textContent = `Done. ${j.result.files.length} clip${j.result.files.length === 1 ? '' : 's'} saved.`;
+    loadStorage();
   } catch (e){ $('#rstatus').classList.add('show'); $('#rErr').textContent = e.message; }
   $('#render').disabled = false;
 };
@@ -876,7 +982,7 @@ function showOutputs(res, total){
 }
 $('#openFolder').onclick = () => api('/api/open_folder', { folder: outFolder }).catch(e => alert(e.message));
 
-loadStatus(); loadRecent(); syncControls();
+loadStatus(); loadRecent(); loadStorage(); syncControls();
 </script>
 </body>
 </html>

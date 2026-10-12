@@ -100,19 +100,112 @@ jobs:
           Start-Sleep 3; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           if (-not $ok) { Write-Host "::error title=FAIL app server::did not start"; exit 1 }
 
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          if (-not (Test-Path $iscc)) { $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source }
+          $ver = (Select-String -Path server.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          & $iscc /Q "/DAppVersion=$ver" installer.iss
+          if (-not (Test-Path dist\VodClipper-Setup.exe)) { Write-Host "::error title=FAIL installer::not built"; exit 1 }
+          $mb = [math]::Round((Get-Item dist\VodClipper-Setup.exe).Length / 1MB)
+          Write-Host "::notice title=installer::VodClipper-Setup.exe v$ver ($mb MB)"
+
+      - name: Test install and uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $results = [System.Collections.Generic.List[object]]::new()
+          function Check($name, $ok, $detail = "") { $results.Add([pscustomobject]@{ name = $name; ok = [bool]$ok; detail = "$detail" }) }
+          $app = "$env:LOCALAPPDATA\Programs\VodClipper"
+          $data = "$env:LOCALAPPDATA\VodClipper"
+          $uninstKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E0B5F2A-6C1D-4E8B-9F3A-2D7C1B4A9E10}_is1"
+          $startLnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\VodClipper.lnk"
+          $deskLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "VodClipper.lnk"
+          Remove-Item Env:VODCLIPPER_WORK -ErrorAction SilentlyContinue
+
+          function Install() {
+            Start-Process (Resolve-Path dist\VodClipper-Setup.exe) -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/TASKS=desktopicon" -Wait
+          }
+          function RunAppAndMakeClip() {
+            $p = Start-Process "$app\VodClipper.exe" -ArgumentList "--browser" -PassThru
+            $st = $null
+            foreach ($i in 1..40) { Start-Sleep 2; try { $st = Invoke-RestMethod http://127.0.0.1:7860/api/storage; break } catch {} }
+            $root = $null
+            if ($st) {
+              $root = $st.workroot
+              $proj = Join-Path $root "vod_1"
+              New-Item -ItemType Directory -Force "$proj\tiktok" | Out-Null
+              '{"title":"t","source":"https://www.twitch.tv/videos/1"}' | Set-Content "$proj\meta.json"
+              Set-Content "$proj\tiktok\clip_01.mp4" "fake clip"
+              Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null
+            }
+            Start-Sleep 3; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            return @($st, $root)
+          }
+          function Uninstall($extra) {
+            $ua = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART") + $extra
+            Start-Process "$app\unins000.exe" -ArgumentList $ua -Wait
+            foreach ($i in 1..60) { if (-not (Test-Path "$app\VodClipper.exe")) { break }; Start-Sleep 2 }
+            Start-Sleep 3
+          }
+
+          # ---- cycle 1: install, run, uninstall keeping clips (the default)
+          Install
+          Check "installed exe" (Test-Path "$app\VodClipper.exe") $app
+          Check "uninstaller present" (Test-Path "$app\unins000.exe")
+          Check "Start menu shortcut" (Test-Path $startLnk)
+          Check "Start menu uninstall shortcut" (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Uninstall VodClipper.lnk")
+          Check "desktop shortcut" (Test-Path $deskLnk)
+          $disp = (Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).DisplayName
+          Check "listed in Settings > Apps" ($disp -eq "VodClipper") $disp
+          $st, $root = RunAppAndMakeClip
+          Check "installed app runs" ($st -ne $null) "clips folder: $root"
+          Check "app sees its uninstaller" ($st.uninstaller -eq $true)
+          $reg = (Get-ItemProperty "HKCU:\Software\VodClipper" -ErrorAction SilentlyContinue).ClipsFolder
+          Check "clips folder recorded for uninstaller" ($reg -eq $root) $reg
+          Uninstall @()
+          Check "uninstall removed app" (-not (Test-Path $app))
+          Check "uninstall removed app data" (-not (Test-Path $data))
+          Check "uninstall removed shortcuts" ((-not (Test-Path $startLnk)) -and (-not (Test-Path $deskLnk)))
+          Check "uninstall removed Apps entry" (-not (Test-Path $uninstKey))
+          Check "uninstall removed settings key" (-not (Test-Path "HKCU:\Software\VodClipper"))
+          Check "uninstall kept clips by default" ($root -and (Test-Path "$root\vod_1\tiktok\clip_01.mp4"))
+
+          # ---- cycle 2: reinstall, uninstall choosing to delete clips too
+          Install
+          $st, $root = RunAppAndMakeClip
+          Uninstall @("/DELETECLIPS=1")
+          Check "uninstall can delete clips when asked" ($root -and -not (Test-Path $root)) $root
+          Check "second uninstall removed app" (-not (Test-Path $app))
+
+          $passed = @($results | Where-Object { $_.ok })
+          Write-Host "::notice title=Install tests passed ($($passed.Count) of $($results.Count))::$(($passed | ForEach-Object { $_.name }) -join ', ')"
+          foreach ($r in $results) { if (-not $r.ok) { Write-Host "::error title=FAIL $($r.name)::$($r.detail)" } }
+          if ($passed.Count -ne $results.Count) { exit 1 }
+          exit 0
+
       - uses: actions/upload-artifact@v4
         with:
           name: VodClipper-windows
-          path: dist/VodClipper
+          path: |
+            dist/VodClipper
+            dist/VodClipper-Setup.exe
 
       - name: Publish download (GitHub Release)
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          Compress-Archive -Path dist/VodClipper -DestinationPath VodClipper-windows.zip -Force
-          $size = [math]::Round((Get-Item VodClipper-windows.zip).Length / 1MB)
+          Compress-Archive -Path dist/VodClipper -DestinationPath dist/VodClipper-portable.zip -Force
           gh release delete latest --yes --cleanup-tag 2>$null
-          $notes = "Unzip anywhere, open the VodClipper folder and double-click VodClipper.exe. Built and self-tested on Windows from commit ${{ github.sha }}."
-          gh release create latest VodClipper-windows.zip --title "VodClipper for Windows" --notes $notes --target ${{ github.sha }}
-          Write-Host "::notice title=OK release::VodClipper-windows.zip ($size MB) published"
+          $notes = @"
+          **VodClipper-Setup.exe** (recommended): installs VodClipper with Start menu and desktop shortcuts. Uninstall it from Settings > Apps, the Start menu, or the Uninstall button in VodClipper.
+
+          **VodClipper-portable.zip**: no install. Unzip anywhere and run VodClipper.exe; delete the folder to remove it.
+
+          Built and tested on Windows from commit ${{ github.sha }}.
+          "@
+          gh release create latest dist/VodClipper-Setup.exe dist/VodClipper-portable.zip --title "VodClipper for Windows" --notes $notes --target ${{ github.sha }}
+          Write-Host "::notice title=OK release::published VodClipper-Setup.exe and VodClipper-portable.zip"

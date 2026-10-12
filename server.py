@@ -35,7 +35,7 @@ import engine
 import paths
 import tools_setup
 
-VERSION = "1.2"
+VERSION = "1.3"
 HERE = paths.RES_DIR
 WORKROOT = str(paths.WORKROOT)
 PORT = int(os.environ.get("VODCLIPPER_PORT", "7860"))
@@ -384,6 +384,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if p == "/api/recent":
             return self._json(engine.recent_projects(WORKROOT))
+        if p == "/api/storage":
+            st = engine.storage_summary(WORKROOT)
+            st["uninstaller"] = bool(uninstaller_path())
+            return self._json(st)
         m = re.fullmatch(r"/api/job/(\w+)", p)
         if m:
             job = jobs.get(m.group(1))
@@ -452,6 +456,38 @@ class Handler(BaseHTTPRequestHandler):
             threading.Timer(0.3, lambda: shutdown_hook[0]()).start()
             return
 
+        if p == "/api/delete":
+            what = body.get("what")
+            if what not in ("vods", "clips"):
+                return self._err("Unknown delete request.")
+            if busy():
+                return self._err("Wait for the current download or render to finish (or cancel it), then try again.", 409)
+            fn = engine.delete_vods if what == "vods" else engine.delete_clips
+            res = fn(WORKROOT)
+            closed = []
+            if what == "vods":
+                # projects whose downloaded VOD is gone can't be previewed or rendered any more
+                root = os.path.realpath(WORKROOT)
+                for pid, pr in list(projects.items()):
+                    if os.path.realpath(pr["video"]).startswith(root + os.sep) and not os.path.exists(pr["video"]):
+                        projects.pop(pid, None)
+                        closed.append(pid)
+            res["closed"] = closed
+            res["storage"] = engine.storage_summary(WORKROOT)
+            return self._json(res)
+
+        if p == "/api/uninstall":
+            exe = uninstaller_path()
+            if not exe:
+                return self._err("No uninstaller found. If you're using the portable version, just delete its folder.", 404)
+            try:
+                subprocess.Popen([exe], close_fds=True)
+            except Exception as e:
+                return self._err(f"Couldn't start the uninstaller: {e}", 500)
+            self._json({"ok": True})
+            threading.Timer(0.5, lambda: shutdown_hook[0]()).start()
+            return
+
         if p == "/api/cancel":
             job = jobs.get(body.get("job", ""))
             if job and job["status"] == "running":
@@ -514,6 +550,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._err("Folder not found.", 404)
 
         return self._err("not found", 404)
+
+
+def uninstaller_path() -> str:
+    """The Inno Setup uninstaller sits next to VodClipper.exe when it was installed with Setup."""
+    if not paths.FROZEN:
+        return ""
+    for name in ("unins000.exe", "unins001.exe"):
+        p = paths.APP_DIR / name
+        if p.is_file():
+            return str(p)
+    return ""
 
 
 _pick_lock = threading.Lock()
