@@ -33,9 +33,10 @@ import numpy as np
 
 import engine
 import paths
+import titles
 import tools_setup
 
-VERSION = "1.3"
+VERSION = "1.4"
 HERE = paths.RES_DIR
 WORKROOT = str(paths.WORKROOT)
 PORT = int(os.environ.get("VODCLIPPER_PORT", "7860"))
@@ -51,8 +52,13 @@ def shutdown_all(wait: float = 6.0):
     for j in list(jobs.values()):
         if j["status"] == "running":
             j["cancel"] = True
+    for it in list(queue):
+        it["cancel"] = True
+        if it["status"] == "queued":
+            it["status"] = "cancelled"
     end = time.time() + wait
-    while time.time() < end and any(j["status"] == "running" for j in jobs.values()):
+    while time.time() < end and (any(j["status"] == "running" for j in jobs.values())
+                                 or any(it["status"] == "rendering" for it in queue)):
         time.sleep(0.2)
     os._exit(0)
 
@@ -61,7 +67,6 @@ shutdown_hook = [shutdown_all]
 
 projects: dict = {}
 jobs: dict = {}
-render_lock = threading.Lock()
 
 
 # --------------------------------------------------------------------------
@@ -140,11 +145,34 @@ def curve_preview(score, points: int = 1400) -> list:
     return [round(float(s[a:b].max()), 2) for a, b in zip(edges[:-1], edges[1:])]
 
 
+TX_MARGIN = 5.0   # seconds transcribed around each clip, so -5s/+5s trims still have captions
+
+
+def _chat_window(pr: dict, start: float, end: float) -> list:
+    d = pr.get("chat_delay", 6.0)
+    lo, hi = start + d - 2, end + d + 8
+    return [m for t, m in pr["chat"] if lo <= t <= hi]
+
+
+def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
+    rel = [{"start": w["start"] - d["start"], "end": w["end"] - d["start"], "word": w["word"]}
+           for w in words_abs if d["start"] - 0.2 <= w["start"] <= d["end"]]
+    info = titles.generate(rel, _chat_window(pr, d["start"], d["end"]),
+                           peak_rel=d.get("peak", d["start"]) - d["start"], used=used)
+    if not d.get("user_title"):
+        d["title"] = info["title"]
+        d["post"] = info["post"]
+    d["titles"] = info["titles"]
+    d["vibe"] = info["vibe"]
+    d["emoji"] = info["emoji"]
+    used.add(d["title"].lower())
+
+
 def clip_dicts(pid: str, clips: list) -> list:
     pr = projects[pid]
     tdir = os.path.join(pr["workdir"], "thumbs")
     os.makedirs(tdir, exist_ok=True)
-    out = []
+    out, used = [], set()
     for c in clips:
         d = asdict(c) if not isinstance(c, dict) else dict(c)
         t = d["start"] + (d["end"] - d["start"]) * 0.6
@@ -156,7 +184,10 @@ def clip_dicts(pid: str, clips: list) -> list:
             except Exception:
                 pass
         d["thumb"] = f"/files/{pid}/thumbs/{name}"
-        d.setdefault("title", "")
+        d.setdefault("words", [])
+        d.setdefault("listened", False)
+        # quick first title from chat alone; replaced once the clip has been listened to
+        _title_clip(pr, d, [], used)
         out.append(d)
     return out
 
@@ -194,7 +225,7 @@ def do_analyze(job, body: dict):
     info = engine.probe(s.video)
     projects[pid] = {"video": s.video, "chat": s.chat, "title": s.title, "workdir": s.workdir,
                      "analysis": an, "info": info, "clips": [], "chat_delay": delay,
-                     "source": src}
+                     "source": src, "clips_ver": 0}
     engine._save_meta(s.workdir, duration=an.duration)
     clips = engine.pick_clips(an, count=int(body.get("count", 10)),
                               length=float(body.get("length", 30)), chat=s.chat, chat_delay=delay)
@@ -207,12 +238,113 @@ def do_analyze(job, body: dict):
     return project_view(pid)
 
 
-def do_render(job, body: dict):
-    log, step, check = job_logger(job), job_step(job), job_check(job)
-    pid = body["pid"]
+# ---- transcript cache: each stretch of the VOD is transcribed once, then reused
+#      for titles, the live caption preview, and the final render
+
+def _tx(pr: dict, model: str, lang: str) -> dict:
+    return pr.setdefault("tx", {}).setdefault(f"{model}|{lang}", {"words": [], "covered": []})
+
+
+def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lambda: None) -> list:
+    """Transcript words (absolute times) for [a, b] of the VOD, transcribing any missing parts."""
+    a, b = max(0.0, a), min(pr["analysis"].duration, b)
+    tx = _tx(pr, model, lang)
+    with pr.setdefault("tx_lock", threading.Lock()):
+        gaps, cur = [], a
+        for ca, cb in sorted(tx["covered"]):
+            if cb <= cur:
+                continue
+            if ca > cur:
+                gaps.append((cur, min(ca, b)))
+            cur = max(cur, cb)
+            if cur >= b:
+                break
+        if cur < b:
+            gaps.append((cur, b))
+        for ga, gb in gaps:
+            if gb - ga < 0.5:
+                continue
+            check()
+            pad_a, pad_b = max(0.0, ga - 1.0), gb + 1.0   # a little overlap so edge words aren't cut
+            audio = engine.extract_audio(pr["video"], pad_a, pad_b - pad_a)
+            new = []
+            if audio is not None and audio.size >= 1600:
+                for w in engine.transcribe(audio, model, lang, lambda m: None):
+                    st, en = w["start"] + pad_a, w["end"] + pad_a
+                    mid = (st + en) / 2
+                    if ga <= mid < gb:
+                        new.append({"start": round(st, 3), "end": round(en, 3), "word": w["word"]})
+            tx["words"] = sorted([w for w in tx["words"] if not (ga <= (w["start"] + w["end"]) / 2 < gb)] + new,
+                                 key=lambda w: w["start"])
+            tx["covered"].append((ga, gb))
+            # merge intervals
+            merged = []
+            for ca, cb in sorted(tx["covered"]):
+                if merged and ca <= merged[-1][1] + 0.01:
+                    merged[-1] = (merged[-1][0], max(merged[-1][1], cb))
+                else:
+                    merged.append((ca, cb))
+            tx["covered"] = merged
+        return [w for w in tx["words"] if a <= w["start"] < b]
+
+
+def start_listening(pid: str, order: list, model: str, lang: str):
+    """Background job: transcribe each suggested clip and give it a proper title."""
     pr = projects[pid]
-    o = body.get("opts", {})
-    ro = engine.RenderOpts(
+    old = jobs.get(pr.get("listen_job", ""))
+    if old and old["status"] == "running":
+        old["cancel"] = True
+    job = new_job("listen")
+    pr["listen_job"] = job["id"]
+    can_listen = engine.whisper_available() and pr["info"]["has_audio"]
+
+    def go():
+        check = job_check(job)
+        ver = pr.get("clips_ver", 0)
+        ids = [i for i in order if any(c["id"] == i for c in pr["clips"])]
+        ids += [c["id"] for c in pr["clips"] if c["id"] not in ids]
+        todo = [i for i in ids if not next((c for c in pr["clips"] if c["id"] == i), {}).get("listened")]
+        for n, cid in enumerate(todo):
+            check()
+            if pr.get("clips_ver", 0) != ver:
+                return
+            d = next((c for c in pr["clips"] if c["id"] == cid), None)
+            if not d or d.get("listened"):
+                continue
+            job["step"] = f"Listening to clip {n + 1} of {len(todo)}"
+            words = []
+            if can_listen:
+                try:
+                    words = ensure_words(pr, d["start"] - TX_MARGIN, d["end"] + TX_MARGIN, model, lang, check)
+                except engine.Cancelled:
+                    raise
+                except Exception as e:
+                    job_logger(job)(f"Couldn't transcribe clip: {str(e)[:160]}")
+            used = {c["title"].lower() for c in pr["clips"] if c is not d and c.get("listened")}
+            d["words"] = words
+            _title_clip(pr, d, words, used)
+            d["listened"] = True
+            job["progress"] = (n + 1) / max(1, len(todo))
+        return {"ok": True}
+    run_job(job, go)
+    return job
+
+
+# ---- render queue: kept clips render one after another in the background
+
+queue: list = []
+queue_lock = threading.Lock()
+queue_wake = threading.Event()
+
+
+def _safe_name(text: str) -> str:
+    text = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", text)
+    text = re.sub(r"\s+", " ", text).strip().rstrip(". ")
+    return text[:60].rstrip(". ")
+
+
+def _ropts(o: dict) -> engine.RenderOpts:
+    return engine.RenderOpts(
         layout=o.get("layout", "split"),
         cam=tuple(float(v) for v in o.get("cam", [0, 0, 0.25, 0.25])),
         cam_height=float(o.get("cam_height", 0.33)),
@@ -228,33 +360,88 @@ def do_render(job, body: dict):
         language=o.get("language", ""),
         hw_encode=bool(o.get("hw_encode", True)),
     )
+
+
+def queue_public(it: dict) -> dict:
+    return {k: v for k, v in it.items() if k not in ("opts", "cancel", "path")}
+
+
+def queue_busy() -> bool:
+    return any(it["status"] in ("queued", "rendering") for it in queue)
+
+
+def _render_item(it: dict):
+    pr = projects.get(it["pid"])
+    if not pr or not os.path.exists(pr["video"]):
+        raise RuntimeError("The VOD for this clip was deleted.")
+    ro = _ropts(it["opts"])
     outdir = os.path.join(pr["workdir"], "tiktok")
     os.makedirs(outdir, exist_ok=True)
-    clips = body.get("clips", [])
-    if not clips:
-        raise RuntimeError("Tick at least one clip to render.")
-    results = []
-    job["result"] = {"files": results, "folder": outdir}
-    step("Waiting for the previous render")
-    with render_lock:
-        enc = engine.video_encoder(ro)[0]
-        log(f"Encoding with {'your GPU (' + enc + ')' if enc != 'libx264' else 'CPU (x264)'}.")
-        for i, c in enumerate(clips):
-            check()
-            lo, hi = i / len(clips), (i + 1) / len(clips)
-            start, end = float(c["start"]), float(c["end"])
-            name = f"clip_{int(c.get('rank', i + 1)):02d}_{engine.fmt_ts(start).replace(':', '-')}.mp4"
-            step(f"Rendering clip {i + 1} of {len(clips)}")
-            log(f"Clip {i + 1}: {engine.fmt_ts(start)} to {engine.fmt_ts(end)}")
+    base = _safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
+    name = f"{it['rank']:02d} - {base}.mp4"
+    n = 2
+    while os.path.exists(os.path.join(outdir, name)):
+        name = f"{it['rank']:02d} - {base} ({n}).mp4"
+        n += 1
+
+    def check():
+        if it["cancel"]:
+            raise engine.Cancelled()
+
+    def prog(x):
+        it["progress"] = round(max(0.0, min(1.0, x)), 3)
+
+    words = None
+    if ro.captions and pr["info"]["has_audio"] and engine.whisper_available():
+        it["step"] = "Listening for captions"
+        abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check)
+        words = [{"start": w["start"] - it["start"], "end": w["end"] - it["start"], "word": w["word"]}
+                 for w in abs_words if w["start"] < it["end"]]
+    it["step"] = "Rendering"
+    path = os.path.join(outdir, name)
+    engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=it["title"],
+                       progress=prog, check=check, words=words,
+                       log=lambda m: print("  " + m, flush=True))
+    # caption to paste when posting, saved next to the video
+    if it.get("post"):
+        try:
+            with open(os.path.splitext(path)[0] + ".txt", "w", encoding="utf-8") as f:
+                f.write(it["post"] + "\n")
+        except OSError:
+            pass
+    it["name"] = name
+    it["path"] = path
+    it["folder"] = outdir
+    it["url"] = f"/files/{it['pid']}/tiktok/{name}?v={int(time.time() * 1000)}"
+
+
+def queue_worker():
+    while True:
+        queue_wake.wait(2.0)
+        queue_wake.clear()
+        while True:
+            with queue_lock:
+                it = next((x for x in queue if x["status"] == "queued"), None)
+                if it:
+                    it["status"] = "rendering"
+                    it["progress"] = 0.0
+            if not it:
+                break
             t0 = time.time()
-            engine.render_clip(pr["video"], start, end, os.path.join(outdir, name), ro,
-                               title=c.get("title", "") or "", log=log,
-                               progress=job_progress(job, lo, hi), check=check)
-            log(f"Saved {name} ({time.time() - t0:.0f}s)")
-            results.append({"name": name, "url": f"/files/{pid}/tiktok/{name}?v={int(time.time() * 1000)}",
-                            "seconds": round(end - start)})
-    log(f"All done. Clips are in {outdir}")
-    return {"files": results, "folder": outdir}
+            try:
+                _render_item(it)
+                it["status"] = "done"
+                it["progress"] = 1.0
+                it["step"] = f"Done in {time.time() - t0:.0f}s"
+            except engine.Cancelled:
+                with queue_lock:
+                    if it in queue:
+                        queue.remove(it)
+            except Exception as e:
+                it["status"] = "error"
+                it["error"] = (str(e) or type(e).__name__)[:400]
+                if not isinstance(e, RuntimeError):
+                    traceback.print_exc()
 
 
 # --------------------------------------------------------------------------
@@ -377,13 +564,26 @@ class Handler(BaseHTTPRequestHandler):
                 "window": MODE["window"],
                 "frozen": paths.FROZEN,
                 "version": VERSION,
-                "running": any(j["status"] == "running" for j in jobs.values()),
+                "running": busy(),
             })
         if p == "/api/ping":
             last_ping[0] = time.time()
             return self._json({"ok": True})
         if p == "/api/recent":
             return self._json(engine.recent_projects(WORKROOT))
+        if p == "/api/queue":
+            with queue_lock:
+                items = [queue_public(it) for it in queue]
+            return self._json({"items": items})
+        m = re.fullmatch(r"/api/clips/(\w+)", p)
+        if m:
+            pr = projects.get(m.group(1))
+            if not pr:
+                return self._err("This session expired. Press Find clips again.", 404)
+            lj = jobs.get(pr.get("listen_job", ""))
+            return self._json({"clips": pr["clips"],
+                               "listening": bool(lj and lj["status"] == "running"),
+                               "step": lj["step"] if lj else ""})
         if p == "/api/storage":
             st = engine.storage_summary(WORKROOT)
             st["uninstaller"] = bool(uninstaller_path())
@@ -462,6 +662,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("Unknown delete request.")
             if busy():
                 return self._err("Wait for the current download or render to finish (or cancel it), then try again.", 409)
+            # stop background listening so it isn't reading a VOD while it's deleted
+            for j in jobs.values():
+                if j["kind"] == "listen" and j["status"] == "running":
+                    j["cancel"] = True
+            end_wait = time.time() + 5
+            while time.time() < end_wait and any(j["kind"] == "listen" and j["status"] == "running" for j in jobs.values()):
+                time.sleep(0.1)
             fn = engine.delete_vods if what == "vods" else engine.delete_clips
             res = fn(WORKROOT)
             closed = []
@@ -472,6 +679,9 @@ class Handler(BaseHTTPRequestHandler):
                     if os.path.realpath(pr["video"]).startswith(root + os.sep) and not os.path.exists(pr["video"]):
                         projects.pop(pid, None)
                         closed.append(pid)
+            with queue_lock:
+                queue[:] = [it for it in queue if not (it["status"] == "done" and not os.path.exists(it.get("path", "")))
+                            and not (it["status"] == "error" and it["pid"] in closed)]
             res["closed"] = closed
             res["storage"] = engine.storage_summary(WORKROOT)
             return self._json(res)
@@ -505,7 +715,13 @@ class Handler(BaseHTTPRequestHandler):
             clips = engine.pick_clips(an, count=int(body.get("count", 10)),
                                       length=float(body.get("length", 30)),
                                       chat=pr["chat"], chat_delay=pr["chat_delay"])
-            pr["clips"] = clip_dicts(pid, clips)
+            new = clip_dicts(pid, clips)
+            for m in [c for c in pr["clips"] if c.get("manual")]:
+                if not any(m["start"] < c["end"] and m["end"] > c["start"] for c in new):
+                    m = dict(m, id=max([c["id"] for c in new] + [0]) + 1)
+                    new.append(m)
+            pr["clips"] = new
+            pr["clips_ver"] = pr.get("clips_ver", 0) + 1
             return self._json(project_view(pid))
 
         if p == "/api/add_clip":
@@ -521,15 +737,56 @@ class Handler(BaseHTTPRequestHandler):
             sc = an.score[int(min(max(t, 0), len(an.score) - 1))]
             clip = engine.Clip(nid, round(start, 2), round(min(an.duration, start + length), 2),
                                t, round(float(sc), 2), "Added by you")
-            pr["clips"] += clip_dicts(pid, [clip])
-            return self._json(pr["clips"][-1])
+            d = clip_dicts(pid, [clip])[0]
+            d["manual"] = True
+            pr["clips"].append(d)
+            return self._json(d)
 
-        if p == "/api/render":
-            if body.get("pid") not in projects:
+        if p == "/api/listen":
+            pid = body.get("pid")
+            if pid not in projects:
                 return self._err("This session expired. Press Find clips again.", 404)
-            job = new_job("render")
-            run_job(job, lambda: do_render(job, body))
+            job = start_listening(pid, [int(i) for i in body.get("order", [])],
+                                  body.get("model") or "small", body.get("language") or "")
             return self._json({"job": job["id"]})
+
+        if p == "/api/queue/add":
+            pid = body.get("pid")
+            if pid not in projects:
+                return self._err("This session expired. Press Find clips again.", 404)
+            c = body.get("clip") or {}
+            try:
+                start_, end_ = float(c["start"]), float(c["end"])
+            except (KeyError, TypeError, ValueError):
+                return self._err("Bad clip.")
+            if end_ - start_ < 1:
+                return self._err("That clip is too short.")
+            it = {"id": uuid.uuid4().hex[:8], "pid": pid, "clip_id": c.get("id"), "rank": int(c.get("rank") or 0),
+                  "start": start_, "end": end_, "title": str(c.get("title") or "")[:120],
+                  "post": str(c.get("post") or "")[:2000], "thumb": c.get("thumb", ""),
+                  "opts": dict(body.get("opts") or {}), "status": "queued", "progress": 0.0, "step": "Waiting",
+                  "error": "", "cancel": False, "created": time.time()}
+            with queue_lock:
+                queue.append(it)
+            queue_wake.set()
+            return self._json(queue_public(it))
+
+        if p == "/api/queue/remove":
+            with queue_lock:
+                it = next((x for x in queue if x["id"] == body.get("id")), None)
+                if it and it["status"] == "rendering":
+                    it["cancel"] = True          # the worker drops it once ffmpeg stops
+                elif it:
+                    queue.remove(it)
+            return self._json({"ok": True})
+
+        if p == "/api/queue/retry":
+            with queue_lock:
+                it = next((x for x in queue if x["id"] == body.get("id")), None)
+                if it and it["status"] == "error":
+                    it.update(status="queued", progress=0.0, error="", step="Waiting", cancel=False)
+            queue_wake.set()
+            return self._json({"ok": True})
 
         if p == "/api/open_folder":
             folder = body.get("folder", "")
@@ -610,6 +867,12 @@ class _Server(ThreadingHTTPServer):
     allow_reuse_address = sys.platform != "win32"
     daemon_threads = True
 
+    def handle_error(self, request, client_address):
+        # the video player drops connections all the time while seeking; that's not an error
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
 
 def _bind(start: int):
     for port in range(start, start + 20):
@@ -624,11 +887,18 @@ def start(port: int = PORT):
     """Start the server on a background thread. Returns (server, url)."""
     srv, port = _bind(port)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+    if not _worker_started[0]:
+        _worker_started[0] = True
+        threading.Thread(target=queue_worker, daemon=True).start()
     return srv, f"http://127.0.0.1:{port}"
 
 
 def busy() -> bool:
-    return any(j["status"] == "running" for j in jobs.values())
+    """A download, tool setup or render is in progress (background listening doesn't count)."""
+    return queue_busy() or any(j["status"] == "running" and j["kind"] != "listen" for j in jobs.values())
+
+
+_worker_started = [False]
 
 
 def main():

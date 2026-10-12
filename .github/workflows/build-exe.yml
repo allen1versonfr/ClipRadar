@@ -85,7 +85,7 @@ jobs:
           foreach ($c in $r.checks) {
             $d = ($c.detail -replace "`r?`n", " | ")
             if (-not $c.ok) { Write-Host "::error title=FAIL $($c.name)::$d" }
-            elseif ($c.name -match "captions|render|analyze|encoder|yt-dlp|Twitch") { Write-Host "::notice title=$($c.name)::$d" }
+            elseif ($c.name -match "captions|title|render|analyze|encoder|yt-dlp|Twitch") { Write-Host "::notice title=$($c.name)::$d" }
           }
           if (-not $r.ok) { exit 1 }
 

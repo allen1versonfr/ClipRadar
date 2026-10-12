@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -192,7 +193,7 @@ def _clip_files(pdir: str) -> list:
     if not os.path.isdir(tdir):
         return []
     return [os.path.join(tdir, f) for f in os.listdir(tdir)
-            if os.path.isfile(os.path.join(tdir, f)) and f.lower().endswith((".mp4", ".ass", ".wav"))]
+            if os.path.isfile(os.path.join(tdir, f)) and f.lower().endswith((".mp4", ".ass", ".wav", ".txt"))]
 
 
 def _size(files: list) -> int:
@@ -1046,6 +1047,7 @@ def build_filter(info: dict, o: RenderOpts) -> tuple:
 # ---- captions --------------------------------------------------------------
 
 _whisper_cache: dict = {}
+_whisper_lock = threading.RLock()   # one transcription at a time (titles + renders share the model)
 
 
 def whisper_available() -> bool:
@@ -1081,17 +1083,29 @@ def _load_whisper(model_size: str, log: Log):
 
 def transcribe(audio, model_size: str, language: str, log: Log) -> list:
     """audio: path or 16 kHz mono float32 numpy array."""
-    model = _load_whisper(model_size, log)
-    segs, _ = model.transcribe(audio, language=language or None, word_timestamps=True,
-                               vad_filter=True, beam_size=5,
-                               vad_parameters={"min_silence_duration_ms": 400})
-    words = []
-    for seg in segs:
-        for w in seg.words or []:
-            txt = w.word.strip()
-            if txt:
-                words.append({"start": float(w.start), "end": float(w.end), "word": txt})
+    with _whisper_lock:
+        model = _load_whisper(model_size, log)
+        segs, _ = model.transcribe(audio, language=language or None, word_timestamps=True,
+                                   vad_filter=True, beam_size=5,
+                                   vad_parameters={"min_silence_duration_ms": 400})
+        words = []
+        for seg in segs:
+            for w in seg.words or []:
+                txt = w.word.strip()
+                if txt:
+                    words.append({"start": float(w.start), "end": float(w.end), "word": txt})
     return words
+
+
+def extract_audio(video: str, start: float, length: float) -> Optional[np.ndarray]:
+    """16 kHz mono float32 samples of a stretch of the video's audio (None if unreadable)."""
+    p = subprocess.run([ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, start):.3f}",
+                        "-t", f"{max(0.1, length):.3f}", "-i", video, "-map", "0:a:0", "-vn", "-ac", "1",
+                        "-ar", "16000", "-f", "f32le", "-"], capture_output=True,
+                       stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
+    if p.returncode != 0:
+        return None
+    return np.frombuffer(p.stdout, dtype=np.float32).copy()
 
 
 def _ass_color(hex_rgb: str) -> str:
@@ -1223,7 +1237,8 @@ def video_encoder(o: RenderOpts) -> tuple:
 
 def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o: RenderOpts,
                 title: str = "", log: Log = _noop, progress: Progress = _noop,
-                check: Check = _noop) -> str:
+                check: Check = _noop, words: Optional[list] = None) -> str:
+    """words: transcript (times relative to clip_start) to caption with; transcribed here if None."""
     info = probe(video)
     clip_start = max(0.0, clip_start)
     clip_end = min(info["duration"] or clip_end, clip_end)
@@ -1235,31 +1250,30 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     ass_name = f"{stem}.ass"
     ass_path = os.path.join(work, ass_name)
 
-    words: list = []
-    if o.captions and info["has_audio"]:
-        if not whisper_available():
-            log("Captions skipped: faster-whisper isn't installed (run install.bat).")
-        else:
-            # decode with our ffmpeg straight to 16 kHz mono float samples; Whisper takes the array
-            # directly, so captions don't depend on PyAV's file-reading API
-            p = subprocess.run([ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{clip_start:.3f}",
-                                "-t", f"{length:.3f}", "-i", video, "-map", "0:a:0", "-vn", "-ac", "1",
-                                "-ar", "16000", "-f", "f32le", "-"], capture_output=True,
-                               stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
-            audio = np.frombuffer(p.stdout, dtype=np.float32).copy() if p.returncode == 0 else None
-            progress(0.08)
-            check()
-            if audio is None or audio.size < 1600:
-                log("Captions skipped: couldn't read this clip's audio.")
+    if words is not None:
+        words = list(words) if o.captions else []
+    else:
+        words = []
+        if o.captions and info["has_audio"]:
+            if not whisper_available():
+                log("Captions skipped: faster-whisper isn't installed (run install.bat).")
             else:
-                log("Transcribing speech for captions...")
-                try:
-                    words = transcribe(audio, o.whisper_model, o.language, log)
-                except Exception as e:
-                    log(f"Captions skipped: {str(e)[:200]}")
-                    words = []
-            if not words:
-                log("No speech found in this clip.")
+                # decode with our ffmpeg straight to 16 kHz mono float samples; Whisper takes the array
+                # directly, so captions don't depend on PyAV's file-reading API
+                audio = extract_audio(video, clip_start, length)
+                progress(0.08)
+                check()
+                if audio is None or audio.size < 1600:
+                    log("Captions skipped: couldn't read this clip's audio.")
+                else:
+                    log("Transcribing speech for captions...")
+                    try:
+                        words = transcribe(audio, o.whisper_model, o.language, log)
+                    except Exception as e:
+                        log(f"Captions skipped: {str(e)[:200]}")
+                        words = []
+                if not words:
+                    log("No speech found in this clip.")
     progress(0.3)
     check()
 

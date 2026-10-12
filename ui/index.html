@@ -118,68 +118,116 @@ details.more[open]{flex-basis:100%}
 .recent .rs{display:block;color:var(--faint);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* workspace */
-main{display:none;grid-template-columns:minmax(0,1fr) 360px;gap:26px;padding:20px 0 60px}
-main.show{display:grid}
+main{display:none;padding:18px 0 60px}
+main.show{display:block}
 h3{font-size:16px;font-weight:700;margin:0 0 10px;font-variation-settings:"wdth" 110}
-
-/* hype timeline: the signature element */
-.timeline{position:relative;background:var(--panel);border-radius:var(--r-lg);padding:16px 16px 10px}
-.tl-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
-.tl-head .title{font-weight:700;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tl-head .meta{color:var(--muted);font-size:13px;white-space:nowrap;display:flex;gap:14px}
-canvas#heat{display:block;width:100%;height:136px;margin-top:12px;cursor:crosshair;touch-action:none}
-.tl-foot{display:flex;justify-content:space-between;color:var(--faint);font-size:12.5px;margin-top:4px}
-.hover-tag{position:absolute;pointer-events:none;background:var(--ink2);border:1px solid var(--line);padding:2px 7px;border-radius:5px;font-size:12px;display:none;transform:translateX(-50%);top:58px}
-
-.player{position:relative;margin-top:16px}
-video#vod{width:100%;aspect-ratio:16/9;background:#000;border-radius:var(--r-lg);display:block}
-.vid-err{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:30px;color:var(--muted);background:#000c;border-radius:var(--r-lg)}
-.vid-err.show{display:grid}
-.player-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px;color:var(--muted);margin-top:10px}
-.player-bar .now{color:var(--text);min-width:4.5em}
-.player-bar .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
 .btn{background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 12px;font-size:14px}
 .btn:not(:disabled):hover{border-color:var(--line2)}
+.btn.sm{padding:3px 9px;font-size:12.5px}
+kbd{font:inherit;font-size:11px;padding:0 5px;border:1px solid currentColor;border-radius:4px;opacity:.55;margin-left:6px}
 
-.list-head{display:flex;align-items:center;gap:12px;margin:26px 0 10px;flex-wrap:wrap}
-.list-head h3{margin:0}
-.list-head .sub{color:var(--muted);font-size:13.5px}
-.list-head .btns{margin-left:auto;display:flex;gap:8px}
-.clips{display:flex;flex-direction:column;gap:3px}
-.clip{display:grid;grid-template-columns:26px 30px 136px minmax(0,1fr) auto;gap:14px;align-items:center;padding:10px 12px;border-radius:var(--r-sm);background:var(--panel);border-left:3px solid transparent}
-.clip.active{background:var(--panel2);border-left-color:var(--warm)}
-.clip.off .dim{opacity:.4}
-.clip .rank{font-weight:800;font-size:22px;text-align:right;font-variation-settings:"wdth" 68;color:var(--faint)}
-.clip.active .rank{color:var(--warm)}
-.clip .thumbbtn{padding:0;border:0;background:#000;border-radius:5px;overflow:hidden;position:relative;display:block;width:136px;aspect-ratio:16/9}
-.clip .thumbbtn img{width:100%;height:100%;object-fit:cover;display:block}
-.clip .thumbbtn span{position:absolute;right:5px;bottom:4px;font-size:11.5px;background:#000b;padding:0 5px;border-radius:3px}
-.clip .info{min-width:0;display:grid;gap:3px}
-.clip .when{font-weight:700}
-.clip .why{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.clip .tinput{background:transparent;border:1px solid transparent;border-radius:5px;padding:3px 6px;margin-left:-6px;font-size:13.5px;max-width:420px}
-.clip .tinput::placeholder{color:var(--faint)}
-.clip .tinput:hover,.clip .tinput:focus{border-color:var(--line);background:var(--ink2)}
-.heatbar{height:4px;border-radius:2px;background:var(--ink2);overflow:hidden;max-width:220px}
-.heatbar i{display:block;height:100%;background:linear-gradient(90deg,var(--cool),var(--warm),var(--hot))}
-.trim{display:grid;grid-template-columns:auto auto;gap:4px;font-size:12px}
-.trim button{background:transparent;border:1px solid var(--line);border-radius:5px;padding:3px 8px;color:var(--muted);white-space:nowrap}
-.trim button:hover{color:var(--text);border-color:var(--line2)}
-.clip input[type=checkbox]{width:18px;height:18px;accent-color:var(--warm);margin:0}
-.noclips{background:var(--panel);border-radius:var(--r-sm);padding:22px;color:var(--muted)}
+/* hype timeline */
+.timeline{position:relative;background:var(--panel);border-radius:var(--r-lg);padding:12px 16px 8px}
+.tl-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+.tl-head .title{font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-head .meta{color:var(--muted);font-size:13px;white-space:nowrap;display:flex;gap:14px}
+canvas#heat{display:block;width:100%;height:78px;margin-top:8px;cursor:crosshair;touch-action:none}
+.tl-foot{display:flex;justify-content:space-between;color:var(--faint);font-size:12px;margin-top:2px}
+.hover-tag{position:absolute;pointer-events:none;background:var(--ink2);border:1px solid var(--line);padding:2px 7px;border-radius:5px;font-size:12px;display:none;transform:translateX(-50%);top:40px}
 
-/* side panel */
-aside{display:flex;flex-direction:column;gap:16px;align-self:start;position:sticky;top:16px}
-.phone-wrap{display:flex;justify-content:center;padding:4px 0}
-.phone{width:200px;aspect-ratio:9/16;border-radius:24px;padding:6px;background:#0a0d1c;border:1px solid var(--line);box-shadow:0 18px 40px #0007}
-.phone canvas{width:100%;height:100%;border-radius:19px;display:block;background:#000}
-.panel{background:var(--panel);border-radius:var(--r-lg);padding:16px}
+/* three columns: to review | phone | render queue + format */
+.studio{display:grid;grid-template-columns:270px minmax(0,1fr) 330px;gap:20px;margin-top:16px;align-items:start}
+.col{background:var(--panel);border-radius:var(--r-lg);padding:14px}
+.col.stage{background:none;padding:0;display:grid;grid-template-columns:auto minmax(270px,1fr);gap:16px;align-items:start}
+.stage-panel{display:grid;gap:12px;align-content:start}
+.keys{color:var(--faint);font-size:12px;line-height:1.7}
+.keys kbd{margin:0 3px 0 0;opacity:.8}
+.col-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.col-head h3{margin:0}
+.col-head .sub{color:var(--muted);font-size:12.5px;margin-left:auto}
+.tabs{display:flex;gap:4px;background:var(--ink2);border-radius:var(--r-sm);padding:3px;margin-bottom:10px}
+.tabs button{flex:1;border:0;background:transparent;padding:6px 4px;border-radius:5px;color:var(--muted);font-size:13px;white-space:nowrap}
+.tabs button.on{background:var(--panel2);color:var(--text);font-weight:600}
+.tabs b{font-weight:600;color:var(--faint);margin-left:3px}
+.tabs button.on b{color:var(--warm)}
+.listening{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);margin:-2px 0 10px}
+.listening i{width:7px;height:7px;border-radius:50%;background:var(--warm);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+
+/* clip cards */
+.cards{display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 230px);min-height:200px;overflow:auto;margin:0 -4px;padding:0 4px}
+.card{display:grid;grid-template-columns:54px minmax(0,1fr);gap:11px;padding:7px;border-radius:var(--r-sm);background:var(--ink2);border:1px solid transparent;text-align:left;width:100%}
+.card:hover{border-color:var(--line)}
+.card.cur{border-color:var(--warm);background:#22283f}
+.vt{width:54px;aspect-ratio:9/16;border-radius:5px;overflow:hidden;background:#000;position:relative}
+.vt img{width:100%;height:100%;object-fit:cover;display:block}
+.vt span{position:absolute;left:3px;bottom:3px;font-size:10.5px;background:#000b;padding:0 4px;border-radius:3px}
+.card .ct{font-weight:600;font-size:14px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .cm{color:var(--faint);font-size:12px;margin-top:3px}
+.card .rk{color:var(--muted);font-weight:700;margin-right:4px}
+.pill{display:inline-block;font-size:11px;padding:0 7px;border-radius:99px;border:1px solid var(--line);color:var(--muted);margin-top:5px}
+.pill.kept{border-color:#2f6b58;color:var(--ok)}
+.shimmer{color:var(--faint);font-style:italic}
+.empty-note{color:var(--muted);font-size:13.5px;padding:14px 4px}
+
+/* the phone player */
+.phone-row{display:flex;align-items:center;gap:14px}
+.phone{position:relative;height:clamp(420px,calc(100vh - 260px),720px);aspect-ratio:9/16;border-radius:30px;padding:7px;
+  background:#0a0d1c;border:1px solid var(--line);box-shadow:0 24px 60px #000a}
+.phone canvas,.phone video{width:100%;height:100%;border-radius:23px;display:block;background:#000;object-fit:contain}
+.phone canvas{cursor:pointer}
+.phone-prog{position:absolute;left:18px;right:18px;bottom:16px;height:3px;border-radius:2px;background:#ffffff33;overflow:hidden;pointer-events:none}
+.phone-prog i{display:block;height:100%;width:0;background:#fff}
+.phone-badge{position:absolute;left:18px;top:18px;font-size:11.5px;padding:2px 8px;border-radius:99px;background:#000a;color:#fff;pointer-events:none}
+.phone-badge:empty{display:none}
+.phone-play{position:absolute;inset:7px;display:grid;place-items:center;pointer-events:none;opacity:0;transition:opacity .15s}
+.phone-play.show{opacity:1}
+.phone-play svg{width:66px;height:66px;filter:drop-shadow(0 4px 12px #0008)}
+.side-nav{display:flex;flex-direction:column;gap:10px}
+.round{width:46px;height:46px;border-radius:50%;background:var(--panel);border:1px solid var(--line);display:grid;place-items:center;padding:0}
+.round:not(:disabled):hover{border-color:var(--line2)}
+.round svg{width:20px;height:20px}
+
+/* controls under the phone */
+.controls{width:100%;background:var(--panel);border-radius:var(--r-lg);padding:14px 16px;display:grid;gap:12px}
+.cmeta{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;color:var(--muted);font-size:13px}
+.cmeta b{color:var(--text);font-size:15px}
+.trow{display:flex;gap:8px;align-items:center}
+.trow .input{font-size:15px;padding:8px 10px;font-weight:600}
+.trow .btn{white-space:nowrap;align-self:stretch}
+.post{display:flex;gap:10px;align-items:flex-start;background:var(--ink2);border-radius:var(--r-sm);padding:8px 10px;font-size:13px;color:var(--muted)}
+.post span{flex:1;white-space:pre-line;min-width:0;overflow-wrap:anywhere}
+.trim{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:12.5px;color:var(--muted)}
+.trim > span{display:flex;gap:4px;align-items:center}
+.trim .lbl{min-width:34px}
+.actions{display:grid;grid-template-columns:1fr 2fr;gap:10px}
+.actions .btn{padding:12px;font-size:15px}
+.actions .go{padding:12px;font-size:16px}
+.done-panel{text-align:center;color:var(--muted)}
+.done-panel h3{color:var(--text);font-size:19px;margin-bottom:6px}
+.done-panel .row{display:flex;gap:8px;justify-content:center;margin-top:12px;flex-wrap:wrap}
+
+/* right column */
+.side .pane{display:grid;gap:8px}
+.qitem{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px;border-radius:var(--r-sm);background:var(--ink2)}
+.qitem .vt{width:42px}
+.qitem .qt{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qitem .qs{font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px}
+.qitem .qs.err{color:#ff8b9b}
+.qitem .bar{height:4px;margin-top:5px}
+.qitem .x{background:none;border:0;color:var(--faint);font-size:18px;padding:2px 6px;line-height:1}
+.qitem .x:hover{color:var(--text)}
+.qitem.done{cursor:pointer}
+.qitem.done:hover{outline:1px solid var(--line2)}
+.qitem.playing{outline:1px solid var(--warm)}
+.q-empty{color:var(--muted);font-size:13.5px;padding:8px 2px}
+.q-foot{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:4px;font-size:12.5px;color:var(--faint)}
 .seg{display:flex;background:var(--ink2);border-radius:var(--r-sm);padding:3px;gap:3px}
 .seg button{flex:1;border:0;background:transparent;padding:7px 4px;border-radius:5px;color:var(--muted);font-size:13.5px}
 .seg button.on{background:var(--panel2);color:var(--text);font-weight:600}
-.field{display:grid;grid-template-columns:104px 1fr auto;gap:10px;align-items:center;font-size:13.5px;margin-top:12px;color:var(--muted)}
+.field{display:grid;grid-template-columns:98px 1fr auto;gap:10px;align-items:center;font-size:13.5px;margin-top:12px;color:var(--muted)}
 .field input[type=range]{width:100%;accent-color:var(--warm)}
-.field output{color:var(--text);min-width:3.2em;text-align:right}
+.field output{color:var(--text);min-width:3em;text-align:right}
 .field select{background:var(--ink2);border:1px solid var(--line);border-radius:var(--r-sm);padding:5px 7px;grid-column:span 2;min-width:0}
 .swatches{grid-column:span 2;display:flex;gap:7px;align-items:center}
 .swatches button{width:24px;height:24px;border-radius:50%;border:2px solid transparent;padding:0}
@@ -187,31 +235,20 @@ aside{display:flex;flex-direction:column;gap:16px;align-self:start;position:stic
 .swatches input{width:26px;height:26px;border:0;padding:0;background:none}
 .toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13.5px;color:var(--muted)}
 .toggle input{width:18px;height:18px;accent-color:var(--warm);margin:0}
-.toggle.head{color:var(--text)}
-.toggle.head h3{margin:0}
 .picker{position:relative;margin-top:12px;user-select:none;touch-action:none;cursor:crosshair;border-radius:var(--r-sm);overflow:hidden;background:#000;aspect-ratio:16/9}
 .picker img{width:100%;height:100%;object-fit:fill;display:block;pointer-events:none}
 .picker .box{position:absolute;border:2px solid var(--warm);box-shadow:0 0 0 9999px rgba(10,12,25,.5)}
-.hint{color:var(--faint);font-size:12.5px;margin-top:6px}
-.render{width:100%;padding:15px;font-size:16px}
-.rstatus{display:none;font-size:13px;color:var(--muted);margin-top:10px}
-.rstatus.show{display:block}
-.rstatus .row{display:flex;gap:10px;margin-bottom:6px}
-.rstatus .row span:first-child{color:var(--text)}
-.rstatus .row .pct{margin-left:auto}
+.hint{color:var(--faint);font-size:12.5px;margin-top:8px}
 
-.outputs{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px}
-.outputs figure{margin:0}
-.outputs video{width:100%;aspect-ratio:9/16;background:#000;border-radius:12px;display:block}
-.outputs figcaption{font-size:12.5px;color:var(--muted);margin-top:6px;word-break:break-all}
-#outBlock{display:none}
-
-@media (max-width:1100px){
-  main{grid-template-columns:1fr}
-  aside{position:static}
-  .clip{grid-template-columns:22px 24px 104px minmax(0,1fr)}
-  .clip .thumbbtn{width:104px}
-  .clip .trim{grid-column:3/-1;grid-template-columns:repeat(4,auto);justify-content:start}
+@media (max-width:1440px){
+  .col.stage{grid-template-columns:1fr;justify-items:center}
+  .stage-panel{width:min(560px,100%)}
+}
+@media (max-width:1180px){
+  .studio{grid-template-columns:1fr}
+  .col.stage{order:-1}
+  .cards{max-height:420px}
+  .phone{height:min(72vh,680px)}
   .empty{grid-template-columns:1fr;gap:28px}
 }
 @media (max-width:620px){
@@ -221,11 +258,10 @@ aside{display:flex;flex-direction:column;gap:16px;align-self:start;position:stic
   .tl-foot .mid{display:none}
   .source{grid-template-columns:1fr auto}
   .source .go{grid-column:1/-1}
-  .clip{grid-template-columns:22px 1fr;gap:10px}
-  .clip .rank{display:none}
-  .clip .thumbbtn{width:100%;grid-column:2}
-  .clip .info,.clip .trim{grid-column:2}
   .tl-head{flex-direction:column;gap:2px}
+  .phone{height:auto;width:min(100%,360px);min-height:0}
+  .phone-row{flex-direction:column}
+  .side-nav{flex-direction:row}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -293,9 +329,9 @@ aside{display:flex;flex-direction:column;gap:16px;align-self:start;position:stic
     <h2>Turn a stream into TikToks.</h2>
     <ol>
       <li>Paste a VOD link and press <b>Find clips</b>.</li>
-      <li>VodClipper scores every second of the stream by chat hype and volume, then suggests the best moments.</li>
-      <li>Preview them, trim, add a title, and untick the misses.</li>
-      <li>Drag a box around your facecam and press <b>Render</b>. You get 1080×1920 MP4s with captions.</li>
+      <li>VodClipper finds the moments where chat and your mic went off, then listens to each one and writes it a title.</li>
+      <li>Watch them one after another in TikTok format, with captions. <b>Keep</b> the good ones, <b>skip</b> the rest.</li>
+      <li>Kept clips render in the background as 1080×1920 MP4s, each with a caption ready to paste when you post.</li>
     </ol>
   </div>
   <div>
@@ -313,93 +349,136 @@ aside{display:flex;flex-direction:column;gap:16px;align-self:start;position:stic
 </div>
 
 <main id="work" class="wrap">
-  <div>
-    <section class="timeline">
-      <div class="tl-head"><div class="title" id="vodTitle"></div><div class="meta" id="vodMeta"></div></div>
-      <canvas id="heat" aria-label="Hype across the whole stream. Click to jump there."></canvas>
-      <div class="tl-foot tnum"><span>0:00</span><span class="mid">Taller and warmer means more hype. Click to jump.</span><span id="durText"></span></div>
-      <div class="hover-tag tnum" id="hoverTag"></div>
+  <section class="timeline">
+    <div class="tl-head"><div class="title" id="vodTitle"></div><div class="meta" id="vodMeta"></div></div>
+    <canvas id="heat" aria-label="Hype across the whole stream. Click to preview any moment."></canvas>
+    <div class="tl-foot tnum"><span>0:00</span><span class="mid">Taller and warmer means more hype. Click anywhere to preview that moment.</span><span id="durText"></span></div>
+    <div class="hover-tag tnum" id="hoverTag"></div>
+  </section>
+
+  <div class="studio">
+    <!-- left: clips waiting for a decision -->
+    <section class="col inbox" aria-label="Clips to review">
+      <div class="tabs" id="inboxTabs" role="tablist">
+        <button data-f="todo" class="on">To review<b id="nTodo"></b></button>
+        <button data-f="skipped">Skipped<b id="nSkip"></b></button>
+        <button data-f="all">All<b id="nAll"></b></button>
+      </div>
+      <div class="listening" id="listening" hidden><i></i><span id="listenText"></span></div>
+      <div class="cards" id="cards"></div>
     </section>
 
-    <div class="player">
-      <video id="vod" controls preload="metadata" playsinline></video>
-      <div class="vid-err" id="vidErr"></div>
-    </div>
-    <div class="player-bar">
-      <span class="now tnum" id="nowText">0:00</span>
-      <button class="btn" id="setStart" title="Make the selected clip start at the playhead">Start here</button>
-      <button class="btn" id="setEnd" title="Make the selected clip end at the playhead">End here</button>
-      <span class="sep"></span>
-      <button class="btn" id="addHere" title="New clip centered on the playhead">Add clip here</button>
-      <span id="playingText"></span>
-    </div>
-
-    <div class="list-head">
-      <h3>Best moments</h3><span class="sub tnum" id="listSub"></span>
-      <div class="btns">
-        <button class="btn" id="selAll">Select all</button>
-        <button class="btn" id="selNone">Select none</button>
+    <!-- middle: the clip, the way it will look on TikTok -->
+    <section class="col stage" aria-label="Clip player">
+      <div class="phone-row">
+        <div class="phone" id="phoneBox">
+          <canvas id="phone" width="540" height="960" aria-label="Clip preview in TikTok format"></canvas>
+          <video id="filePlayer" playsinline loop hidden></video>
+          <div class="phone-badge" id="phoneBadge"></div>
+          <div class="phone-play" id="playIcon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#0008"/><path d="M9.5 7.5v9l7-4.5z" fill="#fff"/></svg></div>
+          <div class="phone-prog"><i id="phoneProg"></i></div>
+        </div>
+        <div class="side-nav">
+          <button class="round" id="prevBtn" title="Previous clip (Up arrow)" aria-label="Previous clip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
+          <button class="round" id="nextBtn" title="Next clip (Down arrow)" aria-label="Next clip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+          <button class="round" id="muteBtn" title="Mute (M)" aria-label="Mute"><svg id="muteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg></button>
+        </div>
       </div>
-    </div>
-    <div class="clips" id="clips"></div>
 
-    <section id="outBlock">
-      <div class="list-head"><h3>Your TikToks</h3><span class="sub" id="outSub"></span><div class="btns"><button class="btn" id="openFolder">Open folder</button></div></div>
-      <div class="outputs" id="outputs"></div>
+      <div class="stage-panel">
+      <!-- reviewing a suggested clip -->
+      <div class="controls" id="clipControls" hidden>
+        <div class="cmeta tnum"><b id="cRank"></b><span id="cTime"></span><span id="cVibe"></span><span id="cWhy"></span></div>
+        <div class="trow">
+          <input class="input" id="titleInput" maxlength="90" placeholder="Title on the video (optional)" aria-label="Title on the video">
+          <button class="btn" id="nextTitle" title="Try another title (T)">New title</button>
+        </div>
+        <div class="post"><span id="postText"></span><button class="btn sm" id="copyPost">Copy caption</button></div>
+        <div class="trim tnum">
+          <span><span class="lbl">Start</span><button class="btn sm" data-t="s,-5">−5s</button><button class="btn sm" data-t="s,5">+5s</button><button class="btn sm" data-t="s,now" title="Start the clip where it's playing now">Here</button></span>
+          <span><span class="lbl">End</span><button class="btn sm" data-t="e,-5">−5s</button><button class="btn sm" data-t="e,5">+5s</button><button class="btn sm" data-t="e,now" title="End the clip where it's playing now">Here</button></span>
+        </div>
+        <div class="actions">
+          <button class="btn" id="skipBtn">Skip<kbd>X</kbd></button>
+          <button class="go" id="keepBtn">Keep and render<kbd>Enter</kbd></button>
+        </div>
+      </div>
+
+      <!-- previewing any moment picked on the timeline -->
+      <div class="controls" id="freeControls" hidden>
+        <div class="cmeta tnum"><b>Previewing <span id="freeAt"></span></b><span>from anywhere in the stream</span></div>
+        <div class="actions"><button class="btn" id="backBtn">Back to clips</button><button class="go" id="addHere">Make a clip here</button></div>
+      </div>
+
+      <!-- watching a finished render -->
+      <div class="controls" id="fileControls" hidden>
+        <div class="cmeta"><b id="fileName"></b><span>Rendered file</span></div>
+        <div class="post"><span id="filePost"></span><button class="btn sm" id="copyFilePost">Copy caption</button></div>
+        <div class="actions"><button class="btn" id="backBtn2">Back to clips</button><button class="go" id="openFolder">Show in folder</button></div>
+      </div>
+
+      <!-- nothing left to review -->
+      <div class="controls done-panel" id="doneControls" hidden>
+        <h3>All caught up</h3>
+        <div id="doneText"></div>
+        <div class="row"><button class="btn" id="reviewSkipped">Review skipped</button><button class="btn" id="findMore">Find 5 more clips</button></div>
+      </div>
+      <div class="keys" id="keys"><kbd>Space</kbd>play/pause · <kbd>↑</kbd><kbd>↓</kbd>previous/next · <kbd>Enter</kbd>keep · <kbd>X</kbd>skip · <kbd>T</kbd>new title · <kbd>←</kbd><kbd>→</kbd>seek · <kbd>M</kbd>mute</div>
+      </div>
+    </section>
+
+    <!-- right: render queue and format settings -->
+    <section class="col side" aria-label="Render queue and format">
+      <div class="tabs" id="sideTabs" role="tablist">
+        <button data-t="queue">Render queue<b id="nQueue"></b></button>
+        <button data-t="layout" class="on">Layout</button>
+        <button data-t="captions">Captions</button>
+      </div>
+
+      <div class="pane" id="pane-queue" hidden>
+        <div id="queueList"></div>
+        <div class="q-foot"><span id="queueSum"></span><button class="btn sm" id="openFolder2">Open folder</button></div>
+      </div>
+
+      <div class="pane" id="pane-layout">
+        <div class="seg" id="layoutSeg" role="group" aria-label="Layout">
+          <button data-v="split" class="on">Cam + game</button>
+          <button data-v="full">Full crop</button>
+          <button data-v="blur">Blur fit</button>
+        </div>
+        <div id="camBlock">
+          <div class="picker" id="picker"><img id="frame" alt="Frame from the stream"><div class="box" id="box"></div></div>
+          <div class="hint">Drag a box around your facecam.</div>
+          <div class="field">Cam height<input type="range" id="camH" min="20" max="50" value="33"><output id="camHOut" class="tnum">33%</output></div>
+        </div>
+        <div class="field">Game focus<input type="range" id="gameX" min="0" max="100" value="50"><output id="gameXOut">center</output></div>
+        <div class="field">Zoom<input type="range" id="zoom" min="100" max="200" step="5" value="100"><output id="zoomOut" class="tnum">1×</output></div>
+        <div class="hint">Changes show on the phone right away and apply to clips you keep from now on.</div>
+      </div>
+
+      <div class="pane" id="pane-captions" hidden>
+        <label class="toggle"><input type="checkbox" id="caps" checked> Show captions</label>
+        <div id="capBlock">
+          <div class="field">Position<select id="capPos"><option value="auto">Auto</option><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select></div>
+          <div class="field">Highlight<div class="swatches" id="swatches"></div></div>
+          <div class="field">Text size<input type="range" id="capSize" min="70" max="140" step="5" value="100"><output id="capSizeOut" class="tnum">100%</output></div>
+          <div class="field">Words at once<input type="range" id="wpl" min="1" max="6" value="3"><output id="wplOut" class="tnum">3</output></div>
+          <div class="field">Accuracy<select id="model">
+            <option value="base">Fast</option>
+            <option value="small">Good</option>
+            <option value="medium">Better (slower)</option>
+            <option value="large-v3">Best (needs a GPU)</option>
+          </select></div>
+          <div class="field">Language<select id="lang"><option value="">Detect automatically</option><option value="en">English</option><option value="es">Spanish</option><option value="pt">Portuguese</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="ar">Arabic</option><option value="tr">Turkish</option><option value="ru">Russian</option><option value="pl">Polish</option><option value="ja">Japanese</option><option value="ko">Korean</option></select></div>
+          <label class="toggle" style="margin-top:14px"><input type="checkbox" id="upper" checked> Capital letters</label>
+          <div class="hint" id="capWarn"></div>
+        </div>
+        <label class="toggle" style="margin-top:14px"><input type="checkbox" id="hw" checked> Use the GPU to encode when available</label>
+      </div>
     </section>
   </div>
-
-  <aside>
-    <div class="phone-wrap"><div class="phone"><canvas id="phone" width="360" height="640" aria-label="Preview of the vertical layout"></canvas></div></div>
-
-    <div class="panel">
-      <h3>Layout</h3>
-      <div class="seg" id="layoutSeg" role="group" aria-label="Layout">
-        <button data-v="split" class="on">Cam + game</button>
-        <button data-v="full">Full crop</button>
-        <button data-v="blur">Blur fit</button>
-      </div>
-      <div id="camBlock">
-        <div class="picker" id="picker"><img id="frame" alt="Frame from the stream"><div class="box" id="box"></div></div>
-        <div class="hint">Drag a box around your facecam.</div>
-        <div class="field">Cam height<input type="range" id="camH" min="20" max="50" value="33"><output id="camHOut" class="tnum">33%</output></div>
-      </div>
-      <div class="field">Game focus<input type="range" id="gameX" min="0" max="100" value="50"><output id="gameXOut">center</output></div>
-      <div class="field">Zoom<input type="range" id="zoom" min="100" max="200" step="5" value="100"><output id="zoomOut" class="tnum">1×</output></div>
-    </div>
-
-    <div class="panel">
-      <label class="toggle head"><input type="checkbox" id="caps" checked><h3>Captions</h3></label>
-      <div id="capBlock">
-        <div class="field">Position<select id="capPos"><option value="auto">Auto</option><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select></div>
-        <div class="field">Highlight<div class="swatches" id="swatches"></div></div>
-        <div class="field">Text size<input type="range" id="capSize" min="70" max="140" step="5" value="100"><output id="capSizeOut" class="tnum">100%</output></div>
-        <div class="field">Words at once<input type="range" id="wpl" min="1" max="6" value="3"><output id="wplOut" class="tnum">3</output></div>
-        <div class="field">Accuracy<select id="model">
-          <option value="base">Fast</option>
-          <option value="small">Good</option>
-          <option value="medium">Better (slower)</option>
-          <option value="large-v3">Best (needs a GPU)</option>
-        </select></div>
-        <div class="field">Language<select id="lang"><option value="">Detect automatically</option><option value="en">English</option><option value="es">Spanish</option><option value="pt">Portuguese</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="ar">Arabic</option><option value="tr">Turkish</option><option value="ru">Russian</option><option value="pl">Polish</option><option value="ja">Japanese</option><option value="ko">Korean</option></select></div>
-        <label class="toggle" style="margin-top:14px"><input type="checkbox" id="upper" checked> Capital letters</label>
-        <div class="hint" id="capWarn"></div>
-      </div>
-    </div>
-
-    <div>
-      <button class="go render" id="render">Render selected</button>
-      <label class="toggle" style="margin-top:10px;justify-content:center"><input type="checkbox" id="hw" checked> Use GPU for encoding when available</label>
-      <div class="rstatus" id="rstatus" role="status" aria-live="polite">
-        <div class="row"><span id="rStep">Rendering</span><button class="linkbtn" id="cancelR">Cancel</button><span class="pct tnum" id="rPct">0%</span></div>
-        <div class="bar"><i id="rBar"></i></div>
-        <div class="log" id="rLog" style="max-height:60px"></div>
-        <div class="err" id="rErr"></div>
-      </div>
-    </div>
-  </aside>
+  <video id="vod" preload="auto" playsinline style="display:none"></video>
 </main>
-
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -526,16 +605,15 @@ async function deleteStuff(what){
   if (!ok) return;
   // let go of files the page is playing so Windows allows deleting them
   if (what === 'vods'){ vod.pause(); vod.removeAttribute('src'); vod.load(); }
-  document.querySelectorAll('#outputs video').forEach(el => { el.pause(); el.removeAttribute('src'); el.load(); });
+  filePlayer.pause(); filePlayer.removeAttribute('src'); filePlayer.load();
   await new Promise(r => setTimeout(r, 250));
   let res;
   try { res = await api('/api/delete', { what }); }
   catch (e){ toast(e.message, 7000); if (what === 'vods' && P) vod.src = P.vod; return; }
-  if (what === 'clips'){ $('#outputs').innerHTML = ''; $('#outBlock').style.display = 'none'; }
-  if (P && res.closed.includes(P.pid)){
-    P = null; active = null;
-    $('#work').classList.remove('show'); $('#empty').style.display = '';
-  } else if (P && what === 'vods') vod.src = P.vod;
+  if (mode === 'file') $('#backBtn2').click();
+  if (P && res.closed.includes(P.pid)) closeProject();
+  else if (P && what === 'vods'){ vod.src = P.vod; dirty = true; }
+  await refreshQueue();
   const word = what === 'vods' ? 'VOD' : 'clip';
   toast(res.failed.length
     ? `Deleted ${plural(res.deleted, word)}. ${res.failed.length} file${res.failed.length === 1 ? ' was' : 's were'} in use: close any player showing ${res.failed.length === 1 ? 'it' : 'them'} and try again.`
@@ -570,7 +648,7 @@ function bindRange(id, outId, f, key, onChange){
   el.addEventListener('input', () => { upd(); onChange && onChange(); }); upd();
 }
 let repickTimer = null;
-const repickSoon = () => { if (!P) return; clearTimeout(repickTimer); repickTimer = setTimeout(repick, 280); };
+const repickSoon = () => { if (!P) return; clearTimeout(repickTimer); repickTimer = setTimeout(repick, 300); };
 bindRange('#count', '#countOut', v => v, 'count', repickSoon);
 bindRange('#length', '#lengthOut', v => v + 's', 'length', repickSoon);
 bindRange('#cw', '#cwOut', v => `${v} / ${100-v}`, 'cw', repickSoon);
@@ -581,7 +659,6 @@ $('#cookies').value = store.get('cookies', ''); $('#cookies').onchange = e => st
 
 /* ---------- jobs ---------- */
 const UI_A = { box:'#progress', step:'#stepText', pct:'#pct', bar:'#barFill', log:'#log', err:'#err', cancel:'#cancelA', lines:8 };
-const UI_R = { box:'#rstatus', step:'#rStep', pct:'#rPct', bar:'#rBar', log:'#rLog', err:'#rErr', cancel:'#cancelR', lines:2 };
 async function follow(jobId, ui, onTick){
   const box = $(ui.box); box.classList.add('show');
   $(ui.err).textContent = ''; $(ui.log).textContent = ''; $(ui.bar).style.width = '0%';
@@ -620,161 +697,555 @@ $('#analyze').onclick = async () => {
     const j = await follow(job, UI_A);
     if (j && j.status === 'done'){
       openProject(j.result); loadStorage();
-      setTimeout(() => { if ($('#err').textContent === '') $('#progress').classList.remove('show'); }, 1800);
+      setTimeout(() => { if ($('#err').textContent === '') $('#progress').classList.remove('show'); }, 1500);
     }
   } catch (e){ $('#progress').classList.add('show'); $('#err').textContent = e.message; }
   $('#analyze').disabled = false;
 };
 $('#src').addEventListener('keydown', e => { if (e.key === 'Enter') $('#analyze').click(); });
 
-/* ---------- project ---------- */
+/* =====================================================================
+   Review: suggested clips play one at a time in TikTok format.
+   Keep sends a clip to the render queue; Skip sets it aside.
+   ===================================================================== */
+const vod = $('#vod'), filePlayer = $('#filePlayer'), phone = $('#phone'), pg = phone.getContext('2d');
+let cur = null;            // id of the clip on the phone
+let mode = 'clip';         // clip | free | file
+let filter = 'todo';       // which clips the left list shows
+let dirty = true;          // phone needs a redraw
+let vodOk = true;          // browser can decode the VOD
+let watching = null;       // queue item shown in file mode
+let queueItems = [];
+let listening = false, listenStep = '';
+
+const clipById = id => P && P.clips.find(c => c.id === id);
+const curClip = () => clipById(cur);
+const rankOf = c => P.clips.indexOf(c) + 1;
+const visible = () => P ? P.clips.filter(c => filter === 'all' ? true : filter === 'todo' ? c.state === 'todo' : c.state === 'skipped') : [];
+const DEFAULT_TAGS = '#twitch #twitchclips #streamer #fyp';
+function postFor(c){
+  const tags = (c.post || '').split('\n\n')[1] || DEFAULT_TAGS;
+  return `${(c.title || '').trim() || 'Wait for it...'} ${c.emoji || '👀'}\n\n${tags}`;
+}
+function prepClip(c){
+  c.state = c.state || 'todo';
+  c.title = c.title || '';
+  c.titles = c.titles || [];
+  c.words = c.words || [];
+  return c;
+}
+
 function openProject(p){
   P = p;
-  P.clips.forEach(c => { c.on = true; c.title = c.title || ''; });
+  P.clips.forEach(prepClip);
   $('#empty').style.display = 'none';
   $('#work').classList.add('show');
-  $('#vodTitle').textContent = p.title;
-  $('#vodTitle').title = p.title;
+  $('#vodTitle').textContent = p.title; $('#vodTitle').title = p.title;
   $('#vodMeta').innerHTML = `<span class="tnum">${fmt(p.duration)}</span><span class="tnum">${p.width}×${p.height}</span><span>` +
     (p.has_chat ? `${p.chat_count.toLocaleString()} chat messages` : 'No chat, ranked by audio') + '</span>';
   $('#durText').textContent = fmt(p.duration);
-  $('#vidErr').classList.remove('show');
-  $('#vod').src = p.vod;
-  $('#outBlock').style.display = 'none';
-  active = null;
-  renderClips(); drawHeat();
-  if (P.clips.length) selectClip(P.clips[0].id, false);
-  else loadFrame(P.duration / 2);
+  vodOk = true;
+  vod.src = p.vod; vod.muted = store.get('muted', false); drawMute();
+  filter = 'todo'; syncFilterTabs();
+  const first = P.clips.find(c => c.state === 'todo');
+  if (first) select(first.id, true); else { cur = null; showControls(); loadFrame(P.duration / 2); }
+  renderCards(); drawHeat();
+  listen();
+  refreshQueue();
+  requestAnimationFrame(() => window.scrollTo({ top: $('#work').offsetTop - 6, behavior: 'smooth' }));
+}
+function closeProject(){
+  P = null; cur = null; mode = 'clip';
+  vod.pause(); vod.removeAttribute('src'); vod.load();
+  $('#work').classList.remove('show'); $('#empty').style.display = '';
 }
 
-async function repick(){
+/* --- background listening: transcribes clips and writes titles --- */
+async function listen(order){
   if (!P) return;
-  try {
-    const manual = P.clips.filter(c => c.manual);
-    const p = await api('/api/repick', { pid: P.pid, count: +$('#count').value, length: +$('#length').value, chat_weight: +$('#cw').value });
-    p.clips.forEach(c => { c.on = true; c.title = ''; });
-    for (const m of manual) if (!p.clips.some(c => m.start < c.end && m.end > c.start)){
-      m.id = Math.max(0, ...p.clips.map(c => c.id)) + 1; p.clips.push(m); }
-    Object.assign(P, { clips: p.clips, curve: p.curve });
-    if (!P.clips.some(c => c.id === active)) active = P.clips[0]?.id ?? null;
-    renderClips(); drawHeat();
-  } catch (e){ $('#progress').classList.add('show'); $('#err').textContent = e.message; }
+  const ids = order || [cur, ...visible().map(c => c.id)].filter(x => x != null);
+  try { await api('/api/listen', { pid: P.pid, order: ids, model: opts.whisper_model, language: opts.language }); listening = true; }
+  catch {}
+  updateListening();
+}
+async function pollClips(){
+  if (!P || !listening) return;
+  let r;
+  try { r = await api('/api/clips/' + P.pid); } catch { return; }
+  listening = r.listening; listenStep = r.step || '';
+  let changed = false;
+  for (const s of r.clips){
+    const c = clipById(s.id); if (!c) continue;
+    if (s.listened && !c.listened) changed = true;
+    c.listened = s.listened; c.words = s.words || []; c.titles = s.titles || []; c.vibe = s.vibe; c.emoji = s.emoji;
+    if (!c.userTitle && s.title && s.title !== c.title){ c.title = s.title; c.post = s.post; changed = true; }
+    else if (!c.post) c.post = s.post;
+  }
+  updateListening();
+  if (changed){ renderCards(); if (mode === 'clip') fillControls(); dirty = true; }
+}
+setInterval(pollClips, 1200);
+function updateListening(){
+  const el = $('#listening');
+  if (!P){ el.hidden = true; return; }
+  const total = P.clips.length, done = P.clips.filter(c => c.listened).length;
+  if (listening && done < total){
+    el.hidden = false;
+    $('#listenText').textContent = status.whisper ? `Listening to clips and writing titles (${done} of ${total})` : 'Writing titles from chat';
+  } else if (!status.whisper && total){
+    el.hidden = false; el.querySelector('i').style.display = 'none';
+    $('#listenText').textContent = 'Titles come from chat only (captions aren\'t installed)';
+  } else el.hidden = true;
 }
 
-function renderClips(){
-  const max = Math.max(1, ...P.clips.map(c => c.score));
-  const on = P.clips.filter(c => c.on).length;
-  $('#listSub').textContent = P.clips.length ? `${on} of ${P.clips.length} selected` : '';
-  $('#render').disabled = !on;
-  $('#render').textContent = on ? `Render ${on} clip${on === 1 ? '' : 's'}` : 'Render selected';
-  if (!P.clips.length){
-    $('#clips').innerHTML = `<div class="noclips">Nothing stood out from the rest of the stream. Try moving <b>Chat vs audio</b>, or click the timeline and press <b>Add clip here</b>.</div>`;
-    return;
-  }
-  $('#clips').innerHTML = P.clips.map((c, i) => `
-    <div class="clip ${c.id===active?'active':''} ${c.on?'':'off'}" data-id="${c.id}">
-      <input type="checkbox" ${c.on?'checked':''} aria-label="Include clip ${i+1}">
-      <div class="rank dim">${i+1}</div>
-      <button class="thumbbtn dim" data-play aria-label="Preview clip ${i+1}"><img src="${c.thumb}" alt="" loading="lazy"><span class="tnum">${Math.round(c.end-c.start)}s</span></button>
-      <div class="info dim">
-        <div class="when tnum">${fmt(c.start)} – ${fmt(c.end)}</div>
-        <div class="why" title="${esc(c.reason)}">${esc(c.reason)}</div>
-        <div class="heatbar"><i style="width:${Math.max(6, c.score/max*100)}%"></i></div>
-        <input class="tinput" data-title value="${esc(c.title)}" placeholder="Add a title on the video (optional)" maxlength="80">
-      </div>
-      <div class="trim dim">
-        <button data-t="s,-5" title="Start 5 seconds earlier">−5s start</button><button data-t="s,5" title="Start 5 seconds later">+5s start</button>
-        <button data-t="e,-5" title="End 5 seconds earlier">−5s end</button><button data-t="e,5" title="End 5 seconds later">+5s end</button>
-      </div>
-    </div>`).join('');
+/* --- left list --- */
+function syncFilterTabs(){
+  document.querySelectorAll('#inboxTabs button').forEach(b => b.classList.toggle('on', b.dataset.f === filter));
 }
-
-function updateRow(c){
-  const row = document.querySelector(`.clip[data-id="${c.id}"]`); if (!row) return;
-  row.querySelector('.when').textContent = `${fmt(c.start)} – ${fmt(c.end)}`;
-  row.querySelector('.thumbbtn span').textContent = Math.round(c.end - c.start) + 's';
+function renderCards(){
+  if (!P) return;
+  const n = s => P.clips.filter(c => c.state === s).length;
+  $('#nTodo').textContent = n('todo'); $('#nSkip').textContent = n('skipped'); $('#nAll').textContent = P.clips.length;
+  const list = visible();
+  if (!list.length){
+    $('#cards').innerHTML = `<div class="empty-note">${
+      !P.clips.length ? 'Nothing stood out from the rest of the stream. Click anywhere on the timeline above to preview a moment and make a clip there.'
+      : filter === 'todo' ? 'Nothing left to review.' : filter === 'skipped' ? 'No skipped clips.' : ''}</div>`;
+  } else {
+    $('#cards').innerHTML = list.map(c => {
+      const pill = c.state === 'kept' ? `<span class="pill kept">${keptLabel(c)}</span>` : c.state === 'skipped' ? '<span class="pill">Skipped</span>' : '';
+      const title = c.listened || c.userTitle ? esc(c.title) : `<span class="shimmer">${esc(c.title)}</span>`;
+      return `<button class="card ${c.id === cur && mode === 'clip' ? 'cur' : ''}" data-id="${c.id}">
+        <div class="vt"><img src="${c.thumb}" alt="" loading="lazy"><span class="tnum">${Math.round(c.end - c.start)}s</span></div>
+        <div><div class="ct"><span class="rk">${rankOf(c)}</span>${title}</div>
+        <div class="cm tnum">${fmt(c.start)}${c.emoji ? ' · ' + c.emoji + ' ' + esc(c.vibe || '') : ''}</div>${pill}</div></button>`;
+    }).join('');
+  }
+  updateDone();
 }
-
-$('#clips').addEventListener('click', e => {
-  const row = e.target.closest('.clip'); if (!row) return;
-  const c = P.clips.find(x => x.id == row.dataset.id);
-  if (e.target.matches('input[type=checkbox]')){
-    c.on = e.target.checked; row.classList.toggle('off', !c.on);
-    const on = P.clips.filter(x => x.on).length;
-    $('#listSub').textContent = `${on} of ${P.clips.length} selected`;
-    $('#render').disabled = !on; $('#render').textContent = on ? `Render ${on} clip${on === 1 ? '' : 's'}` : 'Render selected';
-    drawHeat(); return;
-  }
-  if (e.target.matches('[data-title]')) { if (c.id !== active) selectClip(c.id, false); return; }
-  const t = e.target.closest('[data-t]')?.dataset.t;
-  if (t){
-    const [which, d] = t.split(','); const dv = +d;
-    if (which === 's') c.start = Math.max(0, Math.min(c.end - 3, c.start + dv));
-    else c.end = Math.min(P.duration, Math.max(c.start + 3, c.end + dv));
-    updateRow(c); drawHeat();
-    selectClip(c.id, true, which === 'e' ? Math.max(c.start, c.end - 4) : null); return;
-  }
-  selectClip(c.id, true);
-});
-$('#clips').addEventListener('input', e => {
-  if (!e.target.matches('[data-title]')) return;
-  const c = P.clips.find(x => x.id == e.target.closest('.clip').dataset.id);
-  c.title = e.target.value; drawPhone();
+function keptLabel(c){
+  const it = queueItems.find(q => q.id === c.queueId);
+  if (!it) return 'Kept';
+  return it.status === 'done' ? 'Rendered' : it.status === 'rendering' ? `Rendering ${Math.round(it.progress * 100)}%` : it.status === 'error' ? 'Render failed' : 'In queue';
+}
+$('#cards').addEventListener('click', e => { const b = e.target.closest('.card'); if (b) select(+b.dataset.id, true); });
+$('#inboxTabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  filter = b.dataset.f; syncFilterTabs(); renderCards();
 });
 
-function activeClip(){ return P && P.clips.find(x => x.id === active); }
-function selectClip(id, play = true, from = null){
-  active = id;
-  const c = activeClip(); if (!c) return;
-  document.querySelectorAll('.clip').forEach(r => r.classList.toggle('active', r.dataset.id == id));
-  const v = $('#vod');
-  try { v.currentTime = from ?? c.start; } catch {}
-  stopAt = c.end;
-  $('#playingText').textContent = play ? `Playing ${fmt(c.start)} – ${fmt(c.end)}` : '';
-  if (play) v.play().catch(()=>{});
+/* --- selecting and playing --- */
+function select(id, play = true){
+  const c = clipById(id); if (!c) return;
+  cur = id; mode = 'clip'; watching = null;
+  filePlayer.pause(); filePlayer.hidden = true; phone.hidden = false;
+  try { vod.currentTime = c.start; } catch {}
+  if (play) vod.play().catch(() => {});
   loadFrame(c.start + (c.end - c.start) * 0.6);
-  drawHeat(); drawPhone();
+  showControls(); fillControls(); renderCards(); drawHeat(); renderQueue();
+  dirty = true;
+  scrollCardIntoView(id);
 }
-const vod = $('#vod');
-vod.addEventListener('timeupdate', () => {
-  $('#nowText').textContent = fmt(vod.currentTime);
-  if (stopAt !== null && vod.currentTime >= stopAt){ vod.pause(); stopAt = null; $('#playingText').textContent = ''; }
-  drawHeat();
+function scrollCardIntoView(id){
+  const box = $('#cards'), el = box.querySelector(`.card[data-id="${id}"]`); if (!el) return;
+  const top = el.offsetTop - box.offsetTop, bottom = top + el.offsetHeight;
+  if (top < box.scrollTop) box.scrollTop = top - 4;
+  else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight + 4;
+}
+function step(dir){
+  if (!P) return;
+  if (mode !== 'clip'){ const first = visible()[0]; if (first) select(first.id); return; }
+  const list = visible();
+  let i = list.findIndex(c => c.id === cur);
+  if (i < 0){ if (list[0]) select(list[0].id); return; }
+  const n = list[i + dir]; if (n) select(n.id);
+}
+function advance(fromId){
+  // after keep/skip: next clip still to review, after the current one in rank order
+  const order = P.clips, i = order.findIndex(c => c.id === fromId);
+  const next = order.slice(i + 1).find(c => c.state === 'todo') || order.find(c => c.state === 'todo');
+  if (next) select(next.id);
+  else { cur = null; vod.pause(); showControls(); renderCards(); dirty = true; }
+}
+function showControls(){
+  const c = curClip();
+  $('#clipControls').hidden = !(mode === 'clip' && c);
+  $('#freeControls').hidden = mode !== 'free';
+  $('#fileControls').hidden = mode !== 'file';
+  $('#doneControls').hidden = !(mode === 'clip' && !c);
+}
+function updateDone(){
+  if (!P) return;
+  const kept = P.clips.filter(c => c.state === 'kept').length, skipped = P.clips.filter(c => c.state === 'skipped').length;
+  $('#doneText').textContent = P.clips.length
+    ? `${plural(kept, 'clip')} kept${kept ? ' and in the render queue' : ''}, ${skipped} skipped.`
+    : 'Click the timeline to preview any moment and make a clip from it.';
+  $('#reviewSkipped').hidden = !skipped;
+}
+function fillControls(){
+  const c = curClip(); if (!c || mode !== 'clip') return;
+  $('#cRank').textContent = `Clip ${rankOf(c)} of ${P.clips.length}`;
+  $('#cTime').textContent = `${fmt(c.start)} – ${fmt(c.end)} · ${Math.round(c.end - c.start)}s`;
+  $('#cVibe').textContent = c.emoji ? `${c.emoji} ${c.vibe || ''}` : '';
+  $('#cWhy').textContent = c.reason || ''; $('#cWhy').title = c.reason || '';
+  if (document.activeElement !== $('#titleInput')) $('#titleInput').value = c.title;
+  $('#postText').textContent = postFor(c);
+  $('#nextTitle').disabled = (c.titles || []).length < 2;
+  const kept = c.state === 'kept';
+  $('#keepBtn').innerHTML = kept ? 'Kept: in the render queue' : 'Keep and render<kbd>Enter</kbd>';
+  $('#keepBtn').disabled = kept;
+  $('#skipBtn').innerHTML = kept ? 'Remove from queue' : c.state === 'skipped' ? 'Move back to review' : 'Skip<kbd>X</kbd>';
+}
+
+/* --- keep / skip --- */
+async function keep(){
+  const c = curClip(); if (!c || c.state === 'kept' || mode !== 'clip') return;
+  const clip = { id: c.id, rank: rankOf(c), start: c.start, end: c.end, title: c.title.trim(), post: postFor(c), thumb: c.thumb };
+  let it;
+  try { it = await api('/api/queue/add', { pid: P.pid, clip, opts: JSON.parse(JSON.stringify(opts)) }); }
+  catch (e){ toast(e.message, 6000); return; }
+  c.state = 'kept'; c.queueId = it.id;
+  queueItems.push(it); renderQueue();
+  if (!store.get('sawQueue', false)){ store.set('sawQueue', true); setSideTab('queue'); }
+  toast(`Added to the render queue: ${clip.title || 'clip ' + clip.rank}`, 2500);
+  advance(c.id);
+}
+async function skipOrUndo(){
+  const c = curClip(); if (!c || mode !== 'clip') return;
+  if (c.state === 'kept'){
+    const it = queueItems.find(q => q.id === c.queueId);
+    if (it && it.status === 'done'){ toast('That clip is already rendered. Remove it from the render queue list if you don\'t want it.', 5000); return; }
+    await api('/api/queue/remove', { id: c.queueId }).catch(() => {});
+    c.state = 'todo'; c.queueId = null; refreshQueue(); fillControls(); renderCards(); return;
+  }
+  if (c.state === 'skipped'){ c.state = 'todo'; fillControls(); renderCards(); return; }
+  c.state = 'skipped';
+  advance(c.id);
+}
+$('#keepBtn').onclick = keep;
+$('#skipBtn').onclick = skipOrUndo;
+$('#prevBtn').onclick = () => step(-1);
+$('#nextBtn').onclick = () => step(1);
+$('#reviewSkipped').onclick = () => { filter = 'skipped'; syncFilterTabs(); renderCards(); const f = visible()[0]; if (f) select(f.id); };
+$('#findMore').onclick = () => { const el = $('#count'); el.value = Math.min(30, +el.value + 5); el.dispatchEvent(new Event('input')); };
+
+/* --- title + caption --- */
+$('#titleInput').addEventListener('input', e => {
+  const c = curClip(); if (!c) return;
+  c.title = e.target.value; c.userTitle = true;
+  $('#postText').textContent = postFor(c); dirty = true; renderCardsSoon();
 });
-vod.addEventListener('seeking', () => { const c = activeClip();
-  if (c && (vod.currentTime < c.start - 1 || vod.currentTime > c.end + 1)){ stopAt = null; $('#playingText').textContent = ''; } });
-vod.addEventListener('error', () => {
-  const what = P ? (P.ext || '').replace('.', '').toUpperCase() + (P.vcodec ? ' / ' + P.vcodec.toUpperCase() : '') : '';
-  const playable = P && P.ext === '.mp4' && /h264|avc/i.test(P.vcodec || '');
-  $('#vidErr').innerHTML = playable
-    ? `<div>The preview didn't load. Refresh the page to try again.<br>Clip finding and rendering still work either way.</div>`
-    : `<div>Your browser can't preview this video${what ? ` (${esc(what)})` : ''}.<br>Clip finding and rendering still work. For previews, record in MP4 with H.264, or remux the file to MP4.</div>`;
-  $('#vidErr').classList.add('show');
+function nextTitle(){
+  const c = curClip(); if (!c || !(c.titles || []).length) return;
+  const i = c.titles.findIndex(t => t === c.title);
+  c.title = c.titles[(i + 1) % c.titles.length]; c.userTitle = true;
+  fillControls(); renderCards(); dirty = true;
+}
+$('#nextTitle').onclick = nextTitle;
+let rcTimer = 0; function renderCardsSoon(){ clearTimeout(rcTimer); rcTimer = setTimeout(renderCards, 250); }
+async function copyText(t){
+  try { await navigator.clipboard.writeText(t); }
+  catch { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  toast('Caption copied. Paste it when you post.', 2500);
+}
+$('#copyPost').onclick = () => { const c = curClip(); if (c) copyText(postFor(c)); };
+$('#copyFilePost').onclick = () => { if (watching) copyText(watching.post || watching.title || ''); };
+
+/* --- trimming --- */
+$('#clipControls').addEventListener('click', e => {
+  const t = e.target.closest('[data-t]')?.dataset.t; if (!t) return;
+  const c = curClip(); if (!c) return;
+  if (c.state === 'kept'){ toast('Remove it from the queue first to change it.', 3500); return; }
+  const [which, d] = t.split(',');
+  const now = vod.currentTime;
+  if (which === 's') c.start = Math.max(0, Math.min(c.end - 3, d === 'now' ? now : c.start + +d));
+  else c.end = Math.min(P.duration, Math.max(c.start + 3, d === 'now' ? now : c.end + +d));
+  try { vod.currentTime = which === 'e' ? Math.max(c.start, c.end - 3) : c.start; } catch {}
+  vod.play().catch(() => {});
+  fillControls(); renderCards(); drawHeat(); dirty = true;
+  if (c.words.length && (c.start < c.words[0].start - 6 || c.end > c.words[c.words.length - 1].end + 6)) { c.listened = false; listen([c.id]); }
 });
 
-$('#setStart').onclick = () => { const c = activeClip(); if (!c) return;
-  c.start = Math.max(0, Math.min(vod.currentTime, c.end - 3)); updateRow(c); drawHeat(); };
-$('#setEnd').onclick = () => { const c = activeClip(); if (!c) return;
-  c.end = Math.min(P.duration, Math.max(vod.currentTime, c.start + 3)); stopAt = null; updateRow(c); drawHeat(); };
+/* --- the free preview (any moment from the timeline) --- */
+function preview(t){
+  mode = 'free'; watching = null;
+  filePlayer.pause(); filePlayer.hidden = true; phone.hidden = false;
+  try { vod.currentTime = t; } catch {}
+  vod.play().catch(() => {});
+  loadFrame(t); showControls(); renderCards(); drawHeat(); renderQueue(); dirty = true;
+}
+$('#backBtn').onclick = $('#backBtn2').onclick = () => {
+  const c = curClip() || visible()[0] || P.clips[0];
+  if (c) select(c.id); else { mode = 'clip'; showControls(); }
+};
 $('#addHere').onclick = async () => {
   if (!P) return;
   try {
-    const c = await api('/api/add_clip', { pid: P.pid, t: vod.currentTime, length: +$('#length').value });
-    c.on = true; c.manual = true; c.title = ''; c.id = Math.max(0, ...P.clips.map(x => x.id)) + 1;
-    P.clips.push(c); renderClips(); selectClip(c.id, false);
-    document.querySelector(`.clip[data-id="${c.id}"]`)?.scrollIntoView({ block:'nearest', behavior:'smooth' });
-  } catch (e){ alert(e.message); }
+    const c = prepClip(await api('/api/add_clip', { pid: P.pid, t: vod.currentTime, length: +$('#length').value }));
+    c.manual = true;
+    P.clips.push(c);
+    filter = 'todo'; syncFilterTabs();
+    select(c.id); listen([c.id]);
+  } catch (e){ toast(e.message, 5000); }
 };
-$('#selAll').onclick = () => { P.clips.forEach(c => c.on = true); renderClips(); drawHeat(); };
-$('#selNone').onclick = () => { P.clips.forEach(c => c.on = false); renderClips(); drawHeat(); };
 
-/* keyboard: space plays/pauses, J/L jump 5s (when not typing) */
+/* --- playback --- */
+function togglePlay(){
+  const v = mode === 'file' ? filePlayer : vod;
+  if (v.paused) v.play().catch(() => {}); else v.pause();
+}
+phone.addEventListener('click', togglePlay);
+filePlayer.addEventListener('click', togglePlay);
+const MUTE_ON = '<path d="M11 5L6 9H3v6h3l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/>';
+const MUTE_OFF = '<path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>';
+function drawMute(){ $('#muteIcon').innerHTML = vod.muted ? MUTE_ON : MUTE_OFF; }
+$('#muteBtn').onclick = () => { vod.muted = filePlayer.muted = !vod.muted; store.set('muted', vod.muted); drawMute(); };
+['play', 'pause'].forEach(ev => { vod.addEventListener(ev, () => { dirty = true; }); filePlayer.addEventListener(ev, () => { dirty = true; }); });
+vod.addEventListener('seeked', () => { dirty = true; });
+vod.addEventListener('loadeddata', () => { dirty = true; });
+vod.addEventListener('error', () => { if (!P) return; vodOk = false; dirty = true; });
+let wheelAt = 0;
+$('#phoneBox').addEventListener('wheel', e => {
+  if (mode !== 'clip' || Math.abs(e.deltaY) < 30) return;
+  e.preventDefault();
+  const now = Date.now(); if (now - wheelAt < 450) return; wheelAt = now;
+  step(e.deltaY > 0 ? 1 : -1);
+}, { passive: false });
+
 document.addEventListener('keydown', e => {
-  if (!P || e.target.closest('input,select,textarea,button')) return;
-  if (e.key === ' '){ e.preventDefault(); vod.paused ? vod.play().catch(()=>{}) : vod.pause(); }
-  if (e.key === 'j' || e.key === 'ArrowLeft'){ vod.currentTime = Math.max(0, vod.currentTime - 5); }
-  if (e.key === 'l' || e.key === 'ArrowRight'){ vod.currentTime = Math.min(P.duration, vod.currentTime + 5); }
+  if (!P || $('#dlg').open || e.target.closest('input,select,textarea')) return;
+  const k = e.key;
+  if (k === ' '){ e.preventDefault(); togglePlay(); }
+  else if (k === 'ArrowDown' || k === 'j'){ e.preventDefault(); step(1); }
+  else if (k === 'ArrowUp' || k === 'k'){ e.preventDefault(); step(-1); }
+  else if (k === 'Enter' && !e.target.closest('button')){ e.preventDefault(); keep(); }
+  else if (k === 'x' || k === 'Delete'){ skipOrUndo(); }
+  else if (k === 'ArrowLeft'){ vod.currentTime = Math.max(0, vod.currentTime - 2); }
+  else if (k === 'ArrowRight'){ vod.currentTime = Math.min(P.duration, vod.currentTime + 2); }
+  else if (k === 't'){ nextTitle(); }
+  else if (k === 'm'){ $('#muteBtn').click(); }
 });
+
+/* ---------- drawing the phone (mirrors engine.build_filter + build_ass) ---------- */
+const bgCanvas = document.createElement('canvas'); bgCanvas.width = 36; bgCanvas.height = 64;
+function layoutDraw(g, src, sw, sh, W, H){
+  const z = Math.max(1, opts.game_zoom);
+  const gameCrop = (ow, oh) => { const a = ow/oh; const cw = Math.min(sw, sh*a)/z, ch = cw/a;
+    const cx = Math.min(Math.max(0, opts.game_x*sw - cw/2), sw - cw); return [cx, (sh-ch)/2, cw, ch]; };
+  if (opts.layout === 'split'){
+    const th = Math.round(H*Math.min(.5, Math.max(.2, opts.cam_height)));
+    const x = opts.cam[0]*sw, y = opts.cam[1]*sh, w = Math.max(4, opts.cam[2]*sw), h = Math.max(4, opts.cam[3]*sh);
+    const s = Math.max(W/w, th/h), vw = W/s, vh = th/s;
+    g.drawImage(src, x + (w-vw)/2, y + (h-vh)/2, vw, vh, 0, 0, W, th);
+    const [gx,gy,gw,gh] = gameCrop(W, H-th); g.drawImage(src, gx,gy,gw,gh, 0, th, W, H-th);
+    return th;
+  }
+  if (opts.layout === 'full'){
+    const [gx,gy,gw,gh] = gameCrop(W, H); g.drawImage(src, gx,gy,gw,gh, 0,0,W,H); return H*.7;
+  }
+  // blur fit: tiny copy scaled up reads as a blur and costs almost nothing per frame
+  const b = bgCanvas.getContext('2d'), bw = sh * 9/16;
+  b.drawImage(src, (sw - bw)/2, 0, bw, sh, 0, 0, 36, 64);
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  g.drawImage(bgCanvas, 0, 0, W, H);
+  g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, 0, W, H);
+  const fh = W*sh/sw;
+  if (z > 1){ const [gx,gy,gw,gh] = gameCrop(W, fh); g.drawImage(src, gx,gy,gw,gh, 0,(H-fh)/2,W,fh); }
+  else g.drawImage(src, 0, (H-fh)/2, W, fh);
+  return H/2 + fh/2 + H*170/1920;
+}
+function drawTitle(g, text, W){
+  const k = W / 1080;
+  g.font = `900 ${Math.round(64*k)}px "Arial Black", Archivo, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
+  const words = text.trim().split(/\s+/), lines = []; let line = '';
+  for (const w of words){ const t = line ? line + ' ' + w : w; if (g.measureText(t).width > W - 2*90*k - 32*k && line){ lines.push(line); line = w; } else line = t; }
+  if (line) lines.push(line);
+  const lh = 76*k, pad = 16*k, bw = Math.max(...lines.map(l => g.measureText(l).width)) + 2*pad;
+  g.fillStyle = '#fff'; g.fillRect((W-bw)/2, 110*k - pad, bw, lines.length*lh + 2*pad - (lh - 64*k));
+  g.fillStyle = '#141414'; lines.forEach((l, i) => g.fillText(l, W/2, 110*k + i*lh));
+}
+// same grouping rules as engine.build_ass, so the preview matches the render
+function captionAt(words, t, c){
+  const ws = words.filter(w => w.start >= c.start - 0.2 && w.start < c.end);
+  const chunks = []; let ch = [];
+  for (const w of ws){
+    const brk = ch.length && (ch.length >= Math.max(1, opts.words_per_line) || w.start - ch[ch.length-1].end > 0.6 || /[.?!]$/.test(ch[ch.length-1].word));
+    if (brk){ chunks.push(ch); ch = []; }
+    ch.push(w);
+  }
+  if (ch.length) chunks.push(ch);
+  for (let i = 0; i < chunks.length; i++){
+    const k = chunks[i], last = k[k.length-1];
+    let end = i + 1 < chunks.length ? Math.min(Math.max(last.end, last.end + 0.3), chunks[i+1][0].start) : last.end + 0.4;
+    end = Math.min(end, c.end);
+    if (t >= k[0].start && t < end){
+      let hi = 0; k.forEach((w, j) => { if (w.start <= t) hi = j; });
+      return { texts: k.map(w => opts.uppercase ? w.word.toUpperCase() : w.word), hi };
+    }
+  }
+  return null;
+}
+function drawCaption(g, cap, capY, W, H){
+  const k = W / 1080;
+  capY = {top:H*.22, middle:H*.5, bottom:H*.78}[opts.caption_pos] ?? capY;
+  capY = Math.min(Math.max(capY, H*260/1920), H - H*220/1920);
+  const chars = cap.texts.join(' ').length, fsBase = 86*opts.caption_size/100;
+  const fs = (chars <= 16 ? fsBase : Math.max(fsBase*.75, fsBase*18/chars)) * k;
+  g.font = `900 ${Math.round(fs)}px "Arial Black", Archivo, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+  const sp = g.measureText(' ').width, widths = cap.texts.map(w => g.measureText(w).width);
+  const total = widths.reduce((a,b) => a+b, 0) + sp*(cap.texts.length-1);
+  // wrap onto two lines when it doesn't fit, like libass does
+  const maxW = W - 2*70*k, lines = [[]]; let lw = 0;
+  cap.texts.forEach((w, i) => { if (lw && lw + sp + widths[i] > maxW){ lines.push([]); lw = 0; } lines[lines.length-1].push(i); lw += (lw ? sp : 0) + widths[i]; });
+  const lh = fs * 1.15, y0 = capY - (lines.length - 1) * lh / 2;
+  lines.forEach((idx, li) => {
+    const lwid = idx.reduce((a, i) => a + widths[i], 0) + sp*(idx.length-1);
+    let x = (W - lwid)/2;
+    idx.forEach(i => {
+      g.lineWidth = Math.max(3, fs/6); g.strokeStyle = '#000'; g.lineJoin = 'round'; g.strokeText(cap.texts[i], x, y0 + li*lh);
+      g.fillStyle = i === cap.hi ? opts.caption_color : '#fff'; g.fillText(cap.texts[i], x, y0 + li*lh); x += widths[i] + sp;
+    });
+  });
+  return total;
+}
+function drawPhone(){ dirty = true; }
+function renderPhone(){
+  const W = phone.width, H = phone.height, g = pg;
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  if (!P){ return; }
+  let src = null, sw = 0, sh = 0;
+  if (vodOk && vod.readyState >= 2 && vod.videoWidth){ src = vod; sw = vod.videoWidth; sh = vod.videoHeight; }
+  else if (frame.complete && frame.naturalWidth){ src = frame; sw = frame.naturalWidth; sh = frame.naturalHeight; }
+  let badge = '';
+  if (!src){
+    g.fillStyle = '#666e9e'; g.font = '600 22px Archivo, system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(P.clips.length || mode === 'free' ? 'Loading…' : '', W/2, H/2);
+  } else {
+    const capY = layoutDraw(g, src, sw, sh, W, H);
+    const c = curClip();
+    if (mode === 'clip' && c){
+      if (c.title.trim()) drawTitle(g, c.title, W);
+      if (opts.captions){
+        const cap = captionAt(c.words, vod.currentTime, c);
+        if (cap) drawCaption(g, cap, capY, W, H);
+        else if (!c.listened && status.whisper) badge = 'Listening for captions…';
+      }
+    }
+    if (!vodOk) badge = 'Still frame: this video can\'t play in the preview';
+  }
+  if (mode === 'free') badge = badge || 'Preview';
+  $('#phoneBadge').textContent = badge;
+}
+function tick(){
+  requestAnimationFrame(tick);
+  if (!P) return;
+  const playing = mode === 'file' ? !filePlayer.paused : !vod.paused;
+  $('#playIcon').classList.toggle('show', !playing && (mode !== 'clip' || !!curClip()));
+  if (mode === 'file'){
+    const d = filePlayer.duration || 0;
+    $('#phoneProg').style.width = d ? (filePlayer.currentTime / d * 100) + '%' : '0';
+    return;
+  }
+  const c = curClip();
+  if (mode === 'clip' && c && !vod.paused){
+    if (vod.currentTime >= c.end - 0.04 || vod.currentTime < c.start - 1){ try { vod.currentTime = c.start; } catch {} }
+  }
+  $('#phoneProg').style.width = mode === 'clip' && c ? Math.max(0, Math.min(100, (vod.currentTime - c.start) / (c.end - c.start) * 100)) + '%' : '0';
+  if (mode === 'free') $('#freeAt').textContent = fmt(vod.currentTime);
+  if (dirty || !vod.paused){ dirty = false; renderPhone(); }
+  if (!vod.paused) drawHeatSoon();
+}
+requestAnimationFrame(tick);
+
+/* ---------- render queue ---------- */
+async function refreshQueue(){
+  try { queueItems = (await api('/api/queue')).items; } catch { return; }
+  renderQueue();
+  if (P){
+    for (const c of P.clips) if (c.state === 'kept' && !queueItems.some(q => q.id === c.queueId)){ c.state = 'todo'; c.queueId = null; }
+    renderCards(); fillControls();
+  }
+}
+setInterval(() => { if (queueItems.some(q => q.status === 'queued' || q.status === 'rendering')) refreshQueue(); }, 1000);
+function renderQueue(){
+  const items = queueItems;
+  const active = items.filter(q => q.status === 'queued' || q.status === 'rendering').length;
+  const done = items.filter(q => q.status === 'done').length;
+  $('#nQueue').textContent = items.length || '';
+  $('#queueSum').textContent = items.length ? `${done} done${active ? `, ${active} to go` : ''}` : '';
+  if (!items.length){
+    $('#queueList').innerHTML = '<div class="q-empty">Clips you keep show up here and render in the background while you keep reviewing.</div>';
+    return;
+  }
+  $('#queueList').innerHTML = items.map(q => {
+    const title = esc(q.title || `Clip ${q.rank}`);
+    let st;
+    if (q.status === 'done') st = `<div class="qs"><span>Done · ${Math.round(q.end - q.start)}s</span><button class="btn sm" data-q="watch" data-id="${q.id}">Watch</button><button class="btn sm" data-q="copy" data-id="${q.id}">Copy caption</button></div>`;
+    else if (q.status === 'rendering') st = `<div class="qs tnum"><span>${esc(q.step || 'Rendering')} ${Math.round(q.progress * 100)}%</span></div><div class="bar"><i style="width:${Math.round(q.progress*100)}%"></i></div>`;
+    else if (q.status === 'error') st = `<div class="qs err" title="${esc(q.error)}"><span>Failed: ${esc((q.error || '').split('\n')[0].slice(0, 80))}</span><button class="btn sm" data-q="retry" data-id="${q.id}">Retry</button></div>`;
+    else st = `<div class="qs"><span>Waiting</span></div>`;
+    return `<div class="qitem ${q.status} ${watching && watching.id === q.id ? 'playing' : ''}" data-id="${q.id}">
+      <div class="vt"><img src="${q.thumb}" alt="" loading="lazy"></div>
+      <div style="min-width:0"><div class="qt" title="${title}">${title}</div>${st}</div>
+      <button class="x" data-q="remove" data-id="${q.id}" title="${q.status === 'done' ? 'Remove from this list (the file stays)' : 'Cancel'}" aria-label="Remove">×</button></div>`;
+  }).join('');
+}
+$('#queueList').addEventListener('click', async e => {
+  const b = e.target.closest('[data-q]'); const row = e.target.closest('.qitem');
+  const id = b ? b.dataset.id : row && row.classList.contains('done') ? row.dataset.id : null;
+  if (!id) return;
+  const q = queueItems.find(x => x.id === id); if (!q) return;
+  const act = b ? b.dataset.q : 'watch';
+  if (act === 'watch') watchFile(q);
+  else if (act === 'copy') copyText(q.post || q.title || '');
+  else if (act === 'retry'){ await api('/api/queue/retry', { id }).catch(() => {}); refreshQueue(); }
+  else if (act === 'remove'){
+    await api('/api/queue/remove', { id }).catch(() => {});
+    if (watching && watching.id === id){ $('#backBtn2').click(); }
+    refreshQueue();
+  }
+});
+function watchFile(q){
+  mode = 'file'; watching = q;
+  vod.pause();
+  phone.hidden = true; filePlayer.hidden = false;
+  filePlayer.muted = vod.muted;
+  filePlayer.src = q.url; filePlayer.play().catch(() => {});
+  $('#fileName').textContent = q.name || q.title;
+  $('#filePost').textContent = q.post || q.title || '';
+  $('#phoneBadge').textContent = '';
+  showControls(); renderCards(); renderQueue();
+}
+$('#openFolder').onclick = $('#openFolder2').onclick = () => {
+  const q = watching || queueItems.find(x => x.status === 'done');
+  api('/api/open_folder', { folder: q && q.folder ? q.folder : 'root' }).catch(e => toast(e.message, 5000));
+};
+
+/* ---------- side tabs ---------- */
+function setSideTab(t){
+  document.querySelectorAll('#sideTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  ['queue', 'layout', 'captions'].forEach(n => $('#pane-' + n).hidden = n !== t);
+  store.set('sideTab', t);
+}
+$('#sideTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setSideTab(b.dataset.t); });
+setSideTab(store.get('sideTab', 'layout'));
+
+/* ---------- re-ranking ---------- */
+async function repick(){
+  if (!P) return;
+  try {
+    const keep = new Map(P.clips.map(c => [`${c.start}-${c.end}`, c]));
+    const p = await api('/api/repick', { pid: P.pid, count: +$('#count').value, length: +$('#length').value, chat_weight: +$('#cw').value });
+    P.clips = p.clips.map(s => {
+      const old = keep.get(`${s.start}-${s.end}`);
+      if (old) return Object.assign(prepClip(s), { state: old.state, queueId: old.queueId, title: old.userTitle ? old.title : s.title, userTitle: old.userTitle });
+      return prepClip(s);
+    });
+    P.curve = p.curve;
+    if (!clipById(cur)){ const f = P.clips.find(c => c.state === 'todo'); if (f) select(f.id, !vod.paused); else { cur = null; showControls(); } }
+    renderCards(); drawHeat(); fillControls(); listen();
+  } catch (e){ toast(e.message, 5000); }
+}
 
 /* ---------- hype timeline ---------- */
 const heat = $('#heat');
@@ -784,54 +1255,61 @@ function heatColor(x){
   const a = stops[i], b = stops[i+1];
   return `rgb(${a.map((v,k)=>Math.round(v+(b[k]-v)*f)).join(',')})`;
 }
-let heatRaf = 0;
+let heatRaf = 0, heatLast = 0;
 function drawHeat(){ cancelAnimationFrame(heatRaf); heatRaf = requestAnimationFrame(drawHeatNow); }
+function drawHeatSoon(){ const now = performance.now(); if (now - heatLast > 250){ heatLast = now; drawHeat(); } }
 function drawHeatNow(){
   if (!P) return;
   const dpr = window.devicePixelRatio || 1, W = heat.clientWidth, H = heat.clientHeight;
+  if (!W) return;
   if (heat.width !== W*dpr || heat.height !== H*dpr){ heat.width = W*dpr; heat.height = H*dpr; }
   const g = heat.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
-  const curve = P.curve, n = curve.length, base = H - 18;
+  const curve = P.curve, n = curve.length, base = H - 16;
   const hi = Math.max(3, ...curve);
   P.clips.forEach(c => {
     const x0 = c.start/P.duration*W, x1 = Math.max(x0+2, c.end/P.duration*W);
-    g.fillStyle = c.id === active ? 'rgba(242,193,78,.2)' : (c.on ? 'rgba(235,237,248,.07)' : 'rgba(235,237,248,.025)');
+    g.fillStyle = c.id === cur && mode === 'clip' ? 'rgba(242,193,78,.24)' : c.state === 'kept' ? 'rgba(95,211,166,.16)' : c.state === 'skipped' ? 'rgba(235,237,248,.025)' : 'rgba(235,237,248,.08)';
     g.fillRect(x0, 0, x1-x0, base);
   });
   const bw = W / n;
   for (let i = 0; i < n; i++){
     const v = Math.max(0, curve[i]/hi);
-    const h = Math.max(1, v * (base - 20));
+    const h = Math.max(1, v * (base - 12));
     g.globalAlpha = 0.35 + 0.65*v;
     g.fillStyle = heatColor(v);
     g.fillRect(i*bw, base - h, Math.max(1, bw - (bw > 3 ? 1 : 0)), h);
   }
   g.globalAlpha = 1;
-  g.font = '700 12px Archivo, system-ui, sans-serif'; g.textAlign = 'center';
+  g.font = '700 11px Archivo, system-ui, sans-serif'; g.textAlign = 'center';
   const placed = [];
   P.clips.map((c, i) => ({ c, i, x: (c.start+c.end)/2/P.duration*W }))
-    .sort((a, b) => (b.c.id === active) - (a.c.id === active) || a.i - b.i)
+    .sort((a, b) => (b.c.id === cur) - (a.c.id === cur) || a.i - b.i)
     .forEach(({ c, i, x }) => {
-    if (placed.some(px => Math.abs(px - x) < 16)) return;
-    placed.push(x);
-    g.fillStyle = c.id === active ? '#f2c14e' : (c.on ? '#ebedf8' : '#555d8c');
-    g.fillText(String(i+1), x, H - 4);
-  });
-  const t = vod.currentTime || 0;
-  g.fillStyle = '#ebedf8'; g.fillRect(Math.round(t/P.duration*W) - 1, 0, 2, base);
+      if (placed.some(px => Math.abs(px - x) < 14)) return;
+      placed.push(x);
+      g.fillStyle = c.id === cur && mode === 'clip' ? '#f2c14e' : c.state === 'kept' ? '#5fd3a6' : c.state === 'skipped' ? '#555d8c' : '#ebedf8';
+      g.fillText(String(i+1), x, H - 3);
+    });
+  if (mode !== 'file'){
+    const t = vod.currentTime || 0;
+    g.fillStyle = '#ebedf8'; g.fillRect(Math.round(t/P.duration*W) - 1, 0, 2, base);
+  }
 }
 heat.addEventListener('click', e => {
   if (!P) return;
   const r = heat.getBoundingClientRect(), t = (e.clientX - r.left)/r.width*P.duration;
   const hit = P.clips.find(c => t >= c.start && t <= c.end);
-  if (hit && hit.id !== active) selectClip(hit.id, true);
-  else { stopAt = null; $('#playingText').textContent = ''; vod.currentTime = t; vod.play().catch(()=>{}); loadFrame(t); }
+  if (hit){
+    if (hit.state !== 'todo' && filter === 'todo'){ filter = 'all'; syncFilterTabs(); }
+    select(hit.id);
+  } else preview(t);
 });
 heat.addEventListener('mousemove', e => {
   if (!P) return;
   const r = heat.getBoundingClientRect(), tl = heat.parentElement.getBoundingClientRect(), x = e.clientX - r.left, tag = $('#hoverTag');
-  tag.style.display = 'block'; tag.textContent = fmt(x/r.width*P.duration);
-  tag.style.left = Math.min(tl.width - 30, Math.max(30, e.clientX - tl.left)) + 'px';
+  const t = x/r.width*P.duration, hit = P.clips.find(c => t >= c.start && t <= c.end);
+  tag.style.display = 'block'; tag.textContent = hit ? `${fmt(t)} · clip ${rankOf(hit)}` : fmt(t);
+  tag.style.left = Math.min(tl.width - 40, Math.max(40, e.clientX - tl.left)) + 'px';
 });
 heat.addEventListener('mouseleave', () => $('#hoverTag').style.display = 'none');
 new ResizeObserver(drawHeat).observe(heat);
@@ -854,7 +1332,7 @@ function syncControls(){
   $('#wpl').value = opts.words_per_line; $('#wplOut').textContent = opts.words_per_line;
   $('#model').value = opts.whisper_model; $('#lang').value = opts.language; $('#upper').checked = opts.uppercase;
   $('#hw').checked = opts.hw_encode;
-  placeBox(); drawPhone(); store.set('opts', opts);
+  placeBox(); dirty = true; store.set('opts', opts);
 }
 $('#layoutSeg').onclick = e => { const v = e.target.dataset.v; if (v){ opts.layout = v; syncControls(); } };
 $('#camH').oninput = e => { opts.cam_height = e.target.value/100; syncControls(); };
@@ -866,8 +1344,11 @@ $('#swatches').onclick = e => { const c = e.target.dataset.c; if (c){ opts.capti
 $('#capColor').oninput = e => { opts.caption_color = e.target.value; syncControls(); };
 $('#capSize').oninput = e => { opts.caption_size = +e.target.value; syncControls(); };
 $('#wpl').oninput = e => { opts.words_per_line = +e.target.value; syncControls(); };
-$('#model').onchange = e => { opts.whisper_model = e.target.value; syncControls(); };
-$('#lang').onchange = e => { opts.language = e.target.value; syncControls(); };
+$('#model').onchange = e => {
+  opts.whisper_model = e.target.value; syncControls();
+  if (P){ P.clips.forEach(c => { c.listened = false; }); listen(); }   // re-listen with the new accuracy
+};
+$('#lang').onchange = e => { opts.language = e.target.value; syncControls(); if (P){ P.clips.forEach(c => { c.listened = false; }); listen(); } };
 $('#upper').onchange = e => { opts.uppercase = e.target.checked; syncControls(); };
 $('#hw').onchange = e => { opts.hw_encode = e.target.checked; syncControls(); };
 
@@ -875,7 +1356,7 @@ $('#hw').onchange = e => { opts.hw_encode = e.target.checked; syncControls(); };
 const frame = $('#frame'), box = $('#box'), picker = $('#picker');
 let frameT = -1;
 function loadFrame(t){ if (!P) return; t = Math.round(t); if (t === frameT) return; frameT = t; frame.src = `/api/frame/${P.pid}?t=${t}`; }
-frame.onload = () => { placeBox(); drawPhone(); };
+frame.onload = () => { placeBox(); dirty = true; };
 function placeBox(){
   const [x,y,w,h] = opts.cam;
   Object.assign(box.style, { left: x*100+'%', top: y*100+'%', width: w*100+'%', height: h*100+'%' });
@@ -888,7 +1369,7 @@ picker.addEventListener('pointermove', e => {
   if (!drag) return;
   const [x,y] = rel(e);
   opts.cam = [Math.min(drag.x,x), Math.min(drag.y,y), Math.abs(x-drag.x), Math.abs(y-drag.y)];
-  placeBox(); drawPhone();
+  placeBox(); dirty = true;
 });
 picker.addEventListener('pointerup', () => {
   if (!drag) return;
@@ -896,93 +1377,7 @@ picker.addEventListener('pointerup', () => {
   drag = null; syncControls();
 });
 
-/* live 9:16 preview, mirrors the crop math in engine.build_filter */
-function drawPhone(){
-  const cv = $('#phone'), g = cv.getContext('2d'), W = cv.width, H = cv.height;
-  g.fillStyle = '#000'; g.fillRect(0,0,W,H);
-  if (!frame.complete || !frame.naturalWidth){
-    g.fillStyle = '#666e9e'; g.font = '600 15px Archivo, system-ui'; g.textAlign = 'center'; g.fillText('Preview appears here', W/2, H/2); return; }
-  const sw = frame.naturalWidth, sh = frame.naturalHeight, z = Math.max(1, opts.game_zoom);
-  const gameCrop = (ow, oh) => { const a = ow/oh; const cw = Math.min(sw, sh*a)/z, ch = cw/a;
-    const cx = Math.min(Math.max(0, opts.game_x*sw - cw/2), sw - cw); return [cx, (sh-ch)/2, cw, ch]; };
-  let capY;
-  if (opts.layout === 'split'){
-    const th = Math.round(H*Math.min(.5, Math.max(.2, opts.cam_height)));
-    const x = opts.cam[0]*sw, y = opts.cam[1]*sh, w = Math.max(4, opts.cam[2]*sw), h = Math.max(4, opts.cam[3]*sh);
-    const s = Math.max(W/w, th/h), vw = W/s, vh = th/s;
-    g.drawImage(frame, x + (w-vw)/2, y + (h-vh)/2, vw, vh, 0, 0, W, th);
-    const [gx,gy,gw,gh] = gameCrop(W, H-th); g.drawImage(frame, gx,gy,gw,gh, 0, th, W, H-th);
-    capY = th;
-  } else if (opts.layout === 'full'){
-    const [gx,gy,gw,gh] = gameCrop(W, H); g.drawImage(frame, gx,gy,gw,gh, 0,0,W,H); capY = H*.7;
-  } else {
-    g.filter = 'blur(8px) brightness(.85)';
-    const bs = H/sh, bw = sw*bs; g.drawImage(frame, (W-bw)/2, 0, bw, H); g.filter = 'none';
-    const fh = W*sh/sw;
-    if (z > 1){ const [gx,gy,gw,gh] = gameCrop(W, fh); g.drawImage(frame, gx,gy,gw,gh, 0,(H-fh)/2,W,fh); }
-    else g.drawImage(frame, 0, (H-fh)/2, W, fh);
-    capY = H/2 + fh/2 + H*170/1920;
-  }
-  const k = W / 1080;
-  const c = activeClip();
-  if (c && c.title.trim()){
-    g.font = `900 ${Math.round(64*k)}px "Arial Black", Archivo, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
-    const words = c.title.trim().split(/\s+/), lines = []; let cur = '';
-    for (const w of words){ const t = cur ? cur + ' ' + w : w; if (g.measureText(t).width > W - 2*90*k - 32*k && cur){ lines.push(cur); cur = w; } else cur = t; }
-    if (cur) lines.push(cur);
-    const lh = 76*k, pad = 16*k, bw2 = Math.max(...lines.map(l => g.measureText(l).width)) + 2*pad;
-    g.fillStyle = '#fff'; g.fillRect((W-bw2)/2, 110*k - pad, bw2, lines.length*lh + 2*pad - (lh - 64*k));
-    g.fillStyle = '#141414'; lines.forEach((l, i) => g.fillText(l, W/2, 110*k + i*lh));
-  }
-  if (opts.captions){
-    capY = {top:H*.22, middle:H*.5, bottom:H*.78}[opts.caption_pos] ?? capY;
-    capY = Math.min(Math.max(capY, H*260/1920), H - H*220/1920);
-    const words = opts.uppercase ? ['THIS','IS','INSANE','CHAT','NO','WAY'] : ['this','is','insane','chat','no','way'];
-    const shown = words.slice(0, opts.words_per_line);
-    const chars = shown.join(' ').length, fsBase = 86*opts.caption_size/100;
-    const fs = (chars <= 16 ? fsBase : Math.max(fsBase*.75, fsBase*18/chars)) * k;
-    g.font = `900 ${Math.round(fs)}px "Arial Black", Archivo, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
-    const sp = g.measureText(' ').width, widths = shown.map(w => g.measureText(w).width);
-    let x = (W - (widths.reduce((a,b)=>a+b,0) + sp*(shown.length-1)))/2;
-    shown.forEach((w,i) => { g.lineWidth = Math.max(3, fs/6); g.strokeStyle = '#000'; g.lineJoin = 'round'; g.strokeText(w, x, capY);
-      g.fillStyle = i === Math.min(1, shown.length-1) ? opts.caption_color : '#fff'; g.fillText(w, x, capY); x += widths[i] + sp; });
-  }
-}
-
-/* ---------- render ---------- */
-let outFolder = '';
-$('#render').onclick = async () => {
-  if (!P) return;
-  const sel = P.clips.map((c, i) => ({ c, rank: i + 1 })).filter(x => x.c.on)
-    .map(({ c, rank }) => ({ rank, start: c.start, end: c.end, title: c.title || '' }));
-  if (!sel.length) return;
-  $('#render').disabled = true;
-  $('#outBlock').style.display = 'block'; $('#outputs').innerHTML = ''; $('#outSub').textContent = '';
-  let shown = 0;
-  try {
-    const { job } = await api('/api/render', { pid: P.pid, clips: sel, opts });
-    const j = await follow(job, UI_R, j => {
-      if (j.result && j.result.files.length > shown){ shown = j.result.files.length; showOutputs(j.result, sel.length); }
-    });
-    if (j && j.result) showOutputs(j.result, sel.length);
-    if (j && j.status === 'done') $('#rStep').textContent = `Done. ${j.result.files.length} clip${j.result.files.length === 1 ? '' : 's'} saved.`;
-    loadStorage();
-  } catch (e){ $('#rstatus').classList.add('show'); $('#rErr').textContent = e.message; }
-  $('#render').disabled = false;
-};
-function showOutputs(res, total){
-  outFolder = res.folder;
-  $('#outSub').textContent = `${res.files.length} of ${total}`;
-  const have = new Set([...document.querySelectorAll('#outputs figure')].map(f => f.dataset.name));
-  for (const f of res.files){
-    if (have.has(f.name)) continue;
-    $('#outputs').insertAdjacentHTML('beforeend', `<figure data-name="${esc(f.name)}"><video src="${f.url}" controls preload="metadata" playsinline></video><figcaption>${esc(f.name)}</figcaption></figure>`);
-  }
-  if (res.files.length === 1) $('#outBlock').scrollIntoView({ behavior:'smooth', block:'nearest' });
-}
-$('#openFolder').onclick = () => api('/api/open_folder', { folder: outFolder }).catch(e => alert(e.message));
-
-loadStatus(); loadRecent(); loadStorage(); syncControls();
+loadStatus().then(updateListening); loadRecent(); loadStorage(); syncControls(); refreshQueue();
 </script>
 </body>
 </html>

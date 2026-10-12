@@ -165,12 +165,13 @@ def selftest(out_json: str, media: str = "") -> int:
             clips = engine.pick_clips(an, count=3, length=15, chat=chat)
             rec("analyze", bool(clips), f"{info['duration']:.0f}s video, top clip "
                 f"{engine.fmt_ts(clips[0].start)}-{engine.fmt_ts(clips[0].end)} ({clips[0].reason})" if clips else "no clips")
-            heard, rlog = [], []
+            heard, heard_words, rlog = [], [], []
             real = engine.transcribe
 
             def spy(*a, **k):
                 w = real(*a, **k)
                 heard.extend(x["word"] for x in w)
+                heard_words.extend(w)
                 return w
             engine.transcribe = spy
             out = os.path.join(os.path.dirname(out_json), "selftest_clip.mp4")
@@ -184,6 +185,10 @@ def selftest(out_json: str, media: str = "") -> int:
                 f"{oi['width']}x{oi['height']}, {oi['duration']:.1f}s, audio={oi['has_audio']}")
             rec("captions (Whisper)", len(heard) >= 3,
                 (" ".join(heard)[:200] or "no words heard") + " || log: " + " / ".join(rlog)[-300:])
+            import titles
+            t = titles.generate(heard_words, [m for _, m in chat if _ > 30], peak_rel=6.0)
+            rec("auto title", bool(t["title"]) and bool(t["quote"]),
+                f"{t['title']} | vibe: {t['vibe'] or 'none'} | others: {' / '.join(t['titles'][1:4])}")
         except Exception as e:
             rec("render pipeline", False, traceback.format_exc()[-400:])
     else:

@@ -32,19 +32,31 @@ USE
   2. Paste a VOD link (https://www.twitch.tv/videos/123456789), or press
      Browse to pick a video on your PC, then press Find clips. Recent VODs
      appear on the start screen so you can jump back in without re-downloading.
-  3. Moving the Clips, Length or Chat vs audio sliders updates the list instantly.
-  4. Click a clip to preview it. Trim with the -5s/+5s buttons, or play to the
-     exact spot and press Start here / End here. Click anywhere on the hype
-     timeline and press Add clip here to grab your own moment.
-     Keys: Space plays/pauses, Left/Right arrows jump 5 seconds.
-  5. Optional: type a title for a clip. It shows as a white banner at the top.
-  6. Pick a layout:
+  3. Review: the suggested clips line up on the left and play one at a time
+     in the middle, already in TikTok format (your layout, captions and title,
+     live). For each one:
+       Keep and render (Enter)   sends it to the render queue
+       Skip (X)                  sets it aside (see the Skipped tab)
+       Up / Down arrows          previous / next clip, like scrolling TikTok
+     Trim with the -5s/+5s buttons, or play to the exact spot and press Here.
+     Click anywhere on the hype timeline to preview any moment and make a clip
+     there. Moving the Clips, Length or Chat vs audio sliders re-ranks instantly.
+  4. Auto titles: VodClipper listens to each clip (Whisper) and reads how chat
+     reacted, then writes a title: usually the best line you said near the
+     peak, otherwise one that fits the vibe (funny, hype, shock, fail...).
+     Press New title (T) to cycle through other ideas, or type your own.
+     Each clip also gets a post caption with hashtags; Copy caption puts it
+     on your clipboard. Swear words are masked in titles.
+  5. Format: the right-hand Layout tab sets the layout:
        Cam + game  facecam on top, gameplay below (drag a box over your cam)
        Full crop   gameplay cropped to fill the screen
        Blur fit    the whole 16:9 frame over a blurred background
-     The phone preview shows how it will look.
-  7. Press Render. Clips are saved in your Videos\VodClipper folder
-     (More options > Clips folder > Open).
+     The Captions tab sets caption style, size, accuracy and language.
+  6. Render queue: kept clips render one after another in the background
+     while you keep reviewing. Press Watch on a finished one to play the real
+     file in the phone. Files are named after their titles, with the post
+     caption saved next to each as a .txt. They're in your Videos\VodClipper
+     folder (Open folder button).
 
 FREEING UP SPACE
   Downloaded VODs are big (several GB per stream). The start screen and
