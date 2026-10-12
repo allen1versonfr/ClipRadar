@@ -22,7 +22,7 @@ The live update. VodClipper can now clip a channel while it's on air and post st
   - Sidebar with Home, Review, Exports and Settings, a docked hype timeline, a clip inspector and a status bar.
   - Neutral graphite palette with line icons, set in Inter (bundled, so it looks the same on every PC).
 - **End-to-end tests.** They drive the real app against a simulated live stream, fake Twitch chat and a mock TikTok API, and run in CI against the built exe.
-- Versioned releases. Each tag publishes the installer and a portable zip, with notes taken from this changelog.
+- Versioned releases. Each new version publishes the installer and a portable zip, with notes taken from this changelog.
 
 ### Changed
 - Repository reorganised into `src/`, `scripts/`, `installer/`, `docs/` and `tests/`.
@@ -85,8 +85,8 @@ First release.
 - Word-by-word captions with Whisper.
 - 1080×1920 MP4 export using your GPU's video encoder, with automatic fallback to the CPU.
 
-[2.0.0]: https://github.com/ali1qbal/vodclipper/compare/v1.3.0...v2.0.0
-[1.3.0]: https://github.com/ali1qbal/vodclipper/compare/v1.2.0...v1.3.0
-[1.2.0]: https://github.com/ali1qbal/vodclipper/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/ali1qbal/vodclipper/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/ali1qbal/vodclipper/releases/tag/v1.0.0
+[2.0.0]: https://github.com/ali1qbal/vodclipper/releases/tag/v2.0.0
+[1.3.0]: https://github.com/ali1qbal/vodclipper/commit/dcb1473
+[1.2.0]: https://github.com/ali1qbal/vodclipper/commit/76be94b
+[1.1.0]: https://github.com/ali1qbal/vodclipper/commit/bb53c2c
+[1.0.0]: https://github.com/ali1qbal/vodclipper/commit/b40b498

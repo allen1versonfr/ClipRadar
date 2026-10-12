@@ -133,7 +133,7 @@ python tests/e2e.py --app "python src/app.py" --ffmpeg ffmpeg
 
 ## Releases
 
-Versions follow [Semantic Versioning](https://semver.org/), and changes are recorded in [CHANGELOG.md](CHANGELOG.md). Pushing a `vX.Y.Z` tag that matches `src/version.py` builds, tests and publishes a release with the installer, the portable zip and that version's changelog notes.
+Versions follow [Semantic Versioning](https://semver.org/), and changes are recorded in [CHANGELOG.md](CHANGELOG.md). To release, bump `src/version.py`, add a section for that version to the changelog, and push to `main`. CI builds and tests the app, then publishes `vX.Y.Z` with the installer, the portable zip and that version's notes.
 
 ---
 

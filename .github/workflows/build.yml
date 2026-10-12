@@ -1,8 +1,9 @@
 name: Build and test
 
 # Every push builds the Windows app and runs the full test suite on it.
-# Pushing a version tag (v2.0.0) also publishes a GitHub Release with the
-# installer, the portable zip, and the notes for that version from CHANGELOG.md.
+# When main carries a version (src/version.py) that has no release yet, the
+# build publishes one: tag vX.Y.Z, the installer, the portable zip, and that
+# version's notes from CHANGELOG.md. Pushing a vX.Y.Z tag does the same.
 on:
   workflow_dispatch:
   pull_request:
@@ -229,21 +230,29 @@ jobs:
             dist/VodClipper
             dist/VodClipper-Setup.exe
 
-      - name: Publish release (version tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish release (new versions only)
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "${{ github.ref_name }}"
           $ver = (Select-String -Path src/version.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
-          if ($tag -ne "v$ver") { Write-Host "::error title=Version mismatch::tag $tag but src/version.py says $ver"; exit 1 }
+          $tag = "v$ver"
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne $tag) {
+            Write-Host "::error title=Version mismatch::tag ${{ github.ref_name }} but src/version.py says $ver"; exit 1 }
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { Write-Host "::notice title=Release::$tag already published, nothing to do"; exit 0 }
           # release notes = this version's section of CHANGELOG.md
           $log = Get-Content CHANGELOG.md -Raw
-          $m = [regex]::Match($log, "(?ms)^## \[$([regex]::Escape($ver))\][^\n]*\n(.*?)(?=^## \[|\z)")
+          $m = [regex]::Match($log, "(?ms)^## \[$([regex]::Escape($ver))\][^\n]*\n(.*?)(?=^## \[|^\[[0-9]|\z)")
           if (-not $m.Success) { Write-Host "::error title=Changelog::no section for $ver in CHANGELOG.md"; exit 1 }
-          $notes = $m.Groups[1].Value.Trim() + "`n`n---`n**Download:** VodClipper-Setup.exe (installer, recommended) or VodClipper-portable.zip (no install). Windows 10 or 11, 64-bit."
+          $notes = $m.Groups[1].Value.Trim() + "`n`n---`n**Download:** ``VodClipper-Setup.exe`` (installer, recommended) or ``VodClipper-portable.zip`` (no install). Windows 10 or 11, 64-bit."
           Set-Content -Path notes.md -Value $notes -Encoding utf8
           Compress-Archive -Path dist/VodClipper -DestinationPath dist/VodClipper-portable.zip -Force
-          gh release create $tag dist/VodClipper-Setup.exe dist/VodClipper-portable.zip --title "VodClipper $ver" --notes-file notes.md --verify-tag
+          gh release create $tag dist/VodClipper-Setup.exe dist/VodClipper-portable.zip --title "VodClipper $ver" --notes-file notes.md --target "${{ github.sha }}" --latest
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # retire the old rolling "latest" release from before versioned releases
+          gh release view latest 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { gh release delete latest --yes --cleanup-tag }
           Write-Host "::notice title=OK release::VodClipper $ver published"
+          exit 0
