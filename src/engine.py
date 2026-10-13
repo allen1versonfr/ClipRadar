@@ -391,7 +391,8 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         else:
             chat = _sidecar_chat(video, workdir, log, info)
         streamer = info.get("streamer") or _meta(workdir).get("streamer", "")
-        _save_meta(workdir, title=title, source=video, local=True, streamer=streamer)
+        _save_meta(workdir, title=title, source=video, local=True, streamer=streamer,
+                   **({"streamer_id": info["streamer_id"]} if info.get("streamer_id") else {}))
         progress(1.0)
         return Source(video, chat, title, workdir, streamer)
 
@@ -424,7 +425,8 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     else:
         chat = _download_chat(url, vod_id, workdir, log, info)
     streamer = _meta(workdir).get("streamer") or info.get("streamer", "")
-    _save_meta(workdir, title=title, source=url, local=False, streamer=streamer)
+    _save_meta(workdir, title=title, source=url, local=False, streamer=streamer,
+               **({"streamer_id": info["streamer_id"]} if info.get("streamer_id") else {}))
     return Source(video, chat, title, workdir, streamer)
 
 
@@ -766,6 +768,8 @@ def load_chat(path: str, info: Optional[dict] = None) -> list:
             s = data.get("streamer") or {}
             if isinstance(s, dict) and s.get("name"):
                 info["streamer"] = str(s["name"]).lower()
+            if isinstance(s, dict) and s.get("id"):
+                info["streamer_id"] = str(s["id"])
         for c in items or []:
             take(c)
     except json.JSONDecodeError:
@@ -947,6 +951,15 @@ class Analysis:
     fine: Optional[np.ndarray] = None      # dB per 0.1 s (pauses between sentences)
     chat_stats: Optional[dict] = None
     speech: Optional[np.ndarray] = None    # deep scan: how quotable each second is
+    # 3.5: extra signals (detect.enrich) and the stream-type weights they're mixed with
+    weights: Optional[dict] = None
+    chat_delay: float = 6.0
+    delay_sure: bool = False
+    surge: Optional[np.ndarray] = None
+    emote_z: Optional[np.ndarray] = None
+    emote_rate: Optional[np.ndarray] = None
+    react: Optional[np.ndarray] = None
+    noise: Optional[np.ndarray] = None
 
     @property
     def has_events(self) -> bool:
@@ -967,13 +980,18 @@ class Analysis:
     def event_bonus(self) -> np.ndarray:
         n = len(self.audio_z)
         out = np.zeros(n, dtype=np.float32)
+        w = self.weights or EVENT_WEIGHTS
         if self.has_events:
-            for k, w in EVENT_WEIGHTS.items():
-                out += w * self.event_level(k)
+            for k in EVENT_WEIGHTS:
+                out += float(w.get(k, EVENT_WEIGHTS[k])) * self.event_level(k)
         return out
 
-    def combine(self, chat_weight_pct: float) -> np.ndarray:
-        """Mix chat, loudness and laughter/screams. Cheap, so the UI can re-rank instantly."""
+    def combine(self, chat_weight_pct: float, weights: Optional[dict] = None) -> np.ndarray:
+        """Mix chat, loudness, laughter/screams and the extra signals (detect.py) with the stream
+        type's weights. Cheap, so the UI can re-rank instantly."""
+        if weights is not None:
+            self.weights = weights
+        w = self.weights or {}
         wc = (chat_weight_pct / 100.0) if self.has_chat else 0.0
         if not self.has_audio:
             wc = 1.0 if self.has_chat else 0.0
@@ -982,7 +1000,18 @@ class Analysis:
             # a loud song isn't a moment: play down loudness while music is playing
             music = np.clip(_rolling(_fit(self.events["music"], len(audio)), 5, "mean") - 0.5, 0, 0.5) * 2
             audio = audio * (1 - 0.5 * music)
-        s = wc * self.chat_z + (1 - wc) * audio + self.event_bonus()
+        parts = {"chat": wc * self.chat_z, "audio": (1 - wc) * audio}
+        if self.has_events:
+            for k in EVENT_WEIGHTS:
+                parts[k] = float(w.get(k, EVENT_WEIGHTS[k])) * self.event_level(k)
+        n = len(self.audio_z)
+        for k, arr in (("emotes", self.emote_z), ("surge", self.surge), ("react", self.react)):
+            if arr is not None and float(w.get(k, 0)) > 0:
+                parts[k] = float(w[k]) * _fit(arr, n)
+        s = sum(parts.values())
+        if self.noise is not None:
+            s = np.where(s > 0, s * _fit(self.noise, n, 1.0), s)
+        self.parts = parts
         self.score = _rolling(s, 5, "mean")
         self.chat_weight_pct = chat_weight_pct
         return self.score
@@ -993,7 +1022,9 @@ class Analysis:
         sub = Analysis(float(b - a), self.chat_z[a:b].copy(), self.audio_z[a:b].copy(), self.has_chat,
                        self.has_audio, events={k: cut(v) for k, v in self.events.items()} if self.events else None,
                        loud=cut(self.loud), fine=None if self.fine is None else self.fine[a * FINE_HZ:b * FINE_HZ].copy(),
-                       chat_stats=self.chat_stats)
+                       chat_stats=self.chat_stats, weights=self.weights, chat_delay=self.chat_delay,
+                       surge=cut(self.surge), emote_z=cut(self.emote_z), emote_rate=cut(self.emote_rate),
+                       react=cut(self.react), noise=cut(self.noise))
         sub.combine(self.chat_weight_pct)
         return sub
 
@@ -1020,7 +1051,22 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
         loud = None
     if len(chat) > 20:
         log(f"Reading {len(chat):,} chat messages...")
-    an = score_signals(loud, chat, n, dur, chat_delay, chat_weight_pct, events=ev, fine=fine)
+    rate = stats = None
+    used_delay = 6.0 if chat_delay == "auto" else float(chat_delay)
+    sure = chat_delay != "auto"
+    if chat_delay == "auto" and chat:
+        # how late chat reacts: compare when chat surges with when the stream got loud or laughed
+        import detect
+        rate0, sc = chat_rate(chat, n, 0.0)
+        stats = sc.summary()
+        az = _audio_z(loud, n) if loud is not None else np.zeros(n, dtype=np.float32)
+        used_delay, sure = detect.estimate_delay(rate0, az, ev)
+        log(f"Chat reacts about {used_delay:.0f} s after the stream." if sure
+            else "Couldn't tell how late chat reacts; assuming 6 s.")
+        rate = detect.shift(rate0, used_delay)
+    an = score_signals(loud, chat, n, dur, used_delay, chat_weight_pct, rate=rate, stats=stats, events=ev, fine=fine)
+    an.chat_delay = used_delay
+    an.delay_sure = bool(sure)
     st = an.chat_stats or {}
     if st.get("messages"):
         bits = [f"{st['chatters']:,} chatters"] if st.get("chatters") else []
@@ -1045,7 +1091,8 @@ def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Op
         import audio_events
         with_ev = bool(events and audio_events.available())
         return json.dumps([ANALYSIS_VERSION, st.st_size, int(st.st_mtime), len(chat),
-                           round(chat[-1][0], 2) if chat else 0, round(float(chat_delay), 2), with_ev,
+                           round(chat[-1][0], 2) if chat else 0,
+                           chat_delay if chat_delay == "auto" else round(float(chat_delay), 2), with_ev,
                            audio_events.MODEL_SHA256 if with_ev else ""])
     except Exception:
         return None
@@ -1060,7 +1107,8 @@ def _save_analysis(path: str, key: str, an: Analysis):
     for k, v in (an.events or {}).items():
         arrays["ev_" + k] = np.asarray(v, dtype=np.float32)
     meta = {"key": key, "duration": an.duration, "has_chat": an.has_chat, "has_audio": an.has_audio,
-            "chat_stats": an.chat_stats, "events": sorted((an.events or {}).keys())}
+            "chat_stats": an.chat_stats, "events": sorted((an.events or {}).keys()), "chat_delay": an.chat_delay,
+            "delay_sure": bool(getattr(an, "delay_sure", False))}
     arrays["meta"] = np.array(json.dumps(meta, default=lambda o: o.item() if hasattr(o, "item") else str(o)))
     tmp = path[:-4] + f".{os.getpid()}.tmp.npz"
     np.savez(tmp, **arrays)
@@ -1076,12 +1124,13 @@ def _load_analysis(path: str, key: str) -> Optional[Analysis]:
         events = {k: f["ev_" + k].copy() for k in meta.get("events", [])} or None
         return Analysis(float(meta["duration"]), f["chat_z"].copy(), f["audio_z"].copy(), bool(meta["has_chat"]),
                         bool(meta["has_audio"]), events=events, loud=get("loud"), fine=get("fine"),
-                        chat_stats=meta.get("chat_stats"))
+                        chat_stats=meta.get("chat_stats"), chat_delay=float(meta.get("chat_delay", 6.0)),
+                        delay_sure=bool(meta.get("delay_sure")))
 
 
-def analyze_cached(workdir: str, video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: float = 60,
+def analyze_cached(workdir: str, video: str, chat: list, chat_delay=6.0, chat_weight_pct: float = 60,
                    log: Log = _noop, progress: Progress = _noop, check: Check = _noop,
-                   events: bool = True) -> Analysis:
+                   events: bool = True, emote_set=None, weights: Optional[dict] = None) -> Analysis:
     """analyze(), but a VOD you've opened before is ready instantly (cached in workdir/analysis.npz)."""
     path = os.path.join(workdir, "analysis.npz")
     key = _analysis_key(video, chat, chat_delay, events)
@@ -1091,10 +1140,9 @@ def analyze_cached(workdir: str, video: str, chat: list, chat_delay: float = 6.0
         except Exception:
             an = None
         if an is not None:
-            an.combine(chat_weight_pct)
             log("Opened the analysis from last time.")
             progress(1.0)
-            return an
+            return _finish(an, chat, emote_set, weights, chat_weight_pct)
     an = analyze(video, chat, chat_delay=chat_delay, chat_weight_pct=chat_weight_pct, log=log,
                  progress=progress, check=check, events=events)
     if key:
@@ -1102,6 +1150,14 @@ def analyze_cached(workdir: str, video: str, chat: list, chat_delay: float = 6.0
             _save_analysis(path, key, an)
         except Exception as e:
             log(f"Couldn't save the analysis for next time ({str(e)[:80]}).")
+    return _finish(an, chat, emote_set, weights, chat_weight_pct)
+
+
+def _finish(an: Analysis, chat: list, emote_set, weights: Optional[dict], chat_weight_pct: float) -> Analysis:
+    import detect
+    detect.enrich(an, chat, an.chat_delay, emote_set)
+    an._emotes = emote_set
+    an.combine(chat_weight_pct, weights or detect.preset("any"))
     return an
 
 
@@ -1118,6 +1174,18 @@ def chat_rate(chat: list, n: int, chat_delay: float, scorer=None) -> tuple:
     return rate, sc
 
 
+def _audio_z(loud: np.ndarray, n: int) -> np.ndarray:
+    """How much louder each second is than the last few minutes (robust z-score)."""
+    loud = _fit(loud, n, -90.0)
+    # Twitch mutes DMCA'd parts: treat dead silence as "no info" rather than "boring"
+    muted = loud < -75
+    short = _rolling(loud, 4, "mean")
+    base = _rolling(np.where(muted, np.median(loud[~muted]) if (~muted).any() else -60, loud), 180, "median")
+    audio = np.clip(_robust_z(short - base), -3, 8)
+    audio[muted] = np.minimum(audio[muted], 0)
+    return audio
+
+
 def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: float,
                   chat_delay: float = 6.0, chat_weight_pct: float = 60, rate: Optional[np.ndarray] = None,
                   stats: Optional[dict] = None, events: Optional[dict] = None,
@@ -1126,12 +1194,7 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
     rate: chat reaction per second already weighed (live mode keeps it up to date as chat arrives)."""
     if loud is not None and len(loud):
         loud = _fit(loud, n, -90.0)
-        # Twitch mutes DMCA'd parts: treat dead silence as "no info" rather than "boring"
-        muted = loud < -75
-        short = _rolling(loud, 4, "mean")
-        base = _rolling(np.where(muted, np.median(loud[~muted]) if (~muted).any() else -60, loud), 180, "median")
-        audio = np.clip(_robust_z(short - base), -3, 8)
-        audio[muted] = np.minimum(audio[muted], 0)
+        audio = _audio_z(loud, n)
         has_audio = True
     else:
         audio = np.zeros(n, dtype=np.float32)
@@ -1176,9 +1239,13 @@ class Clip:
     reason: str = ""
     feat: Optional[dict] = None       # what the signals looked like (for learning what you keep)
     tuned: float = 0.0                # how much learning moved this clip up or down
+    quality: int = 0                  # 0-100 (detect.quality)
+    parts: Optional[dict] = None      # points each signal added (detect.breakdown)
+    trigger: Optional[float] = None   # what a late chat reaction was reacting to
+    merged: int = 0                   # near-duplicate detections folded into this clip
 
 
-def estimate(an: Analysis) -> dict:
+def estimate(an: Analysis, sensitivity: str = "normal") -> dict:
     """How many distinct strong / decent moments the stream has (peaks at least 45 s apart),
     and how many clips to suggest for its length."""
     s = an.score
@@ -1201,6 +1268,9 @@ def estimate(an: Analysis) -> dict:
                 strong += 1
     base = strong + (good - strong) // 2
     suggest = int(min(60, max(5, base, round(3 * hours))))
+    import detect
+    sens = detect.SENSITIVITY.get(sensitivity, detect.SENSITIVITY["normal"])
+    suggest = int(min(100, max(3, round(suggest * sens["count"]))))
     return {"strong": strong, "good": good, "hours": round(hours, 2), "suggest": suggest}
 
 
@@ -1219,7 +1289,8 @@ def _snap(fine: Optional[np.ndarray], t: float, before: float, after: float) -> 
 
 
 def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
-                 min_len: float = MIN_LEN, max_len: float = MAX_LEN, final: bool = False) -> tuple:
+                 min_len: float = MIN_LEN, max_len: float = MAX_LEN, final: bool = False,
+                 trigger: Optional[float] = None) -> tuple:
     """Where a clip around a peak should start and end: back far enough to show what led up to it,
     on until the reaction has died down, 15 to 90 seconds. Returns (start, end, complete); complete is
     False while live mode hasn't seen the reaction end yet."""
@@ -1244,6 +1315,11 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
             quiet = 0
     start = min(build - 7.0, p - 6.0)               # a little setup before it kicks off
     start = max(start, p - 55.0, 0.0)
+    keep_from = p - 8.0
+    if trigger is not None and trigger < p:
+        # chat reacted late: start before what it reacted to
+        start = max(0.0, min(start, trigger - 6.0))
+        keep_from = min(keep_from, trigger - 3.0)
     # reaction: walk forward until it has been calm for 4 seconds
     end = None
     quiet = 0
@@ -1267,7 +1343,7 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
         end += need * 0.4
     elif L > max_len:
         cut = L - max_len
-        room = max(0.0, (p - 8.0) - start)
+        room = max(0.0, keep_from - start)
         start += min(cut, room)
         end -= max(0.0, cut - room)
     if start < 0:
@@ -1367,6 +1443,7 @@ def clip_features(an: Analysis, start: float, end: float, peak: float, chat: Opt
         "scream": float(np.max(an.event_level("scream")[a:b])) if an.has_events and b > a else 0.0,
         "cheer": float(np.max(an.event_level("cheer")[a:b])) if an.has_events and b > a else 0.0,
         "speech": float(np.max(an.speech[a:b])) if an.speech is not None and len(an.speech) > a else 0.0,
+        "emotes": float(an.emote_z[w0:w1].max()) if an.emote_z is not None else 0.0,
         "length": (end - start) / 60.0,
         "clipreq": 0.0,
         "pos": peak / max(1.0, an.duration),
@@ -1380,7 +1457,8 @@ def clip_features(an: Analysis, start: float, end: float, peak: float, chat: Opt
 
 def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0.6,
                chat: Optional[list] = None, chat_delay: float = 6.0, adjust=None,
-               min_len: float = MIN_LEN, max_len: float = MAX_LEN) -> list:
+               min_len: float = MIN_LEN, max_len: float = MAX_LEN, sensitivity: str = "normal",
+               back: float = 25.0, offsets: tuple = (0.0, 0.0)) -> list:
     """The best non-overlapping moments. count 0 = as many as the stream deserves (see estimate);
     length 0 = each clip gets its own length (smart_bounds). adjust(features) -> score changes
     learned from what you kept and skipped before."""
@@ -1388,13 +1466,15 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
     n = len(s)
     if n < 5:
         return []
+    import detect
     auto = count <= 0
     if auto:
-        count = estimate(an)["suggest"]
+        count = estimate(an, sensitivity)["suggest"]
     order = np.argsort(-s, kind="stable")
     top = float(s[order[0]])
     # automatic: only moments that really stand out; a number you chose gets filled with weaker ones too
-    floor = max(1.5 if auto else 1.0, 0.15 * top)
+    sens = detect.SENSITIVITY.get(sensitivity, detect.SENSITIVITY["normal"])
+    floor = max(sens["floor"] if auto else 1.0, 0.15 * top)
     skip_edge = min(60, int(n * 0.03))  # ignore "starting soon"/outro edges a bit
     chat_t = chat_times(chat) if chat else []
     # candidate peaks, a little apart from each other
@@ -1409,12 +1489,19 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
         cands.append(int(idx))
         blocked[max(0, idx - 12): idx + 13] = True
     items = []
+    ds, de = offsets
     for idx in cands:
+        trig = None
         if length and length > 0:
             st, en = fixed_bounds(an, idx, length, lead)
         else:
-            st, en, _ = smart_bounds(an, idx, None, min_len, max_len)
-        items.append({"peak": idx, "start": st, "end": en, "base": float(s[idx]),
+            trig = detect.find_trigger(an, idx, back)
+            st, en, _ = smart_bounds(an, idx, None, min_len, max_len, trigger=trig)
+            if ds or de:      # learned from how you trim this streamer's clips
+                st2, en2 = max(0.0, st + ds), min(an.duration, en + de)
+                if en2 - st2 >= min_len * 0.8 and st2 < idx < en2:
+                    st, en = round(st2, 2), round(en2, 2)
+        items.append({"peak": idx, "start": st, "end": en, "base": float(s[idx]), "trigger": trig,
                       "feat": clip_features(an, st, en, idx, chat, chat_t, chat_delay)})
     adj = [0.0] * len(items)
     if adjust is not None and items:
@@ -1427,20 +1514,29 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
         it["rank"] = it["base"] + float(a)
     items.sort(key=lambda it: -it["rank"])
     clips: list = []
+    smart = not (length and length > 0)
     for it in items:
         if len(clips) >= count:
             break
         st, en = it["start"], it["end"]
-        if any(st < c.end - 2 and en > c.start + 2 for c in clips):
-            continue  # would overlap a better clip
+        near = next((c for c in clips if st < c.end + 4 and en > c.start - 4), None)
+        if near is not None:
+            # the same event seen twice (setup and reaction, or two waves of chat): one clip, not two
+            if smart and max(en, near.end) - min(st, near.start) <= max_len:
+                near.start, near.end = min(st, near.start), max(en, near.end)
+                near.merged += 1
+            continue
         clips.append(Clip(0, st, en, float(it["peak"]), round(it["rank"], 2),
-                          _reason(an, it["peak"], chat, chat_t, chat_delay), it["feat"], round(it["tuned"], 2)))
+                          _reason(an, it["peak"], chat, chat_t, chat_delay, it["trigger"]), it["feat"],
+                          round(it["tuned"], 2), detect.quality(it["rank"]),
+                          detect.breakdown(an, it["peak"], it["tuned"]), it["trigger"]))
     for i, c in enumerate(clips, 1):
         c.id = i
     return clips
 
 
-def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: float) -> str:
+def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: float,
+            trigger: Optional[float] = None) -> str:
     i = int(min(max(0, i), len(an.audio_z) - 1))
     c = float(an.chat_z[i]) if an.has_chat else 0.0
     a = float(an.audio_z[i])
@@ -1455,6 +1551,11 @@ def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: flo
         parts.append("chat explodes" if c > 5 else "chat spike")
     if a > 2 and not parts[:1] == ["screaming"]:
         parts.append("loud moment" if a > 4 else "volume jump")
+    if an.react is not None and float(an.react[max(0, i - 3):i + 3].max()) > 0.8:
+        parts.append("right after a quiet moment")
+    if trigger is not None:
+        parts.append(f"chat reacting to {max(1, int(round(i - trigger)))} s earlier")
+    es = getattr(an, "_emotes", None)
     if chat:
         import chatsignal
         lo = bisect.bisect_left(chat_t, i + delay - 4)
@@ -1463,7 +1564,10 @@ def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: flo
         emoji = {"😂", "🤣", "💀", "🔥", "😱"}
         for m in chatsignal.human(chat[lo:hi]):
             for tok in set(re.findall(r"\w+|[😂🤣💀🔥😱]", m[1])):
-                if (len(tok) > 1 and tok.lower() in HYPE) or tok in emoji:
+                e = es.find(tok) if es else None
+                if e:
+                    words[e] = words.get(e, 0) + 1
+                elif (len(tok) > 1 and tok.lower() in HYPE) or tok in emoji:
                     words[tok] = words.get(tok, 0) + 1
         top = sorted(words.items(), key=lambda kv: -kv[1])[:3]
         if top:

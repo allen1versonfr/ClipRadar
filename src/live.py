@@ -751,11 +751,17 @@ class LiveSession:
 
     # ------------------------------------------------------------------ detection
     def _analysis(self, n: int):
-        rate = np.asarray(self._rate[:n], dtype=np.float32)
+        rate = engine._fit(np.asarray(self._rate[:n], dtype=np.float32), n)
         ev = self.events.result(n) if self.events is not None else None
-        return engine.score_signals(np.asarray(self.loud[:n], dtype=np.float32), [], n, float(n), self.chat_delay,
-                                    self.chat_weight, rate=rate, stats=self.scorer.summary(), events=ev,
-                                    fine=np.asarray(self.fine[: n * engine.FINE_HZ], dtype=np.float32))
+        an = engine.score_signals(np.asarray(self.loud[:n], dtype=np.float32), [], n, float(n), self.chat_delay,
+                                  self.chat_weight, rate=rate, stats=self.scorer.summary(), events=ev,
+                                  fine=np.asarray(self.fine[: n * engine.FINE_HZ], dtype=np.float32))
+        import detect
+        an.surge = detect.surge_signal(rate) if an.has_chat else None
+        an.react = detect.react_signal(an)
+        an.noise = detect.noise_mult(an)
+        an.combine(self.chat_weight, getattr(self, "weights", None) or detect.preset("any"))
+        return an
 
     def _detect(self, final: bool = False):
         n = len(self.loud)
@@ -857,8 +863,10 @@ class LiveSession:
         a, b = int(offset), int(math.ceil(last))
         sub = an.part(a, min(b, len(an.score)))
         feat = engine.clip_features(an, start, end, peak, chat, engine.chat_times(chat), self.chat_delay)
+        import detect
+        sc = round(float(an.score[min(int(peak), len(an.score) - 1)]), 2)
         clip = engine.Clip(1, round(start - offset, 2), round(end - offset, 2), round(peak - offset, 2),
-                           round(float(an.score[min(int(peak), len(an.score) - 1)]), 2), reason, feat)
+                           sc, reason, feat, quality=detect.quality(sc), parts=detect.breakdown(an, peak))
         self.log(f"Moment {self._moment_n} at {engine.fmt_ts(peak)}" + (" (yours)" if manual else ""))
         try:
             self.on_moment(self, {"video": out, "chat": mchat, "analysis": sub, "clip": clip, "offset": offset,

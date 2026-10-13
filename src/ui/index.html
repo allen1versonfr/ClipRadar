@@ -78,6 +78,8 @@
               <label>Clips to suggest<select class="input" id="count"><option value="0">Automatic</option><option value="5">5</option><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option><option value="40">40</option><option value="60">60</option></select></label>
               <label>Clip length<select class="input" id="length"><option value="0">Auto (15–90 s)</option><option value="15">15 s</option><option value="20">20 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option><option value="90">90 s</option></select></label>
               <label>Rank by<span class="range-row"><span class="tiny">Audio</span><input type="range" id="cw" min="0" max="100" step="5" value="60" aria-label="Chat versus audio"><span class="tiny">Chat</span></span></label>
+              <label>Stream type<select class="input" id="preset" title="What the stream is, so the right moments count most"><option value="any">Any stream</option><option value="gaming">Gaming</option><option value="irl">IRL / Just Chatting</option><option value="reactions">Reactions</option><option value="interviews">Interviews</option><option value="podcasts">Podcasts</option></select></label>
+              <label>How many moments<select class="input" id="sens" title="How strong a moment has to be when Clips to suggest is Automatic"><option value="fewer">Fewer, stronger</option><option value="normal" selected>Normal</option><option value="more">More</option></select></label>
             </div>
             <div class="checks col">
               <label class="chk" id="deepWrap"><input type="checkbox" id="deep"><span>Deep scan<small id="deepHint">Also transcribes the whole stream to find quiet funny lines that chat and volume miss. Takes longer; you can start reviewing right away.</small></span></label>
@@ -86,7 +88,10 @@
               <summary>Advanced</summary>
               <div class="form-grid">
                 <label class="span2">Chat log file<span class="row"><input class="input grow" id="chatFile" placeholder="Optional, for local videos" spellcheck="false"><button class="btn" id="browseChat">Browse…</button></span></label>
-                <label>Chat delay<span class="unit-input"><input class="input" type="number" id="delay" min="0" max="20" value="6"><i>sec</i></span></label>
+                <label>Chat delay<span class="unit-input"><input class="input" type="number" id="delay" min="0" max="30" placeholder="Auto" title="Leave empty to work it out from the stream"><i>sec</i></span></label>
+                <label>Shortest clip<span class="unit-input"><input class="input" type="number" id="minLen" min="3" max="179" placeholder="Auto"><i>sec</i></span></label>
+                <label>Longest clip<span class="unit-input"><input class="input" type="number" id="maxLen" min="4" max="180" placeholder="Auto"><i>sec</i></span></label>
+                <label class="chk span2"><input type="checkbox" id="useEmotes" checked><span>Recognise 7TV, BetterTTV and FrankerFaceZ emotes<small>Downloads the channel's emote names (cached for a day).</small></span></label>
                 <label>Deep scan accuracy<select class="input" id="deepModel"><option value="auto">Automatic</option><option value="base">Fast</option><option value="small">Balanced</option><option value="large-v3">Best (needs a GPU, 3 GB download)</option></select></label>
                 <label class="chk span2"><input type="checkbox" id="events" checked><span>Listen for laughter, screams and cheering<small id="eventsHint">Adds about a minute per hour of video.</small></span></label>
               </div>
@@ -116,6 +121,7 @@
               <div class="fld">How many clips
                 <div class="seg" id="liveFreq"><button data-v="fewer">Fewer</button><button data-v="normal" class="on">Normal</button><button data-v="more">More</button><button data-v="lots">Lots</button></div>
               </div>
+              <label>Stream type<select class="input" id="livePreset"><option value="any">Any stream</option><option value="gaming">Gaming</option><option value="irl">IRL / Just Chatting</option><option value="reactions">Reactions</option><option value="interviews">Interviews</option><option value="podcasts">Podcasts</option></select></label>
               <label>Clip length<select class="input" id="liveLength"><option value="0">Auto (15–90 s)</option><option value="20">20 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option></select></label>
             </div>
             <div class="checks col live-opts">
@@ -225,6 +231,7 @@
                   <div class="insp-title" id="cRank"></div>
                   <dl class="kv">
                     <dt>Time</dt><dd class="tnum" id="cTime"></dd>
+                    <dt>Score</dt><dd id="cScore"></dd>
                     <dt>Signal</dt><dd id="cWhy"></dd>
                     <dt>Mood</dt><dd id="cVibe"></dd>
                     <dt>Content</dt><dd id="cSafe"></dd>
@@ -576,6 +583,21 @@
   <h3 id="dlgTitle"></h3>
   <p id="dlgBody"></p>
   <div class="row end"><button class="btn" id="dlgNo">Cancel</button><button class="btn primary" id="dlgYes">OK</button></div>
+</dialog>
+<dialog class="modal det" id="detDlg">
+  <h3>Detection settings</h3>
+  <p class="muted small" id="detNow"></p>
+  <div class="form-grid">
+    <label>Stream type<select class="input" id="detPreset"><option value="any">Any stream</option><option value="gaming">Gaming</option><option value="irl">IRL / Just Chatting</option><option value="reactions">Reactions</option><option value="interviews">Interviews</option><option value="podcasts">Podcasts</option></select></label>
+    <label>How many moments<select class="input" id="detSens"><option value="fewer">Fewer, stronger</option><option value="normal" selected>Normal</option><option value="more">More</option></select></label>
+    <label>Shortest clip<span class="unit-input"><input class="input" type="number" id="detMin" min="3" max="179"><i>sec</i></span></label>
+    <label>Longest clip<span class="unit-input"><input class="input" type="number" id="detMax" min="4" max="180"><i>sec</i></span></label>
+    <label class="span2">Rank by<span class="range-row"><span class="tiny">Audio</span><input type="range" id="detCw" min="0" max="100" step="5" value="60"><span class="tiny">Chat</span></span></label>
+  </div>
+  <p class="hint" id="detHint"></p>
+  <div class="det-cmp" id="detCmp" hidden></div>
+  <p class="fine">Clips you kept, skipped, trimmed or added stay either way. Scores rank moments within this stream; they can't promise views.</p>
+  <div class="row end"><button class="btn" id="detCancel">Cancel</button><button class="btn" id="detTry">Try</button><button class="btn primary" id="detApply">Apply</button></div>
 </dialog>
 <dialog class="modal keys" id="keysDlg">
   <h3>Keyboard shortcuts</h3>

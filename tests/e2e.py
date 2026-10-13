@@ -169,11 +169,18 @@ def vod_checks(a, tmp):
     est = pv.get("estimate") or {}
     rec("expected clip estimate", est.get("strong", 0) >= 1 and est.get("suggest", 0) >= 5, est)
     rec("streamer recognised from the chat replay", pv.get("streamer") == "e2estreamer", pv.get("streamer"))
+    # 3.5: detection
+    rec("chat delay automatic (short test VOD: falls back to 6 s and says so)", (pv.get("detect") or {}).get("chat_delay") == "auto" and 4 <= pv.get("chat_delay", 0) <= 9
+        and "chat delay" in pv.get("detect_text", ""),
+        (pv.get("chat_delay"), pv.get("detect_text")))
+    rec("7TV, BTTV and FFZ emotes loaded for the channel", pv.get("emotes_known", 0) >= 5, pv.get("emotes_known"))
+    rec("clips get a 0-100 score with the signals behind it", clips and all(1 <= c.get("quality", 0) <= 100 and c.get("parts") for c in clips)
+        and "chat" in clips[0]["parts"], [(c.get("quality"), c.get("parts")) for c in clips[:2]])
     # stable ids when re-ranking
     again = post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 60})
     rec("re-ranking keeps clips (and their ids)", sorted(c["id"] for c in again.get("clips", [])) == sorted(c["id"] for c in clips),
         [c["id"] for c in again.get("clips", [])])
-    add = post("/api/add_clip", {"pid": pid, "t": 62, "length": 0})
+    add = post("/api/add_clip", {"pid": pid, "t": 57, "length": 0})
     rec("a clip made by hand also gets a smart length", 14.5 <= add.get("end", 0) - add.get("start", 0) <= 90.5,
         f"{add.get('start')}-{add.get('end')}")
     # learning: keep the loud ones, skip the quiet ones
@@ -187,6 +194,20 @@ def vod_checks(a, tmp):
     rec("learns from keeps and skips", prof.get("decisions", 0) >= 8 and prof.get("kept", 0) >= 2, prof)
     tuned = post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 60})
     rec("ranking tuned for this streamer", (tuned.get("learning") or {}).get("active"), tuned.get("learning"))
+    cmp = post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 45, "detect": {"preset": "podcasts"}, "dry_run": True})
+    rec("trying other detection settings compares without changing anything", "added" in cmp and "dropped" in cmp
+        and (get(f"/api/clips/{pid}") and post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 60}).get("detect", {}).get("preset") == "any"),
+        {k: cmp.get(k) for k in ("count", "same", "added", "dropped")})
+    pod = post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 45, "detect": {"preset": "podcasts"}})
+    auto_lens = [t["end"] - t["start"] for t in cmp.get("top", [])]
+    rec("a stream-type preset brings its own clip lengths", (pod.get("detect") or {}).get("min_len") == 30
+        and (pod.get("detect") or {}).get("max_len") == 150 and auto_lens and all(29.5 <= x <= 150.5 for x in auto_lens),
+        (pod.get("detect_text"), [round(x, 1) for x in auto_lens]))
+    post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 60, "detect": {"preset": "any"}})
+    post("/api/feedback", {"pid": pid, "clip": made[0].get("id"), "action": "reason", "reason": "noise"})
+    prof2 = next((p for p in get("/api/learning").get("profiles", []) if p["streamer"] == "e2estreamer"), {})
+    rec("skip reasons and acceptance are tracked", prof2.get("reasons") and prof2["reasons"][0]["key"] == "noise"
+        and prof2.get("accept") is not None and prof2.get("added", 0) >= 7, prof2)
     post("/api/learning/forget", {"streamer": "e2estreamer"})
     rec("forget what was learned", not any(p["streamer"] == "e2estreamer" for p in get("/api/learning").get("profiles", [])))
     if speech:
@@ -458,12 +479,14 @@ def main():
                VODCLIPPER_TIKTOK_AUTH=f"http://127.0.0.1:{TT_PORT}/v2/auth/authorize/",
                VODCLIPPER_UPDATE_API=f"http://127.0.0.1:{GH_PORT}/repos/allen1versonfr/vodclipper/releases/latest",
                VODCLIPPER_TWITCH_ID=f"http://127.0.0.1:{TW_PORT}", VODCLIPPER_TWITCH_GQL=f"http://127.0.0.1:{TW_PORT}/gql",
+               VODCLIPPER_EMOTE_API=f"http://127.0.0.1:{TW_PORT}",
                VODCLIPPER_TEST="1", VODCLIPPER_WAIT_POLL="3")
     cmd = shlex.split(a.app, posix=(os.name != "nt")) + ["--browser"]
 
     def start_app():
         kw = {} if os.name == "nt" else {"start_new_session": True}
-        return subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+        out = open(os.environ["VC_E2E_LOG"], "a") if os.environ.get("VC_E2E_LOG") else subprocess.DEVNULL
+        return subprocess.Popen(cmd, env=env, stdout=out, stderr=subprocess.STDOUT if out is not subprocess.DEVNULL else subprocess.DEVNULL, **kw)
 
     def kill_app(p):
         """Hard kill, like a crash or power cut: no chance to save on the way out."""

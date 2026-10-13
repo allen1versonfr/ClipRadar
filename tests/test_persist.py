@@ -94,7 +94,7 @@ path = os.path.join(tmp, "project.json")
 persist.write_json(path, persist.project_payload(pr, "12345"))
 back = persist.load_project(path, "12345")
 check("project.json round trip", back and back["clips"][0]["title"] == "Mine" and back["clips"][0]["state"] == "kept"
-      and back["settings"] == {"count": 25, "length": 30, "chat_weight": 40.0} and back["book"]["next"] == book["next"]
+      and {k: back["settings"][k] for k in ("count", "length", "chat_weight")} == {"count": 25, "length": 30, "chat_weight": 40.0} and back["book"]["next"] == book["next"]
       and back["gems"][0]["id"] == 23 and back["deep_done"], back and back.get("settings"))
 check("per-run fields aren't saved", back and not ({"pid", "vod", "isNew"} & set(back["clips"][0])))
 check("no temp files left behind", sorted(os.listdir(tmp)) == ["project.json"], os.listdir(tmp))

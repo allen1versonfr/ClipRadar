@@ -3,6 +3,26 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.5.0] - 2026-10-13
+
+Better clip finding: more signals, scores you can read, settings for each kind of stream.
+
+### Added
+- A 0–100 score on every clip, with a breakdown of what made it (chat, volume, laughter, screams, emotes, chat surge, sudden reaction). Scores rank moments within a stream; they can't promise views.
+- 7TV, BetterTTV and FrankerFaceZ emotes: the channel's emote names are downloaded (cached for a day), and waves of them from many chatters count as reactions. Without them, or offline, it carries on.
+- Stream types: Gaming, IRL / Just Chatting, Reactions, Interviews, Podcasts and Any stream, each weighing the signals differently with its own clip lengths. Also "How many moments" (Fewer, Normal, More) and shortest/longest clip.
+- The chat delay is worked out from the stream itself (leave Chat delay empty), instead of always 6 seconds.
+- Detection settings in the Review header: change them, and Try first to see how many clips would be new, dropped or the same. Your kept, skipped and edited clips stay. Settings are saved with the VOD.
+- After a skip you can say why (not interesting, bad cut, duplicate, just noise). Settings › Clip ranking shows how many suggestions you keep, why you skip, and how many moments you added by hand.
+- New clips learn from your trims: after five, they start and end where you usually move them to (shown in the header; Forget undoes it).
+- The editing timeline shows emote activity next to chat.
+
+### Changed
+- When chat reacts late, the clip starts before what it was reacting to.
+- Two detections of the same moment become one clip instead of two near-identical ones.
+- A sudden reaction right after a quiet stretch counts more; a short loud blip nobody reacted to counts less.
+- Live clipping uses the stream type you choose and the channel's 7TV/BTTV/FFZ emotes too.
+
 ## [3.4.0] - 2026-10-13
 
 Editing: a real timeline, frame-accurate trims, undo, and previews that match the export.
