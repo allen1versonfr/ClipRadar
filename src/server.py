@@ -694,10 +694,11 @@ def _render_item(it: dict):
     outdir = os.path.join(pr["workdir"], "tiktok")
     os.makedirs(outdir, exist_ok=True)
     base = _safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
-    name = f"{it['rank']:02d} - {base}.mp4"
+    # the file is named after the clip's title; a second clip with the same title gets " (2)"
+    name = f"{base}.mp4"
     n = 2
     while os.path.exists(os.path.join(outdir, name)):
-        name = f"{it['rank']:02d} - {base} ({n}).mp4"
+        name = f"{base} ({n}).mp4"
         n += 1
 
     def check():

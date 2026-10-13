@@ -306,6 +306,9 @@ def main():
         rendered = wait(lambda: (lambda q: q if q and all(i["status"] in ("done", "error") for i in q) else None)(
             [i for i in get("/api/queue")["items"] if i["pid"] in [c["pid"] for c in (titled or [])]]), 400, 3)
         okr = rendered and all(i["status"] == "done" for i in rendered) and len(rendered) >= 1
+        import re as _re
+        rec("file names are just the title", okr and all(not _re.match(r"^\d+ - ", i.get("name", "")) for i in rendered),
+            rendered and [i.get("name") for i in rendered])
         rec("auto-render renders moments", okr,
             rendered and "; ".join(f"{i['status']} {i.get('name') or i.get('error')}" for i in rendered))
         sess = get(f"/api/live/{sid}")

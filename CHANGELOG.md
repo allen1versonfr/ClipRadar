@@ -3,6 +3,11 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.1.2] - 2026-10-13
+
+### Fixed
+- Exported clips are named after their title only (`core starts their taco bell mukbang.mp4`), without a number in front. A second clip with the same title gets " (2)" instead of overwriting.
+
 ## [3.1.1] - 2026-10-13
 
 ### Fixed
