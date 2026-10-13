@@ -72,6 +72,9 @@ def clips_of(login: str, vod: str, since: str, max_pages: int = 100) -> list:
     """Every clip of this VOD that Twitch will list. Tries a few ways of asking, since Twitch's
     unofficial API changes; the first that works is used."""
     variants = [
+        ("video", "{sort: VIEWS_DESC}"),
+        ("video", "{sort: VIEWS_DESC, period: ALL_TIME}"),
+        ("video", "{filter: ALL_TIME}"),
         ("video", None),
         ("criteria", "{filter: ALL_TIME, sort: CREATED_AT_DESC}"),
         ("criteria", "{period: ALL_TIME, sort: CREATED_AT_DESC}"),
@@ -86,7 +89,8 @@ def clips_of(login: str, vod: str, since: str, max_pages: int = 100) -> list:
             after = None
             for _ in range(max_pages):
                 if kind == "video":
-                    q = ("query($id: ID!, $after: Cursor) { video(id: $id) { clips(first: 100, after: $after) { "
+                    args = "first: 100, after: $after" + (f", criteria: {crit}" if crit else "")
+                    q = ("query($id: ID!, $after: Cursor) { video(id: $id) { clips(" + args + ") { "
                          "pageInfo { hasNextPage } edges { cursor node { " + CLIP_FIELDS + " } } } } }")
                     d = gql(q, {"id": vod, "after": after})
                     cl = (d.get("video") or {}).get("clips") or {}
@@ -113,7 +117,7 @@ def clips_of(login: str, vod: str, since: str, max_pages: int = 100) -> list:
             err = str(e)[:200]
         print(f"clips via {kind} {crit or ''}: {got} new of this VOD in {pages} pages {('ERROR ' + err) if err else ''}",
               flush=True)
-        if len(found) >= 300:
+        if len(found) >= 1000:
             break
     return list(found.values())
 
@@ -218,7 +222,7 @@ def main():
     info = video_info(a.vod)
     login = info["owner"]["login"]
     note("VOD", f"{info['title']} | {login} | {engine.fmt_ts(info['lengthSeconds'])} | {info['createdAt']}")
-    clips_file = os.path.join(media, "clips.json")
+    clips_file = os.path.join(a.out, f"clips_{a.vod}.json")
     if os.path.exists(clips_file):
         clips = json.load(open(clips_file, encoding="utf-8"))
     else:
@@ -233,8 +237,11 @@ def main():
     audio, chat_path = download(a.vod, media)
     dur = duration(audio)
     n = int(math.ceil(dur)) + 1
+    import audio_events
+    mp = audio_events.model_path()
+    note("detector", f"available={audio_events.available()} model={mp} size={mp.stat().st_size if mp else 0}")
     t = time.time()
-    loud, fine, ev = engine.measure_audio(audio, dur, events=True)
+    loud, fine, ev = engine.measure_audio(audio, dur, events=True, log=lambda m: note("measure", m, "warning"))
     t_audio = time.time() - t
     chat = engine.load_chat(chat_path)
     note("analysis", f"{engine.fmt_ts(dur)} of audio measured in {t_audio:.0f}s "
