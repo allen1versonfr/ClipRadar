@@ -29,6 +29,11 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+for _s in (sys.stdout, sys.stderr):      # Windows consoles default to cp1252; app text has arrows and quotes
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 import fake_irc      # noqa: E402
 import fake_twitch   # noqa: E402
 import mock_tiktok   # noqa: E402
@@ -286,6 +291,90 @@ def persistence_checks(ctx, restart):
                                                  for i in get("/api/queue")["items"]))
 
 
+def review_checks(ctx):
+    """3.3: the Content Check review workflow, through the same API the Review screen uses."""
+    pid = ctx["pid"]
+    clips = [c for c in get(f"/api/clips/{pid}")["clips"] if c.get("state") != "kept"]
+    if len(clips) < 2:
+        rec("review: enough clips to test with", False, len(clips))
+        return
+    a, b = clips[0], clips[1]
+    t0 = a["start"]
+    ws = [{"start": t0 + 2 + i * 0.4, "end": t0 + 2.35 + i * 0.4, "word": w} for i, w in enumerate("what the fuck was that".split())]
+    r = post("/api/check", {"pid": pid, "id": a["id"], "wordsEdited": True, "words_edit": ws, "start": a["start"], "end": a["end"],
+                            "action": ""})
+    sf = (r.get("clips") or [{}])[0].get("safety") or {}
+    swear = next((f for f in sf.get("flags", []) if f["source"] == "speech"), None)
+    rec("a flag needs review, with its time and possible fixes", sf.get("status") == "needs_review" and swear
+        and abs(swear["start"] - 2.8) < 0.1 and "bleep" in swear["fixes"], swear and (swear["start"], swear["fixes"]))
+    if not swear:
+        return
+    pv = post("/api/check", {"pid": pid, "id": a["id"], "action": "fix", "args": {"fp": swear["fp"], "kind": "mute", "preview": True}})
+    still = get(f"/api/clips/{pid}")
+    still_a = next(c for c in still["clips"] if c["id"] == a["id"])
+    rec("previewing a fix doesn't apply it", pv.get("fix", {}).get("kind") == "mute" and not (still_a.get("check") or {}).get("fixes"))
+    r = post("/api/check", {"pid": pid, "id": a["id"], "action": "fix", "args": {"fp": swear["fp"], "kind": "mute"}})
+    v = (r.get("clips") or [{}])[0]
+    rec("fixing a flag marks it corrected (original kept)", v.get("safety", {}).get("status") == "corrected"
+        and any(f["status"] == "corrected" and f["text"] == swear["text"] for f in v["safety"]["flags"]), v.get("safety", {}).get("status"))
+    # it renders muted
+    it = post("/api/queue/add", {"pid": pid, "clip": dict(a, title="Muted bit", words=None),
+                                 "opts": {"layout": "blur", "captions": False, "hw_encode": False}})
+    done = _wait_item(it.get("id"), 240)
+    quiet = None
+    if done and done["status"] == "done":
+        try:
+            out = subprocess.run([ARGS.ffmpeg, "-v", "info", "-ss", "2.9", "-t", "0.2", "-i", done["folder"] + os.sep + done["name"],
+                                  "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True, timeout=60).stderr
+            mx = float(out.split("max_volume:")[1].split("dB")[0])
+            quiet = mx < -50
+        except Exception as e:
+            quiet = f"couldn't measure: {e}"
+    rec("the fix is in the rendered file (muted)", done and done["status"] == "done" and done.get("censored", 0) >= 1 and quiet is True,
+        done and f"{done.get('name') or done.get('error')} censored={done.get('censored')} quiet={quiet}")
+    # E: excluded clips don't render; including again works
+    post("/api/check", {"pid": pid, "id": b["id"], "action": "exclude", "args": {"on": True}})
+    blocked = post("/api/queue/add", {"pid": pid, "clip": b, "opts": {}})
+    rec("an excluded clip won't render", blocked.get("_status") == 400 and "excluded" in blocked.get("error", ""), blocked.get("error"))
+    post("/api/check", {"pid": pid, "id": b["id"], "action": "exclude", "args": {"on": False}})
+    # "not until reviewed"
+    tb = b["start"]
+    post("/api/check", {"pid": pid, "id": b["id"], "wordsEdited": True, "start": b["start"], "end": b["end"], "action": "",
+                        "words_edit": [{"start": tb + 3, "end": tb + 3.4, "word": "shit"}]})
+    post("/api/safety", {"export_flagged": "block"})
+    blocked = post("/api/queue/add", {"pid": pid, "clip": b, "opts": {}})
+    left = post("/api/check", {"pid": pid, "id": b["id"], "action": "leave"})
+    st = ((left.get("clips") or [{}])[0].get("safety") or {}).get("status")
+    allowed = post("/api/queue/add", {"pid": pid, "clip": dict(b, title="Left alone"), "opts": {"layout": "blur", "captions": False, "hw_encode": False}})
+    post("/api/safety", {"export_flagged": "ask"})
+    rec("'not until reviewed' blocks until you decide", blocked.get("_status") == 400 and st == "reviewed" and allowed.get("id"),
+        f"{blocked.get('error')} / {st} / {allowed.get('error') or 'queued'}")
+    if allowed.get("id"):
+        _wait_item(allowed["id"], 240)
+    # F: removed clips stay removed
+    c3 = next((c for c in get(f"/api/clips/{pid}")["clips"] if c["id"] not in (a["id"], b["id"]) and c.get("state") != "kept"), None)
+    if c3:
+        post("/api/clip_remove", {"pid": pid, "id": c3["id"]})
+        again = post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 60})
+        gone = c3["id"] not in [c["id"] for c in again.get("clips", [])]
+        back = post("/api/clip_restore", {"pid": pid, "id": c3["id"]})
+        rec("a removed clip stays out after re-ranking, and can be put back", gone and (back.get("clip") or {}).get("id") == c3["id"]
+            and c3["id"] in [c["id"] for c in get(f"/api/clips/{pid}")["clips"]], f"gone={gone} back={bool(back.get('clip'))}")
+    time.sleep(1.5)
+    work = os.path.dirname(done["folder"]) if done and done.get("folder") else ""
+    saved = {}
+    try:
+        saved = json.load(open(os.path.join(work, "project.json"), encoding="utf-8"))
+    except Exception:
+        pass
+    sa = next((c for c in saved.get("clips", []) if c["id"] == a["id"]), {})
+    rec("review decisions are saved with the VOD", (sa.get("check") or {}).get("fixes") and any(
+        l["action"] == "fix" for l in (sa.get("check") or {}).get("log", [])), (sa.get("check") or {}).get("log"))
+
+
+ARGS = None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", required=True)
@@ -294,6 +383,8 @@ def main():
     ap.add_argument("--model", default="tiny")
     ap.add_argument("--speech", default="", help="a WAV of someone talking, for the VOD and deep scan checks")
     a = ap.parse_args()
+    global ARGS
+    ARGS = a
 
     tmp = tempfile.mkdtemp(prefix="vc_e2e_")
     work, data, hls = os.path.join(tmp, "work"), os.path.join(tmp, "data"), os.path.join(tmp, "hls")
@@ -350,6 +441,7 @@ def main():
         ctx = vod_checks(a, tmp)
         if ctx:
             persistence_checks(ctx, restart)
+            review_checks(ctx)
 
         # ------------------------------------------------------------ live mode
         src = os.path.join(tmp, "stream_src.mp4")

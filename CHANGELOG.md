@@ -3,6 +3,25 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.3.0] - 2026-10-13
+
+Content Check review: decide what happens to each flag, and keep track of it.
+
+### Added
+- A Content check box in Review lists each flag with what was said and when; click the time to hear it.
+- Fixes for a flag, each explained first with a Preview, and Undo afterwards: Mute it, Bleep it, End the clip before it, Start the clip after it, Hide it in the title or post caption. They apply when the clip renders; your video is never changed.
+- Leave as is, Dismiss, Review and edit (jumps to the words in the Captions tab), Exclude from export (the clip stays but won't render until you include it again), and Remove from the project with Undo. A removed clip doesn't come back when you change the sliders.
+- Statuses on every clip: Needs review, Reviewed, Corrected, Dismissed, Excluded from export, plus "changed since it was checked".
+- A Flagged tab with a status filter and Leave all, Dismiss all and Exclude all (each asks first).
+- History on each clip of what was decided, saved with the VOD.
+- Settings: sensitivity (Everything, Skip mild, Only serious), check clips by themselves, show flags right away or collect them, what happens when you render a clip with unreviewed flags (Ask me first, Not until reviewed, Just render it), remember dismissed flags, and check again after edits.
+
+### Changed
+- A decision sticks to its flag: it comes back only when the words change, when you check again from scratch, or when you change what the check looks for.
+- Flags you left as they are or dismissed aren't censored by automatic censoring.
+- Rendering a clip with flags you haven't reviewed asks first by default. Settings › Content check can switch that off.
+- Hands-free also holds back clips when rendering is set to "Not until reviewed".
+
 ## [3.2.0] - 2026-10-13
 
 Nothing gets lost: your review, your clip numbers and your renders survive changing the sliders, closing the app and crashes.
