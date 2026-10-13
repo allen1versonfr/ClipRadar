@@ -50,6 +50,7 @@ import chatsignal
 import checkflow
 import detect
 import emotes
+import exports
 import gems
 import learning
 import persist
@@ -122,7 +123,18 @@ def job_logger(job):
 
 def job_progress(job, lo: float, hi: float):
     def p(x: float):
-        job["progress"] = round(lo + (hi - lo) * max(0.0, min(1.0, x)), 4)
+        v = round(lo + (hi - lo) * max(0.0, min(1.0, x)), 4)
+        job["progress"] = v
+        # time left from how fast it's actually going (only once there's enough to go on)
+        now = time.time()
+        if "_t0" not in job or v < job.get("_p0", 0):
+            job["_t0"], job["_p0"] = now, v
+            job.pop("eta", None)
+            return
+        el, done = now - job["_t0"], v - job["_p0"]
+        if el >= 4 and done >= 0.03:
+            eta = (1 - v) / (done / el)
+            job["eta"] = round(eta if "eta" not in job else 0.7 * job["eta"] + 0.3 * eta, 1)
     return p
 
 
@@ -431,13 +443,40 @@ def _revive(pid: str, d: dict) -> dict:
     return d
 
 
+_dl_cond = threading.Condition()
+_dl_running = [0]
+
+
+class _download_slot:
+    """Settings › Performance › Downloads at once: wait for a free slot before downloading."""
+
+    def __init__(self, job, step, check):
+        self.job, self.step, self.check = job, step, check
+
+    def __enter__(self):
+        with _dl_cond:
+            while _dl_running[0] >= exports.load()["downloads"]:
+                self.step("Waiting for another download to finish")
+                self.check()
+                _dl_cond.wait(1.0)
+            _dl_running[0] += 1
+        self.step("Getting the VOD")
+        return self
+
+    def __exit__(self, *a):
+        with _dl_cond:
+            _dl_running[0] -= 1
+            _dl_cond.notify_all()
+        return False
+
+
 def do_analyze(job, body: dict):
     log, step, check = job_logger(job), job_step(job), job_check(job)
     src = (body.get("source") or "").strip()
     if not src:
         raise RuntimeError("Paste a Twitch VOD link or the path to a video file.")
     step("Getting the VOD")
-    with twitchauth.cookie_file() as cookie:
+    with _download_slot(job, step, check), twitchauth.cookie_file() as cookie:
         s = engine.acquire(src, WORKROOT, chat_file=body.get("chat_file") or "",
                            max_height=int(body.get("max_height", 1080)),
                            cookies_browser=body.get("cookies") or "", cookie_file=cookie,
@@ -687,6 +726,12 @@ def _tx(pr: dict, model: str, lang: str) -> dict:
     return pr.setdefault("tx", {}).setdefault(f"{model}|{lang}", {"words": [], "covered": []})
 
 
+def _vocab(pr: dict) -> str:
+    """Names and words Whisper should expect for this stream: the streamer, the channel's emotes, your list."""
+    es = getattr(pr.get("analysis"), "_emotes", None)
+    return exports.prompt(_streamer_name(pr), list(es.by_name) if es else None, exports.load().get("vocab"))
+
+
 def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lambda: None) -> list:
     """Transcript words (absolute times) for [a, b] of the VOD, transcribing any missing parts."""
     dur = pr["analysis"].duration if "analysis" in pr else pr.get("duration") or b
@@ -712,7 +757,7 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
             audio = engine.extract_audio(pr["video"], pad_a, pad_b - pad_a)
             new = []
             if audio is not None and audio.size >= 1600:
-                for w in engine.transcribe(audio, model, lang, lambda m: None):
+                for w in engine.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr)):
                     st, en = w["start"] + pad_a, w["end"] + pad_a
                     mid = (st + en) / 2
                     if ga <= mid < gb:
@@ -920,8 +965,14 @@ def _clean_words(ws) -> Optional[list]:
     return sorted(out, key=lambda w: w["start"])
 
 
-def _ropts(o: dict) -> engine.RenderOpts:
+def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
+    ex = ex or {}
     return engine.RenderOpts(
+        fps=int(ex.get("fps", 30)), crf=int(ex.get("crf", 20)), scale=float(ex.get("scale", 1.0)),
+        vcodec=str(ex.get("vcodec", "h264")), vbitrate=int(ex.get("vbitrate", 0)), acodec=str(ex.get("acodec", "aac")),
+        abitrate=int(ex.get("abitrate", 192)), container=str(ex.get("container", "mp4")),
+        loudness=float(ex.get("loudness", -14.0)), denoise=bool(ex.get("denoise")), voice=bool(ex.get("voice")),
+        cap_outline=int(o.get("cap_outline", 100)), cap_shadow=int(o.get("cap_shadow", 100)),
         layout=o.get("layout", "split"),
         cam=tuple(float(v) for v in o.get("cam", [0, 0, 0.25, 0.25])),
         cam_height=float(o.get("cam_height", 0.33)),
@@ -951,7 +1002,7 @@ def _ropts(o: dict) -> engine.RenderOpts:
 
 
 def queue_public(it: dict) -> dict:
-    d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path", "words")}
+    d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path", "words", "sig")}
     d["duration"] = round(it["end"] - it["start"], 2)
     return d
 
@@ -987,7 +1038,21 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
           "fix_spans": checkflow.render_spans(d) if d else [],
           "keep_fps": [f["fp"] for f in ((d or {}).get("safety") or {}).get("flags", [])
                        if f.get("status") in ("accepted", "dismissed")]}
+    prefs = exports.load()
+    ex = exports.settings(prefs)
+    it["export"] = ex
+    it["name_fields"] = exports.fields_for(dict(d or {}, title=it["title"]), pr, ex["preset"], number=it["clip_id"])
+    it["sig"] = json.dumps([pid, it["clip_id"], round(start_, 2), round(end_, 2), it["title"], it["opts"], ex], sort_keys=True,
+                           default=str)
+    mx = exports.PRESETS[ex["preset"]].get("max_len")
+    if mx and end_ - start_ > mx:
+        it["warning"] = (f"{exports.PRESETS[ex['preset']]['label']} allows up to {engine.fmt_ts(mx)}; "
+                         f"this clip is {engine.fmt_ts(end_ - start_)}. Trim it, or pick another preset.")
     with queue_lock:
+        # the same clip sent twice (double click, two windows): render it once
+        dup = next((x for x in queue if x.get("sig") == it["sig"] and x["status"] in ("queued", "rendering")), None)
+        if dup:
+            return dup
         queue.append(it)
     queue_wake.set()
     save_queue_soon()
@@ -1027,13 +1092,18 @@ def _file_name(it: dict, outdir: str) -> str:
     another clip with the same title gets " (2)"."""
     if it.get("name") and os.path.normcase(it.get("folder") or "") == os.path.normcase(outdir):
         return it["name"]
-    base = _safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
+    ex = it.get("export") or {}
+    ext = ex.get("container", "mp4") if ex.get("container") in ("mp4", "mov", "webm") else "mp4"
+    if it.get("name_fields"):
+        base = exports.file_name(ex.get("template", exports.DEFAULT_TEMPLATE), dict(it["name_fields"], title=it["title"] or "clip"))
+    else:
+        base = _safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
     with queue_lock:
         claimed = {os.path.normcase(x["name"]) for x in queue if x is not it and x.get("name")
                    and os.path.normcase(x.get("folder") or "") == os.path.normcase(outdir)}
-    name, n = f"{base}.mp4", 2
+    name, n = f"{base}.{ext}", 2
     while os.path.normcase(name) in claimed or os.path.exists(os.path.join(outdir, name)):
-        name = f"{base} ({n}).mp4"
+        name = f"{base} ({n}).{ext}"
         n += 1
     it["name"], it["folder"] = name, outdir
     save_queue_soon()
@@ -1112,6 +1182,8 @@ def _render_inputs(it: dict, pr: dict, ro, check) -> tuple:
             if words:
                 words = [dict(w, word=safety.mask(w["word"])) if ra - 0.02 <= w["start"] <= rb else w for w in words]
             it["censored"] = it.get("censored", 0) + 1
+    if words:
+        words = exports.replace_words(words, exports.load().get("replace"))   # Settings › Captions › Replace words
     if not ro.captions:
         words = []
     return words, title, post, spans, mode
@@ -1121,11 +1193,19 @@ def _render_item(it: dict):
     pr = _render_project(it)
     if not os.path.exists(pr["video"]):
         raise RuntimeError("The VOD for this clip was deleted.")
-    ro = _ropts(it["opts"])
+    ex = it.get("export") or {}
+    ro = _ropts(it["opts"], ex)
+    subs = ex.get("subtitles", "burn")
     outdir = os.path.join(pr["workdir"], "tiktok")
     os.makedirs(outdir, exist_ok=True)
     name = _file_name(it, outdir)
-    _check_space(outdir, it["end"] - it["start"])
+    length = it["end"] - it["start"]
+    _check_space(outdir, length)
+    enc = engine.video_encoder(ro)[0]
+    skey = exports.speed_key(enc, ex)
+    known = exports.speed(skey)
+    it["eta"] = round(length / known + 3, 1) if known else None      # before it starts: from earlier renders
+    enc_t0 = [None]
 
     def check():
         if it["cancel"]:
@@ -1133,32 +1213,59 @@ def _render_item(it: dict):
 
     def prog(x):
         it["progress"] = round(max(0.0, min(1.0, x)), 3)
+        now = time.time()
+        if x >= 0.3:                                   # encoding: time left from the speed so far
+            if enc_t0[0] is None:
+                enc_t0[0] = now
+            frac = (x - 0.3) / 0.7
+            el = now - enc_t0[0]
+            if frac > 0.04 and el > 1.5:
+                it["eta"] = round((1 - frac) * el / frac + 2, 1)
 
     if TEST_HOOKS.get("fail_next_render"):
         TEST_HOOKS["fail_next_render"] = False
         raise OSError(28, "No space left on device")
 
     it["source_title"] = pr["title"]
+    it["step"] = "Getting captions ready"
     words, title, post, spans, mode = _render_inputs(it, pr, ro, check)
+    srt_words = list(words or []) if ro.captions else []
+    if subs == "srt":
+        words = []                                  # subtitles as a file only, not burned in
     path = os.path.join(outdir, name)
     expect = min(it["end"], pr["info"]["duration"] or it["end"]) - max(0.0, it["start"])
     for attempt in (1, 2):
         it["step"] = "Rendering" if attempt == 1 else "Rendering again"
         it["progress"] = 0.0
+        t_start = time.time()
+        enc_t0[0] = None
         engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=title,
                            progress=prog, check=check, words=words, censor=spans, censor_mode=mode,
                            log=lambda m: print("  " + m, flush=True))
+        took = time.time() - (enc_t0[0] or t_start)
+        if took > 0.5:
+            exports.record_speed(skey, length / took)
+        it["step"] = "Checking the file"
+        it["eta"] = 1
         if TEST_HOOKS.get("break_next_output"):
             TEST_HOOKS["break_next_output"] = False
             with open(path, "r+b") as f:
                 f.truncate(500)
         try:
             _check_output(path, expect)
+            _check_sound(it, pr, path)
             break
         except BrokenOutput as e:
             print(f"  {e}" + (" Trying once more." if attempt == 1 else ""), flush=True)
             if attempt == 2:
                 raise
+    if subs in ("burn_srt", "srt") and srt_words:
+        try:
+            engine.write_srt(srt_words, ro, os.path.splitext(path)[0] + ".srt", length)
+            it["srt"] = True
+        except OSError:
+            pass
+    it["eta"] = 0
     # caption to paste when posting, saved next to the video
     if post:
         it["post"] = post
@@ -1171,6 +1278,44 @@ def _render_item(it: dict):
 
 
 TEST_HOOKS = {"fail_next_render": False, "break_next_output": False}
+
+
+def export_view(sample: Optional[dict] = None) -> dict:
+    prefs = exports.load()
+    st = exports.settings(prefs)
+    st["custom_changed"] = bool(prefs.get("custom"))
+    smp = sample if isinstance(sample, dict) else {}
+    fields = exports.fields_for({"title": smp.get("title") or "Chat could not stop laughing", "hashtags": smp.get("hashtags") or ["#twitch", "#funny"]},
+                                {"title": smp.get("source") or "Friday stream", "source": smp.get("url") or "https://www.twitch.tv/videos/1",
+                                 "streamer": smp.get("streamer") or "streamer"}, st["preset"], number=smp.get("number") or 7)
+    return {"prefs": prefs, "settings": st, "describe": exports.describe(st),
+            "presets": [{"key": k, "label": v["label"], "note": v["note"]} for k, v in exports.PRESETS.items()],
+            "advanced": {k: list(v) for k, v in exports.ADVANCED.items()}, "tokens": list(exports.TOKENS),
+            "preview_name": exports.file_name(prefs["template"], fields) + "." + st["container"]}
+
+
+def perf_view() -> dict:
+    sp = exports.all_speeds()
+    enc = engine._encoder_cache.get("hw")
+    return {"cpus": os.cpu_count() or 0, "encoder": (enc[0] if enc else "libx264 (CPU)") if "hw" in engine._encoder_cache else "not checked yet",
+            "speeds": {k: v for k, v in sp.items() if "|" not in k}, "workers": MAX_WORKERS[0],
+            "priority": exports.load()["priority"]}
+
+
+def _check_sound(it: dict, pr: dict, path: str):
+    """A clip from a video with sound must come out with sound; one that's nearly silent gets a warning."""
+    if not pr["info"].get("has_audio"):
+        return
+    peak = engine.audio_peak(path)
+    if peak is None:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise BrokenOutput("The rendered file came out without sound.")
+    if peak < -60:
+        it["warning"] = ("This clip came out almost silent. If it shouldn't be, check the stream at this point "
+                         "(Twitch mutes some music).")
 
 
 def _compare_settings(pr: dict, det: dict, cw: float, count: int, length: float) -> dict:
@@ -1343,10 +1488,58 @@ def _after_render(it: dict):
                 save_queue_soon()
 
 
-def queue_worker():
+MAX_WORKERS = [1]
+
+
+def apply_perf(prefs: Optional[dict] = None):
+    """Settings › Performance: renders at once, and keeping the PC responsive versus finishing faster."""
+    p = prefs or exports.load()
+    MAX_WORKERS[0] = p["renders"]
+    if p["priority"] == "responsive":
+        engine.RENDER_PRIORITY[0] = 0x00004000 if sys.platform == "win32" else 0     # BELOW_NORMAL_PRIORITY_CLASS
+        engine.RENDER_THREADS[:] = ["-threads", str(max(2, (os.cpu_count() or 4) // 2))]
+    else:
+        engine.RENDER_PRIORITY[0] = 0
+        engine.RENDER_THREADS[:] = []
+    while len(_workers) < MAX_WORKERS[0]:
+        i = len(_workers)
+        _workers.append(threading.Thread(target=queue_worker, args=(i,), daemon=True))
+        _workers[-1].start()
+    queue_wake.set()
+
+
+_workers: list = []
+
+
+def queue_eta() -> Optional[float]:
+    """Time until everything in the queue is rendered (None when there's nothing to go on yet)."""
+    total, unknown = 0.0, False
+    with queue_lock:
+        items = [x for x in queue if x["status"] in ("queued", "rendering")]
+    for x in items:
+        if x["status"] == "rendering":
+            if x.get("eta") is None:
+                unknown = True
+            else:
+                total += x["eta"]
+        else:
+            ex = x.get("export") or {}
+            sp = exports.speed(exports.speed_key(engine.video_encoder(_ropts(x.get("opts") or {}, ex))[0], ex))
+            if not sp:
+                unknown = True
+            else:
+                total += (x["end"] - x["start"]) / sp + 3
+    if not items:
+        return 0.0
+    return None if unknown and total == 0 else round(total / max(1, min(MAX_WORKERS[0], len(items))), 1)
+
+
+def queue_worker(idx: int = 0):
     while True:
         queue_wake.wait(2.0)
         queue_wake.clear()
+        if idx >= MAX_WORKERS[0]:
+            continue                                  # fewer renders at once now: this worker rests
         while True:
             with queue_lock:
                 it = next((x for x in queue if x["status"] == "queued"), None)
@@ -1705,7 +1898,11 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/queue":
             with queue_lock:
                 items = [queue_public(it) for it in queue]
-            return self._json({"items": items})
+            return self._json({"items": items, "eta": queue_eta(), "workers": MAX_WORKERS[0]})
+        if p == "/api/export":
+            return self._json(export_view())
+        if p == "/api/perf":
+            return self._json(perf_view())
         m = re.fullmatch(r"/api/strip/(\w+)", p)
         if m:
             # what the editing timeline draws for a stretch of the video: loudness, laughter, chat
@@ -2175,6 +2372,11 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/titles":
             return self._json(set_title_prefs(body))
 
+        if p == "/api/export":
+            prefs = exports.save(body)
+            apply_perf(prefs)
+            return self._json(export_view(body.get("sample")))
+
         if p == "/api/streamer":
             # the streamer's name as it should appear in titles (Title B) and descriptions
             pid = body.get("pid")
@@ -2450,7 +2652,7 @@ def start(port: int = PORT):
         _worker_started[0] = True
         _clean_leftovers()
         load_queue()
-        threading.Thread(target=queue_worker, daemon=True).start()
+        apply_perf()
         updater.start_background(log=_say)
         hotkey.start(on_hotkey)
     return srv, f"http://127.0.0.1:{port}"

@@ -275,6 +275,39 @@ CAPTIONS
   CUDA 12 + cuDNN installed, Whisper uses the GPU; otherwise the CPU.
   Rendering uses your GPU's video encoder (NVIDIA, Intel or AMD) when it can,
   and falls back to the CPU on its own.
+  Whisper is told the streamer's name, the channel's emotes and your own
+  list (Settings > Caption words > Words to recognise), so they're spelled
+  right. Lines it invents over silence or music ("thanks for watching") are
+  dropped. Replace words swaps a word everywhere in captions (leave the
+  replacement empty to remove it); timing stays the same.
+  The Text tab has Outline and Shadow sliders, and Saved styles: save the
+  look of your captions and title, then apply it to any clip in one click.
+
+EXPORT FORMAT
+  Settings > Export format picks a preset: TikTok, YouTube Shorts, Instagram
+  Reels or X. Each sets the size, frame rate, quality, sound and the longest
+  clip the platform takes (a longer clip gets a warning in Exports). The
+  platforms change their limits now and then, so treat these as starting
+  points. Advanced changes resolution, frame rate, codec (H.264, H.265, or
+  VP9 in a .webm), quality or bitrate, audio bitrate and container; Reset
+  goes back to the preset. The shape (9:16, 1:1, 16:9) stays in the Layout tab.
+  Captions: burned in, burned in plus a .srt file, or only a .srt file.
+  Sound: every clip is evened out to the preset's loudness (-14 LUFS by
+  default, or left as is). Reduce background noise and Clearer voice are
+  optional. A clip that comes out without sound is rendered again; one that
+  comes out almost silent gets a warning.
+  File names: a template such as {streamer} - {number} - {title}, with
+  {platform}, {source}, {date}, {hashtags}, {project} and {preset} too.
+  Empty fields drop out, and characters Windows can't use are removed.
+  The same clip sent twice (a double click) renders once.
+
+PERFORMANCE
+  Settings > Performance sets how many clips render at once (1-3) and how
+  many VODs download at once (1-2). Keep the PC responsive renders at lower
+  priority with half the CPU threads; Finish faster uses everything.
+  Time left shows in Exports, on Home and in the status bar. It's based on
+  how fast this PC rendered before, so the first render's estimate firms up
+  after a few seconds.
 
 TROUBLESHOOTING
   - Twitch downloads suddenly fail: Settings > Downloads and tools > Update downloader.

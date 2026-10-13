@@ -304,6 +304,12 @@
                   <div class="fld inline">Highlight<div class="swatches" id="swatches"></div></div>
                   <label class="fld inline">Text size<input type="range" id="capSize" min="70" max="140" step="5" value="100"><output id="capSizeOut" class="tnum"></output></label>
                   <label class="fld inline">Words at once<input type="range" id="wpl" min="1" max="6" value="3"><output id="wplOut" class="tnum"></output></label>
+                  <label class="fld inline">Outline<input type="range" id="capOutline" min="0" max="250" step="10" value="100"><output id="capOutlineOut" class="tnum"></output></label>
+                  <label class="fld inline">Shadow<input type="range" id="capShadow" min="0" max="250" step="10" value="100"><output id="capShadowOut" class="tnum"></output></label>
+                  <div class="fld">Saved styles
+                    <div class="cap-presets" id="capPresets"></div>
+                    <button class="btn sm" id="capPresetSave">Save this style…</button>
+                  </div>
                   <label class="fld inline">Position<select class="input" id="capPos"><option value="auto">Automatic</option><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option><option value="custom">Where you dragged it</option></select></label>
                   <label class="fld switch-label">Pop-in animation<span class="switch"><input type="checkbox" id="capAnim" checked><i></i></span></label>
                   <label class="fld switch-label">Capital letters<span class="switch"><input type="checkbox" id="upper" checked><i></i></span></label>
@@ -459,6 +465,65 @@
             <div class="row"><button class="btn primary" id="ttConnectBtn">Save and connect</button><span class="muted small" id="ttConnectMsg"></span></div>
           </div>
           <p class="fine">Until TikTok reviews your app, direct posts are limited to private (Only me). Sending to drafts works either way; you finish the post in the TikTok app. Your sign-in is stored encrypted for your Windows account.</p>
+        </section>
+
+        <section class="panel set" id="setExport">
+          <header><svg class="ic"><use href="#i-upload"/></svg><h2>Export format</h2></header>
+          <p class="muted" id="exDescribe"></p>
+          <div class="fld">Made for
+            <div class="seg" id="exPreset"></div>
+            <span class="hint" id="exPresetNote"></span>
+          </div>
+          <details class="adv" id="exAdv">
+            <summary>Advanced</summary>
+            <div class="form-grid">
+              <label>Resolution<select class="input" id="exScale"><option value="1">Full (1080 wide)</option><option value="0.6667">720</option><option value="0.5">540</option></select></label>
+              <label>Frame rate<select class="input" id="exFps"><option>24</option><option>25</option><option>30</option><option>50</option><option>60</option></select></label>
+              <label>Video codec<select class="input" id="exVcodec"><option value="h264">H.264 (works everywhere)</option><option value="hevc">H.265 (smaller files)</option><option value="vp9">VP9 (.webm)</option></select></label>
+              <label>Quality<select class="input" id="exQuality"><option value="q:16">Highest</option><option value="q:18">High</option><option value="q:20">Good</option><option value="q:23">Smaller file</option><option value="b:6000">6 Mbps</option><option value="b:12000">12 Mbps</option><option value="b:20000">20 Mbps</option></select></label>
+              <label>Audio<select class="input" id="exAbitrate"><option value="96">96 kbps</option><option value="128">128 kbps</option><option value="160">160 kbps</option><option value="192">192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></label>
+              <label>File type<select class="input" id="exContainer"><option value="mp4">MP4</option><option value="mov">MOV</option><option value="webm">WebM</option></select></label>
+            </div>
+            <button class="link" id="exReset">Back to the preset's settings</button>
+          </details>
+          <div class="fld">Captions
+            <div class="seg" id="exSubs"><button data-v="burn">On the video</button><button data-v="burn_srt">On the video + .srt file</button><button data-v="srt">Only a .srt file</button></div>
+          </div>
+          <div class="fld">Sound
+            <div class="form-grid">
+              <label>Loudness<select class="input" id="exLoud"><option value="-14">Even out (−14 LUFS, like TikTok)</option><option value="-16">Even out, a bit quieter (−16)</option><option value="-18">Quieter (−18)</option><option value="-23">Broadcast (−23)</option><option value="0">Leave as is (just stop clipping)</option></select></label>
+              <label class="chk"><input type="checkbox" id="exDenoise"><span>Reduce background noise<small>Fan hum, hiss.</small></span></label>
+              <label class="chk"><input type="checkbox" id="exVoice"><span>Make voices clearer<small>Gently, without burying game sound.</small></span></label>
+            </div>
+          </div>
+          <label class="fld">File names
+            <input class="input" id="exTemplate" spellcheck="false" placeholder="{title}">
+            <span class="tokens" id="exTokens"></span>
+            <span class="hint">Example: <b id="exPreview"></b></span>
+          </label>
+        </section>
+
+        <section class="panel set" id="setCaptionWords">
+          <header><svg class="ic"><use href="#i-film"/></svg><h2>Caption words</h2></header>
+          <label class="fld">Replace words in captions
+            <textarea class="input" id="cwReplace" rows="3" placeholder="One per line: word = replacement (leave the right side empty to drop it)"></textarea>
+          </label>
+          <label class="fld">Words to recognise
+            <textarea class="input" id="cwVocab" rows="2" placeholder="Names, places, game words, inside jokes… separated by commas"></textarea>
+            <span class="hint">The streamer's name and the channel's emotes are added by themselves.</span>
+          </label>
+        </section>
+
+        <section class="panel set" id="setPerf">
+          <header><svg class="ic"><use href="#i-settings"/></svg><h2>Performance</h2></header>
+          <div class="form-grid">
+            <label>Clips rendering at once<select class="input" id="pfRenders"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+            <label>Downloads at once<select class="input" id="pfDownloads"><option value="1">1</option><option value="2">2</option></select></label>
+          </div>
+          <div class="fld">While rendering
+            <div class="seg" id="pfPriority"><button data-v="responsive">Keep the PC responsive</button><button data-v="fast">Finish faster</button></div>
+          </div>
+          <p class="fine" id="pfInfo"></p>
         </section>
 
         <section class="panel set" id="setTitles">

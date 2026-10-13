@@ -85,7 +85,7 @@ const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, g
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
   caption_style: 'pop', caption_font: 'classic', caption_anim: true, cap_x: 0.5, cap_y: 0.7,
   title_style: 'box', title_font: 'classic', title_size: 100, title_x: 0.5, title_y: 0.05,
-  whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16' };
+  whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16', cap_outline: 100, cap_shadow: 100 };
 const opts = Object.assign({}, DEFAULTS, store.get('opts', {}));
 const SWATCHES = ['#ffe600', '#ffffff', '#4fd1ff', '#5ee6a8', '#ff6b8b'];
 const PRIVACY = { PUBLIC_TO_EVERYONE: 'Everyone', MUTUAL_FOLLOW_FRIENDS: 'Friends', FOLLOWER_OF_CREATOR: 'Followers', SELF_ONLY: 'Only me' };
@@ -101,7 +101,7 @@ function setView(v) {
   if (v !== 'exports') { $('#exVideo').pause(); }
   if (v === 'review') { sizePhone(); drawHeat(); dirty = true; }
   if (v === 'exports') { refreshQueue(); if (exSel) renderDetail(true); }
-  if (v === 'settings') { loadTikTok(); loadStorage(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); }
+  if (v === 'settings') { loadTikTok(); loadStorage(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); loadExport(); }
   if (v === 'home') loadRecent();
   updateCrumb();
 }
@@ -180,7 +180,7 @@ function updateStatusBar() {
     else if (L.status === 'waiting') parts.push(`<span class="task"><i></i>Waiting for ${esc(L.channel || 'the stream')} to go live</span>`);
     if (L.hands_free && LIVE_ON.includes(L.status)) parts.push('<span class="task"><i></i>Hands-free</span>');
   }
-  const vj = jobsState.analyze; if (vj) parts.push(`<span class="task"><i></i>${esc(vj.step)} ${Math.round(vj.progress * 100)}%</span>`);
+  const vj = jobsState.analyze; if (vj) parts.push(`<span class="task"><i></i>${esc(vj.step)} ${Math.round(vj.progress * 100)}%${vj.eta != null ? ' · ' + fmtLeft(vj.eta) : ''}</span>`);
   const sj = jobsState.setup; if (sj) parts.push(`<span class="task"><i></i>Downloading tools ${Math.round(sj.progress * 100)}%</span>`);
   if (W && W.listening) {
     const done = W.clips.filter(c => c.listened).length;
@@ -189,7 +189,7 @@ function updateStatusBar() {
   const active = queueItems.filter(q => q.status === 'queued' || q.status === 'rendering');
   if (active.length) {
     const r = queueItems.find(q => q.status === 'rendering');
-    parts.push(`<span class="task"><i></i>Rendering ${plural(active.length, 'clip')}${r ? ' · ' + Math.round(r.progress * 100) + '%' : ''}</span>`);
+    parts.push(`<span class="task"><i></i>Rendering ${plural(active.length, 'clip')}${r ? ' · ' + Math.round(r.progress * 100) + '%' : ''} · ${fmtLeft(queueEta)}</span>`);
   }
   const tj = jobsState.tiktok; if (tj) parts.push(`<span class="task"><i></i>TikTok: ${esc(tj.step)}</span>`);
   $('#sbTasks').innerHTML = parts.length ? parts.join('') : '<span class="muted">Ready</span>';
@@ -308,7 +308,7 @@ $('#analyze').onclick = async () => {
     $('#vodCancel').hidden = false;
     $('#vodCancel').onclick = () => api('/api/cancel', { job }).catch(() => {});
     const j = await waitJob(job, j => {
-      $('#vodStep').textContent = j.step; $('#vodPct').textContent = Math.round(j.progress * 100) + '%';
+      $('#vodStep').textContent = j.step; $('#vodPct').textContent = Math.round(j.progress * 100) + '%' + (j.eta != null ? ' · ' + fmtLeft(j.eta) : '');
       $('#vodBar').style.width = Math.round(j.progress * 100) + '%';
       $('#vodLog').textContent = j.log.slice(-4).join('\n'); updateStatusBar();
     });
@@ -1255,7 +1255,7 @@ function captionAt(c, t) {
   for (const ch of chunksFor(c)) {
     if (t >= ch.start && t < ch.end) {
       let hi = 0; ch.words.forEach((w, j) => { if (w.start <= t) hi = j; });
-      return { texts: ch.words.map(w => { const t = censorWord(c, w); return opts.uppercase ? t.toUpperCase() : t; }), hi, t0: ch.start, wt: ch.words[hi].start };
+      return { texts: ch.words.map(w => { const t = replaceWord(censorWord(c, w)); return opts.uppercase ? t.toUpperCase() : t; }), hi, t0: ch.start, wt: ch.words[hi].start };
     }
   }
   return null;
@@ -1286,7 +1286,7 @@ function drawCaption(g, cap, capY, Wd, Ht, t) {
   const maxW = 2 * (Math.min(cx, Wd - cx) - 70 * k), lines = [[]]; let lw = 0;
   cap.texts.forEach((w, i) => { if (lw && lw + sp + widths[i] > maxW) { lines.push([]); lw = 0; } lines[lines.length - 1].push(i); lw += (lw ? sp : 0) + widths[i]; });
   const lh = fs * 1.15, y0 = cy - (lines.length - 1) * lh / 2;
-  const bord = Math.max(4, Math.floor(fs1080 / 12)) * k;
+  const bord = Math.max(4, Math.floor(fs1080 / 12)) * k * clamp(opts.cap_outline ?? 100, 0, 250) / 100;
   // pop-in: the chunk scales from 114% to 100% over its first 0.1 s (same as the render)
   const age = t - cap.t0, sc = opts.caption_anim && st !== 'clean' && age >= 0 && age < .1 ? 1.14 - .14 * age / .1 : 1;
   g.save(); g.translate(cx, cy); g.scale(sc, sc); g.translate(-cx, -cy);
@@ -1300,7 +1300,8 @@ function drawCaption(g, cap, capY, Wd, Ht, t) {
       g.lineJoin = 'round';
       g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetX = g.shadowOffsetY = 0;
       if (st === 'clean') {
-        g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 6 * k; g.shadowOffsetX = g.shadowOffsetY = 4 * k;
+        const sh = clamp(opts.cap_shadow ?? 100, 0, 250) / 100;
+        g.shadowColor = sh ? 'rgba(0,0,0,.6)' : 'transparent'; g.shadowBlur = 6 * k * sh; g.shadowOffsetX = g.shadowOffsetY = 4 * k * sh;
         g.fillStyle = '#fff'; g.fillText(word, x, y);
       } else if (st === 'glow') {
         const s2 = on ? 1.12 : 1;
@@ -1532,6 +1533,8 @@ function syncControls() {
   $('#capColor').value = opts.caption_color;
   $('#capSize').value = opts.caption_size; $('#capSizeOut').textContent = opts.caption_size + '%';
   $('#wpl').value = opts.words_per_line; $('#wplOut').textContent = opts.words_per_line;
+  $('#capOutline').value = opts.cap_outline ?? 100; $('#capOutlineOut').textContent = (opts.cap_outline ?? 100) + '%';
+  $('#capShadow').value = opts.cap_shadow ?? 100; $('#capShadowOut').textContent = (opts.cap_shadow ?? 100) + '%';
   $('#model').value = opts.whisper_model; $('#lang').value = opts.language; $('#upper').checked = opts.uppercase;
   $('#hw').checked = opts.hw_encode;
   $('#capAnim').checked = opts.caption_anim;
@@ -1547,6 +1550,8 @@ function syncControls() {
   if (W && W.kind === 'live' && W.live && W.live.auto_render) liveSettingsSoon();
 }
 let lsTimer = 0; function liveSettingsSoon() { clearTimeout(lsTimer); lsTimer = setTimeout(() => liveSettings({ opts: JSON.parse(JSON.stringify(opts)), model: opts.whisper_model, language: opts.language }), 600); }
+$('#capOutline').oninput = e => { opts.cap_outline = +e.target.value; syncControls(); };
+$('#capShadow').oninput = e => { opts.cap_shadow = +e.target.value; syncControls(); };
 $('#layoutSeg').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { opts.layout = v; syncControls(); } };
 $('#shapeSeg').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { opts.aspect = v; hideExact(); syncControls(); } };
 $('#camH').oninput = e => { opts.cam_height = e.target.value / 100; syncControls(); };
@@ -1742,7 +1747,7 @@ let queueEpoch = 0;     // bumps whenever the UI changes the queue, so a stale r
 async function refreshQueue() {
   const epoch = queueEpoch;
   let items;
-  try { items = (await api('/api/queue')).items; } catch { return; }
+  try { const r = await api('/api/queue'); items = r.items; queueEta = r.eta; } catch { return; }
   if (epoch !== queueEpoch) return refreshQueue();
   queueItems = items;
   if (W) {
@@ -1764,16 +1769,16 @@ function renderExports() {
   const items = queueItems;
   const done = items.filter(q => q.status === 'done').length, active = items.filter(q => q.status === 'queued' || q.status === 'rendering').length;
   const failed = items.filter(q => q.status === 'error').length;
-  $('#exSum').textContent = items.length ? `${done} ready${active ? `, ${active} rendering` : ''}${failed ? `, ${failed} failed` : ''}` : '';
+  $('#exSum').textContent = items.length ? `${done} ready${active ? `, ${active} rendering (${fmtLeft(queueEta)})` : ''}${failed ? `, ${failed} failed` : ''}` : '';
   $('#exRetryAll').hidden = !failed; $('#exRetryAll span').textContent = failed > 1 ? `Retry ${failed} failed` : 'Retry failed';
   $('#exEmpty').hidden = !!items.length;
   $('#exTable').hidden = !items.length;
   patchList($('#exTable tbody'), items.slice().reverse().map(q => {
     let st;
-    if (q.status === 'done') st = `<span class="st-done">${icon('check')}Ready</span>`;
-    else if (q.status === 'rendering') st = `<span>${esc(q.step || 'Rendering')} ${Math.round(q.progress * 100)}%</span><span class="meter"><i style="width:${Math.round(q.progress * 100)}%"></i></span>`;
+    if (q.status === 'done') st = `<span class="st-done">${icon('check')}Ready${q.srt ? ' + .srt' : ''}</span>` + (q.warning ? `<span class="err-why warn" title="${esc(q.warning)}">${esc(q.warning)}</span>` : '');
+    else if (q.status === 'rendering') st = `<span>${esc(q.step || 'Rendering')} ${Math.round(q.progress * 100)}% · ${fmtLeft(q.eta)}</span><span class="meter"><i style="width:${Math.round(q.progress * 100)}%"></i></span>`;
     else if (q.status === 'error') st = `<span class="st-err">${icon('alert')}Failed</span><span class="err-why" title="${esc(q.error)}">${esc(q.error)}</span><button class="btn sm retry" data-retry="${q.id}">${icon('refresh')}Retry</button>`;
-    else st = '<span class="st-wait">Waiting</span>';
+    else st = '<span class="st-wait">Waiting</span>' + (q.warning ? `<span class="err-why warn" title="${esc(q.warning)}">${esc(q.warning)}</span>` : '');
     const t = q.tiktok;
     const tt = !t ? '<span class="tt-cell">Not posted</span>'
       : t.state === 'posting' ? `<span class="tt-cell">${t.auto ? 'Sending to drafts…' : 'Uploading…'}</span>`
@@ -2306,6 +2311,100 @@ $('#tpPick').onclick = e => { const v = e.target.closest('button')?.dataset.v; i
 $('#tpTags').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
 $('#tagsOn').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
 api('/api/titles').then(t => { titlePrefs = t; syncTitlePrefs(); }).catch(() => {});
+
+/* =============================================================== export format, caption words, performance (3.7) */
+let queueEta = null, exState = null, capPresets = [];
+function fmtLeft(s) {
+  if (s == null) return 'working out time left';
+  if (s < 5) return 'almost done';
+  if (s < 60) return `about ${Math.max(5, Math.round(s / 5) * 5)} s left`;
+  return `about ${Math.round(s / 60)} min left`;
+}
+let replTable = {};
+function replaceWord(w) {
+  const core = w.replace(/^\W+|\W+$/g, ''), r = replTable[core.toLowerCase()];
+  if (r === undefined) return w;
+  const rr = core === core.toUpperCase() && core.length > 1 ? r.toUpperCase() : core[0] === core[0].toUpperCase() ? r.charAt(0).toUpperCase() + r.slice(1) : r;
+  return w.replace(core, rr);
+}
+function renderExportSettings() {
+  const v = exState; if (!v) return;
+  const st = v.settings, pr = v.prefs;
+  $('#exDescribe').textContent = v.describe;
+  $('#exPreset').innerHTML = v.presets.map(p => `<button data-v="${p.key}" class="${p.key === pr.preset ? 'on' : ''}">${esc(p.label)}</button>`).join('');
+  $('#exPresetNote').textContent = (v.presets.find(p => p.key === pr.preset) || {}).note || '';
+  $('#exScale').value = String(+st.scale === 1 ? 1 : st.scale); $('#exFps').value = String(st.fps); $('#exVcodec').value = st.vcodec;
+  $('#exQuality').value = st.vbitrate ? `b:${st.vbitrate}` : `q:${st.crf}`;
+  if (!$('#exQuality').value) $('#exQuality').value = 'q:20';
+  $('#exAbitrate').value = String(st.abitrate); $('#exContainer').value = st.container;
+  $('#exReset').hidden = !Object.keys(pr.custom || {}).length;
+  $$('#exSubs button').forEach(b => b.classList.toggle('on', b.dataset.v === pr.subtitles));
+  $('#exLoud').value = String(st.loudness || 0); $('#exDenoise').checked = !!pr.denoise; $('#exVoice').checked = !!pr.voice;
+  if (document.activeElement !== $('#exTemplate')) $('#exTemplate').value = pr.template;
+  $('#exTokens').innerHTML = v.tokens.map(t => `<button class="chip" data-tok="${t}">{${t}}</button>`).join('');
+  $('#exPreview').textContent = v.preview_name;
+  if (document.activeElement !== $('#cwReplace')) $('#cwReplace').value = (pr.replace || []).map(([a, b]) => `${a} = ${b}`).join('\n');
+  if (document.activeElement !== $('#cwVocab')) $('#cwVocab').value = (pr.vocab || []).join(', ');
+  replTable = Object.fromEntries((pr.replace || []).map(([a, b]) => [a.toLowerCase(), b]));
+  $('#pfRenders').value = String(pr.renders); $('#pfDownloads').value = String(pr.downloads);
+  $$('#pfPriority button').forEach(b => b.classList.toggle('on', b.dataset.v === pr.priority));
+  capPresets = pr.cap_presets || []; renderCapPresets();
+  dirty = true;
+}
+async function loadExport() { try { exState = await api('/api/export'); renderExportSettings(); } catch {} loadPerf(); }
+async function saveExport(patch) {
+  try { exState = await api('/api/export', patch); renderExportSettings(); } catch (e) { toast(e.message, 'err'); }
+}
+async function loadPerf() {
+  let p; try { p = await api('/api/perf'); } catch { return; }
+  const sp = Object.entries(p.speeds || {}).map(([k, v]) => `${k.replace('libx264', 'CPU (x264)')} ${v}× real time`).join(', ');
+  $('#pfInfo').textContent = `This PC: ${p.cpus} processor threads · video encoder: ${p.encoder}` + (sp ? ` · renders so far: ${sp}` : ' · render speed is measured as clips render, for the time estimates');
+}
+const customPatch = kv => saveExport({ custom: Object.assign({}, (exState && exState.prefs.custom) || {}, kv) });
+$('#exPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ preset: v }); };
+$('#exScale').onchange = e => customPatch({ scale: +e.target.value });
+$('#exFps').onchange = e => customPatch({ fps: +e.target.value });
+$('#exVcodec').onchange = e => customPatch({ vcodec: e.target.value, container: e.target.value === 'vp9' ? 'webm' : ($('#exContainer').value === 'webm' ? 'mp4' : $('#exContainer').value) });
+$('#exQuality').onchange = e => { const [k, n] = e.target.value.split(':'); customPatch(k === 'b' ? { vbitrate: +n } : { crf: +n, vbitrate: 0 }); };
+$('#exAbitrate').onchange = e => customPatch({ abitrate: +e.target.value });
+$('#exContainer').onchange = e => customPatch({ container: e.target.value, vcodec: e.target.value === 'webm' ? 'vp9' : ($('#exVcodec').value === 'vp9' ? 'h264' : $('#exVcodec').value) });
+$('#exLoud').onchange = e => customPatch({ loudness: +e.target.value });
+$('#exReset').onclick = () => saveExport({ custom: {} });
+$('#exSubs').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ subtitles: v }); };
+$('#exDenoise').onchange = e => saveExport({ denoise: e.target.checked });
+$('#exVoice').onchange = e => saveExport({ voice: e.target.checked });
+let tplTimer = 0;
+$('#exTemplate').addEventListener('input', () => { clearTimeout(tplTimer); tplTimer = setTimeout(() => saveExport({ template: $('#exTemplate').value || '{title}' }), 400); });
+$('#exTokens').onclick = e => {
+  const b = e.target.closest('[data-tok]'); if (!b) return;
+  const el = $('#exTemplate'), pos = el.selectionStart ?? el.value.length, ins = (el.value && pos > 0 && !/\s$/.test(el.value.slice(0, pos)) ? ' - ' : '') + `{${b.dataset.tok}}`;
+  el.value = el.value.slice(0, pos) + ins + el.value.slice(pos); saveExport({ template: el.value });
+};
+$('#cwReplace').addEventListener('change', e => saveExport({ replace: e.target.value.split('\n').map(l => l.split('=')).filter(p => p[0].trim()).map(([a, b]) => [a.trim(), (b || '').trim()]) }));
+$('#cwVocab').addEventListener('change', e => saveExport({ vocab: e.target.value.split(/[,\n]/).map(x => x.trim()).filter(Boolean) }));
+$('#pfRenders').onchange = e => saveExport({ renders: +e.target.value });
+$('#pfDownloads').onchange = e => saveExport({ downloads: +e.target.value });
+$('#pfPriority').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ priority: v }); };
+// saved caption styles
+const CAP_KEYS = ['captions', 'caption_pos', 'caption_color', 'caption_size', 'words_per_line', 'uppercase', 'caption_style', 'caption_font',
+  'caption_anim', 'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_x', 'title_y'];
+function renderCapPresets() {
+  $('#capPresets').innerHTML = capPresets.length ? capPresets.map((p, i) => `<span class="cp"><button class="chip" data-cp="${i}" title="Use this style">${esc(p.name)}</button><button class="cp-x" data-cpx="${i}" title="Delete">×</button></span>`).join('')
+    : '<span class="muted small">None yet.</span>';
+}
+$('#capPresetSave').onclick = async () => {
+  const name = (window.prompt('Name this caption and title style:', '') || '').trim(); if (!name) return;
+  const o = Object.fromEntries(CAP_KEYS.map(k => [k, opts[k]]));
+  await saveExport({ cap_presets: capPresets.filter(p => p.name !== name).concat([{ name, opts: o }]) });
+  toast(`Saved "${name}".`, '', 2000);
+};
+$('#capPresets').onclick = e => {
+  const x = e.target.closest('[data-cpx]');
+  if (x) { saveExport({ cap_presets: capPresets.filter((_, i) => i !== +x.dataset.cpx) }); return; }
+  const b = e.target.closest('[data-cp]'); if (!b) return;
+  Object.assign(opts, capPresets[+b.dataset.cp].opts); syncControls(); toast(`Using "${capPresets[+b.dataset.cp].name}".`, '', 1800);
+};
+loadExport();
 
 /* =============================================================== boot */
 setInterval(() => { fetch('/api/ping').catch(() => {}); }, 60000);

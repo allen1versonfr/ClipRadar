@@ -3,6 +3,27 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.7.0] - 2026-10-13
+
+Export formats, better captions and sound, honest time estimates, and performance settings.
+
+### Added
+- Export presets for TikTok, YouTube Shorts, Instagram Reels and X (Settings › Export format), each with its size, frame rate, quality, sound and longest clip. A clip longer than the platform takes gets a warning in Exports.
+- Advanced export settings: resolution, frame rate, H.264, H.265 or VP9 (.webm), quality or bitrate, audio bitrate and file type, with Reset.
+- Captions burned in, burned in plus a .srt file, or only a .srt file.
+- File name templates with {title}, {streamer}, {number}, {date}, {platform}, {source}, {hashtags}, {project} and {preset}, with a live example.
+- Sound: every clip evened out to the preset's loudness (−14 LUFS by default), optional background noise reduction and clearer voices.
+- Caption words: replace words everywhere in captions, and a list of words for Whisper to expect. The streamer's name and the channel's emotes are passed along too.
+- Caption Outline and Shadow sliders, and saved caption styles you can apply to any clip.
+- Time left for each render and the whole queue (Exports, Home, status bar), based on how fast this PC rendered before.
+- Settings › Performance: renders at once (1–3), downloads at once (1–2), and keep the PC responsive or finish faster.
+
+### Changed
+- Whisper no longer captions silence or music with invented lines ("thanks for watching").
+- The same clip sent twice renders once.
+- A render that comes out without sound is redone; an almost silent one gets a warning. Render steps show what's happening (getting captions ready, rendering, checking the file).
+- Learned trims never make a clip shorter or longer than the clip lengths you set.
+
 ## [3.6.0] - 2026-10-13
 
 Titles and captions: two titles for every clip, a separate description, optional hashtags.

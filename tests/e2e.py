@@ -414,6 +414,61 @@ def _probe_size(path):
     return st.get("width"), st.get("height"), float((d.get("format") or {}).get("duration") or 0)
 
 
+def export_checks(ctx):
+    """3.7: platform presets, other formats, .srt files, file name templates, duplicate protection,
+    length warnings, time estimates and performance settings."""
+    pid = ctx["pid"]
+    before = get("/api/export")["prefs"]
+    clips = get(f"/api/clips/{pid}")["clips"]
+    c = next((x for x in clips if x.get("state") != "kept" and not (x.get("check") or {}).get("excluded")), clips[0])
+    base = dict(c, start=c["start"], end=c["start"] + 4, words=None)
+    opts = {"layout": "blur", "aspect": "9:16", "captions": False, "hw_encode": False}
+    try:
+        v = post("/api/export", {"preset": "x", "template": "{streamer} - {number} - {title}", "subtitles": "burn_srt",
+                                 "sample": {"title": "Big moment", "streamer": "Sam", "number": 3}})
+        rec("export settings save and preview the file name", v["prefs"]["preset"] == "x" and v["preview_name"] == "Sam - 03 - Big moment.mp4"
+            and "720×1280" in v["describe"], (v.get("preview_name"), v.get("describe")))
+        t0 = c["start"]                              # caption words use the video's own times
+        w = [{"start": t0 + 1.0, "end": t0 + 1.4, "word": "hello"}, {"start": t0 + 1.5, "end": t0 + 1.9, "word": "there"}]
+        body = {"pid": pid, "clip": dict(base, title="X size", rank=c["id"], words=w), "opts": dict(opts, captions=True)}
+        it = post("/api/queue/add", body)
+        again = post("/api/queue/add", body)
+        rec("the same clip sent twice renders once", it.get("id") and again.get("id") == it.get("id"), (it.get("id"), again.get("id")))
+        q = get("/api/queue")
+        rec("the queue reports its time left and renders at once", "eta" in q and q.get("workers") == 1, {k: q.get(k) for k in ("eta", "workers")})
+        d = _wait_item(it.get("id"), 240)
+        got = _probe_size(os.path.join(d["folder"], d["name"])) if d and d["status"] == "done" else None
+        rec("X preset renders at 720x1280", got and got[:2] == (720, 1280), got or (d and d.get("error")))
+        rec("file name follows the template", d and d.get("name", "").endswith(f"{int(c['id']):02d} - X size.mp4"), d and d.get("name"))
+        srt = os.path.join(d["folder"], os.path.splitext(d["name"])[0] + ".srt") if d and d.get("name") else ""
+        txt = open(srt, encoding="utf-8").read() if srt and os.path.isfile(srt) else ""
+        rec("captions also saved as .srt", "hello there" in txt.lower() and "-->" in txt and d.get("srt"), txt[:80] or srt)
+        rec("a finished render shows no time left", d and d.get("eta") == 0, d and d.get("eta"))
+        long_ = post("/api/queue/add", {"pid": pid, "clip": dict(base, end=c["start"] + 150, title="Too long for X"), "opts": opts})
+        rec("a clip longer than the platform allows is flagged", "2:20" in (long_.get("warning") or ""), long_.get("warning"))
+        if long_.get("id"):
+            post("/api/queue/remove", {"id": long_["id"]})
+        post("/api/export", {"preset": "tiktok", "custom": {"container": "webm"}, "subtitles": "srt", "template": "{title}"})
+        it = post("/api/queue/add", {"pid": pid, "clip": dict(base, title="Web format", words=w), "opts": dict(opts, captions=True)})
+        d = _wait_item(it.get("id"), 300)
+        fmt = ""
+        if d and d["status"] == "done":
+            fmt = subprocess.run([ARGS.ffmpeg.replace("ffmpeg", "ffprobe") if "ffmpeg" in os.path.basename(ARGS.ffmpeg) else "ffprobe",
+                                  "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0",
+                                  os.path.join(d["folder"], d["name"])], capture_output=True, text=True, timeout=60).stdout.split()
+        rec("WebM export: VP9 and Opus", d and d.get("name") == "Web format.webm" and "vp9" in fmt and "opus" in fmt,
+            (d and (d.get("name") or d.get("error")), fmt))
+        rec("captions as .srt only: a file, nothing burned in", d and d.get("srt")
+            and os.path.isfile(os.path.join(d["folder"], "Web format.srt")), d and d.get("srt"))
+        p = post("/api/export", {"renders": 2, "priority": "fast"})
+        q = get("/api/queue")
+        perf = get("/api/perf")
+        rec("performance: two renders at once", p["prefs"]["renders"] == 2 and q.get("workers") == 2 and perf.get("priority") == "fast"
+            and perf.get("speeds"), (q.get("workers"), perf))
+    finally:
+        post("/api/export", dict(before, renders=1))
+
+
 def editing_checks(ctx):
     """3.4: timeline data, the original cut, square and wide renders, and the exact preview."""
     pid = ctx["pid"]
@@ -535,6 +590,7 @@ def main():
             persistence_checks(ctx, restart)
             review_checks(ctx)
             editing_checks(ctx)
+            export_checks(ctx)
 
         # ------------------------------------------------------------ live mode
         src = os.path.join(tmp, "stream_src.mp4")
