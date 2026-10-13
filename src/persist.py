@@ -114,6 +114,7 @@ def project_payload(pr: dict, video_sig: str) -> dict:
         "book": pr.get("book") or {"next": 1, "moments": []},
         "clips": [strip(d) for d in pr.get("clips", [])],
         "gems": [strip(d) for d in pr.get("gems", [])],
+        "removed": [strip(d) for d in pr.get("removed", [])],
         "deep_done": bool(pr.get("deep_done")), "deep_model": pr.get("deep_model", ""),
         "deep_lang": pr.get("deep_lang", ""),
     }

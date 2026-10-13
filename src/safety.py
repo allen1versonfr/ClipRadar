@@ -47,7 +47,17 @@ DEFAULTS = {
     "censor_categories": ["slurs", "harassment", "personal", "custom", "sexual", "profanity"],
     "hold": True,                                      # hands-free: hold back clips with high-risk flags
     "custom": [],                                      # extra words or phrases
+    # review workflow (3.3)
+    "auto": True,                                      # check clips by themselves (else: Check now on each clip)
+    "notify": "now",                                   # now: flags show in the list | later: collected in Flagged
+    "sensitivity": "all",                              # all | skip_mild (no swearing/gambling) | serious
+    "export_flagged": "ask",                           # rendering a clip with unreviewed flags: ask | block | allow
+    "remember_dismissed": True,                        # a dismissed flag stays dismissed next time
+    "auto_recheck": True,                              # re-check a clip after you edit or fix it
 }
+SENSITIVITY = {"all": 1, "skip_mild": 2, "serious": 3}    # lowest severity that gets flagged
+NOTIFY = ("now", "later")
+EXPORT_FLAGGED = ("ask", "block", "allow")
 CONFIG_FILE = paths.DATA_DIR / "safety.json"
 _lock = threading.Lock()
 _cfg_cache: list = [None]
@@ -79,7 +89,8 @@ def save_config(new: dict) -> dict:
         _cfg_cache[0] = cfg
         try:
             CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-            CONFIG_FILE.write_text(json.dumps(cfg, indent=1), "utf-8")
+            import persist
+            persist.write_json(str(CONFIG_FILE), cfg, indent=1)
         except OSError:
             pass
     _compiled.clear()
@@ -92,8 +103,15 @@ def _clean(d: dict) -> dict:
         return out
     if "enabled" in d:
         out["enabled"] = bool(d["enabled"])
-    if "hold" in d:
-        out["hold"] = bool(d["hold"])
+    for k in ("hold", "auto", "remember_dismissed", "auto_recheck"):
+        if k in d:
+            out[k] = bool(d[k])
+    if d.get("sensitivity") in SENSITIVITY:
+        out["sensitivity"] = d["sensitivity"]
+    if d.get("notify") in NOTIFY:
+        out["notify"] = d["notify"]
+    if d.get("export_flagged") in EXPORT_FLAGGED:
+        out["export_flagged"] = d["export_flagged"]
     if d.get("censor") in CENSOR_MODES:
         out["censor"] = d["censor"]
     if isinstance(d.get("categories"), dict):
@@ -233,8 +251,20 @@ def scan(words: list, title: str = "", post: str = "", cfg: Optional[dict] = Non
             flags.append({"cat": cat, "label": CATEGORIES[cat]["label"], "severity": sev, "source": source,
                           "text": " ".join(parts[a:b + 1]) if cat in ("personal", "custom")
                           else " ".join(mask(t) for t in parts[a:b + 1]), "term": term})
+    floor = SENSITIVITY.get(cfg.get("sensitivity", "all"), 1)
+    flags = [f for f in flags if f["severity"] >= floor]
     level = LEVELS[max([f["severity"] for f in flags], default=0)]
     return {"level": level, "flags": flags, "enabled": True}
+
+
+def rules_sig(cfg: Optional[dict] = None) -> str:
+    """Changes whenever what counts as a flag changes (categories, your words, sensitivity, the word
+    lists themselves), so earlier decisions about flags are looked at again."""
+    import hashlib
+    cfg = cfg or load_config()
+    key = json.dumps([cfg.get("categories"), sorted(w.lower() for w in cfg.get("custom", [])),
+                      cfg.get("sensitivity", "all"), TERMS], sort_keys=True)
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
 
 
 def censored(words: list, result: dict, cfg: Optional[dict] = None) -> tuple:
@@ -275,4 +305,5 @@ def mask_text(text: str, cfg: Optional[dict] = None) -> str:
 def public_config() -> dict:
     cfg = load_config()
     cfg["category_info"] = [{"key": k, **v} for k, v in CATEGORIES.items()]
+    cfg["rules"] = rules_sig(cfg)
     return cfg

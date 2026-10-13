@@ -135,6 +135,37 @@ CONTENT CHECK (Settings > Content check)
   mute it, or bleep it. Choose which kinds get censored in the Censor column.
   It reads words only. It can't see the picture or recognise music.
 
+  Reviewing flags
+    A flagged clip shows a Content check box in Review, listing each flag
+    with what was said and when (click the time to hear it). For each flag:
+      Mute it / Bleep it      silence or bleep just those words when it renders
+      End the clip before it / Start the clip after it   move the cut
+      Hide it in the title    replace the words with stars
+      Dismiss                 a false alarm, or not a problem for you
+    A fix explains what it will change first; Preview plays it, and Undo fix
+    takes it back. Your video itself is never changed.
+    For the whole clip: Leave as is (keep it exactly as it is), Review and
+    edit (jumps to the words in the Captions tab), Exclude from export (stays
+    in the project but won't render until you include it again), and
+    Remove (takes it out of the project for good; Undo brings it back).
+    Every clip gets a status: Needs review, Reviewed, Corrected, Dismissed
+    or Excluded from export. The Flagged tab lists flagged clips with a
+    status filter and Leave all / Dismiss all / Exclude all.
+    A decision sticks to that flag: it doesn't come back by itself, but it
+    does if the words change, if you press Check again from scratch, or if
+    you change what the check looks for. History on each clip lists what was
+    decided. Decisions are saved with the VOD.
+    Dismissing or leaving a flag never means a clip is safe. This is
+    VodClipper's own check, not TikTok's decision.
+
+  Settings for reviewing
+    Sensitivity: Everything, Skip mild (no swearing or gambling) or Only
+    serious. Check clips by themselves (or press Check now on each clip).
+    Show flags right away, or collect them in the Flagged tab. Rendering a
+    clip with flags you haven't reviewed: Ask me first, Not until reviewed,
+    or Just render it. Remember flags I dismiss. Check a clip again after I
+    edit or fix it.
+
   Auto titles
     VodClipper listens to each clip (Whisper) and reads how chat reacted, then
     writes a title: usually the best line said near the peak, otherwise one that

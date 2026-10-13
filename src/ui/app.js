@@ -24,9 +24,13 @@ async function api(path, body) {
   if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
   return j;
 }
-function toast(msg, kind = '', ms = 4500) {
+function toast(msg, kind = '', ms = 4500, action = null) {
   const el = document.createElement('div');
   el.className = 'toast ' + kind; el.textContent = msg;
+  if (action) {
+    const b = document.createElement('button'); b.className = 'act'; b.textContent = action.label;
+    b.onclick = () => { el.remove(); action.fn(); }; el.appendChild(b);
+  }
   $('#toasts').appendChild(el);
   setTimeout(() => el.remove(), ms);
   while ($('#toasts').children.length > 3) $('#toasts').firstChild.remove();
@@ -343,7 +347,8 @@ const curClip = () => byKey(cur);
 const rankOf = c => W.clips.indexOf(c) + 1;
 const absOf = (c, t) => t + (c.absOff || 0);
 const isGem = c => c.kind === 'gem';
-const visible = () => W ? W.clips.filter(c => filter === 'gems' ? isGem(c) : !isGem(c) && (filter === 'all' || c.state === filter)) : [];
+const visible = () => !W ? [] : filter === 'flagged' ? flaggedList()
+  : W.clips.filter(c => filter === 'gems' ? isGem(c) : !isGem(c) && (filter === 'all' || c.state === filter));
 const DEFAULT_TAGS = '#twitch #twitchclips #streamer #fyp';
 function postFor(c) {
   if (c.userPost) return c.postText;
@@ -360,7 +365,7 @@ function prepClip(c) {
 }
 function mergeClip(c, s) {
   c.listened = s.listened; if (!c.wordsEdited) c.words = s.words || []; c.titles = s.titles || []; c.vibe = s.vibe; c.emoji = s.emoji;
-  c.reason = s.reason; c.post = s.post; c.held = s.held || ''; if (!c.wordsEdited) c.safety = s.safety;
+  c.reason = s.reason; c.post = s.post; c.held = s.held || ''; if (s.safety) c.safety = s.safety; if (s.check) c.check = s.check;
   if (!c.userTitle && s.title) c.title = s.title;
   // once a clip has been listened to, its cuts move to sentence boundaries (unless you trimmed it yourself)
   if (!c.userTrim && c.state !== 'kept' && s.start != null && (s.start !== c.start || s.end !== c.end)) {
@@ -564,6 +569,9 @@ function renderRows() {
   $('#nTodo').textContent = n('todo'); $('#nSkip').textContent = n('skipped'); $('#nAll').textContent = hype.length;
   $('#gemsTab').hidden = !(gemsN || (W.deep && W.deep.state === 'running')); $('#nGems').textContent = gemsN || '';
   if (filter === 'gems' && $('#gemsTab').hidden) { filter = 'todo'; syncFilterTabs(); }
+  const flaggedN = W.clips.filter(isFlagged).length, openN = W.clips.filter(c => checkStatus(c) === 'needs_review').length;
+  $('#flagTab').hidden = !flaggedN && filter !== 'flagged'; $('#nFlag').textContent = openN || (flaggedN ? '' : '');
+  $('#flagBar').hidden = filter !== 'flagged';
   const list = visible();
   if (!list.length) {
     $('#cards')._html = '';
@@ -571,6 +579,7 @@ function renderRows() {
  !W.clips.length ? (W.kind === 'live' ? (W.live && W.live.status === 'waiting' ? `Waiting for ${esc(W.live.channel || 'the stream')} to go live. Recording starts by itself; you can leave this running.` : W.live && W.live.warming_up ? 'Listening to the stream to learn what normal sounds like. Moments start showing up after a minute or two.' : 'No moments yet. They appear here as chat and the stream react. Use Clip last 30s to grab one yourself.')
                                            : 'Nothing stood out. Click anywhere on the timeline below to preview a moment and make a clip there.')
       : filter === 'todo' ? 'Nothing left to review.' : filter === 'skipped' ? 'No skipped clips.'
+      : filter === 'flagged' ? (flagFilter === 'all' ? 'Nothing flagged.' : 'No flagged clips with this status.')
       : filter === 'gems' ? (W.deep && W.deep.state === 'running' ? 'Deep scan is listening to the whole stream. Quiet gems show up here as it finds them.' : 'No quiet gems.') : ''}</div>`;
   } else {
     patchList($('#cards'), list.map(c => {
@@ -578,14 +587,17 @@ function renderRows() {
       const st = c.state === 'kept' ? (q && q.status === 'error' ? `<span class="st err">${icon('alert')}Render failed</span>`
           : `<span class="st kept">${icon('check')}${q ? (q.status === 'done' ? 'Rendered' : q.status === 'rendering' ? `Rendering ${Math.round(q.progress * 100)}%` : 'In render queue') : 'Kept'}</span>`)
         : c.state === 'skipped' ? `<span class="st">Skipped</span>`
+        : checkStatus(c) === 'excluded' ? `<span class="st excl">${icon('alert')}Excluded from export</span>`
         : c.held ? `<span class="st held">${icon('alert')}Held for review</span>` : '';
-      const lvl = c.safety && c.safety.level;
-      const risk = lvl === 'high' || lvl === 'medium' ? `<span class="risk ${lvl}" title="Content check: ${esc(c.safety.flags.map(f => f.label).join(', '))}">${icon('alert')}</span>` : '';
+      const lvl = c.safety && c.safety.level, cst = checkStatus(c);
+      const showRisk = cst === 'needs_review' && (safetyCfg.notify !== 'later' || filter === 'flagged');
+      const risk = showRisk ? `<span class="risk ${lvl === 'high' || lvl === 'medium' ? lvl : 'low'}" title="Content check: ${esc(c.safety.flags.filter(f => f.status === 'open').map(f => f.label).join(', '))}">${icon('alert')}</span>` : '';
+      const ck = ['reviewed', 'corrected', 'dismissed'].includes(cst) ? `<span class="ck ${cst}">${CHECK_LABEL[cst]}</span>` : '';
       const title = c.title ? esc(c.title) : 'Untitled';
       return `<button class="crow ${keyOf(c) === cur && mode === 'clip' ? 'cur' : ''}" data-k="${esc(keyOf(c))}">
         <span class="vt"><img src="${c.thumb}" alt=""></span>
         <span><span class="ct ${c.listened || c.userTitle ? '' : 'pending'}">${risk}${title}</span>
-        <span class="cm">${W.kind === 'vod' ? `<span class="num">#${c.id}</span>` : ''}<span>${W.kind === 'live' ? fmt(absOf(c, c.start)) : fmt(c.start)}</span><span>${Math.round(c.end - c.start)}s</span>${c.vibe ? `<span>${VIBE[c.vibe] || ''}</span>` : ''}</span>${st}</span>
+        <span class="cm">${W.kind === 'vod' ? `<span class="num">#${c.id}</span>` : ''}<span>${W.kind === 'live' ? fmt(absOf(c, c.start)) : fmt(c.start)}</span><span>${Math.round(c.end - c.start)}s</span>${c.vibe ? `<span>${VIBE[c.vibe] || ''}</span>` : ''}${ck}</span>${st}</span>
         ${c.isNew ? '<span class="new" title="New"></span>' : ''}</button>`;
     }).join(''), 'k');
   }
@@ -602,6 +614,7 @@ function scrollRowIntoView(k) {
 /* --- selecting --- */
 function select(k, play = true) {
   const c = byKey(k); if (!c) return;
+  if (cur !== k) { stopPreview(); const old = curClip(); if (old) old._prop = null; }
   cur = k; mode = 'clip'; c.isNew = false;
   loadSource(c.vod, c.start, play);
   loadFrame(c.pid, c.start + (c.end - c.start) * 0.6);
@@ -657,7 +670,7 @@ function fillInspector() {
   const kept = c.state === 'kept', q = queueFor(c), failed = kept && q && q.status === 'error';
   $('#keepBtn').textContent = failed ? 'Retry render' : kept ? (q && q.status === 'done' ? 'Rendered' : 'In render queue') : 'Keep and render';
   $('#keepBtn').disabled = kept && !failed;
-  renderSafety(c);
+  renderCheck(c);
   const note = $('#cNotice');
   if (failed) {
     note.className = 'notice err'; note.hidden = false;
@@ -704,14 +717,254 @@ $('#clipForm').addEventListener('click', e => {
 
 /* --- keep / skip --- */
 const queueFor = c => queueItems.find(q => q.pid === c.pid && q.clip_id === c.id);
-function renderSafety(c) {
-  const el = $('#cSafe'), sf = c.safety;
-  if (!sf) { el.innerHTML = `<span class="muted">${c.listened ? 'Not checked' : 'Checking…'}</span>`; return; }
-  if (sf.enabled === false) { el.innerHTML = '<span class="muted">Content check is off</span>'; return; }
-  if (!sf.flags.length) { el.innerHTML = `<span class="safe ok">${icon('check')}Nothing flagged</span>`; return; }
-  const c0 = sf.level === 'high' ? 'high' : sf.level === 'medium' ? 'medium' : 'low';
-  el.innerHTML = `<span class="safe ${c0}">${icon('alert')}${plural(sf.flags.length, 'flag')}</span><ul class="flags">` + sf.flags.slice(0, 6).map(f =>
-    `<li><b>${esc(f.label)}</b> ${esc(f.text)}<span class="muted">${f.source === 'speech' && f.start != null ? ' · ' + fmtT(f.start) : f.source === 'title' ? ' · title' : f.source === 'post' ? ' · post caption' : ''}</span></li>`).join('') + '</ul>';
+/* --- content check review (3.3): statuses, flags and what you decide about them --- */
+const CHECK_LABEL = { off: 'Content check is off', unchecked: 'Not checked', clean: 'Nothing flagged', needs_review: 'Needs review',
+  reviewed: 'Reviewed', corrected: 'Corrected', dismissed: 'Dismissed', excluded: 'Excluded from export' };
+const FIX_LABEL = { mute: 'Mute it', bleep: 'Bleep it', cut_end: 'End the clip before it', cut_start: 'Start the clip after it',
+  mask_title: 'Hide it in the title', mask_post: 'Hide it in the post caption' };
+const FIX_EXPLAIN = {
+  mute: 'The sound goes silent for these words when the clip renders. Captions show them masked.',
+  bleep: 'A bleep plays over these words when the clip renders. Captions show them masked.',
+  cut_end: 'The clip ends just before these words. Your video itself isn\'t changed.',
+  cut_start: 'The clip starts just after these words. Your video itself isn\'t changed.',
+  mask_title: 'The flagged words in the title are replaced with stars.',
+  mask_post: 'The flagged words in the post caption are replaced with stars.' };
+const FLAG_STATE = { open: '', accepted: 'Left as is', dismissed: 'Dismissed' };
+const STATUS_ORDER = { needs_review: 0, excluded: 1, reviewed: 2, corrected: 3, dismissed: 4 };
+let flagFilter = 'all';
+const checkOf = c => c.check || {};
+function checkStatus(c) {
+  if (checkOf(c).excluded) return 'excluded';
+  if (!c.safety) return safetyCfg.enabled === false ? 'off' : 'unchecked';
+  if (c.safety.enabled === false) return 'off';
+  return c.safety.status || ((c.safety.flags || []).length ? 'needs_review' : 'clean');
+}
+const isFlagged = c => !!(checkOf(c).excluded || (checkOf(c).fixes || []).length || (c.safety && (c.safety.flags || []).length));
+function flaggedList() {
+  const lvl = c => ({ high: 3, medium: 2, low: 1 })[c.safety && c.safety.level] || 0;
+  return W.clips.filter(c => isFlagged(c) && (flagFilter === 'all' || checkStatus(c) === flagFilter))
+    .sort((a, b) => (STATUS_ORDER[checkStatus(a)] ?? 9) - (STATUS_ORDER[checkStatus(b)] ?? 9) || lvl(b) - lvl(a));
+}
+function fixSpans(c) {
+  const s = (checkOf(c).fixes || []).filter(x => x.span).map(x => [x.span[0], x.span[1], x.kind]);
+  if (pv && pv.c === c && pv.span) s.push([pv.span[0], pv.span[1], pv.kind]);
+  return s;
+}
+
+function flagRow(c, f, kept) {
+  const at = f.source === 'speech'
+    ? `<button class="link at" data-seek="${f.start}" title="Play from here">${fmtT(Math.max(0, f.start))}</button>`
+    : `<span class="muted">${f.source === 'title' ? 'in the title' : 'in the post caption'}</span>`;
+  const st = f.status === 'corrected' ? `Fixed: ${(FIX_LABEL[f.fixed] || 'fixed').toLowerCase()}` : FLAG_STATE[f.status] || '';
+  let acts = '';
+  if (!kept) {
+    if (f.status === 'open') acts = (f.fixes || []).map(k => `<button class="btn xs" data-propose="${k}" data-fp="${esc(f.fp)}">${FIX_LABEL[k]}</button>`).join('')
+      + `<button class="btn xs ghost" data-act="dismiss" data-fp="${esc(f.fp)}" title="Not a problem, or a false alarm">Dismiss</button>`;
+    else if (f.status === 'corrected') acts = `<button class="btn xs ghost" data-act="undo" data-fix="${esc(f.fix_id || '')}">Undo fix</button>`;
+    else acts = `<button class="btn xs ghost" data-act="reopen" data-fp="${esc(f.fp)}">Undo</button>`;
+  }
+  const prop = c._prop && c._prop.fp === f.fp ? proposalBox(c) : '';
+  return `<li class="cf ${f.status} sev${f.severity}"><div class="cf-h"><b>${esc(f.label)}</b><span class="cf-t">“${esc(f.text)}”</span>${at}${st ? `<span class="cf-s">${esc(st)}</span>` : ''}</div>`
+    + (acts ? `<div class="cf-a">${acts}</div>` : '') + prop + '</li>';
+}
+function proposalBox(c) {
+  const p = c._prop, v = p.view || {};
+  let what = '';
+  if (p.kind === 'cut_end' || p.kind === 'cut_start') what = `<p class="new">New length ${fmt(v.end - v.start)} (was ${fmt(c.end - c.start)}), ${fmt(absOf(c, v.start))} to ${fmt(absOf(c, v.end))}.</p>`;
+  else if (p.kind === 'mask_title') what = `<p class="new">New title: “${esc(v.title || '')}”</p>`;
+  else if (p.kind === 'mask_post') what = `<p class="new">New caption starts: “${esc((v.postText || '').slice(0, 90))}”</p>`;
+  const canPlay = p.kind !== 'mask_post';
+  return `<div class="cf-prop"><p>${esc(FIX_EXPLAIN[p.kind])}</p>${what}`
+    + `<p class="fine">You can undo it. It lowers the risk but doesn't guarantee TikTok will allow the clip.</p>`
+    + `<div class="row">${canPlay ? `<button class="btn xs" data-prev="1">${p.playing ? 'Stop preview' : 'Preview'}</button>` : ''}<span class="grow"></span>`
+    + `<button class="btn xs ghost" data-cancel="1">Cancel</button><button class="btn xs primary" data-apply="1">${FIX_LABEL[p.kind]}</button></div></div>`;
+}
+function renderCheck(c) {
+  const box = $('#checkBox'), st = checkStatus(c), sf = c.safety, ck = checkOf(c), kept = c.state === 'kept';
+  const lvl = sf && sf.level;
+  const tone = st === 'needs_review' ? (lvl === 'high' ? 'high' : lvl === 'medium' ? 'medium' : 'low')
+    : st === 'clean' ? 'ok' : st === 'excluded' ? 'medium' : st === 'corrected' ? 'ok' : 'low';
+  $('#cSafe').innerHTML = st === 'unchecked' && !c.listened && safetyCfg.auto !== false ? '<span class="muted">Checking…</span>'
+    : `<span class="safe ${tone}">${icon(st === 'clean' || st === 'corrected' ? 'check' : 'alert')}${CHECK_LABEL[st]}${st === 'needs_review' ? ` · ${plural(sf.open || 0, 'flag')}` : ''}${ck.stale ? ' · changed since' : ''}</span>`;
+  const quiet = st === 'off' || (st === 'clean' && !ck.stale && !(ck.fixes || []).length && !(ck.log || []).length)
+    || (st === 'unchecked' && safetyCfg.auto !== false && !c.listened);
+  if (quiet) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  if (safetyCfg.notify === 'later' && filter !== 'flagged' && st === 'needs_review' && !c._showFlags) {
+    box.innerHTML = `<div class="cb-later">${plural(sf.open || 0, 'flag')} waiting in the Flagged tab. <button class="link" data-show="1">Review now</button></div>`;
+    return;
+  }
+  const flags = (sf && sf.flags) || [];
+  const fps = new Set(flags.map(f => f.fp));
+  const extra = (ck.fixes || []).filter(fx => !fps.has(fx.fp));
+  let h = `<div class="cb-head"><span>Content check</span><span class="muted">VodClipper's own check, not TikTok's decision</span></div>`;
+  if (st === 'unchecked') h += `<div class="cb-row"><span>This clip hasn't been checked.</span><button class="btn xs" data-act="check">Check now</button></div>`;
+  if (ck.stale) h += `<div class="cb-row">${icon('alert')}<span>The clip changed since it was checked.</span><button class="btn xs" data-act="check">Check again</button></div>`;
+  if (st === 'excluded') h += `<div class="cb-row excl"><span>Excluded from export. It stays here and won't render until you include it again.</span></div>`;
+  if (flags.length || extra.length) {
+    h += `<ul class="cflags">${flags.map(f => flagRow(c, f, kept)).join('')}`
+      + extra.map(fx => `<li class="cf corrected"><div class="cf-h"><span class="cf-t">${esc(fx.flag || 'Flag')}</span><span class="cf-s">Fixed: ${esc((FIX_LABEL[fx.kind] || '').toLowerCase())}</span></div>`
+        + (kept ? '' : `<div class="cf-a"><button class="btn xs ghost" data-act="undo" data-fix="${esc(fx.id)}">Undo fix</button></div>`) + '</li>').join('') + '</ul>';
+  }
+  const a = [];
+  if (!kept && sf && sf.open) a.push(`<button class="btn sm" data-act="leave" title="Keep the clip exactly as it is">Leave as is</button>`);
+  if (!kept && flags.some(f => f.source === 'speech' && f.status !== 'corrected')) a.push(`<button class="btn sm" data-edit="1" title="Jump to the flagged words in the Captions tab">Review and edit</button>`);
+  a.push(ck.excluded ? `<button class="btn sm" data-act="include">Include in export</button>`
+    : `<button class="btn sm" data-act="exclude" title="Keep it out of rendering without deleting it">Exclude from export</button>`);
+  a.push(`<button class="btn sm ghost danger-text" data-remove="1" title="Take it out of this project">Remove…</button>`);
+  h += `<div class="cb-acts">${a.join('')}</div>`;
+  const more = [];
+  if (flags.some(f => f.status === 'dismissed' || f.status === 'accepted')) more.push(`<button class="link" data-act="recheck">Check again from scratch (brings back dismissed flags)</button>`);
+  if ((ck.log || []).length) more.push(`<details class="cb-log"${c._logOpen ? ' open' : ''}><summary>History (${ck.log.length})</summary><ul>`
+    + ck.log.slice().reverse().map(l => `<li><span class="muted">${ago(l.at)}</span> ${esc(l.text)}</li>`).join('') + '</ul></details>');
+  if (more.length) h += `<div class="cb-more">${more.join('')}</div>`;
+  if (kept) h += `<p class="fine">This clip is in the render queue. Remove it from the queue to change it.</p>`;
+  box.innerHTML = h;
+  const det = box.querySelector('details'); if (det) det.ontoggle = () => { c._logOpen = det.open; };
+}
+$('#checkBox').addEventListener('click', async e => {
+  const c = curClip(); if (!c) return;
+  const t = e.target.closest('button'); if (!t) return;
+  const d = t.dataset;
+  if (d.seek != null) { stopPreview(); try { vod.currentTime = clamp(c.start + +d.seek - 1, c.start, c.end - 0.1); } catch {} vod.play().catch(() => {}); return; }
+  if (d.show) { c._showFlags = true; renderCheck(c); return; }
+  if (d.edit) return reviewEdit(c);
+  if (d.remove) return removeClip(c);
+  if (d.propose) return propose(c, d.fp, d.propose);
+  if (d.prev) return togglePreview(c);
+  if (d.cancel) { stopPreview(); c._prop = null; renderCheck(c); return; }
+  if (d.apply) { const p = c._prop; stopPreview(); c._prop = null; if (p) await checkAct(c, 'fix', { fp: p.fp, kind: p.kind }); return; }
+  if (d.act === 'check') return checkAct(c, '');
+  if (d.act === 'include') return checkAct(c, 'exclude', { on: false });
+  if (d.act === 'exclude') { await checkAct(c, 'exclude', { on: true }); refreshQueue(); return; }
+  if (d.act) return checkAct(c, d.act, { fp: d.fp, fix: d.fix });
+});
+async function checkAct(c, action, args = {}) {
+  let r;
+  try { r = await api('/api/check', Object.assign(clipSnapshot(c), { action, args })); }
+  catch (e) { toast(e.message, 'err', 6000); return null; }
+  if (r.clips && r.clips[0]) applyCheck(c, r.clips[0]);
+  if (action === 'fix' && r.fix) toast(`${FIX_LABEL[r.fix.kind]}: done. Undo is next to the flag.`, '', 3500);
+  return r;
+}
+function applyCheck(c, v) {
+  c.safety = v.safety; c.check = v.check;
+  if (v.start != null && (v.start !== c.start || v.end !== c.end)) { c.start = v.start; c.end = v.end; c.userTrim = !!v.userTrim; }
+  if (v.title != null && v.title !== c.title) { c.title = v.title; c.userTitle = !!v.userTitle; }
+  if (v.userPost && v.postText !== c.postText) { c.userPost = true; c.postText = v.postText; }
+  if (v.state && v.state !== c.state) c.state = v.state;
+  if (curClip() === c && mode === 'clip') fillInspector();
+  renderRows(); drawHeat(); dirty = true;
+}
+async function propose(c, fp, kind) {
+  stopPreview();
+  let r;
+  try { r = await api('/api/check', Object.assign(clipSnapshot(c), { action: 'fix', args: { fp, kind, preview: true } })); }
+  catch (e) { toast(e.message, 'err'); return; }
+  c._prop = { fp, kind, view: r.clips[0] || {}, fix: r.fix || {}, playing: false };
+  renderCheck(c);
+}
+// previewing a fix: the player plays the part it changes, muted or bleeped where it would be
+let pv = null, actx = null, osc = null;
+function togglePreview(c) {
+  const p = c._prop; if (!p) return;
+  if (p.playing) { stopPreview(); renderCheck(c); return; }
+  const v = p.view || {};
+  let from = c.start, to = Math.min(c.end, c.start + 4), span = null, title = null;
+  if (p.kind === 'mute' || p.kind === 'bleep') { span = p.fix.span; from = Math.max(c.start, span[0] - 2); to = Math.min(c.end, span[1] + 2); }
+  else if (p.kind === 'cut_end') { from = Math.max(v.start, v.end - 4); to = v.end; }
+  else if (p.kind === 'cut_start') { from = v.start; to = Math.min(v.end, v.start + 4); }
+  else if (p.kind === 'mask_title') title = v.title;
+  pv = { c, kind: p.kind, span, to, title, t0: performance.now(), started: false };
+  p.playing = true; dirty = true;
+  try { vod.currentTime = from; } catch {}
+  vod.play().catch(() => {});
+  renderCheck(c);
+}
+function stopPreview() {
+  if (!pv) return;
+  const c = pv.c; pv = null; beep(false); vod.muted = userMuted; vod.pause();
+  if (c._prop) c._prop.playing = false;
+  dirty = true;
+}
+function beep(on) {
+  if (on && !osc) {
+    try { actx = actx || new AudioContext(); osc = actx.createOscillator(); const g = actx.createGain(); g.gain.value = 0.06; osc.frequency.value = 1000; osc.connect(g).connect(actx.destination); osc.start(); }
+    catch { osc = null; }
+  } else if (!on && osc) { try { osc.stop(); } catch {} osc = null; }
+}
+function fixAudio(c) {
+  if (!c || vod.paused) { if (osc) beep(false); if (vod.muted !== userMuted) vod.muted = userMuted; return; }
+  const t = vod.currentTime, hit = fixSpans(c).find(s => t >= s[0] && t <= s[1]);
+  const m = userMuted || !!hit;
+  if (vod.muted !== m) vod.muted = m;
+  beep(!!hit && hit[2] === 'bleep' && !userMuted);
+}
+function reviewEdit(c) {
+  const flags = (c.safety && c.safety.flags) || [];
+  const f = flags.find(x => x.source === 'speech' && x.status === 'open') || flags.find(x => x.source === 'speech');
+  $('#inspTabs button[data-t="captions"]').click();
+  if (f) seekClip(c.start + f.start);
+  toast('Fix the words here, or trim the clip in the Clip tab. Your video isn\'t changed, and Undo all edits brings the captions back.', '', 6500);
+}
+async function removeClip(c) {
+  const n = c.id, k = keyOf(c);
+  if (!await ask({ title: `Remove clip #${n} from this project?`, ok: 'Remove', danger: true,
+    body: 'It leaves the clip list for good, even when you change the sliders. Your stream recording and any file already rendered stay where they are. You can undo this right away.' })) return;
+  try { await api('/api/clip_remove', { pid: c.pid, id: c.id }); } catch (e) { toast(e.message, 'err'); return; }
+  stopPreview();
+  const i = W.clips.indexOf(c);
+  if (i >= 0) W.clips.splice(i, 1);
+  if (cur === k) { cur = null; const nx = W.clips[i] || W.clips[i - 1]; if (nx) select(keyOf(nx), false); else showInspector(); }
+  renderRows(); drawHeat(); refreshQueue();
+  toast(`Clip #${n} removed.`, '', 8000, { label: 'Undo', fn: async () => {
+    try {
+      const r = await api('/api/clip_restore', { pid: c.pid, id: n });
+      if (W && W.kind === 'vod' && r.clip && !byKey(k)) { W.clips.splice(Math.min(Math.max(i, 0), W.clips.length), 0, prepClip(r.clip)); select(k, false); }
+      renderRows(); drawHeat();
+    } catch (e) { toast(e.message, 'err'); }
+  } });
+}
+async function checkGate(c) {
+  // before rendering: excluded clips don't render, and unreviewed flags get a warning (Settings > Content check)
+  const st = checkStatus(c);
+  if (st === 'excluded') { toast('This clip is excluded from export. Include it again in the content check box first.', 'err', 5500); return false; }
+  if (st !== 'needs_review' || safetyCfg.enabled === false) return true;
+  const mode_ = safetyCfg.export_flagged || 'ask';
+  if (mode_ === 'allow') return true;
+  if (mode_ === 'block') { toast('Review its flags first: leave it as is, fix them or dismiss them.', 'err', 5500); c._showFlags = true; renderCheck(c); return false; }
+  const open = c.safety.flags.filter(f => f.status === 'open');
+  if (!await ask({ title: 'Render a clip with flags?', ok: 'Render anyway',
+    body: `${open.map(f => `${f.label}: “${f.text}”`).join(' · ')}. Rendering it records that you saw this warning. VodClipper's check isn't TikTok's decision either way.` })) return false;
+  return !!(await checkAct(c, 'ack'));
+}
+async function flagBatch(action, args, verb, what) {
+  let list = visible();
+  if (action !== 'exclude') list = list.filter(c => c.state !== 'kept' && c.safety && c.safety.open);
+  else list = list.filter(c => !checkOf(c).excluded);
+  if (!list.length) { toast('Nothing in this list needs that.', '', 2800); return; }
+  if (!await ask({ title: `${verb} for ${plural(list.length, 'clip')}?`, ok: verb, body: what })) return;
+  const byPid = {};
+  list.forEach(c => (byPid[c.pid] = byPid[c.pid] || []).push(c));
+  for (const [pid, cs] of Object.entries(byPid)) {
+    let r;
+    try { r = await api('/api/check', { pid, ids: cs.map(c => c.id), action, args }); } catch (e) { toast(e.message, 'err'); continue; }
+    for (const v of r.clips || []) { const c = cs.find(x => x.id === v.id); if (c) { c.safety = v.safety; c.check = v.check; if (v.state) c.state = v.state; } }
+  }
+  if (action === 'exclude') refreshQueue();
+  renderRows(); drawHeat(); const c = curClip(); if (c && mode === 'clip') fillInspector();
+  toast(`Done for ${plural(list.length, 'clip')}.`, '', 2500);
+}
+$('#flagFilter').onchange = e => { flagFilter = e.target.value; renderRows(); };
+$('#flagLeaveAll').onclick = () => flagBatch('leave', {}, 'Leave as is', 'The clips stay exactly as they are and their open flags are marked as reviewed. You can undo it on each clip.');
+$('#flagDismissAll').onclick = () => flagBatch('dismiss', {}, 'Dismiss flags', 'Their open flags are dismissed (they come back if the words change or the rules do). Dismissing doesn\'t make a clip safe.');
+$('#flagExcludeAll').onclick = () => flagBatch('exclude', { on: true }, 'Exclude from export', 'They stay in the project but won\'t render until you include them again. Unfinished renders of them are taken out of the queue.');
+async function refreshChecks() {
+  // settings changed: pick up the new check results for the open VOD
+  if (!W || W.kind !== 'vod') return;
+  let r; try { r = await api('/api/clips/' + W.pid); } catch { return; }
+  for (const s of r.clips.concat(r.gems || [])) { const c = byKey(keyOf(s)); if (c) { c.safety = s.safety; c.check = s.check; } }
+  renderRows(); const c = curClip(); if (c && mode === 'clip') fillInspector();
 }
 async function retryRender(id) {
   try { await api('/api/queue/retry', { id }); toast('Rendering again…', '', 2500); queueEpoch++; await refreshQueue(); }
@@ -724,6 +977,7 @@ async function keep() {
     if (q && q.status === 'error') await retryRender(q.id);
     return;
   }
+  if (!await checkGate(c)) return;
   const rank = W.kind === 'live' ? (c.moment || rankOf(c)) : c.id;
   const clip = { id: c.id, rank, start: c.start, end: c.end,
                  title: c.title.trim(), post: $('#postInput').value || postFor(c), thumb: c.thumb };
@@ -751,15 +1005,16 @@ async function skipOrUndo() {
 // what you keep and skip teaches the ranking (Settings > Clip ranking)
 function feedback(c, action) { api('/api/feedback', { pid: c.pid, clip: c.id, action }).catch(() => {}); }
 // everything you do to a clip is saved with the VOD, so it's all there when you open it again
+function clipSnapshot(c) {
+  const b = { pid: c.pid, id: c.id, state: c.state, start: c.start, end: c.end, title: c.title || '',
+    userTrim: !!c.userTrim, userTitle: !!c.userTitle, userPost: !!c.userPost, postText: c.postText || '', wordsEdited: !!c.wordsEdited };
+  if (c.wordsEdited) b.words_edit = c.words.map(w => ({ start: w.start, end: w.end, word: w.word, g: w.g, edited: !!w.edited }));
+  return b;
+}
 function saveClip(c, soon) {
   if (!W || W.kind !== 'vod' || !c) return;
   clearTimeout(c._saveT);
-  const go = () => {
-    const b = { pid: c.pid, id: c.id, state: c.state, start: c.start, end: c.end, title: c.title || '',
-      userTrim: !!c.userTrim, userTitle: !!c.userTitle, userPost: !!c.userPost, postText: c.postText || '', wordsEdited: !!c.wordsEdited };
-    if (c.wordsEdited) b.words_edit = c.words.map(w => ({ start: w.start, end: w.end, word: w.word, g: w.g, edited: !!w.edited }));
-    api('/api/clip_state', b).catch(() => {});
-  };
+  const go = () => api('/api/clip_state', clipSnapshot(c)).catch(() => {});
   if (soon) c._saveT = setTimeout(go, 600); else go();
 }
 $('#keepBtn').onclick = keep;
@@ -832,14 +1087,15 @@ vod.addEventListener('loadedmetadata', () => {
 });
 ['play', 'pause', 'seeked', 'loadeddata'].forEach(ev => vod.addEventListener(ev, () => { dirty = true; updatePlayIcon(); }));
 vod.addEventListener('error', () => { if (vod.dataset.src) { vodOk = false; dirty = true; } });
-vod.muted = store.get('muted', false);
+let userMuted = store.get('muted', false);
+vod.muted = userMuted;
 function updatePlayIcon() { $('#playIcon').setAttribute('href', vod.paused ? '#i-play' : '#i-pause'); }
-function updateMute() { $('#muteIcon').setAttribute('href', vod.muted ? '#i-mute' : '#i-vol'); }
+function updateMute() { $('#muteIcon').setAttribute('href', userMuted ? '#i-mute' : '#i-vol'); }
 updateMute();
 function togglePlay() { if (vod.paused) vod.play().catch(() => {}); else vod.pause(); }
 $('#playBtn').onclick = togglePlay;
 phone.addEventListener('click', () => { if (suppressClick) { suppressClick = false; return; } togglePlay(); });
-$('#muteBtn').onclick = () => { vod.muted = !vod.muted; store.set('muted', vod.muted); updateMute(); };
+$('#muteBtn').onclick = () => { userMuted = !userMuted; vod.muted = userMuted; store.set('muted', userMuted); updateMute(); };
 $('#scrub').addEventListener('pointerdown', e => {
   const c = curClip(); if (mode !== 'clip' || !c) return;
   const seek = ev => { const r = $('#scrub').getBoundingClientRect(); const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)); vod.currentTime = c.start + f * (c.end - c.start); dirty = true; };
@@ -975,10 +1231,13 @@ function captionAt(c, t) {
 }
 const maskWord = w => w.replace(/^(\W*)(\w)(\w*)/, (m, a, b, r) => a + b + '*'.repeat(r.length));
 function censorWord(c, w) {
-  // preview what the content check will mask (when censoring is on)
+  // preview what will be masked: fixes made in Review, and automatic censoring (when it's on)
+  const abs = w.start + 0.01;
+  if (fixSpans(c).some(s => abs >= s[0] - 0.02 && abs <= s[1] + 0.02)) return maskWord(w.word);
   if (!safetyCfg.enabled || !safetyCfg.censor || safetyCfg.censor === 'off' || !c.safety) return w.word;
   const cats = safetyCfg.censor_categories || [], t = w.start - c.start + 0.01;
-  return c.safety.flags.some(f => f.source === 'speech' && cats.includes(f.cat) && t >= f.start - 0.02 && t <= f.end + 0.02) ? maskWord(w.word) : w.word;
+  return c.safety.flags.some(f => f.source === 'speech' && cats.includes(f.cat) && f.status !== 'accepted' && f.status !== 'dismissed'
+    && t >= f.start - 0.02 && t <= f.end + 0.02) ? maskWord(w.word) : w.word;
 }
 function capAnchor(capY, Wd, Ht) {
   if (opts.caption_pos === 'custom') return [clamp(opts.cap_x, .3, .7) * Wd, clamp(opts.cap_y * Ht, Ht * 120 / 1920, Ht - Ht * 120 / 1920)];
@@ -1064,7 +1323,8 @@ function renderPhone() {
     const c = curClip();
     if (mode === 'clip' && c) {
       if (dragState) drawGuides(g, Wd, Ht);
-      if (c.title.trim()) drawTitle(g, c.title, Wd, Ht);
+      const tShow = pv && pv.c === c && pv.title != null ? pv.title : c.title;   // previewing "Hide it in the title"
+      if (tShow.trim()) drawTitle(g, tShow, Wd, Ht);
       if (opts.captions) {
         const cap = captionAt(c, vod.currentTime);
         if (cap) drawCaption(g, cap, capY, Wd, Ht, vod.currentTime);
@@ -1127,9 +1387,14 @@ function tick() {
   requestAnimationFrame(tick);
   if (!W || view !== 'review') return;
   const c = curClip();
+  if (pv && !vod.paused) pv.started = true;     // play() takes a moment to start: only a pause after that ends the preview
+  if (pv && (pv.c !== c || vod.currentTime >= pv.to || (vod.paused && pv.started) || performance.now() - pv.t0 > 15000)) {
+    const pc = pv.c; stopPreview(); if (curClip() === pc) renderCheck(pc);
+  }
   if (mode === 'clip' && c && !vod.paused) {
     if (vod.currentTime >= c.end - 0.04 || vod.currentTime < c.start - 1) { try { vod.currentTime = c.start; } catch {} }
   }
+  fixAudio(mode === 'clip' ? c : null);
   if (mode === 'clip' && c) {
     const f = Math.max(0, Math.min(1, (vod.currentTime - c.start) / (c.end - c.start)));
     $('#scrubFill').style.width = (f * 100) + '%';
@@ -1325,11 +1590,19 @@ function editWords(c) {
 }
 function rescanSoon(c) {
   saveClip(c, true);
+  if (safetyCfg.enabled === false) return;
+  if (safetyCfg.auto_recheck === false) {
+    // checking again after edits is switched off: just say the last check is out of date
+    if (c.safety) { c.check = Object.assign({}, c.check, { stale: true }); if (curClip() === c) renderCheck(c); }
+    return;
+  }
   clearTimeout(c._scanT);
   c._scanT = setTimeout(async () => {
-    const ws = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end).map(w => ({ start: w.start - c.start, end: w.end - c.start, word: w.word }));
-    try { c.safety = await api('/api/safety/scan', { words: ws, title: c.title, post: postFor(c) }); } catch { return; }
-    if (curClip() === c) { renderSafety(c); if (!$('#pane-captions').hidden && !$('#capLines').contains(document.activeElement)) renderCapEditor(); dirty = true; }
+    let r;
+    try { r = await api('/api/check', Object.assign(clipSnapshot(c), { action: '' })); } catch { return; }
+    const v = r.clips && r.clips[0]; if (!v) return;
+    c.safety = v.safety; c.check = v.check;
+    if (curClip() === c) { renderCheck(c); if (!$('#pane-captions').hidden && !$('#capLines').contains(document.activeElement)) renderCapEditor(); dirty = true; }
     renderRows();
   }, 350);
 }
@@ -1779,14 +2052,25 @@ function renderSafetySettings() {
   $$('#sfCensor button').forEach(b => b.classList.toggle('on', b.dataset.v === c.censor));
   $('#sfCensorHint').textContent = CENSOR_HINT[c.censor] || '';
   $('#sfHold').checked = c.hold !== false;
+  $$('#sfSens button').forEach(b => b.classList.toggle('on', b.dataset.v === (c.sensitivity || 'all')));
+  $('#sfSensHint').textContent = SENS_HINT[c.sensitivity || 'all'];
+  $$('#sfNotify button').forEach(b => b.classList.toggle('on', b.dataset.v === (c.notify || 'now')));
+  $$('#sfExport button').forEach(b => b.classList.toggle('on', b.dataset.v === (c.export_flagged || 'ask')));
+  $('#sfAuto').checked = c.auto !== false; $('#sfRemember').checked = c.remember_dismissed !== false; $('#sfRecheck').checked = c.auto_recheck !== false;
   if (document.activeElement !== $('#sfCustom')) $('#sfCustom').value = (c.custom || []).join(', ');
 }
 async function loadSafety() { try { safetyCfg = await api('/api/safety'); renderSafetySettings(); dirty = true; } catch {} }
 async function saveSafety(patch) {
-  try { safetyCfg = await api('/api/safety', patch); renderSafetySettings(); dirty = true; } catch (e) { toast(e.message, 'err'); }
+  try { safetyCfg = await api('/api/safety', patch); renderSafetySettings(); dirty = true; refreshChecks(); } catch (e) { toast(e.message, 'err'); }
 }
 $('#sfOn').onchange = e => saveSafety({ enabled: e.target.checked });
 $('#sfHold').onchange = e => saveSafety({ hold: e.target.checked });
+const SENS_HINT = { all: 'Flags everything it knows, swearing included.', skip_mild: 'Leaves out swearing and gambling talk.', serious: 'Only slurs, self-harm or harassment, personal info and your own words.' };
+const segSave = (id, key) => { $(id).onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveSafety({ [key]: v }).then(() => { if (W) { renderRows(); const c = curClip(); if (c && mode === 'clip') renderCheck(c); } }); }; };
+segSave('#sfSens', 'sensitivity'); segSave('#sfNotify', 'notify'); segSave('#sfExport', 'export_flagged');
+$('#sfAuto').onchange = e => saveSafety({ auto: e.target.checked });
+$('#sfRemember').onchange = e => saveSafety({ remember_dismissed: e.target.checked });
+$('#sfRecheck').onchange = e => saveSafety({ auto_recheck: e.target.checked });
 $('#sfCensor').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveSafety({ censor: v }); };
 $('#sfCats').onchange = e => {
   const k = e.target.dataset.check || e.target.dataset.censor; if (!k) return;

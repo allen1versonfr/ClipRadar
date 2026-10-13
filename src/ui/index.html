@@ -149,8 +149,20 @@
             <div class="seg small" id="inboxTabs" role="tablist">
               <button data-f="todo" class="on">To review <b id="nTodo"></b></button>
               <button data-f="skipped">Skipped <b id="nSkip"></b></button>
+              <button data-f="flagged" id="flagTab" hidden title="Clips the content check flagged, and what you decided about them">Flagged <b id="nFlag"></b></button>
               <button data-f="all">All <b id="nAll"></b></button>
               <button data-f="gems" id="gemsTab" hidden title="Quiet gems: funny or quotable lines Deep scan found where chat and volume were calm">Gems <b id="nGems"></b></button>
+            </div>
+            <div class="flag-bar" id="flagBar" hidden>
+              <select class="input sm" id="flagFilter" aria-label="Show flagged clips by status">
+                <option value="all">All flagged</option><option value="needs_review">Needs review</option>
+                <option value="reviewed">Reviewed</option><option value="corrected">Corrected</option>
+                <option value="dismissed">Dismissed</option><option value="excluded">Excluded from export</option>
+              </select>
+              <span class="grow"></span>
+              <button class="btn xs" id="flagLeaveAll" title="Leave every listed clip as it is">Leave all</button>
+              <button class="btn xs" id="flagDismissAll" title="Dismiss the open flags on every listed clip">Dismiss all</button>
+              <button class="btn xs" id="flagExcludeAll" title="Keep every listed clip out of rendering">Exclude all</button>
             </div>
             <div class="clip-rows" id="cards"></div>
             <div class="pane-foot" id="listenFoot" hidden><span class="spinner"></span><span id="listenText"></span></div>
@@ -194,6 +206,7 @@
                     <dt>Content</dt><dd id="cSafe"></dd>
                   </dl>
                 </div>
+                <div class="check-box" id="checkBox" hidden></div>
                 <div class="notice" id="cNotice" hidden></div>
                 <label class="fld">Title on the video
                   <span class="row"><input class="input grow" id="titleInput" maxlength="90" placeholder="No title"><button class="btn icon-only" id="nextTitle" title="Suggest another title (T)"><svg class="ic"><use href="#i-refresh"/></svg></button></span>
@@ -419,11 +432,25 @@
               <thead><tr><th>Look for</th><th class="c">Check</th><th class="c">Censor</th></tr></thead>
               <tbody id="sfCats"></tbody>
             </table>
+            <div class="fld">Sensitivity
+              <div class="seg" id="sfSens"><button data-v="all">Everything</button><button data-v="skip_mild">Skip mild</button><button data-v="serious">Only serious</button></div>
+              <span class="hint" id="sfSensHint"></span>
+            </div>
             <div class="fld">When something is flagged
               <div class="seg" id="sfCensor"><button data-v="off">Just flag it</button><button data-v="mask">Hide in captions</button><button data-v="mute">Mute it</button><button data-v="bleep">Bleep it</button></div>
               <span class="hint" id="sfCensorHint"></span>
             </div>
             <label class="fld switch-label">Hands-free: hold back clips with serious flags<span class="switch"><input type="checkbox" id="sfHold" checked><i></i></span></label>
+            <h3 class="sub">Reviewing flags</h3>
+            <label class="fld switch-label">Check clips by themselves<span class="switch"><input type="checkbox" id="sfAuto" checked><i></i></span></label>
+            <div class="fld">Show flags
+              <div class="seg" id="sfNotify"><button data-v="now">Right away</button><button data-v="later">Collect in the Flagged tab</button></div>
+            </div>
+            <div class="fld">Rendering a clip with flags you haven't reviewed
+              <div class="seg" id="sfExport"><button data-v="ask">Ask me first</button><button data-v="block">Not until reviewed</button><button data-v="allow">Just render it</button></div>
+            </div>
+            <label class="fld switch-label">Remember flags I dismiss<span class="switch"><input type="checkbox" id="sfRemember" checked><i></i></span></label>
+            <label class="fld switch-label">Check a clip again after I edit or fix it<span class="switch"><input type="checkbox" id="sfRecheck" checked><i></i></span></label>
             <label class="fld">Your own blocked words
               <textarea class="input" id="sfCustom" rows="2" placeholder="Your real name, your town, a friend's gamertag… separated by commas"></textarea>
               <span class="hint">Always treated as serious. Use it to keep personal details out of clips.</span>

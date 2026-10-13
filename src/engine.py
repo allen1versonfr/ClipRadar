@@ -1892,15 +1892,23 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         vf = vf.replace("format=yuv420p[v]", f"format=yuv420p,{sub}[v]")
 
     # censoring: silence flagged words, and for "bleep" lay a 1 kHz tone over them
+    # spans are (start, end) using censor_mode, or (start, end, mode) for a fix made on one clip
     af = ""
-    spans = [(max(0.0, a), min(length, b)) for a, b in (censor or []) if b > a and a < length]
-    if spans and info["has_audio"] and censor_mode in ("mute", "bleep"):
-        on = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in spans)
+    spans = []
+    for sp in censor or []:
+        a, b = float(sp[0]), float(sp[1])
+        m = sp[2] if len(sp) > 2 else censor_mode
+        if m in ("mute", "bleep") and b > a and a < length:
+            spans.append((max(0.0, a), min(length, b), m))
+    if spans and info["has_audio"]:
+        on = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b, _ in spans)
+        beeps = [(a, b) for a, b, m in spans if m == "bleep"]
         tail = "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000"
-        if censor_mode == "bleep":
+        if beeps:
+            on_b = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in beeps)
             af = (f";[0:a:0]volume=0:enable='{on}'[am];"
                   f"sine=frequency=1000:sample_rate=48000:duration={length:.3f},volume=0.6,"
-                  f"volume=0:enable='not({on})'[bp];"
+                  f"volume=0:enable='not({on_b})'[bp];"
                   f"[am][bp]amix=inputs=2:duration=first:normalize=0,{tail}[a]")
         else:
             af = f";[0:a:0]volume=0:enable='{on}',{tail}[a]"

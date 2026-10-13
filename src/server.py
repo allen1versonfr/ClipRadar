@@ -14,6 +14,7 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
+import copy
 import glob
 import hashlib
 import json
@@ -45,6 +46,7 @@ import tools_setup
 import updater
 import audio_events
 import chatsignal
+import checkflow
 import gems
 import learning
 import persist
@@ -267,19 +269,20 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     d["titles"] = [safety.mask_text(t, cfg) for t in info["titles"]]
     d["vibe"] = info["vibe"]
     d["emoji"] = info["emoji"]
-    d["safety"] = safety.scan(rel, d["title"], d.get("post", ""), cfg)
+    if cfg.get("auto", True) or d.get("safety"):
+        checkflow.check(d, cfg, pr["info"].get("has_audio", True))
     used.add(d["title"].lower())
 
 
 def rescan_all():
-    """Content-check settings changed: re-check every clip that has been listened to."""
+    """Content-check settings changed: check every clip that was checked before again.
+    Decisions made under different rules come back for review (checkflow handles that)."""
     cfg = safety.load_config()
-    for pr in list(projects.values()):
-        for d in pr.get("clips", []):
-            if d.get("listened"):
-                rel = [{"start": w["start"] - d["start"], "end": w["end"] - d["start"], "word": w["word"]}
-                       for w in d.get("words", []) if d["start"] - 0.2 <= w["start"] <= d["end"]]
-                d["safety"] = safety.scan(rel, d.get("title", ""), d.get("post", ""), cfg)
+    for pid, pr in list(projects.items()):
+        for d in pr.get("clips", []) + pr.get("gems", []):
+            if d.get("listened") and (d.get("safety") or cfg.get("auto", True)):
+                checkflow.check(d, cfg, pr["info"].get("has_audio", True))
+        save_project_soon(pid)
 
 
 def clip_dicts(pid: str, clips: list, kind: str = "hype") -> list:
@@ -371,6 +374,8 @@ def _revive(pid: str, d: dict) -> dict:
             pass
     d.setdefault("kind", "hype")
     d.setdefault("words", [])
+    if isinstance(d.get("safety"), dict) and "status" not in d["safety"]:
+        checkflow.refresh(d, None, pr["info"].get("has_audio", True))     # saved by 3.2: add statuses
     return d
 
 
@@ -420,6 +425,7 @@ def do_analyze(job, body: dict):
         pr["book"] = saved.get("book") or pr["book"]
         pr["clips"] = [_revive(pid, d) for d in saved["clips"]]
         pr["gems"] = [_revive(pid, d) for d in saved.get("gems", [])]
+        pr["removed"] = [dict(d, pid=pid) for d in saved.get("removed", [])]
         pr.update(deep_done=bool(saved.get("deep_done")), deep_model=saved.get("deep_model", ""),
                   deep_lang=saved.get("deep_lang", ""), restored=True)
         r = persist.summary(pr["clips"])
@@ -505,6 +511,8 @@ def _update_gems(pid: str, model: str, lang: str):
     out, used = [], {c.get("title", "").lower() for c in pr["clips"]}
     fresh = []
     _number(pr, found, "gem")
+    gone = _removed_nums(pr)
+    found = [g for g in found if g.id not in gone]
     for g in found:
         o = old.pop(g.id, None)
         if o:
@@ -760,6 +768,32 @@ def _apply_clip_state(pr: dict, d: dict, b: dict):
             d["words_edit"] = ws
     if not d.get("wordsEdited"):
         d.pop("words_edit", None)
+    checkflow.mark_changed(d)
+
+
+def _check_view(d: dict) -> dict:
+    keys = ("id", "start", "end", "title", "postText", "userPost", "userTitle", "userTrim", "state", "safety", "check")
+    return {k: d.get(k) for k in keys}
+
+
+def _drop_from_queue(pid: str, cid) -> int:
+    """Take a clip's unfinished renders out of the queue (finished files stay in Exports)."""
+    n = 0
+    with queue_lock:
+        for it in list(queue):
+            if it.get("pid") == pid and it.get("clip_id") == cid and it["status"] != "done":
+                if it["status"] == "rendering":
+                    it["cancel"] = True
+                else:
+                    queue.remove(it)
+                n += 1
+    if n:
+        save_queue_soon()
+    return n
+
+
+def _removed_nums(pr: dict) -> set:
+    return {m["num"] for m in (pr.get("book") or {}).get("moments", []) if m.get("removed")}
 
 
 def record_feedback(pid, cid, action: str):
@@ -861,6 +895,11 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
     if end_ - start_ < 1:
         raise RuntimeError("That clip is too short.")
     pr = projects.get(pid) or {}
+    d = _find_clip(pr, c.get("id")) if pr else None
+    if d:
+        why = checkflow.blocks_render(d)
+        if why:
+            raise RuntimeError(why)
     it = {"id": uuid.uuid4().hex[:8], "pid": pid, "clip_id": c.get("id"), "rank": int(c.get("rank") or 0),
           "start": start_, "end": end_, "title": str(c.get("title") or "")[:120],
           "post": str(c.get("post") or "")[:2200], "thumb": c.get("thumb", ""),
@@ -869,7 +908,11 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
           "video": pr.get("video", ""), "workdir": pr.get("workdir", ""), "live": pr.get("live", ""),
           "opts": dict(opts or {}), "status": "queued", "progress": 0.0, "step": "Waiting",
           "error": "", "cancel": False, "created": time.time(), "tiktok": None,
-          "words": _clean_words(c.get("words"))}
+          "words": _clean_words(c.get("words")),
+          # content check: fixes you applied, and flags you chose to leave alone (not censored)
+          "fix_spans": checkflow.render_spans(d) if d else [],
+          "keep_fps": [f["fp"] for f in ((d or {}).get("safety") or {}).get("flags", [])
+                       if f.get("status") in ("accepted", "dismissed")]}
     with queue_lock:
         queue.append(it)
     queue_wake.set()
@@ -998,9 +1041,22 @@ def _render_item(it: dict):
         res = safety.scan(words or [], title, post, cfg)
         it["safety"] = {"level": res["level"], "flags": res["flags"][:20]}
         if censoring:
-            words, spans, mode = safety.censored(words or [], res, cfg)
+            # flags you left alone or dismissed in Review aren't censored
+            keep = set(it.get("keep_fps") or [])
+            res_c = dict(res, flags=[f for f in res["flags"]
+                                     if checkflow.fingerprint(f, {"start": it["start"]}) not in keep])
+            words, spans, mode = safety.censored(words or [], res_c, cfg)
             title, post = safety.mask_text(title, cfg), safety.mask_text(post, cfg)
-            it["censored"] = sum(1 for f in res["flags"] if f["cat"] in cfg.get("censor_categories", []))
+            it["censored"] = sum(1 for f in res_c["flags"] if f["cat"] in cfg.get("censor_categories", []))
+    # fixes applied in Review: mute or bleep those words, and mask them in the captions
+    spans = [(a, b, mode) for a, b in spans]
+    for a, b, kind in it.get("fix_spans") or []:
+        ra, rb = a - it["start"], b - it["start"]
+        if rb > 0 and ra < it["end"] - it["start"]:
+            spans.append((max(0.0, ra), rb, kind))
+            if words:
+                words = [dict(w, word=safety.mask(w["word"])) if ra - 0.02 <= w["start"] <= rb else w for w in words]
+            it["censored"] = it.get("censored", 0) + 1
     if not ro.captions:
         words = []
     path = os.path.join(outdir, name)
@@ -1213,6 +1269,11 @@ def live_on_moment(sess, m: dict):
             d["held"] = f"Held for review: {worst.get('label', 'flagged')}" + (
                 f" ({worst.get('text')})" if worst.get("text") else "")
             sess.log(f"Moment {m['number']} held back by the content check")
+            return
+        why = checkflow.blocks_render(d, cfg)
+        if why:
+            d["held"] = "Held for review: flags not reviewed yet"
+            sess.log(f"Moment {m['number']} held back: {why}")
             return
         c = dict(d, rank=m["number"])
         c["post"] = d.get("post", "")
@@ -1755,6 +1816,8 @@ class Handler(BaseHTTPRequestHandler):
             taken = {c["id"] for c in mine}
             clips = [c for c in clips if not any(c.start < u["end"] - 2 and c.end > u["start"] + 2 for u in mine)]
             _number(pr, clips, "hype", taken)
+            gone = _removed_nums(pr)                 # clips you removed don't come back
+            clips = [c for c in clips if c.id not in gone]
             fresh, order = [], []
             for c in clips:
                 o = cur.get(c.id)
@@ -1804,6 +1867,88 @@ class Handler(BaseHTTPRequestHandler):
             pr["clips"].append(d)
             save_project_soon(pid)
             return self._json(d)
+
+        if p == "/api/check":
+            # Content Check review actions on one clip, or a few at once (leave, dismiss, exclude)
+            pid = body.get("pid")
+            pr = projects.get(pid)
+            if not pr:
+                return self._err("This session expired. Press Find clips again.", 404)
+            cfg = safety.load_config()
+            has_audio = pr["info"].get("has_audio", True)
+            ids = body["ids"] if isinstance(body.get("ids"), list) else [body.get("id")]
+            action = str(body.get("action") or "")
+            if len(ids) > 1 and action not in ("leave", "dismiss", "exclude"):
+                return self._err("That can't be done to several clips at once.")
+            out, fix = [], None
+            preview = action == "fix" and bool((body.get("args") or {}).get("preview"))
+            for cid in ids:
+                d = _find_clip(pr, cid)
+                if not d:
+                    continue
+                if preview:          # what a fix would do, without doing it
+                    d = copy.deepcopy(d)
+                if len(ids) == 1 and any(k in body for k in ("start", "title", "state", "words_edit", "postText")):
+                    _apply_clip_state(pr, d, body)       # the clip as it is in the app right now
+                if d.get("state") == "kept" and action in ("fix", "undo"):
+                    return self._err("This clip is already in the render queue. Remove it from the queue to change it.")
+                if not d.get("safety") and action not in ("", "recheck", "exclude"):
+                    checkflow.check(d, cfg, has_audio)
+                try:
+                    fix = checkflow.act(d, action, body.get("args") or {}, cfg, has_audio) if action else None
+                except ValueError as e:
+                    return self._err(str(e))
+                if action in ("", "recheck") or (action in ("fix", "undo") and cfg.get("auto_recheck", True)):
+                    checkflow.check(d, cfg, has_audio)
+                else:
+                    checkflow.refresh(d, cfg, has_audio)
+                    if action in ("fix", "undo"):
+                        checkflow.mark_changed(d)
+                if action == "exclude" and (body.get("args") or {}).get("on", True):
+                    if _drop_from_queue(pid, d["id"]) and d.get("state") == "kept":
+                        d["state"] = "todo"
+                out.append(_check_view(d))
+            if not pr.get("live") and not preview:
+                save_project_soon(pid, 0.2)
+            return self._json({"clips": out, "fix": fix})
+
+        if p in ("/api/clip_remove", "/api/clip_restore"):
+            # F: take a clip out of the project (its source video and rendered files stay), or undo that
+            pid = body.get("pid")
+            pr = projects.get(pid)
+            if not pr:
+                return self._err("This session expired. Press Find clips again.", 404)
+            cid = body.get("id")
+            if p == "/api/clip_remove":
+                d = _find_clip(pr, cid)
+                if not d:
+                    return self._err("That clip is gone.", 404)
+                for key in ("clips", "gems"):
+                    if d in pr.get(key, []):
+                        pr[key].remove(d)
+                pr.setdefault("removed", []).append(d)
+                for m in (pr.get("book") or {}).get("moments", []):
+                    if m["num"] == d["id"]:
+                        m["removed"] = True
+                _drop_from_queue(pid, d["id"])
+                checkflow.log(d, "remove", "Removed from the project")
+            else:
+                d = next((x for x in pr.get("removed", []) if x.get("id") == cid), None)
+                if not d:
+                    return self._err("That clip can't be brought back.", 404)
+                pr["removed"].remove(d)
+                key = "gems" if d.get("kind") == "gem" else "clips"
+                lst = pr.setdefault(key, [])
+                at = next((i for i, c in enumerate(lst) if c.get("score", 0) < d.get("score", 0)), len(lst))
+                lst.insert(at, d)
+                for m in (pr.get("book") or {}).get("moments", []):
+                    if m["num"] == d["id"]:
+                        m.pop("removed", None)
+                checkflow.log(d, "restore", "Put back in the project")
+            pr["clips_ver"] = pr.get("clips_ver", 0) + 1
+            if not pr.get("live"):
+                save_project_soon(pid, 0.2)
+            return self._json({"ok": True, "clip": d if p == "/api/clip_restore" else None})
 
         if p == "/api/clip_state":
             # what you did to a clip in the app (keep, skip, trims, title, captions), saved with the VOD
