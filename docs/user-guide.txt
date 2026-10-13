@@ -83,6 +83,10 @@ USE
     header, and you can keep reviewing while it runs.
       Up / Down arrows          previous / next clip
       Space play/pause, T new title, M mute, Left/Right seek, C clip (live)
+    Each clip has a number (#7) that stays with that moment, even when you
+    change the sliders. Clips you kept, skipped, trimmed or retitled never drop
+    out of the list. Your review is saved as you go: open the same VOD again
+    (Recent on the Home screen) and everything is where you left it.
 
   Live mode
     Pick a mode on the Home screen:
@@ -116,6 +120,10 @@ USE
     saved next to it as a .txt. Select one to watch it and post it to TikTok.
     If a clip fails to render, its row says why (for example "your drive is
     full") and what to do, with a Retry button. Retry failed retries them all.
+    A retry replaces its own file instead of making a "(2)" copy, and every
+    finished file is checked before it shows as done. Exports and any renders
+    that hadn't finished are kept when you close VodClipper; unfinished
+    renders start again the next time you open it.
 
 CONTENT CHECK (Settings > Content check)
   Checks what each clip says, its title and its post caption for things that

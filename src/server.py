@@ -14,10 +14,13 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
+import glob
+import hashlib
 import json
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -44,6 +47,7 @@ import audio_events
 import chatsignal
 import gems
 import learning
+import persist
 import twitchauth
 
 from version import VERSION
@@ -58,21 +62,26 @@ last_ping = [time.time()]
 
 
 def shutdown_all(wait: float = 6.0):
-    """Cancel running jobs (stops ffmpeg/downloads cleanly), then exit the process."""
+    """Cancel running jobs (stops ffmpeg/downloads cleanly), save what's open, then exit the process.
+    Renders that didn't finish stay in the queue and start again next time."""
+    SHUTTING_DOWN[0] = True
     for j in list(jobs.values()):
         if j["status"] == "running":
             j["cancel"] = True
     for sess in list(live_sessions.values()):
         threading.Thread(target=sess.stop, daemon=True).start()
     for it in list(queue):
-        it["cancel"] = True
-        if it["status"] == "queued":
-            it["status"] = "cancelled"
+        if it["status"] == "rendering":
+            it["cancel"] = True
     end = time.time() + wait
     while time.time() < end and (any(j["status"] == "running" for j in jobs.values())
                                  or any(it["status"] == "rendering" for it in queue)):
         time.sleep(0.2)
+    flush_saves()
     os._exit(0)
+
+
+SHUTTING_DOWN = [False]
 
 
 shutdown_hook = [shutdown_all]
@@ -157,6 +166,86 @@ def curve_preview(score, points: int = 1400) -> list:
     return [round(float(s[a:b].max()), 2) for a, b in zip(edges[:-1], edges[1:])]
 
 
+# ---- saving: your review of each VOD (project.json) and the render queue (queue.json)
+
+QUEUE_FILE = str(paths.DATA_DIR / "queue.json")
+_save_timers: dict = {}
+_save_lock = threading.Lock()
+
+
+def _pid_for(workdir: str) -> str:
+    """The same VOD gets the same project id every time it's opened."""
+    key = os.path.normcase(os.path.realpath(workdir)).encode("utf-8", "replace")
+    return hashlib.sha1(key).hexdigest()[:8]
+
+
+def save_project(pid: str):
+    pr = projects.get(pid)
+    if not pr or pr.get("live") or "analysis" not in pr:
+        return
+    try:
+        data = json.loads(json.dumps(persist.project_payload(pr, _project_sig(pr))))
+    except RuntimeError:            # a background job changed a clip mid-copy: try again in a moment
+        save_project_soon(pid)
+        return
+    except (TypeError, ValueError) as e:
+        print(f"  Couldn't save the project: {e}", flush=True)
+        return
+    try:
+        persist.write_json(os.path.join(pr["workdir"], "project.json"), data)
+        engine._save_meta(pr["workdir"], review=persist.summary(data["clips"]))
+    except OSError as e:
+        print(f"  Couldn't save the project: {e}", flush=True)
+
+
+def save_queue():
+    with queue_lock:
+        data = json.loads(json.dumps(persist.queue_payload(queue)))
+    try:
+        persist.write_json(QUEUE_FILE, data)
+    except OSError as e:
+        print(f"  Couldn't save the render queue: {e}", flush=True)
+
+
+def _run_save(key, fn):
+    with _save_lock:
+        _save_timers.pop(key, None)
+    try:
+        fn()
+    except Exception:
+        traceback.print_exc()
+
+
+def _save_later(key, fn, delay: float):
+    with _save_lock:
+        old = _save_timers.pop(key, None)
+        if old:
+            old.cancel()
+        t = threading.Timer(delay, _run_save, args=(key, fn))
+        t.daemon = True
+        _save_timers[key] = t
+        t.start()
+
+
+def save_project_soon(pid: str, delay: float = 1.0):
+    _save_later(("project", pid), lambda: save_project(pid), delay)
+
+
+def save_queue_soon(delay: float = 0.3):
+    _save_later(("queue",), save_queue, delay)
+
+
+def flush_saves():
+    """Write everything that's waiting to be saved, right now (used when quitting)."""
+    with _save_lock:
+        pending = list(_save_timers.values())
+        _save_timers.clear()
+    for t in pending:
+        t.cancel()
+        _run_save(*t.args)
+    save_queue()
+
+
 TX_MARGIN = 8.0   # seconds transcribed around each clip: trims keep captions, and cuts can move to a sentence
 
 
@@ -172,7 +261,7 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     info = titles.generate(rel, _chat_window(pr, d["start"], d["end"]),
                            peak_rel=d.get("peak", d["start"]) - d["start"], used=used)
     cfg = safety.load_config()
-    if not d.get("user_title"):
+    if not d.get("user_title") and not d.get("userTitle"):
         d["title"] = safety.mask_text(info["title"], cfg)
         d["post"] = safety.mask_text(info["post"], cfg)
     d["titles"] = [safety.mask_text(t, cfg) for t in info["titles"]]
@@ -193,7 +282,7 @@ def rescan_all():
                 d["safety"] = safety.scan(rel, d.get("title", ""), d.get("post", ""), cfg)
 
 
-def clip_dicts(pid: str, clips: list) -> list:
+def clip_dicts(pid: str, clips: list, kind: str = "hype") -> list:
     pr = projects[pid]
     tdir = os.path.join(pr["workdir"], "thumbs")
     os.makedirs(tdir, exist_ok=True)
@@ -213,7 +302,7 @@ def clip_dicts(pid: str, clips: list) -> list:
         d["vod"] = f"/vod/{pid}"
         d.setdefault("words", [])
         d.setdefault("listened", False)
-        d.setdefault("kind", "gem" if d.get("id", 0) >= gems.GEM_ID else "hype")
+        d.setdefault("kind", kind)
         # quick first title from chat alone; replaced once the clip has been listened to
         _title_clip(pr, d, [], used)
         out.append(d)
@@ -234,13 +323,55 @@ def project_view(pid: str) -> dict:
         "deep": deep_status(pr), "length_mode": pr.get("length", 0),
         "vod": f"/vod/{pid}", "vcodec": pr["info"].get("vcodec", ""),
         "ext": os.path.splitext(pr["video"])[1].lower(),
+        "settings": {"count": pr.get("count", 0), "length": pr.get("length", 0),
+                     "chat_weight": an.chat_weight_pct},
+        "restored": bool(pr.get("restored")),
+        "review": persist.summary(pr["clips"]),
     }
 
 
 def _pick(pr: dict, count: int, length: float) -> list:
     an = pr["analysis"]
+    pr["count"] = count
     return engine.pick_clips(an, count=count, length=length, chat=pr["chat"], chat_delay=pr["chat_delay"],
                              adjust=learning.adjuster(pr.get("streamer", "")))
+
+
+def _number(pr: dict, clips: list, kind: str = "hype", taken: Optional[set] = None):
+    """Give engine.Clips their lasting numbers (the same moment keeps its number for good)."""
+    taken = set() if taken is None else taken
+    book = pr.setdefault("book", {"next": 1, "moments": []})
+    for c in clips:
+        c.id = persist.number_for(book, c.start, c.end, c.peak, kind, taken)
+        taken.add(c.id)
+
+
+def _project_sig(pr: dict) -> str:
+    """Which video a saved review belongs to: its size, so downloading the same VOD again still matches."""
+    try:
+        return str(os.path.getsize(pr["video"]))
+    except OSError:
+        return ""
+
+
+def _revive(pid: str, d: dict) -> dict:
+    """A clip from project.json, ready for the app again."""
+    d = dict(d)
+    d["pid"] = pid
+    d["vod"] = f"/vod/{pid}"
+    d["thumb"] = re.sub(r"^/files/\w+/", f"/files/{pid}/", d.get("thumb", ""))
+    pr = projects[pid]
+    m = re.match(r"^/files/\w+/thumbs/([\w.-]+)$", d["thumb"])
+    if m and not os.path.exists(os.path.join(pr["workdir"], "thumbs", m.group(1))):
+        try:                     # thumbnails go with Delete VODs; make them again
+            os.makedirs(os.path.join(pr["workdir"], "thumbs"), exist_ok=True)
+            engine.make_thumb(pr["video"], d["start"] + (d["end"] - d["start"]) * 0.6,
+                              os.path.join(pr["workdir"], "thumbs", m.group(1)))
+        except Exception:
+            pass
+    d.setdefault("kind", "hype")
+    d.setdefault("words", [])
+    return d
 
 
 def do_analyze(job, body: dict):
@@ -256,36 +387,63 @@ def do_analyze(job, body: dict):
                            log=log, progress=job_progress(job, 0.0, 0.62), step=step, check=check)
     step("Finding the best moments")
     delay = float(body.get("chat_delay", 6))
-    an = engine.analyze(s.video, s.chat, chat_delay=delay,
-                        chat_weight_pct=float(body.get("chat_weight", 60)),
-                        log=log, progress=job_progress(job, 0.62, 0.94), check=check,
-                        events=bool(body.get("events", True)))
-    pid = uuid.uuid4().hex[:8]
+    an = engine.analyze_cached(s.workdir, s.video, s.chat, chat_delay=delay,
+                               chat_weight_pct=float(body.get("chat_weight", 60)),
+                               log=log, progress=job_progress(job, 0.62, 0.94), check=check,
+                               events=bool(body.get("events", True)))
+    pid = _pid_for(s.workdir)
+    old = projects.get(pid)
+    if old:      # opened again while it was still open: stop its background work first
+        for k in ("listen_job", "deep_job"):
+            j = jobs.get(old.get(k, ""))
+            if j and j["status"] == "running":
+                j["cancel"] = True
     info = engine.probe(s.video)
     length = float(body.get("length", 0) or 0)
+    count = int(body.get("count", 0) or 0)
     projects[pid] = {"video": s.video, "chat": s.chat, "title": s.title, "workdir": s.workdir,
                      "analysis": an, "info": info, "clips": [], "chat_delay": delay,
                      "source": src, "clips_ver": 0, "streamer": s.streamer, "length": length,
-                     "tx_lock": threading.Lock(), "gems": []}
+                     "count": count, "tx_lock": threading.Lock(), "gems": [],
+                     "book": {"next": 1, "moments": []}}
     pr = projects[pid]
     engine._save_meta(s.workdir, duration=an.duration)
     _load_transcripts(pr)
     est = engine.estimate(an)
-    clips = _pick(pr, int(body.get("count", 0) or 0), length)
-    step("Making thumbnails")
-    pr["clips"] = clip_dicts(pid, clips)
-    for d in pr["clips"]:
-        d["len_mode"] = length
-    if clips:
-        log(f"Found {len(clips)} clip{'s' if len(clips) != 1 else ''} worth a look "
-            f"(about {est['strong']} strong moment{'s' if est['strong'] != 1 else ''} in this stream).")
+    saved = persist.load_project(os.path.join(s.workdir, "project.json"), _project_sig(pr))
+    if saved:
+        # opened before: bring back the clips, their numbers and everything you did to them
+        st = saved.get("settings") or {}
+        pr["count"] = int(st.get("count", count) or 0)
+        pr["length"] = float(st.get("length", length) or 0)
+        an.combine(float(st.get("chat_weight", an.chat_weight_pct)))
+        pr["book"] = saved.get("book") or pr["book"]
+        pr["clips"] = [_revive(pid, d) for d in saved["clips"]]
+        pr["gems"] = [_revive(pid, d) for d in saved.get("gems", [])]
+        pr.update(deep_done=bool(saved.get("deep_done")), deep_model=saved.get("deep_model", ""),
+                  deep_lang=saved.get("deep_lang", ""), restored=True)
+        r = persist.summary(pr["clips"])
+        log(f"Picked up where you left off: {r['kept']} kept, {r['skipped']} skipped, {r['todo']} to review.")
     else:
-        log("Nothing stood out strongly. Click the timeline to add clips yourself.")
-    tuned = sum(1 for c in clips if abs(c.tuned) > 0.05)
-    if tuned:
-        log(f"Ranking tuned to what you kept and skipped before ({learning.describe(s.streamer)['using']}).")
+        clips = _pick(pr, count, length)
+        _number(pr, clips)
+        step("Making thumbnails")
+        pr["clips"] = clip_dicts(pid, clips)
+        for d in pr["clips"]:
+            d["len_mode"] = length
+        if clips:
+            log(f"Found {len(clips)} clip{'s' if len(clips) != 1 else ''} worth a look "
+                f"(about {est['strong']} strong moment{'s' if est['strong'] != 1 else ''} in this stream).")
+        else:
+            log("Nothing stood out strongly. Click the timeline to add clips yourself.")
+        tuned = sum(1 for c in clips if abs(c.tuned) > 0.05)
+        if tuned:
+            log(f"Ranking tuned to what you kept and skipped before ({learning.describe(s.streamer)['using']}).")
+    save_project_soon(pid, 0.1)
     model, lang = _deep_model(body.get("deep_model") or "auto"), body.get("language") or ""
-    if _covered(pr, model, lang) >= 0.98:
+    if saved and pr["deep_done"] and pr["gems"]:
+        pass                                    # quiet gems came back with the project
+    elif _covered(pr, model, lang) >= 0.98:
         _update_gems(pid, model, lang)          # deep scanned before: the quiet gems are ready right away
         pr.update(deep_done=True, deep_model=model, deep_lang=lang)
     elif body.get("deep_scan"):
@@ -343,20 +501,19 @@ def _update_gems(pid: str, model: str, lang: str):
     words = tx["words"]
     taken = [(c["start"], c["end"]) for c in pr["clips"]]
     found, _curve = gems.find(pr["analysis"], words, taken, chat=pr["chat"], chat_delay=pr["chat_delay"])
-    old = {round(g["peak"]): g for g in pr.get("gems", [])}
+    old = {g["id"]: g for g in pr.get("gems", [])}
     out, used = [], {c.get("title", "").lower() for c in pr["clips"]}
     fresh = []
+    _number(pr, found, "gem")
     for g in found:
-        o = old.get(round(g.peak))
+        o = old.pop(g.id, None)
         if o:
             out.append(o)
         else:
             fresh.append(g)
-    next_id = max([g["id"] for g in pr.get("gems", [])] + [gems.GEM_ID]) + 1
-    for g in fresh:
-        g.id = next_id
-        next_id += 1
-    for d in clip_dicts(pid, fresh):
+    # gems you already did something with stay, even if a later pass ranks them out
+    out += [g for g in old.values() if persist.touched(g)]
+    for d in clip_dicts(pid, fresh, kind="gem"):
         ws = [w for w in words if d["start"] - TX_MARGIN <= w["start"] <= d["end"] + TX_MARGIN]
         d["words"] = ws
         _title_clip(pr, d, ws, used)
@@ -365,6 +522,7 @@ def _update_gems(pid: str, model: str, lang: str):
         out.append(d)
     out.sort(key=lambda d: -d.get("score", 0))
     pr["gems"] = out
+    save_project_soon(pid)
 
 
 def start_deep_scan(pid: str, model: str, lang: str):
@@ -459,7 +617,8 @@ def _tx(pr: dict, model: str, lang: str) -> dict:
 
 def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lambda: None) -> list:
     """Transcript words (absolute times) for [a, b] of the VOD, transcribing any missing parts."""
-    a, b = max(0.0, a), min(pr["analysis"].duration, b)
+    dur = pr["analysis"].duration if "analysis" in pr else pr.get("duration") or b
+    a, b = max(0.0, a), min(dur, b)
     with pr["tx_lock"]:
         tx = _tx(pr, model, lang)
         gaps, cur = [], a
@@ -537,7 +696,8 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
             if sess:   # live moments are separate projects; don't repeat titles across the stream
                 used |= {projects[m]["clips"][0]["title"].lower() for m in sess.moments
                          if m != pid and m in projects and projects[m]["clips"] and projects[m]["clips"][0].get("listened")}
-            if words and not d.get("trimmed") and not d.get("manual"):
+            if words and not d.get("trimmed") and not d.get("manual") and not d.get("userTrim") \
+                    and d.get("state") != "kept":
                 # never start or stop mid-sentence
                 fixed = (d.get("len_mode") or pr.get("length") or 0) > 0
                 a2, b2 = engine.refine_with_words(d["start"], d["end"], d.get("peak", d["start"]), words,
@@ -552,6 +712,8 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
             _title_clip(pr, d, words, used)
             d["listened"] = True
             job["progress"] = (n + 1) / max(1, len(todo))
+            if not pr.get("live"):
+                save_project_soon(pid, 3.0)
         if not pr.get("live"):
             _save_transcripts(pr)
         if on_done:
@@ -571,6 +733,33 @@ def _find_clip(pr: dict, cid) -> Optional[dict]:
         if d.get("id") == cid:
             return d
     return None
+
+
+def _apply_clip_state(pr: dict, d: dict, b: dict):
+    if b.get("state") in ("todo", "kept", "skipped"):
+        d["state"] = b["state"]
+    if "start" in b and "end" in b:
+        st, en = float(b["start"]), float(b["end"])
+        dur = pr["analysis"].duration if "analysis" in pr else None
+        if dur:
+            st, en = max(0.0, st), min(dur, en)
+        if en - st >= 1:
+            d["start"], d["end"] = round(st, 3), round(en, 3)
+    for k in ("userTrim", "userTitle", "userPost", "wordsEdited"):
+        if k in b:
+            d[k] = bool(b[k])
+    if "title" in b:
+        d["title"] = str(b["title"] or "")[:120]
+    if "postText" in b:
+        d["postText"] = str(b["postText"] or "")[:2200]
+    if "words_edit" in b:
+        ws = _clean_words(b["words_edit"])
+        if ws is None:
+            d.pop("words_edit", None)
+        else:
+            d["words_edit"] = ws
+    if not d.get("wordsEdited"):
+        d.pop("words_edit", None)
 
 
 def record_feedback(pid, cid, action: str):
@@ -626,6 +815,8 @@ def _clean_words(ws) -> Optional[list]:
             item = {"start": st, "end": max(en, st + 0.05), "word": txt}
             if w.get("g") is not None:
                 item["g"] = str(w["g"])[:24]
+            if w.get("edited"):
+                item["edited"] = True
             out.append(item)
     return sorted(out, key=lambda w: w["start"])
 
@@ -669,37 +860,112 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
     start_, end_ = float(c["start"]), float(c["end"])
     if end_ - start_ < 1:
         raise RuntimeError("That clip is too short.")
+    pr = projects.get(pid) or {}
     it = {"id": uuid.uuid4().hex[:8], "pid": pid, "clip_id": c.get("id"), "rank": int(c.get("rank") or 0),
           "start": start_, "end": end_, "title": str(c.get("title") or "")[:120],
           "post": str(c.get("post") or "")[:2200], "thumb": c.get("thumb", ""),
-          "source_title": projects[pid]["title"] if pid in projects else "",
+          "source_title": pr.get("title", ""),
+          # enough to render it after a restart, when the project isn't open any more
+          "video": pr.get("video", ""), "workdir": pr.get("workdir", ""), "live": pr.get("live", ""),
           "opts": dict(opts or {}), "status": "queued", "progress": 0.0, "step": "Waiting",
           "error": "", "cancel": False, "created": time.time(), "tiktok": None,
           "words": _clean_words(c.get("words"))}
     with queue_lock:
         queue.append(it)
     queue_wake.set()
+    save_queue_soon()
     return it
+
+
+_render_projects: dict = {}
+
+
+def _render_project(it: dict) -> dict:
+    """The project a queued clip comes from. After a restart it isn't open, so rebuild the little
+    a render needs (the video, its folder and any transcript made before)."""
+    pr = projects.get(it["pid"])
+    if pr:
+        return pr
+    video = it.get("video") or ""
+    if not video or not os.path.exists(video):
+        raise RuntimeError("The VOD for this clip was deleted.")
+    pr = _render_projects.get(it["pid"])
+    if not pr or pr["video"] != video:
+        info = engine.probe(video)
+        pr = {"video": video, "workdir": it.get("workdir") or os.path.dirname(video),
+              "title": it.get("source_title", ""), "info": info, "duration": info["duration"],
+              "tx_lock": threading.Lock(), "live": it.get("live", "")}
+        if not pr["live"]:
+            _load_transcripts(pr)
+        _render_projects[it["pid"]] = pr
+    return pr
 
 
 def queue_busy() -> bool:
     return any(it["status"] in ("queued", "rendering") for it in queue)
 
 
+def _file_name(it: dict, outdir: str) -> str:
+    """The clip's file is named after its title, chosen once: a retry replaces its own file, and only
+    another clip with the same title gets " (2)"."""
+    if it.get("name") and os.path.normcase(it.get("folder") or "") == os.path.normcase(outdir):
+        return it["name"]
+    base = _safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
+    with queue_lock:
+        claimed = {os.path.normcase(x["name"]) for x in queue if x is not it and x.get("name")
+                   and os.path.normcase(x.get("folder") or "") == os.path.normcase(outdir)}
+    name, n = f"{base}.mp4", 2
+    while os.path.normcase(name) in claimed or os.path.exists(os.path.join(outdir, name)):
+        name = f"{base} ({n}).mp4"
+        n += 1
+    it["name"], it["folder"] = name, outdir
+    save_queue_soon()
+    return name
+
+
+MB_PER_SECOND = 1.5      # generous upper bound for a 1080x1920 clip
+
+
+def _check_space(outdir: str, seconds: float):
+    need = seconds * MB_PER_SECOND * 1e6 + 200e6
+    try:
+        free = shutil.disk_usage(outdir).free
+    except OSError:
+        return
+    if free < need:
+        raise OSError(28, f"No space left on device ({free // 1_000_000} MB free, "
+                          f"about {int(need // 1_000_000)} MB needed)")
+
+
+def _check_output(path: str, expect: float):
+    """A finished render must be a real video of the right length before it counts as done."""
+    try:
+        size = os.path.getsize(path)
+        info = engine.probe(path) if size > 1000 else None
+    except Exception:
+        info = None
+    if not info or abs(info["duration"] - expect) > max(1.0, expect * 0.05):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        got = f" ({info['duration']:.1f}s instead of {expect:.1f}s)" if info else ""
+        raise BrokenOutput(f"The rendered file came out broken{got}.")
+
+
+class BrokenOutput(RuntimeError):
+    pass
+
+
 def _render_item(it: dict):
-    pr = projects.get(it["pid"])
-    if not pr or not os.path.exists(pr["video"]):
+    pr = _render_project(it)
+    if not os.path.exists(pr["video"]):
         raise RuntimeError("The VOD for this clip was deleted.")
     ro = _ropts(it["opts"])
     outdir = os.path.join(pr["workdir"], "tiktok")
     os.makedirs(outdir, exist_ok=True)
-    base = _safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
-    # the file is named after the clip's title; a second clip with the same title gets " (2)"
-    name = f"{base}.mp4"
-    n = 2
-    while os.path.exists(os.path.join(outdir, name)):
-        name = f"{base} ({n}).mp4"
-        n += 1
+    name = _file_name(it, outdir)
+    _check_space(outdir, it["end"] - it["start"])
 
     def check():
         if it["cancel"]:
@@ -737,26 +1003,37 @@ def _render_item(it: dict):
             it["censored"] = sum(1 for f in res["flags"] if f["cat"] in cfg.get("censor_categories", []))
     if not ro.captions:
         words = []
-    it["step"] = "Rendering"
     path = os.path.join(outdir, name)
-    engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=title,
-                       progress=prog, check=check, words=words, censor=spans, censor_mode=mode,
-                       log=lambda m: print("  " + m, flush=True))
+    expect = min(it["end"], pr["info"]["duration"] or it["end"]) - max(0.0, it["start"])
+    for attempt in (1, 2):
+        it["step"] = "Rendering" if attempt == 1 else "Rendering again"
+        it["progress"] = 0.0
+        engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=title,
+                           progress=prog, check=check, words=words, censor=spans, censor_mode=mode,
+                           log=lambda m: print("  " + m, flush=True))
+        if TEST_HOOKS.get("break_next_output"):
+            TEST_HOOKS["break_next_output"] = False
+            with open(path, "r+b") as f:
+                f.truncate(500)
+        try:
+            _check_output(path, expect)
+            break
+        except BrokenOutput as e:
+            print(f"  {e}" + (" Trying once more." if attempt == 1 else ""), flush=True)
+            if attempt == 2:
+                raise
     # caption to paste when posting, saved next to the video
     if post:
         it["post"] = post
         try:
-            with open(os.path.splitext(path)[0] + ".txt", "w", encoding="utf-8") as f:
-                f.write(post + "\n")
+            persist.write_text(os.path.splitext(path)[0] + ".txt", post + "\n")
         except OSError:
             pass
-    it["name"] = name
     it["path"] = path
-    it["folder"] = outdir
-    it["url"] = f"/files/{it['pid']}/tiktok/{name}?v={int(time.time() * 1000)}"
+    it["url"] = f"/export/{it['id']}?v={int(time.time() * 1000)}"
 
 
-TEST_HOOKS = {"fail_next_render": False}
+TEST_HOOKS = {"fail_next_render": False, "break_next_output": False}
 
 
 def friendly_render_error(e: Exception) -> tuple:
@@ -777,6 +1054,9 @@ def friendly_render_error(e: Exception) -> tuple:
          "The captions couldn't be drawn. Try the Classic font in the Text tab, then retry."),
         ("error while opening encoder" in low or "nvenc" in low or "qsv" in low or "amf" in low,
          "The video encoder failed. Turn off \"Use the GPU to encode\" in the Layout tab, then retry."),
+        ("came out broken" in low,
+         "The finished file came out broken twice. Retry; if it keeps happening, turn off "
+         "\"Use the GPU to encode\" in the Layout tab."),
         ("invalid data found" in low or "moov atom" in low or "end of file" in low,
          "The source video is damaged or incomplete, so this part couldn't be read."),
         ("timed out" in low or "timeout" in low,
@@ -794,6 +1074,7 @@ def start_tiktok_post(it: dict, mode: str, body: dict) -> dict:
     job = new_job("tiktok")
     it["tiktok"] = {"state": "posting", "mode": mode, "job": job["id"], "at": time.time(),
                     "auto": bool(body.get("auto"))}
+    save_queue_soon()
 
     def go():
         try:
@@ -805,10 +1086,12 @@ def start_tiktok_post(it: dict, mode: str, body: dict) -> dict:
                 progress=job_progress(job, 0, 1), step=job_step(job), check=job_check(job))
         except Exception as e:
             it["tiktok"] = {"state": "error", "mode": mode, "error": str(e), "at": time.time()}
+            save_queue_soon()
             raise
         url = tiktok.post_url(r.get("post_id", ""))
         it["tiktok"] = {"state": "done", "mode": mode, "status": r["status"], "post_id": r.get("post_id", ""),
                         "url": url, "at": time.time(), "auto": bool(body.get("auto"))}
+        save_queue_soon()
         if not body.get("auto"):
             try:
                 record_feedback(it["pid"], it.get("clip_id"), "post")
@@ -828,6 +1111,7 @@ def _after_render(it: dict):
                 start_tiktok_post(it, "draft", {"title": it.get("post", "") or it.get("title", ""), "auto": True})
             except Exception as e:
                 it["tiktok"] = {"state": "error", "mode": "draft", "error": str(e), "at": time.time()}
+                save_queue_soon()
 
 
 def queue_worker():
@@ -842,16 +1126,24 @@ def queue_worker():
                     it["progress"] = 0.0
             if not it:
                 break
+            if SHUTTING_DOWN[0]:
+                it["status"] = "queued"
+                return
+            save_queue_soon()
             t0 = time.time()
             try:
                 _render_item(it)
                 it["status"] = "done"
                 it["progress"] = 1.0
                 it["step"] = f"Done in {time.time() - t0:.0f}s"
+                save_queue_soon(0)
             except engine.Cancelled:
                 with queue_lock:
-                    if it in queue:
+                    if SHUTTING_DOWN[0]:
+                        it.update(status="queued", progress=0.0, step="Waiting", cancel=False)
+                    elif it in queue:
                         queue.remove(it)
+                save_queue_soon(0)
                 continue
             except Exception as e:
                 it["status"] = "error"
@@ -860,6 +1152,7 @@ def queue_worker():
                 print(f"  Render failed: {it['error']} ({it['detail'][:300]})", flush=True)
                 if not isinstance(e, (RuntimeError, OSError)):
                     traceback.print_exc()
+                save_queue_soon(0)
                 continue
             try:
                 _after_render(it)
@@ -1186,6 +1479,13 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             job = jobs.get(m.group(1))
             return self._json(job) if job else self._err("That job is gone. Start it again.", 404)
+        m = re.fullmatch(r"/export/(\w+)", p)
+        if m:
+            with queue_lock:
+                it = next((x for x in queue if x["id"] == m.group(1)), None)
+            if not it or it["status"] != "done":
+                return self._err("not found", 404)
+            return self._send_file(it.get("path", ""))
         m = re.fullmatch(r"/vod/(\w+)", p)
         if m and m.group(1) in projects:
             return self._send_file(projects[m.group(1)]["video"])
@@ -1205,8 +1505,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(str(e), 500)
             return self._send_file(out, "image/jpeg", cache=True)
         m = re.fullmatch(r"/files/(\w+)/(.+)", p)
-        if m and m.group(1) in projects:
-            base = os.path.realpath(projects[m.group(1)]["workdir"])
+        workdir = ""
+        if m:
+            if m.group(1) in projects:
+                workdir = projects[m.group(1)]["workdir"]
+            else:   # Exports after a restart: the clip's VOD isn't open, but its folder is known
+                with queue_lock:
+                    workdir = next((x.get("workdir") or "" for x in queue if x.get("pid") == m.group(1)), "")
+        if m and workdir:
+            base = os.path.realpath(workdir)
             path = os.path.realpath(os.path.join(base, m.group(2)))
             if not path.startswith(base + os.sep):
                 return self._err("forbidden", 403)
@@ -1326,6 +1633,7 @@ class Handler(BaseHTTPRequestHandler):
             with queue_lock:
                 queue[:] = [it for it in queue if not (it["status"] == "done" and not os.path.exists(it.get("path", "")))
                             and not (it["status"] == "error" and it["pid"] in closed)]
+            save_queue_soon()
             res["closed"] = closed
             res["storage"] = engine.storage_summary(WORKROOT)
             return self._json(res)
@@ -1441,29 +1749,34 @@ class Handler(BaseHTTPRequestHandler):
             length = float(body.get("length", 0) or 0)
             pr["length"] = length
             clips = _pick(pr, int(body.get("count", 0) or 0), length)
-            # a clip that's still suggested keeps its id, title, transcript and sentence-aligned cuts
-            old = {round(c["peak"]): c for c in pr["clips"] if not c.get("manual") and c.get("len_mode", 0) == length}
-            next_id = max([c["id"] for c in pr["clips"]] + [0]) + 1
+            # clips you kept, skipped, trimmed, retitled or added stay whatever the sliders say
+            mine = [c for c in pr["clips"] if persist.touched(c)]
+            cur = {c["id"]: c for c in pr["clips"]}
+            taken = {c["id"] for c in mine}
+            clips = [c for c in clips if not any(c.start < u["end"] - 2 and c.end > u["start"] + 2 for u in mine)]
+            _number(pr, clips, "hype", taken)
             fresh, order = [], []
             for c in clips:
-                o = old.pop(round(c.peak), None)
-                if o:
+                o = cur.get(c.id)
+                if o and not o.get("manual"):
+                    # the same moment: it keeps its number, title and transcript
                     o.update(score=c.score, reason=c.reason, feat=c.feat, tuned=c.tuned)
+                    if o.get("len_mode", 0) != length:     # new length: new cuts, then a fresh listen
+                        o.update(start=c.start, end=c.end, peak=c.peak, len_mode=length, listened=False)
                     order.append(o)
                 else:
-                    c.id = next_id
-                    next_id += 1
                     fresh.append(c)
                     order.append(c)
             made = {d["id"]: d for d in clip_dicts(pid, fresh)}
             for d in made.values():
                 d["len_mode"] = length
             new = [made[x.id] if isinstance(x, engine.Clip) else x for x in order]
-            for m in [c for c in pr["clips"] if c.get("manual")]:
-                if not any(m["start"] < c["end"] and m["end"] > c["start"] for c in new):
-                    new.append(m)
+            for u in mine:                     # yours slot in by score
+                at = next((i for i, c in enumerate(new) if c.get("score", 0) < u.get("score", 0)), len(new))
+                new.insert(at, u)
             pr["clips"] = new
             pr["clips_ver"] = pr.get("clips_ver", 0) + 1
+            save_project_soon(pid)
             return self._json(project_view(pid))
 
         if p == "/api/add_clip":
@@ -1480,18 +1793,30 @@ class Handler(BaseHTTPRequestHandler):
                 end = min(an.duration, start + length)
             else:
                 start, end, _ = engine.smart_bounds(an, t)
-            nid = max([c["id"] for c in pr["clips"] + pr.get("gems", [])] + [0]) + 1
-            if nid >= gems.GEM_ID:
-                nid = max([c["id"] for c in pr["clips"] + pr.get("gems", [])]) + 1
             sc = an.score[int(min(max(t, 0), len(an.score) - 1))]
-            clip = engine.Clip(nid, round(start, 2), round(end, 2), t, round(float(sc), 2), "Added by you",
+            clip = engine.Clip(0, round(start, 2), round(end, 2), t, round(float(sc), 2), "Added by you",
                                engine.clip_features(an, start, end, t, pr["chat"], engine.chat_times(pr["chat"]),
                                                     pr["chat_delay"]))
+            _number(pr, [clip], "hype", {c["id"] for c in pr["clips"] + pr.get("gems", [])})
             d = clip_dicts(pid, [clip])[0]
             d["manual"] = True
             d["kind"] = "hype"
             pr["clips"].append(d)
+            save_project_soon(pid)
             return self._json(d)
+
+        if p == "/api/clip_state":
+            # what you did to a clip in the app (keep, skip, trims, title, captions), saved with the VOD
+            pr = projects.get(body.get("pid"))
+            if not pr:
+                return self._err("This session expired. Press Find clips again.", 404)
+            d = _find_clip(pr, body.get("id"))
+            if not d:
+                return self._err("That clip is gone.", 404)
+            _apply_clip_state(pr, d, body)
+            if not pr.get("live"):
+                save_project_soon(body["pid"], float(body.get("delay", 0.5) or 0))
+            return self._json({"ok": True})
 
         if p == "/api/listen":
             pid = body.get("pid")
@@ -1521,6 +1846,7 @@ class Handler(BaseHTTPRequestHandler):
                     it["cancel"] = True          # the worker drops it once ffmpeg stops
                 elif it:
                     queue.remove(it)
+            save_queue_soon()
             return self._json({"ok": True})
 
         if p == "/api/queue/retry":
@@ -1531,14 +1857,15 @@ class Handler(BaseHTTPRequestHandler):
                         it.update(status="queued", progress=0.0, error="", detail="", step="Waiting", cancel=False)
                         n += 1
             queue_wake.set()
+            save_queue_soon()
             if not n:
                 return self._err("Nothing to retry.", 404)
             return self._json({"ok": True, "retried": n})
 
         if p.startswith("/api/test/") and os.environ.get("VODCLIPPER_TEST") == "1":
             act = p[len("/api/test/"):]
-            if act == "fail_next_render":
-                TEST_HOOKS["fail_next_render"] = True
+            if act in ("fail_next_render", "break_next_output"):
+                TEST_HOOKS[act] = True
                 return self._json({"ok": True})
             if act == "hotkey":
                 return self._json({"ok": hotkey.simulate()})
@@ -1725,10 +2052,42 @@ def start(port: int = PORT):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     if not _worker_started[0]:
         _worker_started[0] = True
+        _clean_leftovers()
+        load_queue()
         threading.Thread(target=queue_worker, daemon=True).start()
         updater.start_background(log=_say)
         hotkey.start(on_hotkey)
     return srv, f"http://127.0.0.1:{port}"
+
+
+def load_queue():
+    """Bring back Exports and any renders that hadn't finished when VodClipper last closed."""
+    items = persist.restore_queue(persist.read_json(QUEUE_FILE))
+    for it in items:
+        if it["status"] == "done":
+            it["url"] = f"/export/{it['id']}?v={int(time.time() * 1000)}"
+    with queue_lock:
+        known = {x["id"] for x in queue}
+        queue[:0] = [it for it in items if it["id"] not in known]
+    left = sum(1 for it in items if it["status"] == "queued")
+    if items:
+        print(f"  Render queue restored: {len(items)} clip(s)" + (f", {left} to render" if left else ""), flush=True)
+    if left:
+        queue_wake.set()
+
+
+def _clean_leftovers():
+    """Temporary files a render leaves behind if VodClipper is closed or crashes mid-render."""
+    pats = ("vc_*.part.mp4", "vc_*.ass", "*.mp4.*.tmp", "*.txt.*.tmp")
+    for folder in glob.glob(os.path.join(WORKROOT, "*", "tiktok")):
+        for pat in pats:
+            for f in glob.glob(os.path.join(folder, pat)):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+        for d in glob.glob(os.path.join(folder, "vc_fonts_*")):
+            shutil.rmtree(d, ignore_errors=True)
 
 
 def busy() -> bool:

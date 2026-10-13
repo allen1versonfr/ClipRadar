@@ -158,8 +158,8 @@ def _save_meta(workdir: str, **kv):
             meta = {}
     meta.update(kv)
     meta["updated"] = time.time()
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=1)
+    import persist
+    persist.write_json(path, meta, indent=1)
 
 
 # --------------------------------------------------------------------------
@@ -279,9 +279,9 @@ def delete_vods(workroot: str) -> dict:
         v = _vod_files(pdir)
         count += 1 if _has_vod(pdir) else 0
         files += v
-        chat = os.path.join(pdir, "chat.json")
-        if os.path.isfile(chat):
-            files.append(chat)
+        for name in ("chat.json", "analysis.npz"):
+            if os.path.isfile(os.path.join(pdir, name)):
+                files.append(os.path.join(pdir, name))
         tdir = os.path.join(pdir, "thumbs")
         if os.path.isdir(tdir):
             files += [os.path.join(tdir, f) for f in os.listdir(tdir)]
@@ -327,7 +327,7 @@ def recent_projects(workroot: str, limit: int = 8) -> list:
         if not m.get("local") and not _video_in(os.path.join(workroot, d)):
             continue
         out.append({"title": m.get("title", d), "source": src, "updated": m.get("updated", 0),
-                    "duration": m.get("duration", 0)})
+                    "duration": m.get("duration", 0), "review": m.get("review")})
     out.sort(key=lambda x: -x["updated"])
     return out[:limit]
 
@@ -1018,6 +1018,77 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
         if bits:
             log("Chat: " + ", ".join(bits) + ".")
     progress(1.0)
+    return an
+
+
+# Bump when anything that feeds the analysis changes (chat scoring, loudness, detector use),
+# so a cached analysis.npz from an older version is thrown away instead of reused.
+ANALYSIS_VERSION = 1
+
+
+def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Optional[str]:
+    try:
+        st = os.stat(video)
+        import audio_events
+        with_ev = bool(events and audio_events.available())
+        return json.dumps([ANALYSIS_VERSION, st.st_size, int(st.st_mtime), len(chat),
+                           round(chat[-1][0], 2) if chat else 0, round(float(chat_delay), 2), with_ev,
+                           audio_events.MODEL_SHA256 if with_ev else ""])
+    except Exception:
+        return None
+
+
+def _save_analysis(path: str, key: str, an: Analysis):
+    arrays = {"chat_z": np.asarray(an.chat_z, dtype=np.float32), "audio_z": np.asarray(an.audio_z, dtype=np.float32)}
+    for name in ("loud", "fine"):
+        v = getattr(an, name)
+        if v is not None:
+            arrays[name] = np.asarray(v, dtype=np.float32)
+    for k, v in (an.events or {}).items():
+        arrays["ev_" + k] = np.asarray(v, dtype=np.float32)
+    meta = {"key": key, "duration": an.duration, "has_chat": an.has_chat, "has_audio": an.has_audio,
+            "chat_stats": an.chat_stats, "events": sorted((an.events or {}).keys())}
+    arrays["meta"] = np.array(json.dumps(meta, default=lambda o: o.item() if hasattr(o, "item") else str(o)))
+    tmp = path[:-4] + f".{os.getpid()}.tmp.npz"
+    np.savez(tmp, **arrays)
+    os.replace(tmp, path)
+
+
+def _load_analysis(path: str, key: str) -> Optional[Analysis]:
+    with np.load(path, allow_pickle=False) as f:
+        meta = json.loads(str(f["meta"]))
+        if meta.get("key") != key:
+            return None
+        get = lambda n: f[n].copy() if n in f.files else None  # noqa: E731
+        events = {k: f["ev_" + k].copy() for k in meta.get("events", [])} or None
+        return Analysis(float(meta["duration"]), f["chat_z"].copy(), f["audio_z"].copy(), bool(meta["has_chat"]),
+                        bool(meta["has_audio"]), events=events, loud=get("loud"), fine=get("fine"),
+                        chat_stats=meta.get("chat_stats"))
+
+
+def analyze_cached(workdir: str, video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: float = 60,
+                   log: Log = _noop, progress: Progress = _noop, check: Check = _noop,
+                   events: bool = True) -> Analysis:
+    """analyze(), but a VOD you've opened before is ready instantly (cached in workdir/analysis.npz)."""
+    path = os.path.join(workdir, "analysis.npz")
+    key = _analysis_key(video, chat, chat_delay, events)
+    if key and os.path.exists(path):
+        try:
+            an = _load_analysis(path, key)
+        except Exception:
+            an = None
+        if an is not None:
+            an.combine(chat_weight_pct)
+            log("Opened the analysis from last time.")
+            progress(1.0)
+            return an
+    an = analyze(video, chat, chat_delay=chat_delay, chat_weight_pct=chat_weight_pct, log=log,
+                 progress=progress, check=check, events=events)
+    if key:
+        try:
+            _save_analysis(path, key, an)
+        except Exception as e:
+            log(f"Couldn't save the analysis for next time ({str(e)[:80]}).")
     return an
 
 
