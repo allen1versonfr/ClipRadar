@@ -802,8 +802,17 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
             job["step"] = f"Listening to clip {n + 1} of {len(todo)}"
             words = []
             if can_listen:
+                gated = bool(pr.get("live"))
                 try:
-                    words = ensure_words(pr, d["start"] - TX_MARGIN, d["end"] + TX_MARGIN, model, lang, check)
+                    if gated:
+                        job["step"] = "Waiting for other moments to be listened to" if live_gate.queued() or live_gate.busy else job["step"]
+                        live_gate.acquire(_live_prio(d), check)
+                        job["step"] = f"Listening to clip {n + 1} of {len(todo)}"
+                    try:
+                        words = ensure_words(pr, d["start"] - TX_MARGIN, d["end"] + TX_MARGIN, model, lang, check)
+                    finally:
+                        if gated:
+                            live_gate.release()
                 except engine.Cancelled:
                     raise
                 except Exception as e:
@@ -1543,6 +1552,10 @@ def queue_worker(idx: int = 0):
         while True:
             with queue_lock:
                 it = next((x for x in queue if x["status"] == "queued"), None)
+                if it and it.get("live"):
+                    # live moments waiting together: the strongest renders first
+                    it = max((x for x in queue if x["status"] == "queued" and x.get("live")),
+                             key=lambda x: x.get("prio", 0), default=it)
                 if it:
                     it["status"] = "rendering"
                     it["progress"] = 0.0
@@ -1580,6 +1593,7 @@ def queue_worker(idx: int = 0):
                 _after_render(it)
             except Exception:
                 traceback.print_exc()
+            _live_rendered(it)
 
 
 # --------------------------------------------------------------------------
@@ -1605,6 +1619,63 @@ def on_hotkey():
         hotkey.beep(False)
 
 
+class PriorityGate:
+    """Lets one job at a time through, the highest priority first (live moments waiting for Whisper:
+    the moment you clipped yourself, then the strongest)."""
+
+    def __init__(self, slots: int = 1):
+        self.cv = threading.Condition()
+        self.slots, self.busy, self.waiting, self.n = slots, 0, [], 0
+
+    def acquire(self, prio: float, check=None):
+        with self.cv:
+            self.n += 1
+            key = (-float(prio), self.n)
+            self.waiting.append(key)
+            try:
+                while self.busy >= self.slots or min(self.waiting) != key:
+                    self.cv.wait(0.5)
+                    if check:
+                        check()
+            except BaseException:
+                self.waiting.remove(key)
+                self.cv.notify_all()
+                raise
+            self.waiting.remove(key)
+            self.busy += 1
+
+    def release(self):
+        with self.cv:
+            self.busy -= 1
+            self.cv.notify_all()
+
+    def queued(self) -> int:
+        with self.cv:
+            return len(self.waiting)
+
+
+live_gate = PriorityGate(1)
+
+
+def _live_prio(d: dict) -> float:
+    return 1000.0 if d.get("manual") else float(d.get("quality") or 0)
+
+
+def _live_rendered(it: dict):
+    """Hands-free: how long rendering took, and the whole way from the moment on stream to the file."""
+    sess = live_sessions.get(it.get("live") or "")
+    if not sess or it.get("status") != "done":
+        return
+    now = time.time()
+    sess.note_latency("render", now - it.get("created", now))
+    lat = it.get("lat") or {}
+    if it.get("aired"):
+        lat["render"] = round(now - it.get("created", now), 2)
+        lat["total"] = round(now - it["aired"], 2)
+        sess.note_latency("total", lat["total"])
+        sess.last_lat = lat
+
+
 def live_on_moment(sess, m: dict):
     """A live session found a moment: register it as a small project, title it, maybe render it."""
     mid = uuid.uuid4().hex[:8]
@@ -1620,11 +1691,19 @@ def live_on_moment(sess, m: dict):
     d = pr["clips"][0]
     d.update(moment=m["number"], manual=m["manual"], live=sess.id, created=time.time(),
              at=round(m["offset"] + clip.peak, 1), abs_start=round(m["offset"] + clip.start, 1),
-             abs_end=round(m["offset"] + clip.end, 1), len_mode=sess.length)
+             abs_end=round(m["offset"] + clip.end, 1), len_mode=sess.length, lat=dict(m.get("lat") or {}))
     sess.moments.append(mid)
     extra = sess.extra
+    aired = m.get("aired")
 
     def done(_pid):
+        now = time.time()
+        d["lat"]["title"] = round(now - d["created"], 2)
+        sess.note_latency("title", d["lat"]["title"])
+        if aired and not extra.get("auto_render"):
+            d["lat"]["total"] = round(now - aired, 2)       # ready to look at: cut, captioned and titled
+            sess.note_latency("total", d["lat"]["total"])
+            sess.last_lat = dict(d["lat"])
         if not extra.get("auto_render"):
             return
         cfg = safety.load_config()
@@ -1645,8 +1724,20 @@ def live_on_moment(sess, m: dict):
         c["post"] = d.get("post", "")
         it = queue_add(mid, c, extra.get("opts") or {})
         it["auto_draft"] = bool(extra.get("auto_draft"))
+        it["prio"] = _live_prio(d)
+        it["lat"], it["aired"] = dict(d["lat"]), aired
         d["auto_queued"] = True
     start_listening(mid, [d["id"]], extra.get("model") or "small", extra.get("language") or "", on_done=done)
+
+
+def _live_delay(v):
+    """Chat delay for live: a number of seconds, or "auto" (empty) to work it out from the stream."""
+    if v in (None, "", "auto"):
+        return "auto"
+    try:
+        return min(max(float(v), 0.0), 30.0)
+    except (TypeError, ValueError):
+        return "auto"
 
 
 def start_live_session(src: str, body: dict):
@@ -1655,7 +1746,7 @@ def start_live_session(src: str, body: dict):
     sess = live.LiveSession(
         sid, src, WORKROOT, length=float(body.get("length", 0) or 0), events=bool(body.get("events", True)),
         sensitivity=body.get("frequency") or body.get("sensitivity", "normal"),
-        chat_delay=float(body.get("chat_delay", 6)),
+        chat_delay=_live_delay(body.get("chat_delay", "auto")), min_quality=int(body.get("min_quality") or 0),
         chat_weight=float(body.get("chat_weight", 60)), max_height=int(body.get("max_height", 1080)),
         cookies=body.get("cookies") or "", warmup=float(body.get("warmup", 90)),
         buffer_minutes=float(body.get("buffer_minutes", 15)),
@@ -1695,7 +1786,7 @@ def _watch_for_next(sess):
         return
     params = dict(sess.extra["params"])
     params.update(wait_for_live=True, opts=sess.extra.get("opts"), auto_draft=sess.extra.get("auto_draft"),
-                  hands_free=sess.extra.get("auto_render"), frequency=sess.frequency,
+                  hands_free=sess.extra.get("auto_render"), frequency=sess.frequency, min_quality=sess.min_quality,
                   model=sess.extra.get("model"), language=sess.extra.get("language"))
     try:
         nxt = start_live_session(params["source"], params)
@@ -2137,6 +2228,11 @@ class Handler(BaseHTTPRequestHandler):
                 level = body.get("frequency") or body.get("sensitivity")
                 if level:
                     sess.set_frequency(level)
+                if "min_quality" in body:
+                    try:
+                        sess.min_quality = int(min(max(int(body["min_quality"] or 0), 0), 95))
+                    except (TypeError, ValueError):
+                        pass
                 for k in ("auto_draft", "keep_watching"):
                     if k in body:
                         sess.extra[k] = bool(body[k])

@@ -1352,8 +1352,9 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
     if end > dur:
         start = max(0.0, start - (end - dur))
         end = dur
-    start = _snap(an.fine, start, 1.5, 0.8)
-    end = _snap(an.fine, end, 0.8, 1.5)
+    s2, e2 = _snap(an.fine, start, 1.5, 0.8), _snap(an.fine, end, 0.8, 1.5)
+    if min_len - 0.05 <= e2 - s2 <= max_len + 0.05 or not (min_len - 0.05 <= end - start <= max_len + 0.05):
+        start, end = s2, e2                      # moving to a pause mustn't break the clip lengths you set
     if avail is not None and not final and end > n - 0.5:
         complete = False                         # live: the end hasn't been recorded yet
     start, end = max(0.0, start), min(dur, end)
