@@ -17,6 +17,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -146,7 +147,7 @@ def vod_checks(a, tmp):
     ok = r and r["status"] == "done"
     rec("VOD analysis", ok, r and (r.get("error") or " / ".join(r["log"][-4:])))
     if not ok:
-        return
+        return None
     pv = r["result"]
     pid = pv["pid"]
     cs = pv.get("chat_stats") or {}
@@ -196,6 +197,93 @@ def vod_checks(a, tmp):
         rec("deep scan transcribes the whole VOD", done and done["state"] == "done" and words >= 5,
             f"{done and done.get('state')} {done and done.get('error', '')}; {words} words saved; "
             f"{len(get(f'/api/clips/{pid}').get('gems', []))} quiet gems")
+    return {"pid": pid, "vod": vod, "chat": chat, "clips": clips}
+
+
+def _item(iid):
+    return next((i for i in get("/api/queue")["items"] if i["id"] == iid), None)
+
+
+def _wait_item(iid, timeout, states=("done", "error")):
+    return wait(lambda: (lambda q: q if q and q["status"] in states else None)(_item(iid)), timeout, 0.5)
+
+
+def persistence_checks(ctx, restart):
+    """3.2: clip numbers stay with their moments, and the review, Exports and unfinished renders
+    survive closing the app (here: killing it mid-render)."""
+    pid = ctx["pid"]
+    opts = {"layout": "blur", "captions": False, "hw_encode": False}
+    auto = get(f"/api/clips/{pid}")["clips"]
+    if len(auto) < 3:
+        rec("persistence: enough clips to test with", False, len(auto))
+        return
+    k, s, x = auto[0], auto[1], auto[2]
+    post("/api/clip_state", {"pid": pid, "id": k["id"], "state": "kept", "title": "Kept forever", "userTitle": True})
+    post("/api/clip_state", {"pid": pid, "id": s["id"], "state": "skipped"})
+    few = {c["id"]: c for c in post("/api/repick", {"pid": pid, "count": 1, "length": 0, "chat_weight": 60}).get("clips", [])}
+    rec("kept and skipped clips stay when you ask for fewer",
+        k["id"] in few and s["id"] in few and few[k["id"]].get("title") == "Kept forever" and few[k["id"]].get("state") == "kept",
+        sorted(few))
+    full = post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 60}).get("clips", [])
+    before = {round(c["peak"]): c["id"] for c in auto}
+    after = {round(c["peak"]): c["id"] for c in full}
+    same = [p for p in before if p in after]
+    rec("clip numbers stay with their moments", same and all(before[p] == after[p] for p in same),
+        [(p, before[p], after.get(p)) for p in before])
+    ids = [c["id"] for c in full]
+    rec("no two clips share a number", len(ids) == len(set(ids)), ids)
+
+    it1 = post("/api/queue/add", {"pid": pid, "clip": dict(k, title="Kept forever", rank=k["id"], words=None), "opts": opts})
+    d1 = _wait_item(it1.get("id"), 240)
+    rec("kept clip renders", d1 and d1["status"] == "done" and d1.get("name") == "Kept forever.mp4",
+        d1 and (d1.get("name") or d1.get("error")))
+    post("/api/test/break_next_output")
+    it2 = post("/api/queue/add", {"pid": pid, "clip": dict(s, title="Second try", rank=s["id"], words=None), "opts": opts})
+    d2 = _wait_item(it2.get("id"), 240)
+    rec("a broken render is caught and redone", d2 and d2["status"] == "done" and d2.get("name") == "Second try.mp4",
+        d2 and (d2.get("name") or d2.get("error")))
+    # a long render, closed half-way through
+    long_clip = dict(x, start=0, end=140, title="Interrupted", rank=x["id"], words=None)
+    it3 = post("/api/queue/add", {"pid": pid, "clip": long_clip, "opts": opts})
+    mid = wait(lambda: (lambda q: q if q and q["status"] == "rendering" and q["progress"] >= 0.35 else None)(
+        _item(it3.get("id"))), 180, 0.2)
+    rec("render in progress before closing", mid, mid and mid.get("progress"))
+    up = restart()
+    rec("app starts again", up)
+    if not up:
+        return
+    items = {i["id"]: i for i in get("/api/queue")["items"]}
+    e1 = items.get(it1.get("id"))
+    served = False
+    if e1 and e1.get("url"):
+        try:
+            served = urllib.request.urlopen(B + e1["url"], timeout=20).status == 200
+        except Exception:
+            served = False
+    rec("Exports survive a restart", e1 and e1["status"] == "done" and served and it2.get("id") in items,
+        e1 and f"{e1['status']} served={served}")
+    d3 = _wait_item(it3.get("id"), 400)
+    rec("an unfinished render finishes after a restart", d3 and d3["status"] == "done" and d3.get("name") == "Interrupted.mp4",
+        d3 and (d3.get("name") or d3.get("error")) or (items.get(it3.get("id")) or {}).get("status"))
+    folder = (d1 or {}).get("folder") or ""
+    left = [f for f in os.listdir(folder) if f.startswith("vc_")] if os.path.isdir(folder) else []
+    files = sorted(f for f in os.listdir(folder) if f.endswith(".mp4")) if os.path.isdir(folder) else []
+    rec("no temp or duplicate files left behind", not left and files == ["Interrupted.mp4", "Kept forever.mp4", "Second try.mp4"],
+        f"{left} {files}")
+    # open the same VOD again
+    j = post("/api/analyze", {"source": ctx["vod"], "chat_file": ctx["chat"], "count": 5, "length": 0, "events": True})
+    r = wait_job(j.get("job", ""), 300) if j.get("job") else None
+    pv = (r or {}).get("result") or {}
+    got = {c["id"]: c for c in pv.get("clips", [])}
+    rec("reopening a VOD picks up where you left off",
+        pv.get("restored") and pv.get("pid") == pid and got.get(k["id"], {}).get("state") == "kept"
+        and got.get(k["id"], {}).get("title") == "Kept forever" and got.get(s["id"], {}).get("state") == "skipped"
+        and sorted(got) == sorted(c["id"] for c in full),
+        f"restored={pv.get('restored')} review={pv.get('review')} ids={sorted(got)}")
+    rec("reopening reuses the analysis", r and any("analysis from last time" in ln for ln in r.get("log", [])),
+        r and r.get("log", [])[-3:])
+    rec("kept clip still shows as rendered", any(i.get("pid") == pid and i.get("clip_id") == k["id"] and i["status"] == "done"
+                                                 for i in get("/api/queue")["items"]))
 
 
 def main():
@@ -224,7 +312,33 @@ def main():
                VODCLIPPER_TWITCH_ID=f"http://127.0.0.1:{TW_PORT}", VODCLIPPER_TWITCH_GQL=f"http://127.0.0.1:{TW_PORT}/gql",
                VODCLIPPER_TEST="1", VODCLIPPER_WAIT_POLL="3")
     cmd = shlex.split(a.app, posix=(os.name != "nt")) + ["--browser"]
-    app = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def start_app():
+        kw = {} if os.name == "nt" else {"start_new_session": True}
+        return subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+
+    def kill_app(p):
+        """Hard kill, like a crash or power cut: no chance to save on the way out."""
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
+        else:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                p.kill()
+        try:
+            p.wait(timeout=20)
+        except Exception:
+            pass
+
+    proc = [start_app()]
+
+    def restart():
+        kill_app(proc[0])
+        time.sleep(1.5)
+        proc[0] = start_app()
+        return wait(lambda: _try(lambda: get("/api/status")), 90)
+
     producer = None
     try:
         st = wait(lambda: _try(lambda: get("/api/status")), 90)
@@ -233,7 +347,9 @@ def main():
             return finish(a.out)
 
         # ------------------------------------------------------------ VOD: chat cleaning, smart cuts, deep scan, learning
-        vod_checks(a, tmp)
+        ctx = vod_checks(a, tmp)
+        if ctx:
+            persistence_checks(ctx, restart)
 
         # ------------------------------------------------------------ live mode
         src = os.path.join(tmp, "stream_src.mp4")
@@ -350,7 +466,8 @@ def main():
             rt = post("/api/queue/retry", {"id": it.get("id")})
             again = wait(lambda: (lambda q: q if q and q["status"] in ("done", "error") else None)(
                 next((i for i in get("/api/queue")["items"] if i["id"] == it.get("id")), None)), 240, 2)
-            rec("retry renders it", rt.get("retried") == 1 and again and again["status"] == "done",
+            rec("retry renders it, under the same name", rt.get("retried") == 1 and again and again["status"] == "done"
+                and again.get("name") == "Retry me.mp4",
                 again and (again.get("name") or again.get("error")))
             post("/api/safety", {"censor": "bleep"})
             s0 = base["start"]
@@ -490,7 +607,7 @@ def main():
         except Exception:
             pass
         time.sleep(3)
-        for p in (producer, app):
+        for p in (producer, proc[0]):
             if p and p.poll() is None:
                 p.kill()
         if keep_tmp:

@@ -3,6 +3,27 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.2.0] - 2026-10-13
+
+Nothing gets lost: your review, your clip numbers and your renders survive changing the sliders, closing the app and crashes.
+
+### Added
+- Your review of each VOD is saved as you go: kept and skipped clips, trims, titles, post captions and caption edits. Open the same VOD again and everything is where you left it, sliders included.
+- Opening a VOD you've opened before is instant: the analysis is reused instead of listening to the whole stream again.
+- Exports and the render queue are kept when you close VodClipper. Renders that hadn't finished start again by themselves next time.
+- The Recent list on Home shows how far you got with each VOD.
+
+### Changed
+- Every clip has a number (#7) that stays with that moment for good. Moving the Clips, Length or Chat-vs-audio slider no longer renumbers clips, and a moment that comes back gets its old number.
+- Clips you kept, skipped, trimmed, retitled or added yourself never drop out of the list when you ask for fewer clips.
+
+### Fixed
+- A kept clip could vanish from the list after lowering the Clips slider, and its number could then be given to a different moment that showed up as "Rendered".
+- Retrying a failed render replaces its own file instead of leaving a "(2)" copy.
+- Every finished file is checked before it counts as done; a broken one is rendered again automatically.
+- VodClipper warns that the drive is full before a render starts, not halfway through.
+- Temporary files left behind by a render that was cut off are cleaned up.
+
 ## [3.1.2] - 2026-10-13
 
 ### Fixed

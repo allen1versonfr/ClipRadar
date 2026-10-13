@@ -207,12 +207,12 @@ $('#livePill').onclick = async () => {
   } else setView('review');
 };
 $('#quitBtn').onclick = async () => {
-  if (status.running && !await ask({ title: 'Quit VodClipper?', body: 'Something is still running (a download, render or live recording). It will be stopped.', ok: 'Quit', danger: true })) return;
+  if (status.running && !await ask({ title: 'Quit VodClipper?', body: 'Something is still running (a download, render or live recording). It will be stopped. Renders that didn\'t finish start again next time you open VodClipper.', ok: 'Quit', danger: true })) return;
   await api('/api/quit', {}).catch(() => {});
   document.body.innerHTML = '<div style="height:100vh;display:grid;place-items:center;color:#a3a6ae;font:14px Segoe UI,system-ui">VodClipper has stopped. You can close this tab.</div>';
 };
 window.askQuit = async () => {
-  if (await ask({ title: 'Quit VodClipper?', body: 'Something is still running (a download, render or live recording). It will be stopped.', ok: 'Quit', danger: true }))
+  if (await ask({ title: 'Quit VodClipper?', body: 'Something is still running (a download, render or live recording). It will be stopped. Renders that didn\'t finish start again next time you open VodClipper.', ok: 'Quit', danger: true }))
     await api('/api/quit', {}).catch(() => {});
 };
 
@@ -327,7 +327,8 @@ async function loadRecent() {
   let list = [];
   try { list = await api('/api/recent'); } catch {}
   $('#recentWrap').hidden = !list.length;
-  $('#recentTable tbody').innerHTML = list.map(r => `<tr data-src="${esc(r.source)}"><td title="${esc(r.title)}">${esc(r.title)}</td>
+  const rv = r => r.review && (r.review.kept || r.review.skipped) ? ` <span class="muted">· ${r.review.kept} kept, ${r.review.todo} to review</span>` : '';
+  $('#recentTable tbody').innerHTML = list.map(r => `<tr data-src="${esc(r.source)}"><td title="${esc(r.title)}">${esc(r.title)}${rv(r)}</td>
     <td title="${esc(r.source)}">${esc(r.source)}</td><td class="r tnum">${r.duration ? fmt(r.duration) : ''}</td><td class="r">${r.updated ? ago(r.updated) : ''}</td></tr>`).join('');
 }
 $('#recentTable').addEventListener('click', e => {
@@ -351,6 +352,7 @@ function postFor(c) {
 }
 function prepClip(c) {
   c.state = c.state || 'todo';
+  if (c.wordsEdited && c.words_edit) { c.wordsOrig = c.words || []; c.words = c.words_edit; delete c.words_edit; }
   c.kind = c.kind || 'hype';
   c.title = c.title || ''; c.titles = c.titles || []; c.words = c.words || [];
   if (c.absOff == null) c.absOff = c.abs_start != null ? c.abs_start - c.start : 0;
@@ -372,8 +374,19 @@ function mergeClip(c, s) {
 function openVod(p) {
   W = { kind: 'vod', pid: p.pid, title: p.title, duration: p.duration, curve: p.curve, meta: p,
         clips: p.clips.map(prepClip).concat((p.gems || []).map(prepClip)), listening: false, deep: p.deep };
+  if (p.restored && p.settings) {
+    // opened before: the sliders go back to where you left them for this VOD
+    setCount(p.settings.count || 0);
+    $('#length').value = String(p.settings.length || 0); if ($('#length').value === '') $('#length').value = '0';
+    store.set('length2', $('#length').value);
+    $('#cw').value = p.settings.chat_weight; store.set('cw', $('#cw').value);
+  }
   startWorkspace();
   listen();
+  if (p.restored) {
+    const r = p.review || {};
+    toast(`Picked up where you left off: ${plural(r.kept || 0, 'clip')} kept, ${r.skipped || 0} skipped, ${r.todo || 0} to review.`, '', 5000);
+  }
 }
 function openLive(v, fresh) {
   W = { kind: 'live', sid: v.id, title: v.title, duration: Math.max(1, v.recorded), curve: v.curve, live: v,
@@ -572,7 +585,7 @@ function renderRows() {
       return `<button class="crow ${keyOf(c) === cur && mode === 'clip' ? 'cur' : ''}" data-k="${esc(keyOf(c))}">
         <span class="vt"><img src="${c.thumb}" alt=""></span>
         <span><span class="ct ${c.listened || c.userTitle ? '' : 'pending'}">${risk}${title}</span>
-        <span class="cm"><span>${W.kind === 'live' ? fmt(absOf(c, c.start)) : fmt(c.start)}</span><span>${Math.round(c.end - c.start)}s</span>${c.vibe ? `<span>${VIBE[c.vibe] || ''}</span>` : ''}</span>${st}</span>
+        <span class="cm">${W.kind === 'vod' ? `<span class="num">#${c.id}</span>` : ''}<span>${W.kind === 'live' ? fmt(absOf(c, c.start)) : fmt(c.start)}</span><span>${Math.round(c.end - c.start)}s</span>${c.vibe ? `<span>${VIBE[c.vibe] || ''}</span>` : ''}</span>${st}</span>
         ${c.isNew ? '<span class="new" title="New"></span>' : ''}</button>`;
     }).join(''), 'k');
   }
@@ -633,7 +646,7 @@ function fillInspector() {
   if (!$('#pane-captions').hidden && !$('#capLines').contains(document.activeElement)) renderCapEditor();
   const gemList = W.clips.filter(isGem), hypeList = W.clips.filter(x => !isGem(x));
   $('#cRank').textContent = W.kind === 'live' ? `Moment ${c.moment || rankOf(c)}${c.manual ? ' (clipped by you)' : ''}`
-    : isGem(c) ? `Quiet gem ${gemList.indexOf(c) + 1} of ${gemList.length}` : `Clip ${hypeList.indexOf(c) + 1} of ${hypeList.length}`;
+    : isGem(c) ? `Quiet gem #${c.id} · ${gemList.indexOf(c) + 1} of ${gemList.length}` : `Clip #${c.id} · ${hypeList.indexOf(c) + 1} of ${hypeList.length}`;
   $('#cTime').textContent = `${fmt(absOf(c, c.start))} to ${fmt(absOf(c, c.end))} (${Math.round(c.end - c.start)}s)`;
   $('#cWhy').textContent = c.reason || '';
   $('#cVibe').textContent = c.vibe ? VIBE[c.vibe] || c.vibe : c.listened ? 'Neutral' : 'Listening…';
@@ -669,7 +682,7 @@ function nextTitle() {
   const c = curClip(); if (!c || !(c.titles || []).length || c.state === 'kept') return;
   const i = c.titles.findIndex(t => t === c.title);
   c.title = c.titles[(i + 1) % c.titles.length]; c.userTitle = true;
-  fillInspector(); renderRows(); dirty = true;
+  fillInspector(); renderRows(); dirty = true; saveClip(c, true);
 }
 $('#nextTitle').onclick = nextTitle;
 let rrTimer = 0; function renderRowsSoon() { clearTimeout(rrTimer); rrTimer = setTimeout(renderRows, 250); }
@@ -685,7 +698,7 @@ $('#clipForm').addEventListener('click', e => {
   else c.end = Math.min(maxEnd, Math.max(c.start + 3, d === 'now' ? now : c.end + +d));
   try { vod.currentTime = which === 'e' ? Math.max(c.start, c.end - 3) : c.start; } catch {}
   vod.play().catch(() => {});
-  fillInspector(); renderRows(); drawHeat(); dirty = true;
+  fillInspector(); renderRows(); drawHeat(); dirty = true; saveClip(c, true);
   if (W.kind === 'vod' && c.words.length && (c.start < c.words[0].start - 6 || c.end > c.words[c.words.length - 1].end + 6)) { c.listened = false; listen([c.id]); }
 });
 
@@ -711,14 +724,14 @@ async function keep() {
     if (q && q.status === 'error') await retryRender(q.id);
     return;
   }
-  const rank = W.kind === 'live' ? (c.moment || rankOf(c)) : W.clips.filter(x => isGem(x) === isGem(c)).indexOf(c) + 1;
+  const rank = W.kind === 'live' ? (c.moment || rankOf(c)) : c.id;
   const clip = { id: c.id, rank, start: c.start, end: c.end,
                  title: c.title.trim(), post: $('#postInput').value || postFor(c), thumb: c.thumb };
   if (c.wordsEdited) clip.words = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end);
   queueEpoch++;
   try { const it = await api('/api/queue/add', { pid: c.pid, clip, opts: JSON.parse(JSON.stringify(opts)) }); queueItems.push(it); queueEpoch++; }
   catch (e) { toast(e.message, 'err'); return; }
-  c.state = 'kept';
+  c.state = 'kept'; saveClip(c);
   feedback(c, 'keep');
   toast(`Rendering "${clip.title || 'clip ' + clip.rank}" in the background.`, '', 2500);
   updateStatusBar(); advance(keyOf(c));
@@ -730,13 +743,25 @@ async function skipOrUndo() {
     if (q && q.status === 'done') return;
     queueEpoch++;
     if (q) await api('/api/queue/remove', { id: q.id }).catch(() => {});
-    c.state = 'todo'; feedback(c, 'undo'); await refreshQueue(); fillInspector(); renderRows(); return;
+    c.state = 'todo'; saveClip(c); feedback(c, 'undo'); await refreshQueue(); fillInspector(); renderRows(); return;
   }
-  if (c.state === 'skipped') { c.state = 'todo'; feedback(c, 'undo'); fillInspector(); renderRows(); return; }
-  c.state = 'skipped'; feedback(c, 'skip'); advance(keyOf(c));
+  if (c.state === 'skipped') { c.state = 'todo'; saveClip(c); feedback(c, 'undo'); fillInspector(); renderRows(); return; }
+  c.state = 'skipped'; saveClip(c); feedback(c, 'skip'); advance(keyOf(c));
 }
 // what you keep and skip teaches the ranking (Settings > Clip ranking)
 function feedback(c, action) { api('/api/feedback', { pid: c.pid, clip: c.id, action }).catch(() => {}); }
+// everything you do to a clip is saved with the VOD, so it's all there when you open it again
+function saveClip(c, soon) {
+  if (!W || W.kind !== 'vod' || !c) return;
+  clearTimeout(c._saveT);
+  const go = () => {
+    const b = { pid: c.pid, id: c.id, state: c.state, start: c.start, end: c.end, title: c.title || '',
+      userTrim: !!c.userTrim, userTitle: !!c.userTitle, userPost: !!c.userPost, postText: c.postText || '', wordsEdited: !!c.wordsEdited };
+    if (c.wordsEdited) b.words_edit = c.words.map(w => ({ start: w.start, end: w.end, word: w.word, g: w.g, edited: !!w.edited }));
+    api('/api/clip_state', b).catch(() => {});
+  };
+  if (soon) c._saveT = setTimeout(go, 600); else go();
+}
 $('#keepBtn').onclick = keep;
 $('#skipBtn').onclick = skipOrUndo;
 $('#prevBtn').onclick = () => step(-1);
@@ -760,7 +785,8 @@ async function repick() {
     const old = new Map(W.clips.map(c => [keyOf(c), c]));
     const p = await api('/api/repick', { pid: W.pid, count: +$('#count').value, length: +$('#length').value, chat_weight: +$('#cw').value });
     // clips that are still suggested keep everything you did to them
-    W.clips = p.clips.map(s => old.get(keyOf(s)) || prepClip(s)).concat(W.clips.filter(isGem));
+    W.clips = p.clips.map(s => { const o = old.get(keyOf(s)); if (o) { mergeClip(o, s); return o; } return prepClip(s); })
+      .concat(W.clips.filter(isGem));
     W.curve = p.curve; W.meta.estimate = p.estimate; W.meta.learning = p.learning; buildHead();
     if (!curClip()) { const f = W.clips.find(c => c.state === 'todo' && !isGem(c)); if (f) select(keyOf(f), !vod.paused); else { cur = null; showInspector(); } }
     renderRows(); drawHeat(); fillInspector(); listen(); refreshQueue();
@@ -1298,6 +1324,7 @@ function editWords(c) {
   if (!c.wordsEdited) { c.wordsOrig = c.words.map(w => ({ ...w })); c.words = c.words.map(w => ({ ...w })); c.wordsEdited = true; }
 }
 function rescanSoon(c) {
+  saveClip(c, true);
   clearTimeout(c._scanT);
   c._scanT = setTimeout(async () => {
     const ws = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end).map(w => ({ start: w.start - c.start, end: w.end - c.start, word: w.word }));
@@ -1407,8 +1434,8 @@ async function refreshQueue() {
   if (W) {
     for (const c of W.clips) {
       const q = queueFor(c);
-      if (q && c.state !== 'kept') c.state = 'kept';
-      else if (!q && c.state === 'kept') c.state = 'todo';
+      if (q && c.state !== 'kept') { c.state = 'kept'; saveClip(c); }
+      else if (!q && c.state === 'kept') { c.state = 'todo'; saveClip(c); }
     }
     renderRows(); if (mode === 'clip') fillInspector();
   }
