@@ -28,7 +28,8 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
           python -m pip install -q numpy onnxruntime yt-dlp
           mkdir -p src/models tools
-          curl -sSL -o src/models/audio_events.onnx "https://github.com/${{ github.repository }}/releases/download/models-v1/audio_events.onnx"
+          curl -sSLf -o src/models/audio_events.onnx "https://github.com/${{ github.repository }}/releases/download/models-v1/audio_events.onnx"
+          ls -la src/models
           gh release download -R lay295/TwitchDownloader -p "*CLI*Linux-x64.zip" -D /tmp/tdl
           unzip -q -o /tmp/tdl/*.zip -d tools && chmod +x tools/TwitchDownloaderCLI
           echo "$PWD/tools" >> $GITHUB_PATH

@@ -249,8 +249,16 @@ def main():
 
     K = max(10, min(30, len(hl)))
     results = {}
+    # Twitch only lets us list part of a VOD's clips, so score only the stretch the labels cover
+    span = max(h["end"] for h in hl) + 180 if hl else dur
+    limit = int(min(dur, span))
+    if limit < dur - 60:
+        note("window", f"viewer clips cover only the first {engine.fmt_ts(limit)}; scoring that part of the stream")
+    K = min(K, max(5, len(hl)))
 
     def run(name, an, length, count):
+        if limit < dur - 60:
+            an = an.part(0, limit)
         cl = engine.pick_clips(an, count=count, length=length, chat=chat)
         results[name] = score([(c.start, c.end) for c in cl], hl)
         results[name]["clips"] = [{"start": c.start, "end": c.end, "score": c.score, "reason": c.reason} for c in cl]
