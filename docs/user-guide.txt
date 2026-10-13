@@ -212,25 +212,53 @@ FREEING UP SPACE
   Both ask for confirmation first.
 
 HOW CLIPS ARE PICKED
+  Every second of the stream gets a score from several signals, each measured
+  against what's normal for this stream (so big and small channels are judged
+  against themselves):
   - Chat: sudden surges in how many people are chatting, weighted for KEKW,
-    LUL, POG, "clip it", ????? and similar. Chat reacts a few seconds late, so
-    it's shifted back (Home > Past broadcast > Advanced > Chat delay).
-    It counts chatters, not messages (one person spamming counts once), and
-    ignores bots, !commands and giveaway entries, sub and gift-sub notices,
-    copypasta, and the floods after gift bombs and raids.
+    LUL, POG, "clip it", ????? and similar, and how fast it speeds up. It counts
+    chatters, not messages (one person spamming counts once), and ignores bots,
+    !commands and giveaway entries, sub and gift-sub notices, copypasta, and the
+    floods after gift bombs and raids.
+  - Emotes: waves of 7TV, BetterTTV and FrankerFaceZ emotes (and Twitch ones)
+    from many chatters at once. The channel's emote names are downloaded and
+    cached for a day (Advanced > Recognise emotes); without them it carries on.
   - Audio: moments much louder than the few minutes around them. Twitch's
-    muted (DMCA) sections are ignored instead of counted as boring.
+    muted (DMCA) sections are ignored instead of counted as boring. A sudden
+    reaction right after a quiet stretch counts extra; a short loud blip that
+    nobody reacted to (a door, an alert sound) counts less.
   - Laughter, screams and cheering, heard by a small built-in sound detector
     (Advanced > Listen for laughter, on by default; it adds about a minute per
     hour of video). Loud music counts for less.
-  - Where a clip starts and ends: far enough back to show the setup, on until
-    the reaction dies down, 15 to 90 seconds, and moved to the nearest pause
-    between sentences once the clip has been listened to.
-  - Your own keeps, skips and posts, per streamer (Settings > Clip ranking,
-    where you can also make it forget).
-  - With no chat log it ranks by audio only.
+  - Chat delay: chat reacts a few seconds late. VodClipper works out how late
+    from the stream itself (leave Advanced > Chat delay empty), or uses the
+    number you type.
+  - Where a clip starts and ends: far enough back to show the setup (and,
+    when chat reacted late, what it was reacting to), on until the reaction
+    dies down, and moved to the nearest pause between sentences once the clip
+    has been listened to. Two detections of the same moment become one clip.
+  - Stream type (Gaming, IRL / Just Chatting, Reactions, Interviews, Podcasts
+    or Any stream) changes how much each signal counts and the clip lengths.
+    How many moments (Fewer, Normal, More) sets how strong a moment has to be.
+    Shortest and longest clip are under Advanced.
+  - Your own keeps, skips and posts, per streamer, and where you trim clips:
+    after five trims, new clips start and end where you usually move them to
+    (Settings > Clip ranking, where you can also make it forget).
+  - With no chat log it ranks by audio and the sound detector only.
   - Local video? Put its chat next to it as <videoname>.chat.json, or choose
     the file under Home > Past broadcast > Advanced. TwitchDownloader chat JSON works.
+
+  Scores and settings
+    Every clip gets a score from 0 to 100 (50 is a clear moment, 75 a strong
+    one) and a breakdown of what made it: chat, volume, laughter, emotes and so
+    on. Scores rank moments within one stream; they can't promise views.
+    The detection button in the Review header shows the settings in use. Click
+    it to change them: Try shows how many clips would be new, dropped or the
+    same before you apply anything, and clips you kept, skipped, trimmed or
+    added stay either way. The settings are saved with the VOD.
+    After you skip a clip, you can say why (not interesting, bad cut,
+    duplicate, just noise). Settings > Clip ranking shows how many suggestions
+    you keep, why you skip, and how many moments you had to add by hand.
 
 CAPTIONS
   Made with Whisper. The first render with captions downloads the model

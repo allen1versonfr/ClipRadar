@@ -48,6 +48,8 @@ import updater
 import audio_events
 import chatsignal
 import checkflow
+import detect
+import emotes
 import gems
 import learning
 import persist
@@ -333,14 +335,25 @@ def project_view(pid: str) -> dict:
                      "chat_weight": an.chat_weight_pct},
         "restored": bool(pr.get("restored")),
         "review": persist.summary(pr["clips"]),
+        "detect": pr.get("detect") or detect.settings({}),
+        "detect_text": detect.describe(pr.get("detect") or {}, an.chat_delay if getattr(an, "delay_sure", False) else None,
+                                       an.has_chat),
+        "chat_delay": an.chat_delay,
+        "emotes_known": getattr(an, "emotes_known", 0),
+        "presets": [{"key": k, "label": v["label"], "hint": v["hint"], "chat": v["chat"], "min": v["min"], "max": v["max"]}
+                    for k, v in detect.PRESETS.items()],
     }
 
 
-def _pick(pr: dict, count: int, length: float) -> list:
+def _pick(pr: dict, count: int, length: float, det: Optional[dict] = None) -> list:
     an = pr["analysis"]
     pr["count"] = count
+    det = det or pr.get("detect") or detect.settings({})
+    tr = learning.trim_offsets(pr.get("streamer", ""))
     return engine.pick_clips(an, count=count, length=length, chat=pr["chat"], chat_delay=pr["chat_delay"],
-                             adjust=learning.adjuster(pr.get("streamer", "")))
+                             adjust=learning.adjuster(pr.get("streamer", "")),
+                             min_len=det["min_len"], max_len=det["max_len"], sensitivity=det["sensitivity"],
+                             back=detect.preset(det["preset"])["back"], offsets=(tr["start"], tr["end"]))
 
 
 def _number(pr: dict, clips: list, kind: str = "hype", taken: Optional[set] = None):
@@ -395,11 +408,23 @@ def do_analyze(job, body: dict):
                            cookies_browser=body.get("cookies") or "", cookie_file=cookie,
                            log=log, progress=job_progress(job, 0.0, 0.62), step=step, check=check)
     step("Finding the best moments")
-    delay = float(body.get("chat_delay", 6))
-    an = engine.analyze_cached(s.workdir, s.video, s.chat, chat_delay=delay,
-                               chat_weight_pct=float(body.get("chat_weight", 60)),
+    # a VOD you opened before keeps its own detection settings; otherwise use what was asked for
+    saved = persist.load_project(os.path.join(s.workdir, "project.json"), _project_sig({"video": s.video}))
+    asked = dict(body.get("detect") or {})
+    if "chat_delay" in body and "chat_delay" not in asked:
+        asked["chat_delay"] = body["chat_delay"]
+    det = detect.settings(((saved or {}).get("settings") or {}).get("detect") or asked)
+    es = None
+    if body.get("emotes", True) and s.chat:
+        step("Loading 7TV, BTTV and FFZ emotes")
+        es = emotes.for_channel(engine._meta(s.workdir).get("streamer_id", ""), s.streamer, log)
+        step("Finding the best moments")
+    an = engine.analyze_cached(s.workdir, s.video, s.chat, chat_delay=det["chat_delay"],
+                               chat_weight_pct=float(body.get("chat_weight", detect.preset(det["preset"])["chat"])),
                                log=log, progress=job_progress(job, 0.62, 0.94), check=check,
-                               events=bool(body.get("events", True)))
+                               events=bool(body.get("events", True)), emote_set=es,
+                               weights=detect.preset(det["preset"]))
+    delay = an.chat_delay
     pid = _pid_for(s.workdir)
     old = projects.get(pid)
     if old:      # opened again while it was still open: stop its background work first
@@ -413,19 +438,18 @@ def do_analyze(job, body: dict):
     projects[pid] = {"video": s.video, "chat": s.chat, "title": s.title, "workdir": s.workdir,
                      "analysis": an, "info": info, "clips": [], "chat_delay": delay,
                      "source": src, "clips_ver": 0, "streamer": s.streamer, "length": length,
-                     "count": count, "tx_lock": threading.Lock(), "gems": [],
+                     "count": count, "tx_lock": threading.Lock(), "gems": [], "detect": det,
                      "book": {"next": 1, "moments": []}}
     pr = projects[pid]
     engine._save_meta(s.workdir, duration=an.duration)
     _load_transcripts(pr)
     est = engine.estimate(an)
-    saved = persist.load_project(os.path.join(s.workdir, "project.json"), _project_sig(pr))
     if saved:
         # opened before: bring back the clips, their numbers and everything you did to them
         st = saved.get("settings") or {}
         pr["count"] = int(st.get("count", count) or 0)
         pr["length"] = float(st.get("length", length) or 0)
-        an.combine(float(st.get("chat_weight", an.chat_weight_pct)))
+        an.combine(float(st.get("chat_weight", an.chat_weight_pct)), detect.preset(det["preset"]))
         pr["book"] = saved.get("book") or pr["book"]
         pr["clips"] = [_revive(pid, d) for d in saved["clips"]]
         pr["gems"] = [_revive(pid, d) for d in saved.get("gems", [])]
@@ -906,6 +930,14 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
         why = checkflow.blocks_render(d)
         if why:
             raise RuntimeError(why)
+        if d.get("orig") and not pr.get("live") and not d.get("manual") and (
+                abs(start_ - d["orig"][0]) > 0.3 or abs(end_ - d["orig"][1]) > 0.3):
+            # how you trimmed it teaches where this streamer's clips should start and end
+            try:
+                learning.record_trim(pr.get("streamer", ""), f"{pr.get('source', '')}|{int(d.get('peak', start_))}",
+                                     start_ - d["orig"][0], end_ - d["orig"][1])
+            except Exception:
+                pass
     it = {"id": uuid.uuid4().hex[:8], "pid": pid, "clip_id": c.get("id"), "rank": int(c.get("rank") or 0),
           "start": start_, "end": end_, "title": str(c.get("title") or "")[:120],
           "post": str(c.get("post") or "")[:2200], "thumb": c.get("thumb", ""),
@@ -1105,6 +1137,28 @@ def _render_item(it: dict):
 TEST_HOOKS = {"fail_next_render": False, "break_next_output": False}
 
 
+def _compare_settings(pr: dict, det: dict, cw: float, count: int, length: float) -> dict:
+    """Run the clip finder with other settings without changing anything, and compare."""
+    an = pr["analysis"]
+    old_cw, old_w = an.chat_weight_pct, an.weights
+    try:
+        an.combine(cw, detect.preset(det["preset"]))
+        clips = _pick(dict(pr), count, length, det)
+    finally:
+        an.combine(old_cw, old_w)
+    cur = [c for c in pr["clips"] if not c.get("manual")]
+    same = 0
+    matched = set()
+    for c in clips:
+        hit = next((d for d in cur if d["id"] not in matched and persist.same_moment(d, c.start, c.end, c.peak) is not None), None)
+        if hit:
+            matched.add(hit["id"])
+            same += 1
+    return {"count": len(clips), "same": same, "added": len(clips) - same, "dropped": len(cur) - same,
+            "text": detect.describe(det, an.chat_delay if getattr(an, "delay_sure", False) else None, an.has_chat),
+            "top": [{"start": c.start, "end": c.end, "quality": c.quality, "reason": c.reason} for c in clips[:5]]}
+
+
 def strip_data(pr: dict, a: float, b: float) -> dict:
     an = pr["analysis"]
     dur = an.duration
@@ -1125,6 +1179,8 @@ def strip_data(pr: dict, a: float, b: float) -> dict:
             out["events"][k] = [round(float(x), 2) for x in an.event_level(k)[i0:i1]]
     if an.has_chat:
         out["chat"] = [round(float(x), 2) for x in an.chat_z[i0:i1]]
+    if getattr(an, "emote_z", None) is not None and float(an.emote_z.max() if len(an.emote_z) else 0) > 0:
+        out["emotes"] = [round(float(x), 2) for x in an.emote_z[i0:i1]]
     return out
 
 
@@ -1382,6 +1438,14 @@ def start_live_session(src: str, body: dict):
             sess.title = f"{sess.channel} (live)"
             engine._save_meta(sess.dir, title=sess.title, source=sess.source, live=True)
     sess.adjust = learning.adjuster(sess.channel or "")
+    sess.weights = detect.preset(body.get("preset"))
+    if sess.channel and body.get("emotes", True):
+        def load_emotes(se=sess):
+            # 7TV/BTTV/FFZ emotes make chat reactions count the same way they do for VODs
+            es = emotes.for_channel(login=se.channel, log=se.log)
+            if es:
+                se.scorer.hype = detect.weigher(es)
+        threading.Thread(target=load_emotes, daemon=True).start()
     hands_free = bool(body.get("hands_free", body.get("auto_render")))
     sess.extra = {"auto_render": hands_free, "opts": dict(body.get("opts") or {}),
                   "model": body.get("model") or "small", "language": body.get("language") or "",
@@ -1898,10 +1962,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("This session expired. Press Find clips again.", 404)
             pr = projects[pid]
             an = pr["analysis"]
-            an.combine(float(body.get("chat_weight", an.chat_weight_pct)))
+            det = pr.get("detect") or detect.settings({})
+            if isinstance(body.get("detect"), dict):
+                base = dict(det)
+                if body["detect"].get("preset") and body["detect"]["preset"] != det.get("preset"):
+                    base.pop("min_len", None)          # a new stream type brings its own clip lengths
+                    base.pop("max_len", None)
+                det = detect.settings(dict(base, **{k: v for k, v in body["detect"].items() if v is not None}))
+            if body.get("dry_run"):
+                # "Try": what these settings would suggest, compared with the list you have now
+                return self._json(_compare_settings(pr, det, float(body.get("chat_weight", an.chat_weight_pct)),
+                                                    int(body.get("count", 0) or 0), float(body.get("length", 0) or 0)))
+            an.combine(float(body.get("chat_weight", an.chat_weight_pct)), detect.preset(det["preset"]))
+            recut = det != pr.get("detect")          # new settings: clips you haven't touched get new cuts
+            pr["detect"] = det
             length = float(body.get("length", 0) or 0)
             pr["length"] = length
-            clips = _pick(pr, int(body.get("count", 0) or 0), length)
+            clips = _pick(pr, int(body.get("count", 0) or 0), length, det)
             # clips you kept, skipped, trimmed, retitled or added stay whatever the sliders say
             mine = [c for c in pr["clips"] if persist.touched(c)]
             cur = {c["id"]: c for c in pr["clips"]}
@@ -1916,7 +1993,7 @@ class Handler(BaseHTTPRequestHandler):
                 if o and not o.get("manual"):
                     # the same moment: it keeps its number, title and transcript
                     o.update(score=c.score, reason=c.reason, feat=c.feat, tuned=c.tuned)
-                    if o.get("len_mode", 0) != length:     # new length: new cuts, then a fresh listen
+                    if o.get("len_mode", 0) != length or recut:     # new length or settings: new cuts, then a fresh listen
                         o.update(start=c.start, end=c.end, peak=c.peak, len_mode=length, listened=False,
                                  orig=[c.start, c.end])
                     order.append(o)
@@ -1957,7 +2034,10 @@ class Handler(BaseHTTPRequestHandler):
             d = clip_dicts(pid, [clip])[0]
             d["manual"] = True
             d["kind"] = "hype"
+            d["quality"] = detect.quality(float(sc))
+            d["parts"] = detect.breakdown(an, t)
             pr["clips"].append(d)
+            learning.record_added(pr.get("streamer", ""))
             save_project_soon(pid)
             return self._json(d)
 
@@ -2147,7 +2227,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(deep_status(projects[pid]))
 
         if p == "/api/feedback":
-            record_feedback(body.get("pid"), body.get("clip"), str(body.get("action") or ""))
+            action = str(body.get("action") or "")
+            if action == "reason":
+                pr = projects.get(body.get("pid")) or {}
+                learning.record_reason(pr.get("streamer", ""), str(body.get("reason") or ""))
+                return self._json({"ok": True})
+            record_feedback(body.get("pid"), body.get("clip"), action)
             return self._json({"ok": True})
         if p == "/api/learning":
             if "enabled" in body:

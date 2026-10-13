@@ -24,14 +24,14 @@ import numpy as np
 
 import paths
 
-FEATURES = ("chat", "audio", "laugh", "scream", "cheer", "speech", "length", "clipreq", "pos")
+FEATURES = ("chat", "audio", "laugh", "scream", "cheer", "speech", "length", "clipreq", "pos", "emotes")
 MAX_SAMPLES = 600
 MIN_DECISIONS = 8          # before this many keeps + skips, ranking isn't changed
 FULL_TRUST = 40            # decisions needed for the full effect
 MAX_SHIFT = 2.5            # most a clip can move, in score points (strong moments score 3 to 8)
 ALL = "_all"               # every streamer together, used until one streamer has enough
 
-_lock = threading.Lock()
+_lock = threading.RLock()     # re-entrant: summary() asks trim_offsets() while holding it
 _cache: dict = {}
 
 
@@ -160,6 +160,67 @@ def adjuster(streamer: str):
     return adjust
 
 
+REASONS = {"boring": "Not interesting", "cut": "Bad start or end", "duplicate": "Same as another clip",
+           "noise": "Just a loud noise", "other": "Something else"}
+TRIM_MIN = 5          # trims needed before clips start shifting
+TRIM_MAX_SHIFT = 6.0  # seconds
+
+
+def _stats(p: dict) -> dict:
+    return p.setdefault("stats", {"reasons": {}, "added": 0, "trims": []})
+
+
+def record_reason(streamer: str, reason: str):
+    """Why you skipped a clip (optional, from the buttons after Skip)."""
+    if reason not in REASONS:
+        return
+    with _lock:
+        d = _load()
+        for prof in {_name(streamer), ALL}:
+            st = _stats(d["profiles"].setdefault(prof, {"samples": [], "updated": 0}))
+            st["reasons"][reason] = st["reasons"].get(reason, 0) + 1
+        _save(d)
+
+
+def record_added(streamer: str):
+    """You made a clip by hand: a moment the finder missed."""
+    with _lock:
+        d = _load()
+        for prof in {_name(streamer), ALL}:
+            st = _stats(d["profiles"].setdefault(prof, {"samples": [], "updated": 0}))
+            st["added"] = st.get("added", 0) + 1
+        _save(d)
+
+
+def record_trim(streamer: str, key: str, d_start: float, d_end: float):
+    """How far you moved a clip's start and end before keeping it (negative = earlier)."""
+    if abs(d_start) > 60 or abs(d_end) > 60:
+        return
+    with _lock:
+        d = _load()
+        for prof in {_name(streamer), ALL}:
+            st = _stats(d["profiles"].setdefault(prof, {"samples": [], "updated": 0}))
+            st["trims"] = [t for t in st.get("trims", []) if t.get("k") != key][-59:]
+            st["trims"].append({"k": key, "s": round(float(d_start), 2), "e": round(float(d_end), 2)})
+        _save(d)
+
+
+def trim_offsets(streamer: str) -> dict:
+    """The start/end shift learned from your trims ({start, end, n}); zero until there are enough."""
+    with _lock:
+        d = _load()
+        if not d.get("enabled", True):
+            return {"start": 0.0, "end": 0.0, "n": 0}
+        p = d["profiles"].get(_name(streamer)) or {}
+        tr = (p.get("stats") or {}).get("trims", [])[-30:]
+    if len(tr) < TRIM_MIN:
+        return {"start": 0.0, "end": 0.0, "n": len(tr)}
+    ms = float(np.median([t["s"] for t in tr]))
+    me = float(np.median([t["e"] for t in tr]))
+    clip = lambda v: 0.0 if abs(v) < 0.5 else max(-TRIM_MAX_SHIFT, min(TRIM_MAX_SHIFT, round(v, 1)))  # noqa: E731
+    return {"start": clip(ms), "end": clip(me), "n": len(tr)}
+
+
 def describe(streamer: str) -> dict:
     """For the UI: is ranking tuned for this streamer, and from how many decisions."""
     with _lock:
@@ -170,7 +231,7 @@ def describe(streamer: str) -> dict:
         m, prof = _model(streamer) if on else (None, "")
     return {"enabled": on, "streamer": _name(streamer) if streamer else "", "decisions": n,
             "active": bool(m), "using": "this streamer" if prof and prof != ALL else ("all your picks" if prof else ""),
-            "needed": max(0, MIN_DECISIONS - n)}
+            "needed": max(0, MIN_DECISIONS - n), "trim": trim_offsets(streamer)}
 
 
 def summary() -> dict:
@@ -181,7 +242,14 @@ def summary() -> dict:
             if name == ALL:
                 continue
             s = p.get("samples", [])
-            profs.append({"streamer": name, "decisions": len(s), "kept": int(sum(1 for x in s if x["y"] > 0)),
+            st = p.get("stats") or {}
+            kept = int(sum(1 for x in s if x["y"] > 0))
+            reasons = sorted((st.get("reasons") or {}).items(), key=lambda kv: -kv[1])[:3]
+            profs.append({"streamer": name, "decisions": len(s), "kept": kept,
+                          "posted": int(sum(1 for x in s if x.get("w", 1) > 1)),
+                          "accept": round(100 * kept / len(s)) if s else None,
+                          "added": int(st.get("added", 0)), "trim": trim_offsets(name),
+                          "reasons": [{"key": k, "label": REASONS.get(k, k), "n": v} for k, v in reasons],
                           "updated": p.get("updated", 0)})
         profs.sort(key=lambda x: -x["updated"])
         total = len(d["profiles"].get(ALL, {}).get("samples", []))

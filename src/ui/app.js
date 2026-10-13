@@ -27,9 +27,9 @@ async function api(path, body) {
 function toast(msg, kind = '', ms = 4500, action = null) {
   const el = document.createElement('div');
   el.className = 'toast ' + kind; el.textContent = msg;
-  if (action) {
-    const b = document.createElement('button'); b.className = 'act'; b.textContent = action.label;
-    b.onclick = () => { el.remove(); action.fn(); }; el.appendChild(b);
+  for (const a of (Array.isArray(action) ? action : action ? [action] : [])) {
+    const b = document.createElement('button'); b.className = 'act'; b.textContent = a.label;
+    b.onclick = () => { el.remove(); a.fn(); }; el.appendChild(b);
   }
   $('#toasts').appendChild(el);
   setTimeout(() => el.remove(), ms);
@@ -227,7 +227,17 @@ function bindNum(id, key, def) {
   el.addEventListener('change', () => { store.set(key, el.value); if (['#count', '#length', '#cw'].includes(id)) repickSoon(); });
 }
 // 3.1 picks how many clips and how long each one is by itself; earlier fixed choices start fresh
-bindNum('#count', 'count2', '0'); bindNum('#length', 'length2', '0'); bindNum('#cw', 'cw', 60); bindNum('#delay', 'delay', 6);
+bindNum('#count', 'count2', '0'); bindNum('#length', 'length2', '0'); bindNum('#cw', 'cw', 60); bindNum('#delay', 'delay2', '');
+bindNum('#preset', 'preset', 'any'); bindNum('#sens', 'sens', 'normal'); bindNum('#minLen', 'minLen', ''); bindNum('#maxLen', 'maxLen', '');
+bindNum('#livePreset', 'livePreset', 'any');
+$('#useEmotes').checked = store.get('useEmotes', true); $('#useEmotes').onchange = e => store.set('useEmotes', e.target.checked);
+const PRESET_CHAT = { any: 60, gaming: 55, irl: 65, reactions: 50, interviews: 50, podcasts: 45 };
+$('#preset').addEventListener('change', e => { $('#cw').value = PRESET_CHAT[e.target.value] ?? 60; store.set('cw', $('#cw').value); });
+function detectAsked() {
+  const num = id => $(id).value === '' ? undefined : +$(id).value;
+  return { preset: $('#preset').value, sensitivity: $('#sens').value, min_len: num('#minLen'), max_len: num('#maxLen'),
+           chat_delay: $('#delay').value === '' ? 'auto' : +$('#delay').value };
+}
 bindNum('#liveLength', 'liveLength2', '0');
 function setCount(n) {
   const sel = $('#count');
@@ -291,7 +301,7 @@ $('#analyze').onclick = async () => {
   $('#analyze').disabled = true; $('#vodJob').hidden = false; $('#vodErr').textContent = ''; $('#vodLog').textContent = '';
   try {
     const { job } = await api('/api/analyze', { source, chat_file: $('#chatFile').value, count: +$('#count').value,
-      length: +$('#length').value, chat_weight: +$('#cw').value, chat_delay: +$('#delay').value,
+      length: +$('#length').value, chat_weight: +$('#cw').value, detect: detectAsked(), emotes: $('#useEmotes').checked,
       max_height: +$('#maxh').value, cookies: $('#cookies').value, events: $('#events').checked,
       deep_scan: $('#deep').checked && !$('#deep').disabled, deep_model: $('#deepModel').value, language: opts.language });
     vodJob = job;
@@ -321,7 +331,8 @@ $('#goLive').onclick = async () => {
       hands_free: liveCfg.mode === 'hands', wait_for_live: $('#liveWait').checked, keep_watching: $('#liveKeep').checked,
       auto_draft: liveCfg.mode === 'hands' && $('#liveDraft').checked,
       opts: JSON.parse(JSON.stringify(opts)), model: opts.whisper_model,
-      language: opts.language, max_height: +$('#maxh').value, cookies: $('#cookies').value, chat_delay: +$('#delay').value });
+      language: opts.language, max_height: +$('#maxh').value, cookies: $('#cookies').value,
+      chat_delay: $('#delay').value === '' ? 6 : +$('#delay').value, preset: $('#livePreset').value, emotes: $('#useEmotes').checked });
     openLive(v, true);
   } catch (e) { $('#liveErr').textContent = e.message; }
   $('#goLive').disabled = false;
@@ -427,9 +438,12 @@ function buildHead() {
       <span class="facts"><span><b class="tnum">${fmt(p.duration)}</b> long</span>
       <span title="${esc(chatTip)}">${chatFact}</span>
       ${est.strong != null ? `<span class="est" title="Distinct moments that stand out clearly (${est.good} worth a look in total)">≈<b class="tnum">${est.strong}</b> strong ${est.strong === 1 ? 'moment' : 'moments'} in this ${len} stream</span>` : ''}
-      ${lr.active ? `<span class="tuned" title="Ranking learned from ${lr.decisions} of your keeps and skips${lr.using === 'all your picks' ? ' across all streamers' : ''}">Tuned to your picks</span>` : ''}</span>
+      ${lr.active ? `<span class="tuned" title="Ranking learned from ${lr.decisions} of your keeps and skips${lr.using === 'all your picks' ? ' across all streamers' : ''}">Tuned to your picks</span>` : ''}
+      ${trimNote(lr.trim)}
+      <button class="det-btn" id="detBtn" title="Stream type, how many moments, clip lengths. Click to change or compare.">${esc(p.detect_text || 'Detection settings')}</button></span>
       <span class="acts"><span class="deep" id="deepBox"></span><button class="btn sm ghost" id="headNew">${icon('plus')}New project</button></span>`;
     $('#headNew').onclick = () => setView('home');
+    $('#detBtn').onclick = openDetect;
     renderDeep();
   } else {
     h.innerHTML = `<span class="live-tag" id="lvTag"><i></i><span id="lvState">Live</span></span>
@@ -599,7 +613,7 @@ function renderRows() {
       return `<button class="crow ${keyOf(c) === cur && mode === 'clip' ? 'cur' : ''}" data-k="${esc(keyOf(c))}">
         <span class="vt"><img src="${c.thumb}" alt=""></span>
         <span><span class="ct ${c.listened || c.userTitle ? '' : 'pending'}">${risk}${title}</span>
-        <span class="cm">${W.kind === 'vod' ? `<span class="num">#${c.id}</span>` : ''}<span>${W.kind === 'live' ? fmt(absOf(c, c.start)) : fmt(c.start)}</span><span>${Math.round(c.end - c.start)}s</span>${c.vibe ? `<span>${VIBE[c.vibe] || ''}</span>` : ''}${ck}</span>${st}</span>
+        <span class="cm">${c.quality ? `<span class="qpill q${c.quality >= 75 ? 3 : c.quality >= 50 ? 2 : 1}" title="Score ${c.quality} of 100">${c.quality}</span>` : ''}${W.kind === 'vod' ? `<span class="num">#${c.id}</span>` : ''}<span>${W.kind === 'live' ? fmt(absOf(c, c.start)) : fmt(c.start)}</span><span>${Math.round(c.end - c.start)}s</span>${c.vibe ? `<span>${VIBE[c.vibe] || ''}</span>` : ''}${ck}</span>${st}</span>
         ${c.isNew ? '<span class="new" title="New"></span>' : ''}</button>`;
     }).join(''), 'k');
   }
@@ -666,6 +680,7 @@ function fillInspector() {
   $('#cTime').textContent = `${fmtA(absOf(c, c.start))} to ${fmtA(absOf(c, c.end))} (${(c.end - c.start).toFixed(1)}s)`;
   edDirty = true;
   $('#cWhy').textContent = c.reason || '';
+  renderScore(c);
   $('#cVibe').textContent = c.vibe ? VIBE[c.vibe] || c.vibe : c.listened ? 'Neutral' : 'Listening…';
   if (document.activeElement !== $('#titleInput')) $('#titleInput').value = c.title;
   if (document.activeElement !== $('#postInput')) $('#postInput').value = postFor(c);
@@ -1004,6 +1019,7 @@ async function skipOrUndo() {
   }
   if (c.state === 'skipped') { c.state = 'todo'; saveClip(c); feedback(c, 'undo'); fillInspector(); renderRows(); return; }
   c.state = 'skipped'; saveClip(c); feedback(c, 'skip'); advance(keyOf(c));
+  if (W.kind === 'vod' && !c.manual) askSkipReason(c);
 }
 // what you keep and skip teaches the ranking (Settings > Clip ranking)
 function feedback(c, action) { api('/api/feedback', { pid: c.pid, clip: c.id, action }).catch(() => {}); }
@@ -1037,11 +1053,14 @@ $('#inspTabs').onclick = e => {
 /* --- re-ranking (VOD only) --- */
 let repickTimer = 0;
 function repickSoon() { if (!W || W.kind !== 'vod') return; clearTimeout(repickTimer); repickTimer = setTimeout(repick, 350); }
-async function repick() {
+async function repick(det) {
   if (!W || W.kind !== 'vod') return;
   try {
     const old = new Map(W.clips.map(c => [keyOf(c), c]));
-    const p = await api('/api/repick', { pid: W.pid, count: +$('#count').value, length: +$('#length').value, chat_weight: +$('#cw').value });
+    const body = { pid: W.pid, count: +$('#count').value, length: +$('#length').value, chat_weight: +$('#cw').value };
+    if (det) body.detect = det;
+    const p = await api('/api/repick', body);
+    W.meta.detect = p.detect; W.meta.detect_text = p.detect_text;
     // clips that are still suggested keep everything you did to them
     W.clips = p.clips.map(s => { const o = old.get(keyOf(s)); if (o) { mergeClip(o, s); return o; } return prepClip(s); })
       .concat(W.clips.filter(isGem));
@@ -1128,7 +1147,7 @@ document.addEventListener('pointerup', e => {
   if (b && view === 'review' && !$('#dlg').open) setTimeout(() => { if (document.activeElement === b) b.blur(); }, 0);
 });
 document.addEventListener('keydown', e => {
-  if (view !== 'review' || !W || $('#dlg').open || e.target.closest('input,select,textarea')) return;
+  if (view !== 'review' || !W || document.querySelector('dialog[open]') || e.target.closest('input,select,textarea')) return;
   const k = e.key;
   if (k === ' ') { e.preventDefault(); togglePlay(); }
   else if (k === 'ArrowDown' || k === 'j') { e.preventDefault(); step(1); }
@@ -2154,7 +2173,10 @@ function renderLearning() {
   $('#lrOn').checked = L.enabled !== false; $('#lrBody').hidden = L.enabled === false;
   const rows = L.profiles || [];
   $('#lrTable tbody').innerHTML = rows.length ? rows.map(r => `<tr><td>${esc(r.streamer)}</td>
-    <td class="muted">${plural(r.decisions, 'decision')}, ${r.kept} kept${r.decisions < L.min_decisions ? ` · starts after ${L.min_decisions}` : ''}</td>
+    <td class="muted">${plural(r.decisions, 'decision')}, ${r.kept} kept${r.accept != null ? ` (${r.accept}% of suggestions)` : ''}${r.posted ? `, ${r.posted} posted` : ''}${r.decisions < L.min_decisions ? ` · starts after ${L.min_decisions}` : ''}
+      <div class="lr-sub">${[r.added ? `${plural(r.added, 'clip')} you added by hand (moments it missed)` : '',
+        r.reasons && r.reasons.length ? 'skipped for: ' + r.reasons.map(x => `${x.label.toLowerCase()} ${x.n}`).join(', ') : '',
+        r.trim && r.trim.n >= 5 && (r.trim.start || r.trim.end) ? trimNote(r.trim, true) : ''].filter(Boolean).join(' · ')}</div></td>
     <td class="r"><button class="btn sm" data-forget="${esc(r.streamer)}">Forget</button></td></tr>`).join('')
     : '<tr><td class="muted">Nothing learned yet. Keep and skip a few suggested clips.</td></tr>';
   $('#lrForgetAll').hidden = !rows.length;
@@ -2169,6 +2191,68 @@ $('#lrForgetAll').onclick = async () => {
   if (!await ask({ title: 'Forget everything learned?', body: 'Clip ranking goes back to the default for every streamer.', ok: 'Forget', danger: true })) return;
   try { lrState = await api('/api/learning/forget', { streamer: '' }); renderLearning(); } catch (e) { toast(e.message, 'err'); }
 };
+
+
+/* =============================================================== detection (3.5): score, settings, feedback */
+const PART_LABEL = { chat: 'Chat', audio: 'Volume', laugh: 'Laughter', scream: 'Screams', cheer: 'Cheering', emotes: 'Emotes',
+  surge: 'Chat surge', react: 'Sudden reaction', noise: 'Isolated noise', tuned: 'Your picks' };
+function renderScore(c) {
+  const el = $('#cScore');
+  if (!c.quality) { el.innerHTML = '<span class="muted">–</span>'; return; }
+  const parts = Object.entries(c.parts || {}).filter(([, v]) => Math.abs(v) >= 0.05);
+  const max = Math.max(0.01, ...parts.map(([, v]) => Math.abs(v)));
+  const pos = parts.filter(([, v]) => v > 0).reduce((a, [, v]) => a + v, 0) || 1;
+  el.innerHTML = `<span class="qpill q${c.quality >= 75 ? 3 : c.quality >= 50 ? 2 : 1}">${c.quality}</span> <span class="muted">of 100${c.merged ? ` · ${c.merged + 1} detections merged` : ''}</span>`
+    + (parts.length ? `<div class="why" title="How much each signal added at the peak. A score ranks moments in this stream; it can't promise views.">`
+      + parts.sort((a, b) => b[1] - a[1]).map(([k, v]) => `<div class="why-row ${v < 0 ? 'neg' : ''}"><span>${esc(PART_LABEL[k] || k)}</span>`
+        + `<span class="bar"><i style="width:${Math.round(Math.abs(v) / max * 100)}%"></i></span><span class="v">${v < 0 ? '−' : ''}${Math.round(Math.abs(v) / pos * 100)}%</span></div>`).join('') + '</div>' : '');
+}
+function trimNote(t, plain) {
+  if (!t || t.n < 5 || (!t.start && !t.end)) return '';
+  const part = (v, w) => v ? `${w} ${Math.abs(v)} s ${v < 0 ? 'earlier' : 'later'}` : '';
+  const text = [part(t.start, 'start'), part(t.end, 'end')].filter(Boolean).join(', ');
+  return plain ? `clips ${text} (from your trims)` : `<span class="tuned" title="Learned from ${t.n} clips you trimmed before keeping. Settings › Clip ranking can forget it.">Clips ${esc(text)}</span>`;
+}
+function askSkipReason(c) {
+  const send = r => api('/api/feedback', { pid: c.pid, clip: c.id, action: 'reason', reason: r }).catch(() => {});
+  toast('Skipped. Why? (optional)', '', 6500, [
+    { label: 'Not interesting', fn: () => send('boring') }, { label: 'Bad cut', fn: () => send('cut') },
+    { label: 'Duplicate', fn: () => send('duplicate') }, { label: 'Just noise', fn: () => send('noise') }]);
+}
+let detPresets = [];
+function openDetect() {
+  if (!W || W.kind !== 'vod') return;
+  const m = W.meta, d = m.detect || {};
+  detPresets = m.presets || [];
+  $('#detPreset').value = d.preset || 'any'; $('#detSens').value = d.sensitivity || 'normal';
+  $('#detMin').value = d.min_len || ''; $('#detMax').value = d.max_len || ''; $('#detCw').value = $('#cw').value;
+  $('#detNow').textContent = 'Now: ' + (m.detect_text || '') + (m.emotes_known ? ` · ${m.emotes_known.toLocaleString()} 7TV/BTTV/FFZ emotes` : '');
+  detHint(); $('#detCmp').hidden = true; $('#detDlg').showModal();
+}
+function detHint() { const p = detPresets.find(x => x.key === $('#detPreset').value); $('#detHint').textContent = p ? p.hint : ''; }
+$('#detPreset').onchange = () => {
+  const p = detPresets.find(x => x.key === $('#detPreset').value);
+  if (p) { $('#detMin').value = p.min; $('#detMax').value = p.max; $('#detCw').value = p.chat; }
+  detHint(); $('#detCmp').hidden = true;
+};
+['#detSens', '#detMin', '#detMax', '#detCw'].forEach(id => $(id).addEventListener('change', () => { $('#detCmp').hidden = true; }));
+const detChosen = () => ({ preset: $('#detPreset').value, sensitivity: $('#detSens').value,
+  min_len: +$('#detMin').value || undefined, max_len: +$('#detMax').value || undefined });
+$('#detTry').onclick = async () => {
+  let r;
+  try { r = await api('/api/repick', { pid: W.pid, count: +$('#count').value, length: +$('#length').value, chat_weight: +$('#detCw').value, detect: detChosen(), dry_run: true }); }
+  catch (e) { toast(e.message, 'err'); return; }
+  $('#detCmp').hidden = false;
+  $('#detCmp').innerHTML = `With these settings: <b>${plural(r.count, 'clip')}</b>. ${r.same} the same as now, <b>${r.added} new</b>, <b>${r.dropped} dropped</b>.`
+    + (r.top && r.top.length ? `<ul>${r.top.map(t => `<li>${fmt(t.start)} · score ${t.quality} · ${esc(t.reason)}</li>`).join('')}</ul>` : '');
+};
+$('#detApply').onclick = async () => {
+  $('#cw').value = $('#detCw').value; store.set('cw', $('#cw').value);
+  $('#detDlg').close();
+  await repick(detChosen());
+  toast('Detection settings applied. Your kept, skipped and edited clips stayed.', '', 3500);
+};
+$('#detCancel').onclick = () => $('#detDlg').close();
 
 /* =============================================================== boot */
 setInterval(() => { fetch('/api/ping').catch(() => {}); }, 60000);
@@ -2382,6 +2466,11 @@ function drawEditor() {
     }
     g.globalAlpha = 1;
   }
+  if (d && d.emotes && d.emotes.length) {
+    g.strokeStyle = '#ff6bcb'; g.lineWidth = 1.2; g.beginPath();
+    d.emotes.forEach((v, i) => { const x = tToX(d.start + i + 0.5, w), y = ey1 - 2 - clamp(v, 0, 8) / 8 * (ey1 - ey0 - 4); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
+  }
   if (d && d.chat && d.chat.length) {
     g.strokeStyle = '#4c8dff'; g.lineWidth = 1.2; g.beginPath();
     d.chat.forEach((v, i) => { const x = tToX(d.start + i + 0.5, w), y = ey1 - 2 - clamp(v, 0, 8) / 8 * (ey1 - ey0 - 4); i ? g.lineTo(x, y) : g.moveTo(x, y); });
@@ -2515,7 +2604,7 @@ function showKeys() { const d = $('#keysDlg'); if (!d.open) d.showModal(); }
 $('#edKeys').onclick = showKeys;
 $('#keysClose').onclick = () => $('#keysDlg').close();
 document.addEventListener('keydown', e => {
-  if (view !== 'review' || !W || $('#dlg').open || $('#keysDlg').open) return;
+  if (view !== 'review' || !W || document.querySelector('dialog[open]')) return;
   const typing = e.target.closest('input,select,textarea');
   const mod = e.ctrlKey || e.metaKey;
   if (mod && !typing && (e.key === 'z' || e.key === 'Z' || e.key === 'y')) {

@@ -31,6 +31,18 @@ class H(BaseHTTPRequestHandler):
         return self.headers.get("Authorization", "") == f"OAuth {GOOD}"
 
     def do_GET(self):
+        emotes = {   # 7TV, BetterTTV and FrankerFaceZ stand-ins (VODCLIPPER_EMOTE_API points here)
+            "/7tv/v3/emote-sets/global": {"emotes": [{"name": "EZ"}, {"name": "Clap"}]},
+            "/7tv/v3/users/twitch/1": {"emote_set": {"emotes": [{"name": "ICANT"}, {"name": "Aware"}]}},
+            "/bttv/3/cached/emotes/global": [{"code": "LULW"}],
+            "/bttv/3/cached/users/twitch/1": {"channelEmotes": [{"code": "catJAM"}], "sharedEmotes": []},
+            "/ffz/v1/set/global": {"default_sets": [3], "sets": {"3": {"emoticons": [{"name": "OMEGALUL"}]}}},
+        }
+        if self.path in emotes:
+            STATE["emote_hits"] = STATE.get("emote_hits", 0) + 1
+            return self._send(200, emotes[self.path])
+        if self.path.startswith(("/7tv/", "/bttv/", "/ffz/")):
+            return self._send(404, {})
         if self.path.startswith("/oauth2/validate"):
             if not self._ok():
                 return self._send(401, {"status": 401, "message": "invalid access token"})
