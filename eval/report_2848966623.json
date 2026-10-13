@@ -167,140 +167,128 @@
  "results": {
   "3.0 (raw chat + loudness, 30 s)": {
    "picks": 17,
-   "precision@5": 0.2,
-   "precision@10": 0.1,
-   "precision_all": 0.059,
-   "recall_top20": 0.059,
-   "recall_top20_by_views": 0.02,
-   "moment_inside_pick": 0.163,
+   "precision@5": 1.0,
+   "precision@10": 0.9,
+   "precision_all": 0.882,
+   "recall_top20": 0.706,
+   "recall_top20_by_views": 0.886,
+   "moment_inside_pick": 0.259,
    "median_length": 30.0,
    "clips": [
     {
-     "start": 16988.0,
-     "end": 17018.0,
-     "score": 4.14,
-     "reason": "Chat explodes; LOL \u00d757, \ud83d\ude02 \u00d714, LMFAO \u00d710"
-    },
-    {
-     "start": 6666.0,
-     "end": 6696.0,
-     "score": 3.62,
-     "reason": "Chat explodes; LOL \u00d735, LMFAO \u00d713, LMAO \u00d77"
-    },
-    {
-     "start": 12273.0,
-     "end": 12303.0,
-     "score": 3.32,
-     "reason": "Chat explodes; LOL \u00d732, LMFAO \u00d79, LMAO \u00d77"
-    },
-    {
      "start": 2257.0,
      "end": 2287.0,
-     "score": 3.3,
+     "score": 3.29,
      "reason": "Chat spike; volume jump; LOL \u00d738, LMFAO \u00d79, lmao \u00d72"
     },
     {
-     "start": 6242.0,
-     "end": 6272.0,
-     "score": 3.25,
-     "reason": "Chat spike; LOL \u00d724, LMFAO \u00d712, \ud83d\ude02 \u00d75"
+     "start": 1946.0,
+     "end": 1976.0,
+     "score": 2.5,
+     "reason": "Volume jump; LOL \u00d727, LMFAO \u00d75, lmao \u00d72"
     },
     {
-     "start": 9305.0,
-     "end": 9335.0,
-     "score": 3.24,
-     "reason": "Chat spike; volume jump; LOL \u00d739, LMFAO \u00d714, Lol \u00d72"
+     "start": 650.0,
+     "end": 680.0,
+     "score": 2.24,
+     "reason": "Chat spike; volume jump; LOL \u00d725, LMFAO \u00d78, Lmao \u00d71"
     },
     {
-     "start": 19499.0,
-     "end": 19529.0,
-     "score": 3.2,
-     "reason": "Chat spike; LOL \u00d742, LMFAO \u00d710, LMAO \u00d76"
+     "start": 1991.0,
+     "end": 2021.0,
+     "score": 2.14,
+     "reason": "Chat spike; LOL \u00d734, LMFAO \u00d74, LMAO \u00d72"
     },
     {
-     "start": 16750.0,
-     "end": 16780.0,
-     "score": 3.06,
-     "reason": "Chat spike; LOL \u00d748, LMFAO \u00d716, LMAO \u00d77"
+     "start": 2178.0,
+     "end": 2208.0,
+     "score": 2.07,
+     "reason": "Loud moment; LOL \u00d74, gg \u00d73, lol \u00d72"
     },
     {
-     "start": 4102.0,
-     "end": 4132.0,
-     "score": 2.98,
-     "reason": "Chat spike; LOL \u00d738, LMFAO \u00d720, \ud83d\ude02 \u00d73"
+     "start": 1324.0,
+     "end": 1354.0,
+     "score": 1.8,
+     "reason": "Chat spike; LOL \u00d727, LMFAO \u00d74, lmfao \u00d71"
     },
     {
-     "start": 9570.0,
-     "end": 9600.0,
-     "score": 2.92,
-     "reason": "Chat spike; volume jump; LOL \u00d752, LMFAO \u00d710, LMAO \u00d76"
+     "start": 718.0,
+     "end": 748.0,
+     "score": 1.67,
+     "reason": "Chat spike; gg \u00d73, GOAT \u00d72, LOL \u00d72"
     },
     {
-     "start": 23507.0,
-     "end": 23537.0,
-     "score": 2.79,
-     "reason": "Chat spike; LOL \u00d736, LMFAO \u00d715, lol \u00d78"
+     "start": 1548.0,
+     "end": 1578.0,
+     "score": 1.47,
+     "reason": "Chat spike; LOL \u00d715, LMFAO \u00d74, LMAO \u00d72"
     },
     {
-     "start": 25900.0,
-     "end": 25930.0,
-     "score": 2.79,
-     "reason": "Chat spike; LOL \u00d756, LMFAO \u00d712, \ud83d\ude02 \u00d74"
+     "start": 2418.0,
+     "end": 2448.0,
+     "score": 1.44,
+     "reason": "Volume jump; lol \u00d71"
     },
     {
-     "start": 4228.0,
-     "end": 4258.0,
-     "score": 2.76,
-     "reason": "Chat spike; LOL \u00d759, LMFAO \u00d711, LMAO \u00d75"
+     "start": 1655.0,
+     "end": 1685.0,
+     "score": 1.39,
+     "reason": "LOL \u00d720, LMFAO \u00d77, LMAO \u00d74"
     },
     {
-     "start": 6863.0,
-     "end": 6893.0,
-     "score": 2.74,
-     "reason": "Chat spike; LOL \u00d725, LMFAO \u00d77, LMAO \u00d74"
+     "start": 1396.0,
+     "end": 1426.0,
+     "score": 1.37,
+     "reason": "Volume jump; LOL \u00d72, lol \u00d71, LUL \u00d71"
     },
     {
-     "start": 8675.0,
-     "end": 8705.0,
-     "score": 2.74,
-     "reason": "Chat spike; LOL \u00d741, LMFAO \u00d712, LUL \u00d72"
+     "start": 572.0,
+     "end": 602.0,
+     "score": 1.33,
+     "reason": "LOL \u00d724, LMFAO \u00d74, LMAO \u00d72"
     },
     {
-     "start": 17623.0,
-     "end": 17653.0,
-     "score": 2.69,
-     "reason": "Chat spike; LOL \u00d740, LMFAO \u00d77, \ud83d\ude02 \u00d73"
+     "start": 1089.0,
+     "end": 1119.0,
+     "score": 1.26,
+     "reason": "Chat spike; LOL \u00d731, lol \u00d75, LMFAO \u00d73"
     },
     {
-     "start": 21268.0,
-     "end": 21298.0,
-     "score": 2.68,
-     "reason": "Chat spike; LOL \u00d756, \ud83d\ude02 \u00d712, LMFAO \u00d712"
+     "start": 824.0,
+     "end": 854.0,
+     "score": 1.24,
+     "reason": "Volume jump; LOL \u00d712, LMFAO \u00d71, \ud83d\ude02 \u00d71"
+    },
+    {
+     "start": 2033.0,
+     "end": 2063.0,
+     "score": 1.14,
+     "reason": "LOL \u00d722, LMFAO \u00d75, gg \u00d73"
+    },
+    {
+     "start": 515.0,
+     "end": 545.0,
+     "score": 1.13,
+     "reason": "Volume jump; LOL \u00d74, wtf \u00d71, lol \u00d71"
+    },
+    {
+     "start": 394.0,
+     "end": 424.0,
+     "score": 1.12,
+     "reason": "LOL \u00d731, LMFAO \u00d73, LMAO \u00d73"
     }
    ]
   },
   "3.1 chat cleaning only": {
    "picks": 17,
-   "precision@5": 0.2,
-   "precision@10": 0.1,
-   "precision_all": 0.059,
-   "recall_top20": 0.059,
-   "recall_top20_by_views": 0.02,
-   "moment_inside_pick": 0.166,
-   "median_length": 30.1,
+   "precision@5": 1.0,
+   "precision@10": 0.9,
+   "precision_all": 0.941,
+   "recall_top20": 0.706,
+   "recall_top20_by_views": 0.886,
+   "moment_inside_pick": 0.222,
+   "median_length": 29.4,
    "clips": [
-    {
-     "start": 16986.45,
-     "end": 17017.05,
-     "score": 4.05,
-     "reason": "Chat explodes; LOL \u00d757, \ud83d\ude02 \u00d714, LMFAO \u00d710"
-    },
-    {
-     "start": 15933.45,
-     "end": 15963.05,
-     "score": 3.45,
-     "reason": "Chat explodes; LOL \u00d771, LMFAO \u00d710, LMAO \u00d75"
-    },
     {
      "start": 2257.95,
      "end": 2287.25,
@@ -308,618 +296,411 @@
      "reason": "Chat spike; volume jump; LOL \u00d738, LMFAO \u00d79, lmao \u00d72"
     },
     {
-     "start": 6665.95,
-     "end": 6696.95,
-     "score": 3.42,
-     "reason": "Chat spike; LOL \u00d735, LMFAO \u00d713, LMAO \u00d77"
+     "start": 1945.65,
+     "end": 1976.45,
+     "score": 2.31,
+     "reason": "Volume jump; LOL \u00d727, LMFAO \u00d75, lmao \u00d72"
     },
     {
-     "start": 12272.85,
-     "end": 12303.15,
-     "score": 3.34,
-     "reason": "Chat explodes; LOL \u00d732, LMFAO \u00d79, LMAO \u00d77"
+     "start": 2177.95,
+     "end": 2208.45,
+     "score": 2.25,
+     "reason": "Loud moment; LOL \u00d74, gg \u00d73, lol \u00d72"
     },
     {
-     "start": 6239.35,
-     "end": 6269.05,
-     "score": 3.26,
-     "reason": "Chat explodes; LOL \u00d742, LMFAO \u00d717, \ud83d\ude02 \u00d76"
+     "start": 1991.25,
+     "end": 2022.05,
+     "score": 2.24,
+     "reason": "Chat spike; LOL \u00d734, LMFAO \u00d74, LMAO \u00d72"
     },
     {
-     "start": 19497.95,
-     "end": 19527.55,
-     "score": 3.11,
-     "reason": "Chat spike; LOL \u00d745, LMFAO \u00d711, LMAO \u00d78"
+     "start": 649.05,
+     "end": 680.45,
+     "score": 1.91,
+     "reason": "Volume jump; LOL \u00d725, LMFAO \u00d78, Lmao \u00d71"
     },
     {
-     "start": 15731.15,
-     "end": 15761.55,
-     "score": 3.0,
-     "reason": "Chat explodes; LOL \u00d745, LMFAO \u00d79, LMAO \u00d73"
+     "start": 1324.35,
+     "end": 1354.65,
+     "score": 1.81,
+     "reason": "Chat spike; LOL \u00d727, LMFAO \u00d74, lmfao \u00d71"
     },
     {
-     "start": 4101.25,
-     "end": 4131.35,
-     "score": 2.92,
-     "reason": "Chat spike; LOL \u00d738, LMFAO \u00d720, \ud83d\ude02 \u00d73"
+     "start": 1536.45,
+     "end": 1565.25,
+     "score": 1.8,
+     "reason": "Volume jump; LOL \u00d720, LMFAO \u00d75, LUL \u00d72"
     },
     {
-     "start": 9304.35,
-     "end": 9334.05,
-     "score": 2.83,
-     "reason": "Chat spike; volume jump; LOL \u00d739, LMFAO \u00d714, Lol \u00d72"
+     "start": 717.75,
+     "end": 746.95,
+     "score": 1.54,
+     "reason": "Chat spike; gg \u00d73, GOAT \u00d72, LOL \u00d72"
     },
     {
-     "start": 9569.05,
-     "end": 9600.25,
-     "score": 2.79,
-     "reason": "Chat spike; volume jump; LOL \u00d752, LMFAO \u00d710, LMAO \u00d76"
+     "start": 573.05,
+     "end": 602.15,
+     "score": 1.43,
+     "reason": "Chat spike; LOL \u00d724, LMFAO \u00d74, LMAO \u00d72"
     },
     {
-     "start": 8674.75,
-     "end": 8704.95,
-     "score": 2.76,
-     "reason": "Chat spike; LOL \u00d741, LMFAO \u00d712, LUL \u00d72"
+     "start": 2455.05,
+     "end": 2484.05,
+     "score": 1.35,
+     "reason": "LMFAO \u00d73, LOL \u00d72, omg \u00d71"
     },
     {
-     "start": 17623.25,
-     "end": 17653.25,
-     "score": 2.72,
-     "reason": "Chat spike; LOL \u00d740, LMFAO \u00d77, \ud83d\ude02 \u00d73"
+     "start": 1089.05,
+     "end": 1118.55,
+     "score": 1.32,
+     "reason": "Chat spike; LOL \u00d731, lol \u00d75, LMFAO \u00d73"
     },
     {
-     "start": 4228.65,
-     "end": 4257.45,
-     "score": 2.7,
-     "reason": "Chat spike; LOL \u00d759, LMFAO \u00d711, LMAO \u00d75"
+     "start": 394.45,
+     "end": 423.15,
+     "score": 1.28,
+     "reason": "LOL \u00d731, LMFAO \u00d73, LMAO \u00d73"
     },
     {
-     "start": 20195.55,
-     "end": 20227.05,
-     "score": 2.69,
-     "reason": "Chat spike; LOL \u00d756, LMFAO \u00d712, lol \u00d73"
+     "start": 1391.05,
+     "end": 1421.05,
+     "score": 1.25,
+     "reason": "Volume jump; LOL \u00d74, LMFAO \u00d72, lol \u00d71"
     },
     {
-     "start": 5008.05,
-     "end": 5038.65,
-     "score": 2.66,
-     "reason": "Chat spike; LOL \u00d724, LMFAO \u00d74, lol \u00d74"
+     "start": 824.75,
+     "end": 853.95,
+     "score": 1.24,
+     "reason": "Volume jump; LOL \u00d712, LMFAO \u00d71, \ud83d\ude02 \u00d71"
     },
     {
-     "start": 16748.25,
-     "end": 16777.95,
-     "score": 2.55,
-     "reason": "Chat spike; LOL \u00d759, LMFAO \u00d717, LMAO \u00d78"
+     "start": 1627.75,
+     "end": 1657.15,
+     "score": 1.23,
+     "reason": "LOL \u00d713, NOWAY \u00d77, noway \u00d72"
+    },
+    {
+     "start": 464.15,
+     "end": 494.45,
+     "score": 1.16,
+     "reason": "Gg \u00d78, GG \u00d73, LOL \u00d72"
+    },
+    {
+     "start": 1592.65,
+     "end": 1621.65,
+     "score": 1.1,
+     "reason": "Volume jump; LOL \u00d714, LMFAO \u00d74, LMAO \u00d71"
     }
    ]
   },
   "3.1 + laughter/screams, 30 s": {
    "picks": 17,
-   "precision@5": 0.2,
-   "precision@10": 0.1,
-   "precision_all": 0.059,
-   "recall_top20": 0.059,
-   "recall_top20_by_views": 0.02,
-   "moment_inside_pick": 0.166,
-   "median_length": 30.1,
+   "precision@5": 1.0,
+   "precision@10": 1.0,
+   "precision_all": 0.941,
+   "recall_top20": 0.706,
+   "recall_top20_by_views": 0.446,
+   "moment_inside_pick": 0.322,
+   "median_length": 29.6,
    "clips": [
     {
-     "start": 16986.45,
-     "end": 17017.05,
-     "score": 4.05,
-     "reason": "Chat explodes; LOL \u00d757, \ud83d\ude02 \u00d714, LMFAO \u00d710"
+     "start": 2268.25,
+     "end": 2297.15,
+     "score": 3.82,
+     "reason": "Laughter; \ud83d\ude02 \u00d71, LMFAO \u00d71"
     },
     {
-     "start": 15933.45,
-     "end": 15963.05,
-     "score": 3.45,
-     "reason": "Chat explodes; LOL \u00d771, LMFAO \u00d710, LMAO \u00d75"
-    },
-    {
-     "start": 2257.95,
-     "end": 2287.25,
-     "score": 3.45,
-     "reason": "Chat spike; volume jump; LOL \u00d738, LMFAO \u00d79, lmao \u00d72"
-    },
-    {
-     "start": 6665.95,
-     "end": 6696.95,
-     "score": 3.42,
-     "reason": "Chat spike; LOL \u00d735, LMFAO \u00d713, LMAO \u00d77"
-    },
-    {
-     "start": 12272.85,
-     "end": 12303.15,
-     "score": 3.34,
-     "reason": "Chat explodes; LOL \u00d732, LMFAO \u00d79, LMAO \u00d77"
-    },
-    {
-     "start": 6239.35,
-     "end": 6269.05,
-     "score": 3.26,
-     "reason": "Chat explodes; LOL \u00d742, LMFAO \u00d717, \ud83d\ude02 \u00d76"
-    },
-    {
-     "start": 19497.95,
-     "end": 19527.55,
-     "score": 3.11,
-     "reason": "Chat spike; LOL \u00d745, LMFAO \u00d711, LMAO \u00d78"
-    },
-    {
-     "start": 15731.15,
-     "end": 15761.55,
-     "score": 3.0,
-     "reason": "Chat explodes; LOL \u00d745, LMFAO \u00d79, LMAO \u00d73"
-    },
-    {
-     "start": 4101.25,
-     "end": 4131.35,
-     "score": 2.92,
-     "reason": "Chat spike; LOL \u00d738, LMFAO \u00d720, \ud83d\ude02 \u00d73"
-    },
-    {
-     "start": 9304.35,
-     "end": 9334.05,
-     "score": 2.83,
-     "reason": "Chat spike; volume jump; LOL \u00d739, LMFAO \u00d714, Lol \u00d72"
-    },
-    {
-     "start": 9569.05,
-     "end": 9600.25,
-     "score": 2.79,
-     "reason": "Chat spike; volume jump; LOL \u00d752, LMFAO \u00d710, LMAO \u00d76"
-    },
-    {
-     "start": 8674.75,
-     "end": 8704.95,
-     "score": 2.76,
-     "reason": "Chat spike; LOL \u00d741, LMFAO \u00d712, LUL \u00d72"
-    },
-    {
-     "start": 17623.25,
-     "end": 17653.25,
+     "start": 1962.55,
+     "end": 1991.25,
      "score": 2.72,
-     "reason": "Chat spike; LOL \u00d740, LMFAO \u00d77, \ud83d\ude02 \u00d73"
+     "reason": "Screaming; LOL \u00d75, LMFAO \u00d73, NOWAY \u00d71"
     },
     {
-     "start": 4228.65,
-     "end": 4257.45,
-     "score": 2.7,
-     "reason": "Chat spike; LOL \u00d759, LMFAO \u00d711, LMAO \u00d75"
+     "start": 855.75,
+     "end": 885.45,
+     "score": 2.47,
+     "reason": "Laughter; LOL \u00d713, LOl \u00d71, LMFAO \u00d71"
     },
     {
-     "start": 20195.55,
-     "end": 20227.05,
-     "score": 2.69,
-     "reason": "Chat spike; LOL \u00d756, LMFAO \u00d712, lol \u00d73"
+     "start": 1391.05,
+     "end": 1421.05,
+     "score": 2.45,
+     "reason": "Screaming; LOL \u00d74, LMFAO \u00d72, lol \u00d71"
     },
     {
-     "start": 5008.05,
-     "end": 5038.65,
-     "score": 2.66,
-     "reason": "Chat spike; LOL \u00d724, LMFAO \u00d74, lol \u00d74"
+     "start": 2047.95,
+     "end": 2077.25,
+     "score": 2.37,
+     "reason": "Laughter; volume jump; LOL \u00d76, lol \u00d72, LMFAO \u00d71"
     },
     {
-     "start": 16748.25,
-     "end": 16777.95,
-     "score": 2.55,
-     "reason": "Chat spike; LOL \u00d759, LMFAO \u00d717, LMAO \u00d78"
+     "start": 1538.15,
+     "end": 1567.65,
+     "score": 2.32,
+     "reason": "Laughter; chat spike; LOL \u00d717, LMFAO \u00d74, LUL \u00d72"
+    },
+    {
+     "start": 2177.95,
+     "end": 2208.45,
+     "score": 2.25,
+     "reason": "Loud moment; LOL \u00d74, gg \u00d73, lol \u00d72"
+    },
+    {
+     "start": 1991.25,
+     "end": 2022.05,
+     "score": 2.24,
+     "reason": "Chat spike; LOL \u00d734, LMFAO \u00d74, LMAO \u00d72"
+    },
+    {
+     "start": 1122.75,
+     "end": 1154.05,
+     "score": 2.15,
+     "reason": "Laughter; LOL \u00d715, LMFAO \u00d74, gg \u00d72"
+    },
+    {
+     "start": 1232.55,
+     "end": 1262.15,
+     "score": 1.85,
+     "reason": "Screaming; LOL \u00d712, LMFAO \u00d72, dead \u00d71"
+    },
+    {
+     "start": 1324.35,
+     "end": 1354.65,
+     "score": 1.81,
+     "reason": "Chat spike; LOL \u00d727, LMFAO \u00d74, lmfao \u00d71"
+    },
+    {
+     "start": 649.05,
+     "end": 680.45,
+     "score": 1.69,
+     "reason": "Volume jump; LOL \u00d725, LMFAO \u00d78, Lmao \u00d71"
+    },
+    {
+     "start": 717.75,
+     "end": 746.95,
+     "score": 1.54,
+     "reason": "Chat spike; gg \u00d73, GOAT \u00d72, LOL \u00d72"
+    },
+    {
+     "start": 570.65,
+     "end": 601.05,
+     "score": 1.49,
+     "reason": "Chat spike; LOL \u00d728, LMFAO \u00d74, LMAO \u00d72"
+    },
+    {
+     "start": 824.75,
+     "end": 853.95,
+     "score": 1.36,
+     "reason": "Volume jump; LOL \u00d712, LMFAO \u00d71, \ud83d\ude02 \u00d71"
+    },
+    {
+     "start": 2455.05,
+     "end": 2484.05,
+     "score": 1.35,
+     "reason": "LMFAO \u00d73, LOL \u00d72, omg \u00d71"
+    },
+    {
+     "start": 1089.05,
+     "end": 1118.55,
+     "score": 1.32,
+     "reason": "Chat spike; LOL \u00d731, lol \u00d75, LMFAO \u00d73"
     }
    ]
   },
   "3.1 full (smart length)": {
    "picks": 17,
-   "precision@5": 0.2,
-   "precision@10": 0.1,
-   "precision_all": 0.059,
-   "recall_top20": 0.118,
-   "recall_top20_by_views": 0.025,
-   "moment_inside_pick": 0.258,
-   "median_length": 35.5,
+   "precision@5": 1.0,
+   "precision@10": 1.0,
+   "precision_all": 0.941,
+   "recall_top20": 0.765,
+   "recall_top20_by_views": 0.441,
+   "moment_inside_pick": 0.251,
+   "median_length": 18.1,
    "clips": [
-    {
-     "start": 16973.85,
-     "end": 17023.35,
-     "score": 4.05,
-     "reason": "Chat explodes; LOL \u00d757, \ud83d\ude02 \u00d714, LMFAO \u00d710"
-    },
-    {
-     "start": 15937.75,
-     "end": 15974.25,
-     "score": 3.45,
-     "reason": "Chat explodes; LOL \u00d771, LMFAO \u00d710, LMAO \u00d75"
-    },
     {
      "start": 2254.55,
      "end": 2295.15,
-     "score": 3.45,
-     "reason": "Chat spike; volume jump; LOL \u00d738, LMFAO \u00d79, lmao \u00d72"
+     "score": 3.82,
+     "reason": "Laughter; \ud83d\ude02 \u00d71, LMFAO \u00d71"
     },
     {
-     "start": 6646.95,
-     "end": 6696.95,
-     "score": 3.42,
-     "reason": "Chat spike; LOL \u00d735, LMFAO \u00d713, LMAO \u00d77"
-    },
-    {
-     "start": 12273.65,
-     "end": 12298.65,
-     "score": 3.34,
-     "reason": "Chat explodes; LOL \u00d732, LMFAO \u00d79, LMAO \u00d77"
-    },
-    {
-     "start": 6243.55,
-     "end": 6269.05,
-     "score": 3.26,
-     "reason": "Chat explodes; LOL \u00d742, LMFAO \u00d717, \ud83d\ude02 \u00d76"
-    },
-    {
-     "start": 19502.65,
-     "end": 19525.05,
-     "score": 3.11,
-     "reason": "Chat spike; LOL \u00d745, LMFAO \u00d711, LMAO \u00d78"
-    },
-    {
-     "start": 15727.65,
-     "end": 15779.55,
-     "score": 3.0,
-     "reason": "Chat explodes; LOL \u00d745, LMFAO \u00d79, LMAO \u00d73"
-    },
-    {
-     "start": 4098.15,
-     "end": 4139.75,
-     "score": 2.92,
-     "reason": "Chat spike; LOL \u00d738, LMFAO \u00d720, \ud83d\ude02 \u00d73"
-    },
-    {
-     "start": 9310.75,
-     "end": 9331.95,
-     "score": 2.83,
-     "reason": "Chat spike; volume jump; LOL \u00d739, LMFAO \u00d714, Lol \u00d72"
-    },
-    {
-     "start": 9572.95,
-     "end": 9600.95,
-     "score": 2.79,
-     "reason": "Chat spike; volume jump; LOL \u00d752, LMFAO \u00d710, LMAO \u00d76"
-    },
-    {
-     "start": 8679.05,
-     "end": 8703.05,
-     "score": 2.76,
-     "reason": "Chat spike; LOL \u00d741, LMFAO \u00d712, LUL \u00d72"
-    },
-    {
-     "start": 17612.75,
-     "end": 17659.15,
+     "start": 1969.35,
+     "end": 1987.35,
      "score": 2.72,
-     "reason": "Chat spike; LOL \u00d740, LMFAO \u00d77, \ud83d\ude02 \u00d73"
+     "reason": "Screaming; LOL \u00d75, LMFAO \u00d73, NOWAY \u00d71"
     },
     {
-     "start": 4228.65,
-     "end": 4264.15,
-     "score": 2.7,
-     "reason": "Chat spike; LOL \u00d759, LMFAO \u00d711, LMAO \u00d75"
-    },
-    {
-     "start": 20200.55,
-     "end": 20230.65,
-     "score": 2.69,
-     "reason": "Chat spike; LOL \u00d756, LMFAO \u00d712, lol \u00d73"
-    },
-    {
-     "start": 4988.25,
-     "end": 5035.05,
-     "score": 2.66,
-     "reason": "Chat spike; LOL \u00d724, LMFAO \u00d74, lol \u00d74"
-    },
-    {
-     "start": 16747.35,
-     "end": 16778.75,
-     "score": 2.55,
-     "reason": "Chat spike; LOL \u00d759, LMFAO \u00d717, LMAO \u00d78"
-    }
-   ]
-  },
-  "3.1 automatic count": {
-   "picks": 43,
-   "precision@5": 0.2,
-   "precision@10": 0.1,
-   "precision@20": 0.05,
-   "precision@30": 0.033,
-   "precision_all": 0.093,
-   "recall_top20": 0.294,
-   "recall_top20_by_views": 0.104,
-   "moment_inside_pick": 0.278,
-   "median_length": 30.1,
-   "clips": [
-    {
-     "start": 16973.85,
-     "end": 17023.35,
-     "score": 4.05,
-     "reason": "Chat explodes; LOL \u00d757, \ud83d\ude02 \u00d714, LMFAO \u00d710"
-    },
-    {
-     "start": 15937.75,
-     "end": 15974.25,
-     "score": 3.45,
-     "reason": "Chat explodes; LOL \u00d771, LMFAO \u00d710, LMAO \u00d75"
-    },
-    {
-     "start": 2254.55,
-     "end": 2295.15,
-     "score": 3.45,
-     "reason": "Chat spike; volume jump; LOL \u00d738, LMFAO \u00d79, lmao \u00d72"
-    },
-    {
-     "start": 6646.95,
-     "end": 6696.95,
-     "score": 3.42,
-     "reason": "Chat spike; LOL \u00d735, LMFAO \u00d713, LMAO \u00d77"
-    },
-    {
-     "start": 12273.65,
-     "end": 12298.65,
-     "score": 3.34,
-     "reason": "Chat explodes; LOL \u00d732, LMFAO \u00d79, LMAO \u00d77"
-    },
-    {
-     "start": 6243.55,
-     "end": 6269.05,
-     "score": 3.26,
-     "reason": "Chat explodes; LOL \u00d742, LMFAO \u00d717, \ud83d\ude02 \u00d76"
-    },
-    {
-     "start": 19502.65,
-     "end": 19525.05,
-     "score": 3.11,
-     "reason": "Chat spike; LOL \u00d745, LMFAO \u00d711, LMAO \u00d78"
-    },
-    {
-     "start": 15727.65,
-     "end": 15779.55,
-     "score": 3.0,
-     "reason": "Chat explodes; LOL \u00d745, LMFAO \u00d79, LMAO \u00d73"
-    },
-    {
-     "start": 4098.15,
-     "end": 4139.75,
-     "score": 2.92,
-     "reason": "Chat spike; LOL \u00d738, LMFAO \u00d720, \ud83d\ude02 \u00d73"
-    },
-    {
-     "start": 9310.75,
-     "end": 9331.95,
-     "score": 2.83,
-     "reason": "Chat spike; volume jump; LOL \u00d739, LMFAO \u00d714, Lol \u00d72"
-    },
-    {
-     "start": 9572.95,
-     "end": 9600.95,
-     "score": 2.79,
-     "reason": "Chat spike; volume jump; LOL \u00d752, LMFAO \u00d710, LMAO \u00d76"
-    },
-    {
-     "start": 8679.05,
-     "end": 8703.05,
-     "score": 2.76,
-     "reason": "Chat spike; LOL \u00d741, LMFAO \u00d712, LUL \u00d72"
-    },
-    {
-     "start": 17612.75,
-     "end": 17659.15,
-     "score": 2.72,
-     "reason": "Chat spike; LOL \u00d740, LMFAO \u00d77, \ud83d\ude02 \u00d73"
-    },
-    {
-     "start": 4228.65,
-     "end": 4264.15,
-     "score": 2.7,
-     "reason": "Chat spike; LOL \u00d759, LMFAO \u00d711, LMAO \u00d75"
-    },
-    {
-     "start": 20200.55,
-     "end": 20230.65,
-     "score": 2.69,
-     "reason": "Chat spike; LOL \u00d756, LMFAO \u00d712, lol \u00d73"
-    },
-    {
-     "start": 4988.25,
-     "end": 5035.05,
-     "score": 2.66,
-     "reason": "Chat spike; LOL \u00d724, LMFAO \u00d74, lol \u00d74"
-    },
-    {
-     "start": 16747.35,
-     "end": 16778.75,
-     "score": 2.55,
-     "reason": "Chat spike; LOL \u00d759, LMFAO \u00d717, LMAO \u00d78"
-    },
-    {
-     "start": 4604.75,
-     "end": 4628.85,
-     "score": 2.53,
-     "reason": "Chat spike; LOL \u00d769, LMFAO \u00d710, \ud83d\ude02 \u00d73"
-    },
-    {
-     "start": 24251.15,
-     "end": 24298.35,
-     "score": 2.52,
-     "reason": "Chat spike; volume jump; LOL \u00d728, LMFAO \u00d712, LMAO \u00d77"
-    },
-    {
-     "start": 24311.55,
-     "end": 24336.35,
-     "score": 2.5,
-     "reason": "Chat spike; LOL \u00d732, \ud83d\ude02 \u00d77, LMFAO \u00d76"
-    },
-    {
-     "start": 23501.25,
-     "end": 23548.75,
-     "score": 2.5,
-     "reason": "Chat spike; LOL \u00d736, LMFAO \u00d715, lol \u00d78"
-    },
-    {
-     "start": 9118.35,
-     "end": 9152.65,
-     "score": 2.49,
-     "reason": "Chat spike; LOL \u00d746, LMFAO \u00d717, LUL \u00d73"
-    },
-    {
-     "start": 25900.65,
-     "end": 25941.45,
-     "score": 2.48,
-     "reason": "Chat spike; LOL \u00d756, LMFAO \u00d712, \ud83d\ude02 \u00d74"
-    },
-    {
-     "start": 26638.95,
-     "end": 26663.85,
+     "start": 863.45,
+     "end": 879.85,
      "score": 2.47,
-     "reason": "Chat spike; LOL \u00d719, WTF \u00d715, LMFAO \u00d75"
+     "reason": "Laughter; LOL \u00d713, LOl \u00d71, LMFAO \u00d71"
     },
     {
-     "start": 25772.75,
-     "end": 25820.05,
-     "score": 2.44,
-     "reason": "Chat spike; LOL \u00d745, LMFAO \u00d711, LMAO \u00d76"
+     "start": 1389.85,
+     "end": 1421.05,
+     "score": 2.45,
+     "reason": "Screaming; LOL \u00d74, LMFAO \u00d72, lol \u00d71"
     },
     {
-     "start": 21264.25,
-     "end": 21320.05,
-     "score": 2.39,
-     "reason": "Chat spike; LOL \u00d756, \ud83d\ude02 \u00d712, LMFAO \u00d712"
-    },
-    {
-     "start": 6999.25,
-     "end": 7020.65,
-     "score": 2.38,
-     "reason": "Chat spike; LOL \u00d747, LMFAO \u00d712, LMAO \u00d75"
-    },
-    {
-     "start": 17803.65,
-     "end": 17827.35,
-     "score": 2.38,
-     "reason": "Chat spike; LOL \u00d734, LMFAO \u00d76, lol \u00d72"
-    },
-    {
-     "start": 5127.85,
-     "end": 5154.25,
-     "score": 2.38,
-     "reason": "Chat spike; LOL \u00d726, LMFAO \u00d75, LMAO \u00d73"
-    },
-    {
-     "start": 10387.85,
-     "end": 10410.45,
+     "start": 2053.85,
+     "end": 2071.35,
      "score": 2.37,
-     "reason": "Chat spike; LOL \u00d721, LMFAO \u00d76, \ud83d\ude02 \u00d72"
+     "reason": "Laughter; volume jump; LOL \u00d76, lol \u00d72, LMFAO \u00d71"
     },
     {
-     "start": 6852.35,
-     "end": 6889.85,
-     "score": 2.35,
-     "reason": "Chat spike; LOL \u00d727, LMFAO \u00d78, LMAO \u00d75"
-    },
-    {
-     "start": 21804.85,
-     "end": 21828.35,
-     "score": 2.34,
-     "reason": "Chat spike; LOL \u00d721, LMFAO \u00d78, lol \u00d72"
-    },
-    {
-     "start": 10571.05,
-     "end": 10608.65,
+     "start": 1533.65,
+     "end": 1570.15,
      "score": 2.32,
-     "reason": "Chat spike; LOL \u00d735, LMFAO \u00d710, LMAO \u00d73"
+     "reason": "Laughter; chat spike; LOL \u00d717, LMFAO \u00d74, LUL \u00d72"
     },
     {
      "start": 1952.85,
      "end": 1969.35,
-     "score": 2.32,
+     "score": 2.31,
      "reason": "Volume jump; LOL \u00d727, LMFAO \u00d75, lmao \u00d72"
-    },
-    {
-     "start": 16017.05,
-     "end": 16043.05,
-     "score": 2.3,
-     "reason": "Chat spike; LOL \u00d732, LMFAO \u00d78, LMAO \u00d73"
-    },
-    {
-     "start": 11115.55,
-     "end": 11134.65,
-     "score": 2.28,
-     "reason": "Chat spike; LOL \u00d738, LMFAO \u00d711, lol \u00d72"
-    },
-    {
-     "start": 2516.35,
-     "end": 2566.55,
-     "score": 2.28,
-     "reason": "Chat spike; volume jump; LOL \u00d73, OMG \u00d73, GOAT \u00d72"
-    },
-    {
-     "start": 12304.15,
-     "end": 12335.95,
-     "score": 2.27,
-     "reason": "Chat spike; LOL \u00d722, LMFAO \u00d78, lmao \u00d72"
-    },
-    {
-     "start": 26034.35,
-     "end": 26057.65,
-     "score": 2.26,
-     "reason": "Chat spike; volume jump; LOL \u00d743, LMFAO \u00d710, LMAO \u00d73"
-    },
-    {
-     "start": 25302.15,
-     "end": 25326.25,
-     "score": 2.24,
-     "reason": "Chat spike; volume jump; LOL \u00d717, LMFAO \u00d711, LMAO \u00d77"
-    },
-    {
-     "start": 17874.15,
-     "end": 17903.75,
-     "score": 2.24,
-     "reason": "Chat spike; LOL \u00d735, LMFAO \u00d77, \ud83e\udd23 \u00d72"
-    },
-    {
-     "start": 1995.95,
-     "end": 2017.65,
-     "score": 2.24,
-     "reason": "Chat spike; LOL \u00d734, LMFAO \u00d74, LMAO \u00d72"
     },
     {
      "start": 2165.75,
      "end": 2202.75,
-     "score": 2.23,
+     "score": 2.25,
      "reason": "Loud moment; LOL \u00d74, gg \u00d73, lol \u00d72"
+    },
+    {
+     "start": 1995.95,
+     "end": 2017.85,
+     "score": 2.24,
+     "reason": "Chat spike; LOL \u00d734, LMFAO \u00d74, LMAO \u00d72"
+    },
+    {
+     "start": 1124.75,
+     "end": 1151.75,
+     "score": 2.15,
+     "reason": "Laughter; LOL \u00d715, LMFAO \u00d74, gg \u00d72"
+    },
+    {
+     "start": 1242.55,
+     "end": 1257.25,
+     "score": 1.85,
+     "reason": "Screaming; LOL \u00d712, LMFAO \u00d72, dead \u00d71"
+    },
+    {
+     "start": 1330.85,
+     "end": 1346.75,
+     "score": 1.81,
+     "reason": "Chat spike; LOL \u00d727, LMFAO \u00d74, lmfao \u00d71"
+    },
+    {
+     "start": 658.15,
+     "end": 683.45,
+     "score": 1.69,
+     "reason": "Volume jump; LOL \u00d725, LMFAO \u00d78, Lmao \u00d71"
+    },
+    {
+     "start": 722.75,
+     "end": 740.85,
+     "score": 1.54,
+     "reason": "Chat spike; gg \u00d73, GOAT \u00d72, LOL \u00d72"
+    },
+    {
+     "start": 579.65,
+     "end": 595.75,
+     "score": 1.49,
+     "reason": "Chat spike; LOL \u00d728, LMFAO \u00d74, LMAO \u00d72"
+    },
+    {
+     "start": 831.75,
+     "end": 848.85,
+     "score": 1.36,
+     "reason": "Volume jump; LOL \u00d712, LMFAO \u00d71, \ud83d\ude02 \u00d71"
+    },
+    {
+     "start": 2458.15,
+     "end": 2476.85,
+     "score": 1.35,
+     "reason": "LMFAO \u00d73, LOL \u00d72, omg \u00d71"
+    }
+   ]
+  },
+  "3.1 automatic count": {
+   "picks": 5,
+   "precision@5": 1.0,
+   "precision_all": 1.0,
+   "recall_top20": 0.353,
+   "recall_top20_by_views": 0.139,
+   "moment_inside_pick": 0.321,
+   "median_length": 18.0,
+   "clips": [
+    {
+     "start": 2254.55,
+     "end": 2295.15,
+     "score": 3.82,
+     "reason": "Laughter; \ud83d\ude02 \u00d71, LMFAO \u00d71"
+    },
+    {
+     "start": 1969.35,
+     "end": 1987.35,
+     "score": 2.72,
+     "reason": "Screaming; LOL \u00d75, LMFAO \u00d73, NOWAY \u00d71"
+    },
+    {
+     "start": 863.45,
+     "end": 879.85,
+     "score": 2.47,
+     "reason": "Laughter; LOL \u00d713, LOl \u00d71, LMFAO \u00d71"
+    },
+    {
+     "start": 1389.85,
+     "end": 1421.05,
+     "score": 2.45,
+     "reason": "Screaming; LOL \u00d74, LMFAO \u00d72, lol \u00d71"
+    },
+    {
+     "start": 2053.85,
+     "end": 2071.35,
+     "score": 2.37,
+     "reason": "Laughter; volume jump; LOL \u00d76, lol \u00d72, LMFAO \u00d71"
     }
    ]
   },
   "3.1 without chat": {
    "picks": 17,
-   "precision@5": 0.6,
-   "precision@10": 0.5,
-   "precision_all": 0.412,
-   "recall_top20": 0.412,
-   "recall_top20_by_views": 0.332,
-   "moment_inside_pick": 0.188,
-   "median_length": 21.8,
+   "precision@5": 1.0,
+   "precision@10": 0.9,
+   "precision_all": 0.941,
+   "recall_top20": 0.706,
+   "recall_top20_by_views": 0.46,
+   "moment_inside_pick": 0.239,
+   "median_length": 17.9,
    "clips": [
     {
-     "start": 27586.65,
-     "end": 27605.25,
-     "score": 4.09,
-     "reason": "Loud moment; LOL \u00d721, gg \u00d78, LMFAO \u00d75"
+     "start": 2264.85,
+     "end": 2297.15,
+     "score": 4.75,
+     "reason": "Laughter; volume jump; \ud83d\ude02 \u00d71, LMFAO \u00d71, LUL \u00d71"
     },
     {
-     "start": 2249.35,
-     "end": 2297.15,
-     "score": 3.56,
-     "reason": "Volume jump; LUL \u00d72, LMFAO \u00d71"
+     "start": 2053.85,
+     "end": 2071.45,
+     "score": 4.06,
+     "reason": "Laughter; volume jump; LOL \u00d76, lol \u00d72, LMFAO \u00d71"
+    },
+    {
+     "start": 1239.85,
+     "end": 1255.85,
+     "score": 3.61,
+     "reason": "Screaming; LOL \u00d712, LMFAO \u00d72, dead \u00d71"
     },
     {
      "start": 2178.95,
      "end": 2201.65,
-     "score": 3.54,
+     "score": 3.58,
      "reason": "Loud moment; LOL \u00d74, gg \u00d73, lol \u00d72"
+    },
+    {
+     "start": 1971.55,
+     "end": 1989.05,
+     "score": 3.3,
+     "reason": "Screaming; LOL \u00d75, LMFAO \u00d72, NOWAY \u00d71"
     },
     {
      "start": 2118.25,
@@ -928,90 +709,78 @@
      "reason": "Volume jump; LUL \u00d71, LOL \u00d71"
     },
     {
-     "start": 27755.05,
-     "end": 27775.55,
-     "score": 3.18,
-     "reason": "Volume jump; LOL \u00d75, OMG \u00d73, LMFAO \u00d72"
+     "start": 1396.75,
+     "end": 1430.75,
+     "score": 3.11,
+     "reason": "Screaming; LOL \u00d74, LMFAO \u00d72, lol \u00d71"
     },
     {
      "start": 1953.95,
      "end": 1969.35,
-     "score": 3.15,
+     "score": 3.11,
      "reason": "Volume jump; LOL \u00d727, LMFAO \u00d75, lmao \u00d72"
-    },
-    {
-     "start": 3390.95,
-     "end": 3433.55,
-     "score": 3.05,
-     "reason": "Volume jump; LOL \u00d710, LMFAO \u00d72"
-    },
-    {
-     "start": 23988.05,
-     "end": 24053.05,
-     "score": 3.03,
-     "reason": "Volume jump; LOL \u00d718, LMFAO \u00d79, OMG \u00d76"
-    },
-    {
-     "start": 28734.05,
-     "end": 28759.55,
-     "score": 2.96,
-     "reason": "Volume jump; LOL \u00d74, LMFAO \u00d71, LMAO \u00d71"
     },
     {
      "start": 1652.55,
      "end": 1696.35,
-     "score": 2.9,
+     "score": 2.92,
      "reason": "Volume jump; LOL \u00d72, LMAO \u00d71, wtf \u00d71"
     },
     {
-     "start": 27560.25,
-     "end": 27581.75,
-     "score": 2.88,
-     "reason": "Volume jump; gg \u00d73, LOL \u00d73, OMG \u00d71"
-    },
-    {
-     "start": 26104.65,
-     "end": 26124.95,
-     "score": 2.87,
-     "reason": "Volume jump; LOL \u00d79, EZ \u00d72, Ez \u00d71"
-    },
-    {
-     "start": 2544.75,
-     "end": 2566.55,
-     "score": 2.84,
-     "reason": "Volume jump; LOL \u00d73, OMG \u00d73, lol \u00d72"
-    },
-    {
      "start": 659.85,
-     "end": 684.25,
-     "score": 2.83,
+     "end": 684.95,
+     "score": 2.9,
      "reason": "Volume jump; LOL \u00d710, LMFAO \u00d75, omg \u00d72"
     },
     {
      "start": 2080.55,
      "end": 2100.35,
-     "score": 2.82,
+     "score": 2.8,
      "reason": "Volume jump; LOL \u00d77, \ud83d\udd25 \u00d71"
     },
     {
-     "start": 9569.05,
-     "end": 9598.55,
-     "score": 2.74,
-     "reason": "Volume jump; LOL \u00d746, LMFAO \u00d79, LMAO \u00d76"
+     "start": 1600.65,
+     "end": 1615.35,
+     "score": 2.58,
+     "reason": "Volume jump; LOL \u00d714, LMFAO \u00d74, LMAO \u00d71"
     },
     {
-     "start": 20083.75,
-     "end": 20098.95,
-     "score": 2.73,
-     "reason": "Volume jump; LOL \u00d715, LMFAO \u00d79, OMG \u00d76"
+     "start": 599.05,
+     "end": 616.95,
+     "score": 2.3,
+     "reason": "Volume jump; LOL \u00d73, KEKW \u00d72, lmao \u00d71"
+    },
+    {
+     "start": 523.55,
+     "end": 539.75,
+     "score": 2.25,
+     "reason": "Volume jump; LOL \u00d73, wtf \u00d71, lol \u00d71"
+    },
+    {
+     "start": 1130.75,
+     "end": 1151.75,
+     "score": 2.22,
+     "reason": "Laughter; LOL \u00d710, LMFAO \u00d72, lol \u00d71"
+    },
+    {
+     "start": 1814.75,
+     "end": 1829.45,
+     "score": 2.19,
+     "reason": "Volume jump; LOL \u00d76, omg \u00d71, \ud83d\ude02 \u00d71"
+    },
+    {
+     "start": 831.75,
+     "end": 848.85,
+     "score": 2.13,
+     "reason": "Volume jump; LOL \u00d712, LMFAO \u00d71, \ud83d\ude02 \u00d71"
     }
    ]
   }
  },
  "estimate": {
-  "strong": 7,
-  "good": 80,
+  "strong": 34,
+  "good": 132,
   "hours": 8.25,
-  "suggest": 43
+  "suggest": 60
  }
 }
