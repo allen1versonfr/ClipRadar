@@ -18,6 +18,7 @@ Live clipping: more accurate, measured, and quicker to show what's coming.
 - A moment carried only by chat needs more people than usual reacting; one or two people spamming no longer make a clip. Repeated messages from one person count less and less.
 - Two automatic moments less than 20 seconds apart are one moment, whatever the clip amount.
 - When moments compete for the same stretch, or wait for captions or rendering, the strongest goes first (and a clip you asked for before all of them).
+- Moving a clip's start or end to a pause no longer makes it shorter than the shortest clip length you set.
 
 ## [3.7.0] - 2026-10-13
 
