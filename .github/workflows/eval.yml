@@ -1,0 +1,55 @@
+name: Clip finder evaluation
+
+# Scores the clip finder on real Twitch VODs, using the clips viewers made of
+# each VOD as the known highlights (tests/eval_vod.py). VOD ids are listed in
+# eval/vods.txt. Runs when that list or the clip finder changes on the eval
+# branch, or by hand. Reports are committed to eval/ on the branch that ran.
+on:
+  workflow_dispatch:
+  push:
+    branches: [eval]
+
+permissions:
+  contents: write
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          python -m pip install -q numpy onnxruntime yt-dlp
+          mkdir -p src/models tools
+          curl -sSL -o src/models/audio_events.onnx "https://github.com/${{ github.repository }}/releases/download/models-v1/audio_events.onnx"
+          gh release download -R lay295/TwitchDownloader -p "*CLI*Linux-x64.zip" -D /tmp/tdl
+          unzip -q -o /tmp/tdl/*.zip -d tools && chmod +x tools/TwitchDownloaderCLI
+          echo "$PWD/tools" >> $GITHUB_PATH
+      - uses: actions/cache@v4
+        with:
+          path: media
+          key: eval-media-${{ hashFiles('eval/vods.txt') }}
+          restore-keys: eval-media-
+      - name: Evaluate
+        run: |
+          set +e
+          ok=0
+          for v in $(grep -oE '[0-9]{6,}' eval/vods.txt); do
+            python tests/eval_vod.py --vod "$v" --media media --out eval > "eval/log_$v.txt" 2>&1 || ok=1
+            tail -c 3000 "eval/log_$v.txt"
+          done
+          exit 0
+      - name: Save reports to the branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add eval/
+          git commit -m "Clip finder evaluation results [skip ci]" || exit 0
+          git push
