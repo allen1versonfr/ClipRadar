@@ -23,13 +23,20 @@ jobs:
       - name: Install packages
         run: |
           python -m pip install -U pip
-          python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install onnx onnxruntime numpy
+          python -m pip install torch==2.5.1 torchaudio==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install onnx onnxruntime "numpy<2.3"
       - name: Export and check
         run: |
           git clone --depth 1 https://github.com/fschmid56/EfficientAT /tmp/EfficientAT
-          python scripts/export_audio_model.py --efficientat /tmp/EfficientAT --out "$RUNNER_TEMP/model"
-          cat "$RUNNER_TEMP/model/audio_events_report.json"
+          set +e
+          python scripts/export_audio_model.py --efficientat /tmp/EfficientAT --out "$RUNNER_TEMP/model" > "$RUNNER_TEMP/export.log" 2>&1
+          code=$?
+          set -e
+          tail -c 6000 "$RUNNER_TEMP/export.log"
+          # logs can't always be downloaded, so put the important part in annotations
+          msg=$(grep -v "^ *(" "$RUNNER_TEMP/export.log" | grep -v "^ *[A-Za-z]*(" | tail -25 | tr '\n' '|' | sed 's/%/%25/g')
+          if [ $code -ne 0 ]; then echo "::error title=export failed::$msg"; exit 1; fi
+          echo "::notice title=export report::$(tr '\n' ' ' < "$RUNNER_TEMP/model/audio_events_report.json")"
       - name: Publish on the models-v1 pre-release
         env:
           GH_TOKEN: ${{ github.token }}
