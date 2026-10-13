@@ -372,6 +372,63 @@ def review_checks(ctx):
         l["action"] == "fix" for l in (sa.get("check") or {}).get("log", [])), (sa.get("check") or {}).get("log"))
 
 
+def _probe_size(path):
+    out = subprocess.run([ARGS.ffmpeg.replace("ffmpeg", "ffprobe") if "ffmpeg" in os.path.basename(ARGS.ffmpeg) else "ffprobe",
+                          "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration",
+                          "-of", "json", path], capture_output=True, text=True, timeout=60).stdout
+    d = json.loads(out or "{}")
+    st = (d.get("streams") or [{}])[0]
+    return st.get("width"), st.get("height"), float((d.get("format") or {}).get("duration") or 0)
+
+
+def editing_checks(ctx):
+    """3.4: timeline data, the original cut, square and wide renders, and the exact preview."""
+    pid = ctx["pid"]
+    clips = get(f"/api/clips/{pid}")["clips"]
+    c = next((x for x in clips if x.get("state") != "kept" and not (x.get("check") or {}).get("excluded")), clips[0])
+    rec("clips know their original cut and frame rate", all(x.get("orig") and len(x["orig"]) == 2 for x in clips)
+        and 20 <= (c.get("fps") or 0) <= 61, (c.get("orig"), c.get("fps")))
+    st = get(f"/api/strip/{pid}?a=40&b=80")
+    rec("timeline data: waveform, laughter and chat for the stretch shown", abs(len(st.get("wave", [])) - 400) <= 2
+        and st.get("hz") == 10 and len(st.get("chat", [])) >= 39
+        and ("laugh" in st.get("events", {}) or not get("/api/status").get("laughter")),
+        f"wave={len(st.get('wave', []))} chat={len(st.get('chat', []))} events={list(st.get('events', {}))}")
+    base = dict(c, start=c["start"], end=c["start"] + 5, words=None)
+    for aspect, size in (("1:1", (1080, 1080)), ("16:9", (1920, 1080))):
+        it = post("/api/queue/add", {"pid": pid, "clip": dict(base, title=f"Shape {aspect.replace(':', 'x')}"),
+                                     "opts": {"layout": "split", "aspect": aspect, "captions": False, "hw_encode": False}})
+        d = _wait_item(it.get("id"), 240)
+        got = _probe_size(os.path.join(d["folder"], d["name"])) if d and d["status"] == "done" else None
+        rec(f"{aspect} clips render at {size[0]}x{size[1]}", got and got[:2] == size and abs(got[2] - 5) < 0.6,
+            got or (d and d.get("error")))
+    j = post("/api/preview_render", {"pid": pid, "clip": {"id": c["id"], "start": c["start"], "end": c["end"], "title": "Exact"},
+                                     "opts": {"layout": "blur", "aspect": "1:1", "captions": False, "hw_encode": False},
+                                     "at": c["start"] + 2})
+    r = wait_job(j.get("job", ""), 240) if j.get("job") else None
+    ok = r and r["status"] == "done"
+    got = None
+    if ok:
+        rel = r["result"]["url"].split("/files/" + pid + "/", 1)[1]
+        path = next((os.path.join(rt, f) for rt, _, fs in os.walk(os.path.dirname(ctx["vod"])) for f in fs
+                     if os.path.join(rt, f).replace(os.sep, "/").endswith(rel)), None)
+        got = _probe_size(path) if path else None
+        try:
+            served = urllib.request.urlopen(B + r["result"]["url"], timeout=20).status == 200
+        except Exception:
+            served = False
+    rec("exact preview renders a few seconds like the export", ok and got and got[:2] == (1080, 1080) and 4 <= got[2] <= 6.6 and served,
+        got or (r and r.get("error")))
+    time.sleep(1.5)
+    saved = {}
+    for rt, _, fs in os.walk(os.path.dirname(ctx["vod"])):
+        if "project.json" in fs:
+            try:
+                saved = json.load(open(os.path.join(rt, "project.json"), encoding="utf-8"))
+            except Exception:
+                pass
+    rec("the original cut is saved with the VOD", all(x.get("orig") for x in saved.get("clips", [])) and saved.get("clips"))
+
+
 ARGS = None
 
 
@@ -442,6 +499,7 @@ def main():
         if ctx:
             persistence_checks(ctx, restart)
             review_checks(ctx)
+            editing_checks(ctx)
 
         # ------------------------------------------------------------ live mode
         src = os.path.join(tmp, "stream_src.mp4")

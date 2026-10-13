@@ -64,7 +64,8 @@ USE
       Text       caption style (Pop, Highlight, Karaoke, Glow, Clean), title
                  style (white, dark or colour box, outline), fonts, size and
                  highlight colour
-      Layout     cam + game, full crop or blur fit, facecam box, zoom
+      Layout     shape (vertical 9:16, square 1:1, wide 16:9), cam + game,
+                 full crop or blur fit, facecam box, zoom
     Drag the title or the captions on the preview to move them; a line shows
     when they're centred, and the shaded areas are covered by TikTok's own
     buttons. Text > Reset positions puts them back.
@@ -83,6 +84,19 @@ USE
     header, and you can keep reviewing while it runs.
       Up / Down arrows          previous / next clip
       Space play/pause, T new title, M mute, Left/Right seek, C clip (live)
+    Editing timeline (under the player): the clip's stretch of the stream
+    with its sound, captions, laughter, screams and cheers, chat activity and
+    content check flags. Drag the clip's edges to trim (they snap to word
+    edges; hold Alt to stop that), click to jump, scroll to move along and
+    Ctrl+scroll (or - Fit +) to zoom. Times are stream times.
+    Trim in the Clip tab by a second (-1s/+1s) or a single frame (-1f/+1f), or
+    press I and O to start or end the clip at the playhead. Restore original
+    cut goes back to the cut VodClipper found. Undo and Redo (Ctrl+Z,
+    Ctrl+Shift+Z) cover trims, titles, post captions and caption edits.
+    Frame back/forward (, and .), playback speed (< and >), and ? shows every
+    shortcut.
+    Exact preview renders a few seconds around the playhead exactly like the
+    export (captions, title, censoring, shape), without exporting the clip.
     Each clip has a number (#7) that stays with that moment, even when you
     change the sliders. Clips you kept, skipped, trimmed or retitled never drop
     out of the list. Your review is saved as you go: open the same VOD again

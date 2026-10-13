@@ -53,6 +53,7 @@ jobs:
           python tests/test_signals.py
           python tests/test_persist.py
           python tests/test_checkflow.py
+          python tests/test_editing.py
 
       - name: Get ffmpeg, TwitchDownloader and yt-dlp
         env:
