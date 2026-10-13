@@ -782,8 +782,9 @@ class LiveSession:
         lo = max(0, int(self._scan_from))
         gap = max(self.min_gap, 15.0)
         scanned = lo
+        edge = min(60.0, self.warmup)          # the first minute: "starting soon", chat saying hi
         for i in range(lo, max(lo, limit)):
-            if s[i] < self.threshold:
+            if s[i] < self.threshold or i < edge:
                 scanned = i + 1
                 continue
             a, b = max(0, i - win), min(n, i + win + 1)

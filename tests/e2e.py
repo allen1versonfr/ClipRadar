@@ -268,7 +268,8 @@ def main():
                 diag["segment list"] = open(os.path.join(segdir0, lst[0]), encoding="utf-8", errors="replace").read()[-600:]
         rec("chat connected", wait(lambda: get(f"/api/live/{sid}")["chat_connected"], 30))
         first = wait(lambda: (lambda c: c if c else None)(get(f"/api/live/{sid}")["clips"]), 150, 2)
-        rec("found a moment automatically", first, first and f"{first[0]['reason']} at {first[0]['at']}s")
+        rec("found a moment automatically", first and all(c["at"] >= 30 for c in first if not c.get("manual")),
+            first and f"{first[0]['reason']} at {first[0]['at']}s")
         clipped = post(f"/api/live/{sid}/clip", {"seconds": 20})
         rec("clip-that request accepted", clipped.get("pending_manual", 0) >= 1 or len(clipped.get("clips", [])) >= 2,
             clipped.get("error", ""))

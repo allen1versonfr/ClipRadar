@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 3.1.0" src="https://img.shields.io/badge/version-3.1.0-4c8dff?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 3.1.1" src="https://img.shields.io/badge/version-3.1.1-4c8dff?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/vodclipper/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/vodclipper/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -61,7 +61,7 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 <table>
   <tr>
     <td width="50%"><img src="docs/images/live.png" alt="Hands-free live clipping: moments are titled, checked and rendered while the stream runs"><p align="center"><sub><b>Hands-free live:</b> clips render on their own while you watch</sub></p></td>
-    <td width="50%"><img src="docs/images/home.png" alt="Home: past broadcast or live channel with hands-free options"><p align="center"><sub><b>Home:</b> hands-free mode, how many clips, wait for the stream</sub></p></td>
+    <td width="50%"><img src="docs/images/home.png" alt="Home: automatic clip count and length, Deep scan, and ad-free live clipping"><p align="center"><sub><b>Home:</b> automatic clip count and length, Deep scan, ad-free live</sub></p></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/images/content-check.png" alt="Content check settings with censoring"><p align="center"><sub><b>Content check:</b> flag, hide, mute or bleep</sub></p></td>

@@ -3,6 +3,11 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.1.1] - 2026-10-13
+
+### Fixed
+- Live mode no longer makes a "moment" out of the first minute of a stream, when chat is just saying hi.
+
 ## [3.1.0] - 2026-10-13
 
 Smarter clip finding, and live recording without ads.
