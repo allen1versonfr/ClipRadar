@@ -26,6 +26,7 @@ jobs:
           python -m pip install torch==2.5.1 torchaudio==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
           python -m pip install onnx onnxruntime "numpy<2.3"
       - name: Export and check
+        if: ${{ hashFiles('models/audio_events.onnx') == '' }}
         run: |
           git clone --depth 1 https://github.com/fschmid56/EfficientAT /tmp/EfficientAT
           set +e
@@ -42,9 +43,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          if [ -f models/audio_events.onnx ]; then mkdir -p "$RUNNER_TEMP/model" && cp models/audio_events.onnx "$RUNNER_TEMP/model/"; fi
+          sha256sum "$RUNNER_TEMP/model/audio_events.onnx"
           cd "$RUNNER_TEMP/model"
           if ! gh release view models-v1 >/dev/null 2>&1; then
             gh release create models-v1 --prerelease --title "Model files" --target "${{ github.sha }}" \
               --notes "Model files VodClipper downloads at build time. Not an app release; get VodClipper from the latest release."
           fi
-          gh release upload models-v1 audio_events.onnx audio_events_test.npz audio_events_report.json --clobber
+          gh release upload models-v1 audio_events.onnx $(ls audio_events_test.npz audio_events_report.json 2>/dev/null) --clobber
