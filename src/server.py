@@ -26,7 +26,6 @@ import uuid
 import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -41,6 +40,11 @@ import hotkey
 import safety
 import tools_setup
 import updater
+import audio_events
+import chatsignal
+import gems
+import learning
+import twitchauth
 
 from version import VERSION
 HERE = paths.RES_DIR
@@ -153,13 +157,13 @@ def curve_preview(score, points: int = 1400) -> list:
     return [round(float(s[a:b].max()), 2) for a, b in zip(edges[:-1], edges[1:])]
 
 
-TX_MARGIN = 5.0   # seconds transcribed around each clip, so -5s/+5s trims still have captions
+TX_MARGIN = 8.0   # seconds transcribed around each clip: trims keep captions, and cuts can move to a sentence
 
 
 def _chat_window(pr: dict, start: float, end: float) -> list:
     d = pr.get("chat_delay", 6.0)
     lo, hi = start + d - 2, end + d + 8
-    return [m for t, m in pr["chat"] if lo <= t <= hi]
+    return [m[1] for m in chatsignal.human(pr["chat"]) if lo <= m[0] <= hi]
 
 
 def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
@@ -209,6 +213,7 @@ def clip_dicts(pid: str, clips: list) -> list:
         d["vod"] = f"/vod/{pid}"
         d.setdefault("words", [])
         d.setdefault("listened", False)
+        d.setdefault("kind", "gem" if d.get("id", 0) >= gems.GEM_ID else "hype")
         # quick first title from chat alone; replaced once the clip has been listened to
         _title_clip(pr, d, [], used)
         out.append(d)
@@ -222,11 +227,20 @@ def project_view(pid: str) -> dict:
         "pid": pid, "title": pr["title"], "source": pr["source"], "duration": an.duration,
         "width": pr["info"]["width"], "height": pr["info"]["height"],
         "has_chat": an.has_chat, "has_audio": an.has_audio, "chat_count": len(pr["chat"]),
-        "chat_weight": an.chat_weight_pct,
-        "curve": curve_preview(an.score), "clips": pr["clips"],
+        "chat_weight": an.chat_weight_pct, "chat_stats": an.chat_stats or {},
+        "events": an.has_events, "estimate": engine.estimate(an),
+        "streamer": pr.get("streamer", ""), "learning": learning.describe(pr.get("streamer", "")),
+        "curve": curve_preview(an.score), "clips": pr["clips"], "gems": pr.get("gems", []),
+        "deep": deep_status(pr), "length_mode": pr.get("length", 0),
         "vod": f"/vod/{pid}", "vcodec": pr["info"].get("vcodec", ""),
         "ext": os.path.splitext(pr["video"])[1].lower(),
     }
+
+
+def _pick(pr: dict, count: int, length: float) -> list:
+    an = pr["analysis"]
+    return engine.pick_clips(an, count=count, length=length, chat=pr["chat"], chat_delay=pr["chat_delay"],
+                             adjust=learning.adjuster(pr.get("streamer", "")))
 
 
 def do_analyze(job, body: dict):
@@ -235,30 +249,205 @@ def do_analyze(job, body: dict):
     if not src:
         raise RuntimeError("Paste a Twitch VOD link or the path to a video file.")
     step("Getting the VOD")
-    s = engine.acquire(src, WORKROOT, chat_file=body.get("chat_file") or "",
-                       max_height=int(body.get("max_height", 1080)),
-                       cookies_browser=body.get("cookies") or "",
-                       log=log, progress=job_progress(job, 0.0, 0.62), step=step, check=check)
+    with twitchauth.cookie_file() as cookie:
+        s = engine.acquire(src, WORKROOT, chat_file=body.get("chat_file") or "",
+                           max_height=int(body.get("max_height", 1080)),
+                           cookies_browser=body.get("cookies") or "", cookie_file=cookie,
+                           log=log, progress=job_progress(job, 0.0, 0.62), step=step, check=check)
     step("Finding the best moments")
     delay = float(body.get("chat_delay", 6))
     an = engine.analyze(s.video, s.chat, chat_delay=delay,
                         chat_weight_pct=float(body.get("chat_weight", 60)),
-                        log=log, progress=job_progress(job, 0.62, 0.94), check=check)
+                        log=log, progress=job_progress(job, 0.62, 0.94), check=check,
+                        events=bool(body.get("events", True)))
     pid = uuid.uuid4().hex[:8]
     info = engine.probe(s.video)
+    length = float(body.get("length", 0) or 0)
     projects[pid] = {"video": s.video, "chat": s.chat, "title": s.title, "workdir": s.workdir,
                      "analysis": an, "info": info, "clips": [], "chat_delay": delay,
-                     "source": src, "clips_ver": 0}
+                     "source": src, "clips_ver": 0, "streamer": s.streamer, "length": length,
+                     "tx_lock": threading.Lock(), "gems": []}
+    pr = projects[pid]
     engine._save_meta(s.workdir, duration=an.duration)
-    clips = engine.pick_clips(an, count=int(body.get("count", 10)),
-                              length=float(body.get("length", 30)), chat=s.chat, chat_delay=delay)
+    _load_transcripts(pr)
+    est = engine.estimate(an)
+    clips = _pick(pr, int(body.get("count", 0) or 0), length)
     step("Making thumbnails")
-    projects[pid]["clips"] = clip_dicts(pid, clips)
+    pr["clips"] = clip_dicts(pid, clips)
+    for d in pr["clips"]:
+        d["len_mode"] = length
     if clips:
-        log(f"Found {len(clips)} clips worth a look.")
+        log(f"Found {len(clips)} clip{'s' if len(clips) != 1 else ''} worth a look "
+            f"(about {est['strong']} strong moment{'s' if est['strong'] != 1 else ''} in this stream).")
     else:
         log("Nothing stood out strongly. Click the timeline to add clips yourself.")
+    tuned = sum(1 for c in clips if abs(c.tuned) > 0.05)
+    if tuned:
+        log(f"Ranking tuned to what you kept and skipped before ({learning.describe(s.streamer)['using']}).")
+    model, lang = _deep_model(body.get("deep_model") or "auto"), body.get("language") or ""
+    if _covered(pr, model, lang) >= 0.98:
+        _update_gems(pid, model, lang)          # deep scanned before: the quiet gems are ready right away
+        pr.update(deep_done=True, deep_model=model, deep_lang=lang)
+    elif body.get("deep_scan"):
+        try:
+            start_deep_scan(pid, model, lang)
+        except RuntimeError as e:
+            log(f"Deep scan skipped: {e}")
     return project_view(pid)
+
+
+# ---- deep scan: transcribe the whole VOD, then find quiet gems
+
+def _deep_model(choice: str) -> str:
+    if choice and choice != "auto":
+        return choice
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() > 0:
+            return "small"
+    except Exception:
+        pass
+    return "base"
+
+
+def deep_status(pr: dict) -> dict:
+    j = jobs.get(pr.get("deep_job", ""))
+    st = {"state": "none", "progress": 0.0, "step": "", "model": pr.get("deep_model", ""), "error": "",
+          "gems": len(pr.get("gems", [])), "can": engine.whisper_available() and pr["info"].get("has_audio", False)}
+    if pr.get("deep_done"):
+        st["state"] = "done"
+        st["progress"] = 1.0
+    if j:
+        st.update(progress=j["progress"], step=j["step"])
+        if j["status"] == "running":
+            st["state"] = "running"
+        elif j["status"] == "error":
+            st.update(state="error", error=j.get("error") or "")
+        elif j["status"] == "cancelled" and not pr.get("deep_done"):
+            st["state"] = "cancelled"
+    return st
+
+
+def _covered(pr: dict, model: str, lang: str) -> float:
+    tx = pr.get("tx", {}).get(f"{model}|{lang}")
+    if not tx:
+        return 0.0
+    return sum(b - a for a, b in tx["covered"]) / max(1.0, pr["analysis"].duration)
+
+
+def _update_gems(pid: str, model: str, lang: str):
+    pr = projects[pid]
+    tx = pr.get("tx", {}).get(f"{model}|{lang}")
+    if not tx:
+        return
+    words = tx["words"]
+    taken = [(c["start"], c["end"]) for c in pr["clips"]]
+    found, _curve = gems.find(pr["analysis"], words, taken, chat=pr["chat"], chat_delay=pr["chat_delay"])
+    old = {round(g["peak"]): g for g in pr.get("gems", [])}
+    out, used = [], {c.get("title", "").lower() for c in pr["clips"]}
+    fresh = []
+    for g in found:
+        o = old.get(round(g.peak))
+        if o:
+            out.append(o)
+        else:
+            fresh.append(g)
+    next_id = max([g["id"] for g in pr.get("gems", [])] + [gems.GEM_ID]) + 1
+    for g in fresh:
+        g.id = next_id
+        next_id += 1
+    for d in clip_dicts(pid, fresh):
+        ws = [w for w in words if d["start"] - TX_MARGIN <= w["start"] <= d["end"] + TX_MARGIN]
+        d["words"] = ws
+        _title_clip(pr, d, ws, used)
+        d["listened"] = True
+        d["kind"] = "gem"
+        out.append(d)
+    out.sort(key=lambda d: -d.get("score", 0))
+    pr["gems"] = out
+
+
+def start_deep_scan(pid: str, model: str, lang: str):
+    pr = projects[pid]
+    if not engine.whisper_available():
+        raise RuntimeError("Deep scan needs Whisper, which isn't available in this install.")
+    if not pr["info"].get("has_audio"):
+        raise RuntimeError("This video has no sound to transcribe.")
+    old = jobs.get(pr.get("deep_job", ""))
+    if old and old["status"] == "running":
+        return old
+    model = _deep_model(model)
+    job = new_job("deepscan")
+    pr.update(deep_job=job["id"], deep_model=model, deep_lang=lang, deep_done=False)
+    dur = pr["analysis"].duration
+
+    def go():
+        check, log = job_check(job), job_logger(job)
+        log(f"Deep scan with Whisper '{model}': transcribing the whole stream.")
+        step_s = 60.0
+        a, last_gems, t0 = 0.0, 0.0, time.time()
+        while a < dur:
+            check()
+            # titles for the suggested clips come first: let a running listening job finish
+            while (jobs.get(pr.get("listen_job", "")) or {}).get("status") == "running":
+                check()
+                time.sleep(0.5)
+            b = min(dur, a + step_s)
+            ensure_words(pr, a, b, model, lang, check)
+            job["progress"] = round(b / dur, 4)
+            took = time.time() - t0
+            left = took / max(b, 1) * (dur - b)
+            job["step"] = f"Deep scan {int(b / dur * 100)}%" + (f", about {engine.fmt_ts(left)} left" if b > 120 else "")
+            if b - last_gems >= 900 or b >= dur:
+                _update_gems(pid, model, lang)           # gems show up while the scan goes on
+                last_gems = b
+            a = b
+        pr["deep_done"] = True
+        _save_transcripts(pr)
+        log(f"Deep scan done: {len(pr['gems'])} quiet gems.")
+        return {"gems": len(pr["gems"])}
+    run_job(job, go)
+    return job
+
+
+def _tx_file(pr: dict) -> str:
+    return os.path.join(pr["workdir"], "transcripts.json")
+
+
+def _video_sig(pr: dict) -> str:
+    try:
+        st = os.stat(pr["video"])
+        return f"{st.st_size}:{int(st.st_mtime)}"
+    except OSError:
+        return ""
+
+
+def _load_transcripts(pr: dict):
+    """Transcripts made before for this VOD (deep scans, captions) so nothing is transcribed twice."""
+    try:
+        with open(_tx_file(pr), encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("video") != _video_sig(pr):
+            return
+        pr["tx"] = {k: {"words": v["words"], "covered": [tuple(x) for x in v["covered"]]}
+                    for k, v in data.get("tx", {}).items()}
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+
+
+def _save_transcripts(pr: dict):
+    if pr.get("live") or not pr.get("tx"):
+        return
+    tmp = _tx_file(pr) + ".tmp"
+    try:
+        with pr["tx_lock"]:
+            data = {"video": _video_sig(pr), "tx": {k: {"words": v["words"], "covered": v["covered"]}
+                                                     for k, v in pr["tx"].items()}}
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, _tx_file(pr))
+    except OSError:
+        pass
 
 
 # ---- transcript cache: each stretch of the VOD is transcribed once, then reused
@@ -271,8 +460,8 @@ def _tx(pr: dict, model: str, lang: str) -> dict:
 def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lambda: None) -> list:
     """Transcript words (absolute times) for [a, b] of the VOD, transcribing any missing parts."""
     a, b = max(0.0, a), min(pr["analysis"].duration, b)
-    tx = _tx(pr, model, lang)
-    with pr.setdefault("tx_lock", threading.Lock()):
+    with pr["tx_lock"]:
+        tx = _tx(pr, model, lang)
         gaps, cur = [], a
         for ca, cb in sorted(tx["covered"]):
             if cb <= cur:
@@ -348,10 +537,23 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
             if sess:   # live moments are separate projects; don't repeat titles across the stream
                 used |= {projects[m]["clips"][0]["title"].lower() for m in sess.moments
                          if m != pid and m in projects and projects[m]["clips"] and projects[m]["clips"][0].get("listened")}
+            if words and not d.get("trimmed") and not d.get("manual"):
+                # never start or stop mid-sentence
+                fixed = (d.get("len_mode") or pr.get("length") or 0) > 0
+                a2, b2 = engine.refine_with_words(d["start"], d["end"], d.get("peak", d["start"]), words,
+                                                  max_move=3.0 if fixed else 8.0)
+                a2, b2 = max(0.0, a2), min(pr["analysis"].duration, b2)
+                if b2 - a2 >= 3 and (abs(a2 - d["start"]) > 0.05 or abs(b2 - d["end"]) > 0.05):
+                    d["start"], d["end"] = round(a2, 2), round(b2, 2)
+                    if d.get("abs_start") is not None and d.get("at") is not None:
+                        off = d["at"] - d.get("peak", 0)
+                        d["abs_start"], d["abs_end"] = round(off + d["start"], 1), round(off + d["end"], 1)
             d["words"] = words
             _title_clip(pr, d, words, used)
             d["listened"] = True
             job["progress"] = (n + 1) / max(1, len(todo))
+        if not pr.get("live"):
+            _save_transcripts(pr)
         if on_done:
             try:
                 on_done(pid)
@@ -360,6 +562,34 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
         return {"ok": True}
     run_job(job, go)
     return job
+
+
+# ---- learning from what you keep, skip and post
+
+def _find_clip(pr: dict, cid) -> Optional[dict]:
+    for d in pr.get("clips", []) + pr.get("gems", []):
+        if d.get("id") == cid:
+            return d
+    return None
+
+
+def record_feedback(pid, cid, action: str):
+    pr = projects.get(pid)
+    if not pr or action not in ("keep", "skip", "post", "undo"):
+        return
+    d = _find_clip(pr, cid)
+    if not d or not d.get("feat"):
+        return
+    at = d.get("at", d.get("peak", 0))
+    key = f"{pr.get('live') or pr.get('source', '')}|{int(at)}"
+    learning.record(pr.get("streamer", ""), key, d["feat"], action)
+    _refresh_live_learning()
+
+
+def _refresh_live_learning():
+    for sess in list(live_sessions.values()):
+        if sess.status in ("starting", "waiting", "recording", "reconnecting"):
+            sess.adjust = learning.adjuster(sess.channel or "")
 
 
 # ---- render queue: kept clips render one after another in the background
@@ -578,6 +808,11 @@ def start_tiktok_post(it: dict, mode: str, body: dict) -> dict:
         url = tiktok.post_url(r.get("post_id", ""))
         it["tiktok"] = {"state": "done", "mode": mode, "status": r["status"], "post_id": r.get("post_id", ""),
                         "url": url, "at": time.time(), "auto": bool(body.get("auto"))}
+        if not body.get("auto"):
+            try:
+                record_feedback(it["pid"], it.get("clip_id"), "post")
+            except Exception:
+                pass
         return dict(r, url=url)
     run_job(job, go)
     return job
@@ -660,7 +895,8 @@ def live_on_moment(sess, m: dict):
     pr = {"video": m["video"], "chat": m["chat"], "title": f"{sess.title}, moment {m['number']}",
           "workdir": sess.dir, "analysis": m["analysis"], "info": engine.probe(m["video"]), "clips": [],
           "chat_delay": sess.chat_delay, "source": sess.source, "clips_ver": 0, "live": sess.id,
-          "thumb_prefix": f"m{m['number']}_"}
+          "thumb_prefix": f"m{m['number']}_", "streamer": sess.channel or "", "length": sess.length,
+          "tx_lock": threading.Lock()}
     projects[mid] = pr
     clip = m["clip"]
     clip.id = m["number"]
@@ -668,7 +904,7 @@ def live_on_moment(sess, m: dict):
     d = pr["clips"][0]
     d.update(moment=m["number"], manual=m["manual"], live=sess.id, created=time.time(),
              at=round(m["offset"] + clip.peak, 1), abs_start=round(m["offset"] + clip.start, 1),
-             abs_end=round(m["offset"] + clip.end, 1))
+             abs_end=round(m["offset"] + clip.end, 1), len_mode=sess.length)
     sess.moments.append(mid)
     extra = sess.extra
 
@@ -696,7 +932,7 @@ def start_live_session(src: str, body: dict):
     """Create and start a live session. body holds every setting so 'keep watching' can start the next one."""
     sid = uuid.uuid4().hex[:8]
     sess = live.LiveSession(
-        sid, src, WORKROOT, length=float(body.get("length", 30)),
+        sid, src, WORKROOT, length=float(body.get("length", 0) or 0), events=bool(body.get("events", True)),
         sensitivity=body.get("frequency") or body.get("sensitivity", "normal"),
         chat_delay=float(body.get("chat_delay", 6)),
         chat_weight=float(body.get("chat_weight", 60)), max_height=int(body.get("max_height", 1080)),
@@ -709,6 +945,7 @@ def start_live_session(src: str, body: dict):
         if sess.channel and sess.title == "stream (live)":
             sess.title = f"{sess.channel} (live)"
             engine._save_meta(sess.dir, title=sess.title, source=sess.source, live=True)
+    sess.adjust = learning.adjuster(sess.channel or "")
     hands_free = bool(body.get("hands_free", body.get("auto_render")))
     sess.extra = {"auto_render": hands_free, "opts": dict(body.get("opts") or {}),
                   "model": body.get("model") or "small", "language": body.get("language") or "",
@@ -882,6 +1119,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ffmpeg": ts["ffmpeg"],
                 "ytdlp": ts["ytdlp_exe"] or _has("yt_dlp"),
                 "whisper": engine.whisper_available(),
+                "laughter": audio_events.available(),
                 "twitchdownloader": ts["twitchdownloader"],
                 "can_download_tools": ts["can_download"],
                 "workroot": WORKROOT,
@@ -909,6 +1147,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(live_view(sess)) if sess else self._err("That live session is gone.", 404)
         if p == "/api/tiktok":
             return self._json(tiktok.status())
+        if p == "/api/twitch":
+            return self._json(twitchauth.status(refresh="refresh" in q))
+        if p == "/api/learning":
+            return self._json(learning.summary())
         if p == "/callback/" or p == "/callback":
             params = {k: v[0] for k, v in q.items()}
             try:
@@ -932,7 +1174,7 @@ class Handler(BaseHTTPRequestHandler):
             if not pr:
                 return self._err("This session expired. Press Find clips again.", 404)
             lj = jobs.get(pr.get("listen_job", ""))
-            return self._json({"clips": pr["clips"],
+            return self._json({"clips": pr["clips"], "gems": pr.get("gems", []), "deep": deep_status(pr),
                                "listening": bool(lj and lj["status"] == "running"),
                                "step": lj["step"] if lj else ""})
         if p == "/api/storage":
@@ -978,6 +1220,20 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body()
         except Exception:
             return self._err("bad request")
+        if not isinstance(body, dict):
+            return self._err("bad request")
+        try:
+            return self._post(p, body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            raise
+        except (KeyError, TypeError, ValueError) as e:
+            traceback.print_exc()
+            return self._err(f"Bad request ({type(e).__name__}: {str(e)[:120]})")
+        except Exception as e:
+            traceback.print_exc()
+            return self._err(f"Something went wrong: {str(e)[:200]}", 500)
+
+    def _post(self, p: str, body: dict):
 
         if p == "/api/analyze":
             job = new_job("analyze")
@@ -985,7 +1241,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"job": job["id"]})
 
         if p == "/api/setup_tools":
-            want = [w for w in body.get("want", []) if w in ("ffmpeg", "twitchdownloader", "ytdlp")]
+            want = [w for w in body.get("want", []) if w in ("ffmpeg", "twitchdownloader", "ytdlp", "laughter")]
             if not want:
                 return self._err("Nothing to download.")
             job = new_job("setup")
@@ -993,8 +1249,12 @@ class Handler(BaseHTTPRequestHandler):
             def go():
                 log, step = job_logger(job), job_step(job)
                 step("Downloading tools")
-                return tools_setup.setup(want, log=log, progress=job_progress(job, 0, 1),
-                                         check=job_check(job))
+                tools = [w for w in want if w != "laughter"]
+                res = tools_setup.setup(tools, log=log, progress=job_progress(job, 0, 0.8 if "laughter" in want else 1),
+                                        check=job_check(job)) if tools else {}
+                if "laughter" in want and not audio_events.available():
+                    audio_events.download(log, progress=job_progress(job, 0.8 if tools else 0, 1))
+                return res
             run_job(job, go)
             return self._json({"job": job["id"]})
 
@@ -1046,10 +1306,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("Wait for the current download or render to finish (or cancel it), then try again.", 409)
             # stop background listening so it isn't reading a VOD while it's deleted
             for j in jobs.values():
-                if j["kind"] == "listen" and j["status"] == "running":
+                if j["kind"] in ("listen", "deepscan") and j["status"] == "running":
                     j["cancel"] = True
-            end_wait = time.time() + 5
-            while time.time() < end_wait and any(j["kind"] == "listen" and j["status"] == "running" for j in jobs.values()):
+            end_wait = time.time() + 8
+            while time.time() < end_wait and any(j["kind"] in ("listen", "deepscan") and j["status"] == "running"
+                                                 for j in jobs.values()):
                 time.sleep(0.1)
             fn = engine.delete_vods if what == "vods" else engine.delete_clips
             res = fn(WORKROOT)
@@ -1086,7 +1347,6 @@ class Handler(BaseHTTPRequestHandler):
             if not engine.which("ffmpeg"):
                 return self._err("ffmpeg is missing. Download the tools first.")
             src = (body.get("source") or "").strip()
-            sid = uuid.uuid4().hex[:8]
             try:
                 sess = start_live_session(src, dict(body))
             except ValueError as e:
@@ -1177,13 +1437,29 @@ class Handler(BaseHTTPRequestHandler):
             pr = projects[pid]
             an = pr["analysis"]
             an.combine(float(body.get("chat_weight", an.chat_weight_pct)))
-            clips = engine.pick_clips(an, count=int(body.get("count", 10)),
-                                      length=float(body.get("length", 30)),
-                                      chat=pr["chat"], chat_delay=pr["chat_delay"])
-            new = clip_dicts(pid, clips)
+            length = float(body.get("length", 0) or 0)
+            pr["length"] = length
+            clips = _pick(pr, int(body.get("count", 0) or 0), length)
+            # a clip that's still suggested keeps its id, title, transcript and sentence-aligned cuts
+            old = {round(c["peak"]): c for c in pr["clips"] if not c.get("manual") and c.get("len_mode", 0) == length}
+            next_id = max([c["id"] for c in pr["clips"]] + [0]) + 1
+            fresh, order = [], []
+            for c in clips:
+                o = old.pop(round(c.peak), None)
+                if o:
+                    o.update(score=c.score, reason=c.reason, feat=c.feat, tuned=c.tuned)
+                    order.append(o)
+                else:
+                    c.id = next_id
+                    next_id += 1
+                    fresh.append(c)
+                    order.append(c)
+            made = {d["id"]: d for d in clip_dicts(pid, fresh)}
+            for d in made.values():
+                d["len_mode"] = length
+            new = [made[x.id] if isinstance(x, engine.Clip) else x for x in order]
             for m in [c for c in pr["clips"] if c.get("manual")]:
                 if not any(m["start"] < c["end"] and m["end"] > c["start"] for c in new):
-                    m = dict(m, id=max([c["id"] for c in new] + [0]) + 1)
                     new.append(m)
             pr["clips"] = new
             pr["clips_ver"] = pr.get("clips_ver", 0) + 1
@@ -1196,14 +1472,23 @@ class Handler(BaseHTTPRequestHandler):
             pr = projects[pid]
             an = pr["analysis"]
             t = float(body["t"])
-            length = min(float(body.get("length", 30)), an.duration)
-            start = max(0.0, min(t - length * 0.5, an.duration - length))
-            nid = max([c["id"] for c in pr["clips"]] + [0]) + 1
+            length = float(body.get("length", 0) or 0)
+            if length > 0:
+                length = min(length, an.duration)
+                start = max(0.0, min(t - length * 0.5, an.duration - length))
+                end = min(an.duration, start + length)
+            else:
+                start, end, _ = engine.smart_bounds(an, t)
+            nid = max([c["id"] for c in pr["clips"] + pr.get("gems", [])] + [0]) + 1
+            if nid >= gems.GEM_ID:
+                nid = max([c["id"] for c in pr["clips"] + pr.get("gems", [])]) + 1
             sc = an.score[int(min(max(t, 0), len(an.score) - 1))]
-            clip = engine.Clip(nid, round(start, 2), round(min(an.duration, start + length), 2),
-                               t, round(float(sc), 2), "Added by you")
+            clip = engine.Clip(nid, round(start, 2), round(end, 2), t, round(float(sc), 2), "Added by you",
+                               engine.clip_features(an, start, end, t, pr["chat"], engine.chat_times(pr["chat"]),
+                                                    pr["chat_delay"]))
             d = clip_dicts(pid, [clip])[0]
             d["manual"] = True
+            d["kind"] = "hype"
             pr["clips"].append(d)
             return self._json(d)
 
@@ -1268,6 +1553,49 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/hotkey":
             hotkey.set_enabled(bool(body.get("enabled", True)))
             return self._json(hotkey.status())
+
+        if p == "/api/deepscan":
+            pid = body.get("pid")
+            if pid not in projects:
+                return self._err("This session expired. Press Find clips again.", 404)
+            if body.get("cancel"):
+                j = jobs.get(projects[pid].get("deep_job", ""))
+                if j and j["status"] == "running":
+                    j["cancel"] = True
+                return self._json(deep_status(projects[pid]))
+            try:
+                start_deep_scan(pid, body.get("model") or "auto", body.get("language") or "")
+            except RuntimeError as e:
+                return self._err(str(e))
+            return self._json(deep_status(projects[pid]))
+
+        if p == "/api/feedback":
+            record_feedback(body.get("pid"), body.get("clip"), str(body.get("action") or ""))
+            return self._json({"ok": True})
+        if p == "/api/learning":
+            if "enabled" in body:
+                learning.set_enabled(bool(body["enabled"]))
+            return self._json(learning.summary())
+        if p == "/api/learning/forget":
+            learning.forget(str(body.get("streamer") or ""))
+            _refresh_live_learning()
+            return self._json(learning.summary())
+
+        if p == "/api/twitch/token":
+            try:
+                return self._json(twitchauth.set_token(str(body.get("token") or "")))
+            except ValueError as e:
+                return self._err(str(e))
+            except RuntimeError as e:
+                return self._err(str(e), 502)
+        if p == "/api/twitch/logout":
+            return self._json(twitchauth.set_token(""))
+        if p == "/api/twitch/login":
+            if not twitchauth.login_impl[0]:
+                return self._err("Signing in through a window needs the VodClipper app window. Paste your token instead.")
+            job = new_job("twitchlogin")
+            run_job(job, lambda: twitchauth.login_with_window())
+            return self._json({"job": job["id"]})
 
         if p == "/api/open_folder":
             folder = body.get("folder", "")
@@ -1405,7 +1733,8 @@ def start(port: int = PORT):
 def busy() -> bool:
     """A download, tool setup or render is in progress (background listening doesn't count)."""
     return (queue_busy() or live_active() is not None
-            or any(j["status"] == "running" and j["kind"] != "listen" for j in jobs.values()))
+            or any(j["status"] == "running" and j["kind"] not in ("listen", "deepscan", "twitchlogin")
+                   for j in jobs.values()))
 
 
 _worker_started = [False]

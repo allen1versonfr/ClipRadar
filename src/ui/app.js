@@ -97,7 +97,7 @@ function setView(v) {
   if (v !== 'exports') { $('#exVideo').pause(); }
   if (v === 'review') { sizePhone(); drawHeat(); dirty = true; }
   if (v === 'exports') { refreshQueue(); if (exSel) renderDetail(true); }
-  if (v === 'settings') { loadTikTok(); loadStorage(); renderTools(); loadSafety(); renderHotkey(); }
+  if (v === 'settings') { loadTikTok(); loadStorage(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); }
   if (v === 'home') loadRecent();
   updateCrumb();
 }
@@ -113,6 +113,10 @@ async function loadStatus() {
   $('#sbTools').innerHTML = [['ffmpeg', 'FFmpeg'], ['ytdlp', 'yt-dlp'], ['whisper', 'Whisper']]
     .map(([k, l]) => `<span class="sb-tool" title="${status[k] ? l + ' ready' : l + ' missing'}"><span class="status-dot ${status[k] ? 'on' : 'warn'}"></span>${l}</span>`).join('');
   $('#capWarn').textContent = status.whisper ? '' : 'Captions need Whisper, which isn\'t available in this install.';
+  $('#events').disabled = status.laughter === false;
+  $('#eventsHint').textContent = status.laughter === false ? 'The laughter detector isn\'t installed in this copy.' : 'Adds about a minute per hour of video.';
+  $('#deep').disabled = status.whisper === false;
+  if (status.whisper === false) $('#deepHint').textContent = 'Needs Whisper, which isn\'t available in this install.';
   const missing = [];
   if (!status.ffmpeg) missing.push(['ffmpeg', 'FFmpeg']);
   if (!status.ytdlp) missing.push(['ytdlp', 'yt-dlp']);
@@ -185,7 +189,8 @@ function updateStatusBar() {
   }
   const tj = jobsState.tiktok; if (tj) parts.push(`<span class="task"><i></i>TikTok: ${esc(tj.step)}</span>`);
   $('#sbTasks').innerHTML = parts.length ? parts.join('') : '<span class="muted">Ready</span>';
-  const todo = W ? W.clips.filter(c => c.state === 'todo').length : 0;
+  const todo = W ? W.clips.filter(c => c.state === 'todo' && !isGem(c)).length : 0;
+  if (W && W.kind === 'vod' && W.deep && W.deep.state === 'running') parts.push(`<span class="task"><i></i>Deep scan ${Math.round((W.deep.progress || 0) * 100)}%</span>`);
   $('#badgeReview').hidden = !todo; $('#badgeReview').textContent = todo;
   $('#badgeExports').hidden = !active.length; $('#badgeExports').textContent = active.length;
   updateLivePill();
@@ -214,10 +219,30 @@ window.askQuit = async () => {
 /* =============================================================== home */
 function bindNum(id, key, def) {
   const el = $(id); el.value = store.get(key, def);
+  if (el.value === '') el.value = def;           // a value this version no longer offers
   el.addEventListener('change', () => { store.set(key, el.value); if (['#count', '#length', '#cw'].includes(id)) repickSoon(); });
 }
-bindNum('#count', 'count', 10); bindNum('#length', 'length', 30); bindNum('#cw', 'cw', 60); bindNum('#delay', 'delay', 6);
-bindNum('#liveLength', 'liveLength', 30);
+// 3.1 picks how many clips and how long each one is by itself; earlier fixed choices start fresh
+bindNum('#count', 'count2', '0'); bindNum('#length', 'length2', '0'); bindNum('#cw', 'cw', 60); bindNum('#delay', 'delay', 6);
+bindNum('#liveLength', 'liveLength2', '0');
+function setCount(n) {
+  const sel = $('#count');
+  if (![...sel.options].some(o => o.value === String(n))) sel.add(new Option(String(n), String(n)));
+  sel.value = String(n); store.set('count2', sel.value);
+}
+['deep', 'events'].forEach(id => { $('#' + id).checked = store.get(id, id === 'events'); $('#' + id).onchange = e => store.set(id, e.target.checked); });
+$('#deepModel').value = store.get('deepModel', 'auto'); $('#deepModel').onchange = e => store.set('deepModel', e.target.value);
+let twStatus = {};
+async function loadTwitch(refresh) {
+  try { twStatus = await api('/api/twitch' + (refresh ? '?refresh=1' : '')); } catch { return; }
+  renderTwitch(); syncLiveCard();
+}
+function adNote() {
+  const t = twStatus;
+  if (t.signed_in && t.turbo) return `Signed in to Twitch as <b>${esc(t.login)}</b> with Turbo: recordings come without ads.`;
+  if (t.signed_in) return `Signed in to Twitch as <b>${esc(t.login)}</b>. Without Turbo or a sub, ad breaks are left out of the recording.`;
+  return 'Ad breaks are left out of recordings. <a href="#" id="liveAdSignIn">Sign in to Twitch</a> with Turbo for an ad-free stream.';
+}
 $('#cw').addEventListener('input', () => { store.set('cw', $('#cw').value); repickSoon(); });
 const liveCfg = { mode: store.get('liveMode', 'hands'), freq: store.get('liveFreq', 'normal') };
 const FREQ = { fewer: 'Fewer clips', normal: 'Normal', more: 'More clips', lots: 'Lots of clips' };
@@ -230,6 +255,8 @@ function syncLiveCard() {
   const hk = status.hotkey || {};
   $('#liveHotkeyNote').textContent = (hk.registered ? `Press ${hk.keys} anywhere to clip the last 30 seconds. ` : '')
     + 'Only the last 15 minutes of the stream are kept on disk.';
+  $('#liveAdNote').innerHTML = adNote();
+  const si = $('#liveAdSignIn'); if (si) si.onclick = e => { e.preventDefault(); setView('settings'); $('#setTwitch').scrollIntoView({ block: 'center' }); };
   const ttOn = !!(ttStatus && ttStatus.connected);
   $('#liveDraft').disabled = !ttOn || liveCfg.mode !== 'hands';
   if (!ttOn) $('#liveDraft').checked = false;
@@ -261,7 +288,8 @@ $('#analyze').onclick = async () => {
   try {
     const { job } = await api('/api/analyze', { source, chat_file: $('#chatFile').value, count: +$('#count').value,
       length: +$('#length').value, chat_weight: +$('#cw').value, chat_delay: +$('#delay').value,
-      max_height: +$('#maxh').value, cookies: $('#cookies').value });
+      max_height: +$('#maxh').value, cookies: $('#cookies').value, events: $('#events').checked,
+      deep_scan: $('#deep').checked && !$('#deep').disabled, deep_model: $('#deepModel').value, language: opts.language });
     vodJob = job;
     $('#vodCancel').hidden = false;
     $('#vodCancel').onclick = () => api('/api/cancel', { job }).catch(() => {});
@@ -285,7 +313,7 @@ $('#goLive').onclick = async () => {
   store.set('liveSrc', source);
   $('#liveErr').textContent = ''; $('#goLive').disabled = true;
   try {
-    const v = await api('/api/live/start', { source, length: +$('#liveLength').value, frequency: liveCfg.freq,
+    const v = await api('/api/live/start', { source, length: +$('#liveLength').value, frequency: liveCfg.freq, events: $('#events').checked,
       hands_free: liveCfg.mode === 'hands', wait_for_live: $('#liveWait').checked, keep_watching: $('#liveKeep').checked,
       auto_draft: liveCfg.mode === 'hands' && $('#liveDraft').checked,
       opts: JSON.parse(JSON.stringify(opts)), model: opts.whisper_model,
@@ -313,7 +341,8 @@ const byKey = k => W && W.clips.find(c => keyOf(c) === k);
 const curClip = () => byKey(cur);
 const rankOf = c => W.clips.indexOf(c) + 1;
 const absOf = (c, t) => t + (c.absOff || 0);
-const visible = () => W ? W.clips.filter(c => filter === 'all' || c.state === filter) : [];
+const isGem = c => c.kind === 'gem';
+const visible = () => W ? W.clips.filter(c => filter === 'gems' ? isGem(c) : !isGem(c) && (filter === 'all' || c.state === filter)) : [];
 const DEFAULT_TAGS = '#twitch #twitchclips #streamer #fyp';
 function postFor(c) {
   if (c.userPost) return c.postText;
@@ -322,6 +351,7 @@ function postFor(c) {
 }
 function prepClip(c) {
   c.state = c.state || 'todo';
+  c.kind = c.kind || 'hype';
   c.title = c.title || ''; c.titles = c.titles || []; c.words = c.words || [];
   if (c.absOff == null) c.absOff = c.abs_start != null ? c.abs_start - c.start : 0;
   return c;
@@ -330,11 +360,18 @@ function mergeClip(c, s) {
   c.listened = s.listened; if (!c.wordsEdited) c.words = s.words || []; c.titles = s.titles || []; c.vibe = s.vibe; c.emoji = s.emoji;
   c.reason = s.reason; c.post = s.post; c.held = s.held || ''; if (!c.wordsEdited) c.safety = s.safety;
   if (!c.userTitle && s.title) c.title = s.title;
+  // once a clip has been listened to, its cuts move to sentence boundaries (unless you trimmed it yourself)
+  if (!c.userTrim && c.state !== 'kept' && s.start != null && (s.start !== c.start || s.end !== c.end)) {
+    c.start = s.start; c.end = s.end;
+    if (s.abs_start != null) c.absOff = s.abs_start - s.start;
+    return true;
+  }
+  return false;
 }
 
 function openVod(p) {
   W = { kind: 'vod', pid: p.pid, title: p.title, duration: p.duration, curve: p.curve, meta: p,
-        clips: p.clips.map(prepClip), listening: false };
+        clips: p.clips.map(prepClip).concat((p.gems || []).map(prepClip)), listening: false, deep: p.deep };
   startWorkspace();
   listen();
 }
@@ -351,7 +388,7 @@ function startWorkspace() {
   vod.removeAttribute('src'); vod.dataset.src = '';
   buildHead();
   setView('review');
-  const first = W.clips.find(c => c.state === 'todo');
+  const first = W.clips.find(c => c.state === 'todo' && !isGem(c));
   if (first) select(keyOf(first), true); else { showInspector(); if (W.kind === 'vod') loadFrame(W.pid, W.duration / 2); }
   renderRows(); drawHeat(); updateCrumb(); refreshQueue();
 }
@@ -360,16 +397,25 @@ function startWorkspace() {
 function buildHead() {
   const h = $('#rvHead');
   if (W.kind === 'vod') {
-    const p = W.meta;
+    const p = W.meta, cs = p.chat_stats || {}, est = p.estimate || {};
+    const hours = p.duration / 3600, len = hours >= 1 ? `${Math.round(hours * 10) / 10}-hour` : `${Math.max(1, Math.round(p.duration / 60))}-minute`;
+    const chatFact = !p.has_chat ? 'No chat, ranked by audio'
+      : cs.chatters ? `<b class="tnum">${cs.chatters.toLocaleString()}</b> chatters` : `<b class="tnum">${p.chat_count.toLocaleString()}</b> chat messages`;
+    const chatTip = cs.ignored ? `${cs.ignored.toLocaleString()} bot, command and sub messages ignored` + (cs.raids ? `, ${plural(cs.raids, 'raid')} played down` : '') : '';
+    const lr = p.learning || {};
     h.innerHTML = `<span class="t" title="${esc(W.title)}">${esc(W.title)}</span>
-      <span class="facts"><span><b class="tnum">${fmt(p.duration)}</b> long</span><span class="tnum">${p.width}×${p.height}</span>
-      <span>${p.has_chat ? `<b class="tnum">${p.chat_count.toLocaleString()}</b> chat messages` : 'No chat, ranked by audio'}</span></span>
-      <span class="acts"><button class="btn sm ghost" id="headNew">${icon('plus')}New project</button></span>`;
+      <span class="facts"><span><b class="tnum">${fmt(p.duration)}</b> long</span>
+      <span title="${esc(chatTip)}">${chatFact}</span>
+      ${est.strong != null ? `<span class="est" title="Distinct moments that stand out clearly (${est.good} worth a look in total)">≈<b class="tnum">${est.strong}</b> strong ${est.strong === 1 ? 'moment' : 'moments'} in this ${len} stream</span>` : ''}
+      ${lr.active ? `<span class="tuned" title="Ranking learned from ${lr.decisions} of your keeps and skips${lr.using === 'all your picks' ? ' across all streamers' : ''}">Tuned to your picks</span>` : ''}</span>
+      <span class="acts"><span class="deep" id="deepBox"></span><button class="btn sm ghost" id="headNew">${icon('plus')}New project</button></span>`;
     $('#headNew').onclick = () => setView('home');
+    renderDeep();
   } else {
     h.innerHTML = `<span class="live-tag" id="lvTag"><i></i><span id="lvState">Live</span></span>
       <span class="t" title="${esc(W.title)}">${esc(W.live.channel || W.title)}</span>
-      <span class="facts"><span>Recorded <b class="tnum" id="lvRec">0:00</b></span><span>Chat <b class="tnum" id="lvChat">0</b>/min</span><span><b class="tnum" id="lvMoments">0</b> <span id="lvMomentsWord">moments</span></span></span>
+      <span class="ad-tag" id="lvAd" hidden><i></i>Ad break: left out</span>
+      <span class="facts"><span>Recorded <b class="tnum" id="lvRec">0:00</b></span><span>Chat <b class="tnum" id="lvChat">0</b>/min</span><span><b class="tnum" id="lvMoments">0</b> <span id="lvMomentsWord">moments</span></span><span id="lvAdsWrap" hidden title="Ads Twitch put in the stream, kept out of the recording">Ads skipped <b class="tnum" id="lvAds">0:00</b></span></span>
       <span class="acts">
         <select class="input" id="lvSens" title="How many clips to make"><option value="fewer">Fewer clips</option><option value="normal">Normal</option><option value="more">More clips</option><option value="lots">Lots of clips</option></select>
         <label class="switch-label" title="Title, check and render every moment by itself">Hands-free<span class="switch"><input type="checkbox" id="lvAuto"><i></i></span></label>
@@ -398,6 +444,9 @@ function updateLiveHead() {
   $('#lvChat').textContent = L.chat_connected ? L.chat_per_min : '–';
   $('#lvMoments').textContent = W.clips.length;
   $('#lvMomentsWord').textContent = W.clips.length === 1 ? 'moment' : 'moments';
+  $('#lvAd').hidden = !(L.in_ad && L.status === 'recording');
+  $('#lvAdsWrap').hidden = !L.ads_skipped;
+  $('#lvAds').textContent = fmt(L.ads_skipped || 0);
   const active = LIVE_ON.includes(L.status);
   $('#lvClip').disabled = L.status !== 'recording';
   $('#lvStop').disabled = !active;
@@ -424,7 +473,7 @@ async function pollLive() {
   let added = 0, changed = false;
   for (const s of v.clips) {
     const c = byKey(keyOf(s));
-    if (c) { const before = c.title + c.listened; mergeClip(c, s); if (before !== c.title + c.listened) changed = true; }
+    if (c) { const before = c.title + c.listened; if (mergeClip(c, s) || before !== c.title + c.listened) changed = true; }
     else { W.clips.push(Object.assign(prepClip(s), { isNew: true })); added++; }
   }
   if (added) {
@@ -445,17 +494,43 @@ async function listen(order) {
   updateListen();
 }
 async function pollClips() {
-  if (!W || W.kind !== 'vod' || !W.listening) return;
+  if (!W || W.kind !== 'vod' || !(W.listening || (W.deep && W.deep.state === 'running'))) return;
   let r;
   try { r = await api('/api/clips/' + W.pid); } catch { return; }
   W.listening = r.listening;
   let changed = false;
-  for (const s of r.clips) {
-    const c = byKey(keyOf(s)); if (!c) continue;
-    const before = c.title + c.listened; mergeClip(c, s); if (before !== c.title + c.listened) changed = true;
+  const wasRunning = W.deep && W.deep.state === 'running';
+  W.deep = r.deep;
+  for (const s of r.clips.concat(r.gems || [])) {
+    const c = byKey(keyOf(s));
+    if (!c) { if (s.kind === 'gem') { W.clips.push(Object.assign(prepClip(s), { isNew: true })); changed = true; } continue; }
+    const before = c.title + c.listened; if (mergeClip(c, s) || before !== c.title + c.listened) changed = true;
   }
-  updateListen();
-  if (changed) { renderRows(); if (mode === 'clip') fillInspector(); dirty = true; }
+  updateListen(); renderDeep();
+  if (wasRunning && W.deep.state === 'done') {
+    const n = W.clips.filter(isGem).length;
+    toast(n ? `Deep scan found ${plural(n, 'quiet gem')}. They're in the Gems tab.` : 'Deep scan finished. No quiet gems stood out.', '', 7000);
+  }
+  if (changed) { renderRows(); if (mode === 'clip') fillInspector(); dirty = true; drawHeat(); }
+}
+function renderDeep() {
+  const box = $('#deepBox'); if (!box || !W || W.kind !== 'vod') return;
+  const d = W.deep || {}, n = W.clips.filter(isGem).length;
+  if (d.state === 'running') {
+    box.innerHTML = `<span>${esc(d.step || 'Deep scan')}</span><span class="meter"><i style="width:${Math.round((d.progress || 0) * 100)}%"></i></span><button class="link" id="deepStop">Stop</button>`;
+    $('#deepStop').onclick = () => api('/api/deepscan', { pid: W.pid, cancel: true }).then(v => { W.deep = v; renderDeep(); }).catch(e => toast(e.message, 'err'));
+  } else if (d.state === 'done') {
+    box.innerHTML = `<span>${n ? plural(n, 'quiet gem') : 'No quiet gems'}</span>`;
+  } else if (d.can) {
+    box.innerHTML = `<button class="btn sm" id="deepGo" title="Transcribe the whole stream to find quiet funny lines chat and volume missed">${d.state === 'error' ? 'Retry deep scan' : 'Deep scan'}</button>`;
+    $('#deepGo').onclick = startDeep;
+    if (d.state === 'error' && d.error) box.title = d.error;
+  } else box.innerHTML = '';
+}
+async function startDeep() {
+  if (!W || W.kind !== 'vod') return;
+  try { W.deep = await api('/api/deepscan', { pid: W.pid, model: $('#deepModel').value, language: opts.language }); renderDeep(); updateStatusBar(); toast('Deep scan started. Quiet gems show up in the Gems tab as it goes.', '', 5000); }
+  catch (e) { toast(e.message, 'err', 7000); }
 }
 setInterval(pollClips, 1200);
 function updateListen() {
@@ -471,15 +546,19 @@ function syncFilterTabs() { $$('#inboxTabs button').forEach(b => b.classList.tog
 $('#inboxTabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; filter = b.dataset.f; syncFilterTabs(); renderRows(); };
 function renderRows() {
   if (!W) return;
-  const n = s => W.clips.filter(c => c.state === s).length;
-  $('#nTodo').textContent = n('todo'); $('#nSkip').textContent = n('skipped'); $('#nAll').textContent = W.clips.length;
+  const hype = W.clips.filter(c => !isGem(c)), gemsN = W.clips.length - hype.length;
+  const n = s => hype.filter(c => c.state === s).length;
+  $('#nTodo').textContent = n('todo'); $('#nSkip').textContent = n('skipped'); $('#nAll').textContent = hype.length;
+  $('#gemsTab').hidden = !(gemsN || (W.deep && W.deep.state === 'running')); $('#nGems').textContent = gemsN || '';
+  if (filter === 'gems' && $('#gemsTab').hidden) { filter = 'todo'; syncFilterTabs(); }
   const list = visible();
   if (!list.length) {
     $('#cards')._html = '';
     $('#cards').innerHTML = `<div class="empty-note">${
  !W.clips.length ? (W.kind === 'live' ? (W.live && W.live.status === 'waiting' ? `Waiting for ${esc(W.live.channel || 'the stream')} to go live. Recording starts by itself; you can leave this running.` : W.live && W.live.warming_up ? 'Listening to the stream to learn what normal sounds like. Moments start showing up after a minute or two.' : 'No moments yet. They appear here as chat and the stream react. Use Clip last 30s to grab one yourself.')
                                            : 'Nothing stood out. Click anywhere on the timeline below to preview a moment and make a clip there.')
-      : filter === 'todo' ? 'Nothing left to review.' : filter === 'skipped' ? 'No skipped clips.' : ''}</div>`;
+      : filter === 'todo' ? 'Nothing left to review.' : filter === 'skipped' ? 'No skipped clips.'
+      : filter === 'gems' ? (W.deep && W.deep.state === 'running' ? 'Deep scan is listening to the whole stream. Quiet gems show up here as it finds them.' : 'No quiet gems.') : ''}</div>`;
   } else {
     patchList($('#cards'), list.map(c => {
       const q = queueFor(c);
@@ -526,7 +605,9 @@ function step(dir) {
 }
 function advance(fromKey) {
   const i = W.clips.findIndex(c => keyOf(c) === fromKey);
-  const next = W.clips.slice(i + 1).find(c => c.state === 'todo') || W.clips.find(c => c.state === 'todo');
+  const gem = W.clips[i] && isGem(W.clips[i]);
+  const ok = c => c.state === 'todo' && isGem(c) === gem;
+  const next = W.clips.slice(i + 1).find(ok) || W.clips.find(ok);
   if (next) select(keyOf(next));
   else { cur = null; vod.pause(); showInspector(); renderRows(); dirty = true; }
 }
@@ -550,7 +631,9 @@ function showInspector() {
 function fillInspector() {
   const c = curClip(); if (!c || mode !== 'clip') return;
   if (!$('#pane-captions').hidden && !$('#capLines').contains(document.activeElement)) renderCapEditor();
-  $('#cRank').textContent = W.kind === 'live' ? `Moment ${c.moment || rankOf(c)}${c.manual ? ' (clipped by you)' : ''}` : `Clip ${rankOf(c)} of ${W.clips.length}`;
+  const gemList = W.clips.filter(isGem), hypeList = W.clips.filter(x => !isGem(x));
+  $('#cRank').textContent = W.kind === 'live' ? `Moment ${c.moment || rankOf(c)}${c.manual ? ' (clipped by you)' : ''}`
+    : isGem(c) ? `Quiet gem ${gemList.indexOf(c) + 1} of ${gemList.length}` : `Clip ${hypeList.indexOf(c) + 1} of ${hypeList.length}`;
   $('#cTime').textContent = `${fmt(absOf(c, c.start))} to ${fmt(absOf(c, c.end))} (${Math.round(c.end - c.start)}s)`;
   $('#cWhy').textContent = c.reason || '';
   $('#cVibe').textContent = c.vibe ? VIBE[c.vibe] || c.vibe : c.listened ? 'Neutral' : 'Listening…';
@@ -596,6 +679,7 @@ $('#clipForm').addEventListener('click', e => {
   const t = e.target.closest('[data-t]')?.dataset.t; if (!t) return;
   const c = curClip(); if (!c || c.state === 'kept') return;
   const [which, d] = t.split(','), now = vod.currentTime;
+  c.userTrim = true;
   const maxEnd = c.duration_max || vod.duration || 1e9;
   if (which === 's') c.start = Math.max(0, Math.min(c.end - 3, d === 'now' ? now : c.start + +d));
   else c.end = Math.min(maxEnd, Math.max(c.start + 3, d === 'now' ? now : c.end + +d));
@@ -627,13 +711,15 @@ async function keep() {
     if (q && q.status === 'error') await retryRender(q.id);
     return;
   }
-  const clip = { id: c.id, rank: W.kind === 'live' ? (c.moment || rankOf(c)) : rankOf(c), start: c.start, end: c.end,
+  const rank = W.kind === 'live' ? (c.moment || rankOf(c)) : W.clips.filter(x => isGem(x) === isGem(c)).indexOf(c) + 1;
+  const clip = { id: c.id, rank, start: c.start, end: c.end,
                  title: c.title.trim(), post: $('#postInput').value || postFor(c), thumb: c.thumb };
   if (c.wordsEdited) clip.words = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end);
   queueEpoch++;
   try { const it = await api('/api/queue/add', { pid: c.pid, clip, opts: JSON.parse(JSON.stringify(opts)) }); queueItems.push(it); queueEpoch++; }
   catch (e) { toast(e.message, 'err'); return; }
   c.state = 'kept';
+  feedback(c, 'keep');
   toast(`Rendering "${clip.title || 'clip ' + clip.rank}" in the background.`, '', 2500);
   updateStatusBar(); advance(keyOf(c));
 }
@@ -644,17 +730,19 @@ async function skipOrUndo() {
     if (q && q.status === 'done') return;
     queueEpoch++;
     if (q) await api('/api/queue/remove', { id: q.id }).catch(() => {});
-    c.state = 'todo'; await refreshQueue(); fillInspector(); renderRows(); return;
+    c.state = 'todo'; feedback(c, 'undo'); await refreshQueue(); fillInspector(); renderRows(); return;
   }
-  if (c.state === 'skipped') { c.state = 'todo'; fillInspector(); renderRows(); return; }
-  c.state = 'skipped'; advance(keyOf(c));
+  if (c.state === 'skipped') { c.state = 'todo'; feedback(c, 'undo'); fillInspector(); renderRows(); return; }
+  c.state = 'skipped'; feedback(c, 'skip'); advance(keyOf(c));
 }
+// what you keep and skip teaches the ranking (Settings > Clip ranking)
+function feedback(c, action) { api('/api/feedback', { pid: c.pid, clip: c.id, action }).catch(() => {}); }
 $('#keepBtn').onclick = keep;
 $('#skipBtn').onclick = skipOrUndo;
 $('#prevBtn').onclick = () => step(-1);
 $('#nextBtn').onclick = () => step(1);
 $('#reviewSkipped').onclick = () => { filter = 'skipped'; syncFilterTabs(); renderRows(); const f = visible()[0]; if (f) select(keyOf(f)); };
-$('#findMore').onclick = () => { $('#count').value = Math.min(40, +$('#count').value + 5); store.set('count', $('#count').value); repick(); };
+$('#findMore').onclick = () => { setCount(Math.min(100, (+$('#count').value || W.clips.filter(c => !isGem(c)).length) + 5)); repick(); };
 $('#goExports').onclick = () => setView('exports');
 $('#inspTabs').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -669,16 +757,12 @@ function repickSoon() { if (!W || W.kind !== 'vod') return; clearTimeout(repickT
 async function repick() {
   if (!W || W.kind !== 'vod') return;
   try {
-    const old = new Map(W.clips.map(c => [`${c.start}-${c.end}`, c]));
+    const old = new Map(W.clips.map(c => [keyOf(c), c]));
     const p = await api('/api/repick', { pid: W.pid, count: +$('#count').value, length: +$('#length').value, chat_weight: +$('#cw').value });
-    W.clips = p.clips.map(s => {
-      const o = old.get(`${s.start}-${s.end}`);
-      const c = prepClip(s);
-      if (o) Object.assign(c, { state: o.state, title: o.userTitle ? o.title : s.title, userTitle: o.userTitle, userPost: o.userPost, postText: o.postText });
-      return c;
-    });
-    W.curve = p.curve;
-    if (!curClip()) { const f = W.clips.find(c => c.state === 'todo'); if (f) select(keyOf(f), !vod.paused); else { cur = null; showInspector(); } }
+    // clips that are still suggested keep everything you did to them
+    W.clips = p.clips.map(s => old.get(keyOf(s)) || prepClip(s)).concat(W.clips.filter(isGem));
+    W.curve = p.curve; W.meta.estimate = p.estimate; W.meta.learning = p.learning; buildHead();
+    if (!curClip()) { const f = W.clips.find(c => c.state === 'todo' && !isGem(c)); if (f) select(keyOf(f), !vod.paused); else { cur = null; showInspector(); } }
     renderRows(); drawHeat(); fillInspector(); listen(); refreshQueue();
   } catch (e) { toast(e.message, 'err'); }
 }
@@ -695,6 +779,7 @@ $('#backBtn').onclick = () => { const c = curClip() || visible()[0] || W.clips[0
 $('#addHere').onclick = async () => {
   try {
     const c = prepClip(await api('/api/add_clip', { pid: W.pid, t: vod.currentTime, length: +$('#length').value }));
+    c.kind = 'hype';
     c.manual = true; W.clips.push(c); filter = 'todo'; syncFilterTabs();
     select(keyOf(c)); listen([c.id]);
   } catch (e) { toast(e.message, 'err'); }
@@ -1049,7 +1134,8 @@ function drawHeatNow() {
   W.clips.forEach(c => {
     const a = absOf(c, c.start) / D * Wd, b = Math.max(a + 2, absOf(c, c.end) / D * Wd);
     const isCur = keyOf(c) === cur && mode === 'clip';
-    g.fillStyle = isCur ? 'rgba(76,141,255,.20)' : c.state === 'kept' ? 'rgba(62,194,143,.13)' : c.state === 'skipped' ? 'rgba(255,255,255,.025)' : 'rgba(255,255,255,.06)';
+    g.fillStyle = isCur ? 'rgba(76,141,255,.20)' : c.state === 'kept' ? 'rgba(62,194,143,.13)' : c.state === 'skipped' ? 'rgba(255,255,255,.025)'
+      : isGem(c) ? 'rgba(201,167,255,.10)' : 'rgba(255,255,255,.06)';
     g.fillRect(a, 0, b - a, base);
     if (isCur) { g.fillStyle = '#4c8dff'; g.fillRect(a, 0, b - a, 2); }
   });
@@ -1063,13 +1149,15 @@ function drawHeatNow() {
   // markers
   g.font = '600 10.5px "Segoe UI", system-ui, sans-serif'; g.textAlign = 'center';
   const placed = [];
+  const gemNo = c => W.clips.filter(isGem).indexOf(c) + 1, hypeNo = c => W.clips.filter(x => !isGem(x)).indexOf(c) + 1;
   W.clips.map((c, i) => ({ c, i, x: (absOf(c, c.start) + absOf(c, c.end)) / 2 / D * Wd }))
     .sort((a, b) => (keyOf(b.c) === cur) - (keyOf(a.c) === cur) || a.i - b.i)
     .forEach(({ c, i, x }) => {
       if (placed.some(px => Math.abs(px - x) < 14)) return;
       placed.push(x);
-      g.fillStyle = keyOf(c) === cur && mode === 'clip' ? '#e9eaed' : c.state === 'kept' ? '#3ec28f' : c.state === 'skipped' ? '#4a4d56' : '#a3a6ae';
-      g.fillText(String(W.kind === 'live' ? (c.moment || i + 1) : i + 1), x, Ht - 2);
+      g.fillStyle = keyOf(c) === cur && mode === 'clip' ? '#e9eaed' : c.state === 'kept' ? '#3ec28f' : c.state === 'skipped' ? '#4a4d56'
+        : isGem(c) ? '#c9a7ff' : '#a3a6ae';
+      g.fillText(W.kind === 'live' ? String(c.moment || i + 1) : isGem(c) ? 'G' + gemNo(c) : String(hypeNo(c)), x, Ht - 2);
     });
   // playhead (or live edge)
   let ph = null;
@@ -1083,7 +1171,11 @@ heat.addEventListener('click', e => {
   if (!W) return;
   const r = heat.getBoundingClientRect(), t = (e.clientX - r.left) / r.width * W.duration;
   const hit = W.clips.find(c => t >= absOf(c, c.start) && t <= absOf(c, c.end));
-  if (hit) { if (hit.state !== 'todo' && filter === 'todo') { filter = 'all'; syncFilterTabs(); } select(keyOf(hit)); }
+  if (hit) {
+    const want = isGem(hit) ? 'gems' : filter === 'gems' || (hit.state !== 'todo' && filter === 'todo') ? (hit.state === 'todo' ? 'todo' : 'all') : filter;
+    if (want !== filter) { filter = want; syncFilterTabs(); }
+    select(keyOf(hit));
+  }
   else if (W.kind === 'vod') preview(t);
   else toast('In live mode, use Clip last 30s to grab something that isn\'t highlighted.', '', 3500);
 });
@@ -1525,7 +1617,8 @@ $('#ttDisconnect').onclick = async () => {
 
 function renderTools() {
   const rows = [['FFmpeg', status.ffmpeg, 'Cuts and renders video', 'ffmpeg'], ['yt-dlp', status.ytdlp, 'Downloads Twitch VODs and live streams', 'ytdlp'],
-    ['TwitchDownloader', status.twitchdownloader, 'Gets chat replay for VODs', 'twitchdownloader'], ['Whisper', status.whisper, 'Captions and titles', '']];
+    ['TwitchDownloader', status.twitchdownloader, 'Gets chat replay for VODs', 'twitchdownloader'], ['Whisper', status.whisper, 'Captions, titles and Deep scan', ''],
+    ['Laughter detector', status.laughter, 'Hears laughter, screams and cheering', 'laughter']];
   $('#toolTable tbody').innerHTML = rows.map(([n, ok, d, k]) => `<tr><td><span class="row"><span class="status-dot ${ok ? 'on' : 'warn'}"></span>${n}</span></td>
     <td class="muted">${ok ? d : 'Not installed'}</td><td class="r">${!ok && k && status.can_download_tools ? `<button class="btn sm" data-get="${k}">Download</button>` : ''}</td></tr>`).join('');
   $('#updYtdlp').disabled = !status.can_download_tools;
@@ -1694,8 +1787,63 @@ $('#updTokenSave').onclick = async () => {
 };
 $('#updTokenClear').onclick = async () => { try { upd = await api('/api/update/token', { token: '' }); renderUpdate(); toast('Token removed.', '', 2500); } catch (e) { toast(e.message, 'err'); } };
 
+/* =============================================================== Twitch sign-in + learning settings */
+function renderTwitch() {
+  const t = twStatus;
+  $('#twDot').className = 'status-dot ' + (t.signed_in ? (t.error ? 'warn' : 'on') : '');
+  $('#twState').innerHTML = t.signed_in ? `${esc(t.login || 'Signed in')}${t.turbo ? ' · <span class="tw-ok">Turbo</span>' : t.turbo === false ? ' · no Turbo' : ''}` : 'Not signed in';
+  $('#twLogin').hidden = !!t.signed_in;
+  $('#twLogin').disabled = !t.window_login;
+  $('#twLogin').title = t.window_login ? 'Opens Twitch\'s own login page in a small window' : 'Needs the VodClipper app window; paste a token below instead';
+  $('#twLogout').hidden = !t.signed_in;
+  $('#twMsg').textContent = t.error ? t.error : t.signed_in && t.turbo === false ? 'Ads still play on channels you aren\'t subbed to; VodClipper leaves them out of the recording.' : '';
+  if (!t.window_login && !t.signed_in) $('#twPasteBox').open = true;
+}
+$('#twLogin').onclick = async () => {
+  let job;
+  try { job = (await api('/api/twitch/login', {})).job; } catch (e) { toast(e.message, 'err', 7000); return; }
+  $('#twMsg').textContent = 'Sign in in the Twitch window…';
+  const j = await waitJob(job);
+  if (j && j.status === 'done') { toast('Signed in to Twitch.'); }
+  else if (j && j.error) { $('#twMsg').textContent = j.error; }
+  loadTwitch();
+};
+$('#twLogout').onclick = async () => {
+  if (!await ask({ title: 'Sign out of Twitch?', body: 'Live recordings will skip ads by leaving them out instead of getting the ad-free stream.', ok: 'Sign out' })) return;
+  try { twStatus = await api('/api/twitch/logout', {}); renderTwitch(); syncLiveCard(); } catch (e) { toast(e.message, 'err'); }
+};
+$('#twTokenSave').onclick = async () => {
+  const token = $('#twToken').value.trim(); if (!token) { $('#twToken').focus(); return; }
+  $('#twMsg').textContent = 'Checking with Twitch…';
+  try { twStatus = await api('/api/twitch/token', { token }); $('#twToken').value = ''; $('#twPasteBox').open = false; renderTwitch(); syncLiveCard(); toast(`Signed in to Twitch as ${twStatus.login}.`); }
+  catch (e) { $('#twMsg').textContent = e.message; }
+};
+
+let lrState = {};
+async function loadLearning() { try { lrState = await api('/api/learning'); renderLearning(); } catch {} }
+function renderLearning() {
+  const L = lrState;
+  $('#lrOn').checked = L.enabled !== false; $('#lrBody').hidden = L.enabled === false;
+  const rows = L.profiles || [];
+  $('#lrTable tbody').innerHTML = rows.length ? rows.map(r => `<tr><td>${esc(r.streamer)}</td>
+    <td class="muted">${plural(r.decisions, 'decision')}, ${r.kept} kept${r.decisions < L.min_decisions ? ` · starts after ${L.min_decisions}` : ''}</td>
+    <td class="r"><button class="btn sm" data-forget="${esc(r.streamer)}">Forget</button></td></tr>`).join('')
+    : '<tr><td class="muted">Nothing learned yet. Keep and skip a few suggested clips.</td></tr>';
+  $('#lrForgetAll').hidden = !rows.length;
+  $('#lrTotal').textContent = L.total ? `${plural(L.total, 'decision')} in total` : '';
+}
+$('#lrOn').onchange = async e => { try { lrState = await api('/api/learning', { enabled: e.target.checked }); renderLearning(); } catch (err) { toast(err.message, 'err'); } };
+$('#lrTable').onclick = async e => {
+  const b = e.target.closest('[data-forget]'); if (!b) return;
+  try { lrState = await api('/api/learning/forget', { streamer: b.dataset.forget }); renderLearning(); toast(`Forgot what VodClipper learned for ${b.dataset.forget}.`, '', 3000); } catch (err) { toast(err.message, 'err'); }
+};
+$('#lrForgetAll').onclick = async () => {
+  if (!await ask({ title: 'Forget everything learned?', body: 'Clip ranking goes back to the default for every streamer.', ok: 'Forget', danger: true })) return;
+  try { lrState = await api('/api/learning/forget', { streamer: '' }); renderLearning(); } catch (e) { toast(e.message, 'err'); }
+};
+
 /* =============================================================== boot */
 setInterval(() => { fetch('/api/ping').catch(() => {}); }, 60000);
 setInterval(loadStatus, 5000);
 loadStatus().then(() => { updateStatusBar(); });
-loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); loadUpdate(); loadSafety();
+loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); loadUpdate(); loadSafety(); loadTwitch();

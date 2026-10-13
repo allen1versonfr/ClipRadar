@@ -44,6 +44,11 @@ USE
   Home: start a project
     Past broadcast   paste a VOD link (twitch.tv/videos/...) or Browse to a video
                      on your PC, then Find clips.
+                     Clips to suggest and Clip length are Automatic by default:
+                     the number scales with how long the stream is and how much
+                     happened, and each clip gets its own length (15-90 s).
+                     Deep scan (optional) also transcribes the whole stream to
+                     find quiet gems (see below).
     Live channel     enter a channel name (or twitch.tv/name) and press Start live
                      clipping while the stream is on air.
 
@@ -68,6 +73,14 @@ USE
     preview that moment and make a clip there.
       Keep and render (Enter)   renders it in the background
       Skip (X)                  sets it aside (Skipped tab)
+    The header shows how many strong moments the stream has (for example
+    "about 21 strong moments in this 7-hour stream"). What you keep, skip and
+    post teaches VodClipper what you like for each streamer; after about eight
+    decisions the header says "Tuned to your picks" (Settings > Clip ranking).
+    Gems tab (after a Deep scan): quiet gems, lines that landed (the streamer
+    laughed after, chat reacted, the voice changed, a punchline) even though
+    chat and volume stayed calm. Deep scan can also be started from the
+    header, and you can keep reviewing while it runs.
       Up / Down arrows          previous / next clip
       Space play/pause, T new title, M mute, Left/Right seek, C clip (live)
 
@@ -92,6 +105,11 @@ USE
     Only the last 15 minutes of raw stream are kept on disk; moments are cut out
     as they happen, so long streams don't fill your drive. If the connection
     drops it reconnects, and it notices when the stream ends.
+    Ads: Twitch stitches ads into live streams for viewers without Turbo.
+    VodClipper recognises those ad breaks and leaves them out of the recording,
+    so they never end up in a clip (the header shows "Ads skipped"). Sign in
+    under Settings > Twitch sign-in with an account that has Turbo (or a sub to
+    the channel) and Twitch sends the ad-free stream instead.
 
   Exports: finished clips and posting
     Every kept clip renders here, named after its title, with its post caption
@@ -141,11 +159,22 @@ FREEING UP SPACE
   Both ask for confirmation first.
 
 HOW CLIPS ARE PICKED
-  - Chat: sudden surges in messages, weighted for KEKW, LUL, POG, "clip it",
-    ????? and similar. Chat reacts a few seconds late, so it's shifted back
-    (Home > Past broadcast > Advanced > Chat delay).
+  - Chat: sudden surges in how many people are chatting, weighted for KEKW,
+    LUL, POG, "clip it", ????? and similar. Chat reacts a few seconds late, so
+    it's shifted back (Home > Past broadcast > Advanced > Chat delay).
+    It counts chatters, not messages (one person spamming counts once), and
+    ignores bots, !commands and giveaway entries, sub and gift-sub notices,
+    copypasta, and the floods after gift bombs and raids.
   - Audio: moments much louder than the few minutes around them. Twitch's
     muted (DMCA) sections are ignored instead of counted as boring.
+  - Laughter, screams and cheering, heard by a small built-in sound detector
+    (Advanced > Listen for laughter, on by default; it adds about a minute per
+    hour of video). Loud music counts for less.
+  - Where a clip starts and ends: far enough back to show the setup, on until
+    the reaction dies down, 15 to 90 seconds, and moved to the nearest pause
+    between sentences once the clip has been listened to.
+  - Your own keeps, skips and posts, per streamer (Settings > Clip ranking,
+    where you can also make it forget).
   - With no chat log it ranks by audio only.
   - Local video? Put its chat next to it as <videoname>.chat.json, or choose
     the file under Home > Past broadcast > Advanced. TwitchDownloader chat JSON works.
@@ -160,8 +189,11 @@ CAPTIONS
 TROUBLESHOOTING
   - Twitch downloads suddenly fail: Settings > Downloads and tools > Update downloader.
     No rebuild needed.
-  - Subscriber-only VOD: Settings > Downloads and tools > Sign in to Twitch with > the browser where you're
-    logged in to Twitch (close that browser first). Firefox works best.
+  - Subscriber-only VOD: sign in under Settings > Twitch sign-in. (Or, the older
+    way: Settings > Downloads and tools > Use cookies from > the browser where
+    you're logged in to Twitch; close that browser first.)
+  - Ads still pause live recordings: that's expected without Turbo or a sub;
+    the ads are left out of the clips either way.
   - The window doesn't open: VodClipper falls back to your web browser.
     Installing Microsoft's "WebView2 Runtime" brings the app window back.
   - Preview won't play: some files (MKV, HEVC) can't play in the preview.

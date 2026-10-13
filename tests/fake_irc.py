@@ -50,6 +50,12 @@ def serve_client(conn: socket.socket, bursts: list):
             for m in msgs:
                 u = f"viewer{random.randint(1, 500)}"
                 conn.sendall(f"@badge-info=;color= :{u}!{u}@{u}.tmi.twitch.tv PRIVMSG #{channel} :{m}\r\n".encode())
+            # the noise real chat has: a bot, a !command, and sub notices (Twitch tags, as with CAP REQ)
+            if int(el) % 15 == 7 and ("noise", int(el)) not in sent:
+                sent.add(("noise", int(el)))
+                conn.sendall(f":nightbot!nightbot@nightbot.tmi.twitch.tv PRIVMSG #{channel} :Follow on twitter! KEKW\r\n".encode())
+                conn.sendall(f"@login=viewer7;msg-id=resub :tmi.twitch.tv USERNOTICE #{channel} :KEKW 5 months\r\n".encode())
+                conn.sendall(f":viewer8!viewer8@viewer8.tmi.twitch.tv PRIVMSG #{channel} :!points\r\n".encode())
             time.sleep(1)
     except OSError:
         pass

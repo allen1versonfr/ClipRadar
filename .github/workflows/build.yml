@@ -37,8 +37,20 @@ jobs:
       - name: Install packages
         run: python -m pip install -U pip && python -m pip install -r requirements.txt pywebview pyinstaller
 
-      - name: Unit tests (content check)
-        run: python tests/test_safety.py
+      - name: Get the laughter detector (built by the "Build model files" workflow)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force src/models | Out-Null
+          Invoke-WebRequest "https://github.com/${{ github.repository }}/releases/download/models-v1/audio_events.onnx" -OutFile src/models/audio_events.onnx -UseBasicParsing
+          $want = (Select-String -Path src/audio_events.py -Pattern 'MODEL_SHA256 = "([0-9a-f]+)"').Matches[0].Groups[1].Value
+          $got = (Get-FileHash src/models/audio_events.onnx -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $want) { Write-Host "::error title=model::audio_events.onnx hash $got, expected $want"; exit 1 }
+          Write-Host "::notice title=model::laughter detector $([math]::Round((Get-Item src/models/audio_events.onnx).Length / 1MB)) MB, hash ok"
+
+      - name: Unit tests
+        run: |
+          python tests/test_safety.py
+          python tests/test_signals.py
 
       - name: Get ffmpeg, TwitchDownloader and yt-dlp
         env:
@@ -53,7 +65,7 @@ jobs:
       - name: Build exe
         run: >
           python -m PyInstaller --noconfirm --clean --log-level WARN --onedir --windowed
-          --name VodClipper --icon src/ui/icon.ico --add-data "src/ui;ui" --paths src
+          --name VodClipper --icon src/ui/icon.ico --add-data "src/ui;ui" --add-data "src/models;models" --paths src
           --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime
           --collect-all av --collect-all webview --collect-submodules yt_dlp --collect-data certifi
           --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog
@@ -104,7 +116,7 @@ jobs:
           foreach ($c in $r.checks) {
             $d = ($c.detail -replace "`r?`n", " | ")
             if (-not $c.ok) { Write-Host "::error title=FAIL $($c.name)::$d" }
-            elseif ($c.name -match "captions|title|render|analyze|encoder|yt-dlp|Twitch") { Write-Host "::notice title=$($c.name)::$d" }
+            elseif ($c.name -match "captions|title|render|analyze|encoder|yt-dlp|Twitch|laughter|length|sentences") { Write-Host "::notice title=$($c.name)::$d" }
           }
           if (-not $r.ok) { exit 1 }
 
@@ -129,7 +141,7 @@ jobs:
       - name: End-to-end test (live clipping + TikTok posting)
         shell: pwsh
         run: |
-          python tests/e2e.py --app "dist/VodClipper/VodClipper.exe" --ffmpeg tools/ffmpeg.exe --out "$env:RUNNER_TEMP\e2e.json" --model tiny
+          python tests/e2e.py --app "dist/VodClipper/VodClipper.exe" --ffmpeg tools/ffmpeg.exe --out "$env:RUNNER_TEMP\e2e.json" --model tiny --speech "$env:RUNNER_TEMP\speech.wav"
           $code = $LASTEXITCODE
           if (-not (Test-Path "$env:RUNNER_TEMP\e2e.json")) { Write-Host "::error title=e2e::no report"; exit 1 }
           $r = Get-Content "$env:RUNNER_TEMP\e2e.json" -Raw | ConvertFrom-Json
@@ -138,7 +150,7 @@ jobs:
           foreach ($c in $r.checks) {
             $d = ($c.detail -replace "`r?`n", " | ")
             if (-not $c.ok) { Write-Host "::error title=FAIL $($c.name)::$d" }
-            elseif ($c.name -match "moment|titles|direct post|drafts|encrypted|auto-render") { Write-Host "::notice title=$($c.name)::$d" }
+            elseif ($c.name -match "moment|titles|direct post|drafts|encrypted|auto-render|ad break|deep scan|ranks first|chat cleaning|learn") { Write-Host "::notice title=$($c.name)::$d" }
           }
           if ($code -ne 0 -and $r.diag) {
             foreach ($p in $r.diag.PSObject.Properties) {

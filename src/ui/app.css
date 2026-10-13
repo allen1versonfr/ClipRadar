@@ -485,3 +485,24 @@ ul.flags b{font-weight:600;color:var(--tx0)}
 .hint.block{display:block;margin-top:4px}
 .upd-token summary{cursor:pointer;color:var(--tx1);font-size:12.5px}
 .upd-token[open] summary{margin-bottom:6px}
+
+/* ------------------------------------------------------------------ 3.1 */
+.form-grid label.chk{flex-direction:row;gap:8px;color:var(--tx0);font-size:13px}
+.ad-note:empty{display:none}
+.ad-note b{color:var(--tx0);font-weight:500}
+.ad-note a{color:var(--accent)}
+.rv-head .facts .est{color:var(--tx0)}
+.rv-head .deep{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--tx1);white-space:nowrap}
+.rv-head .deep .meter{width:90px}
+.rv-head .ad-tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#ffd27a}
+.rv-head .ad-tag i{width:7px;height:7px;border-radius:2px;background:#ffd27a}
+.rv-head .tuned{font-size:12px;color:var(--tx2);white-space:nowrap}
+.crow .gem{display:inline-flex;align-items:center;gap:4px;color:#c9a7ff;font-size:11px;font-weight:600;margin-top:3px}
+.crow .tuned-up{color:#5ee6a8}
+.gem-note{margin:6px 10px 10px;color:var(--tx2);font-size:12px;line-height:1.45}
+#lrTable td{padding:7px 0}
+#lrTable td.r{text-align:right}
+#lrTable .muted{font-size:12px}
+.tw-ok{color:#5ee6a8}
+.clips-pane .seg button{padding:0 5px}
+.clips-pane .seg button b{margin-left:2px}

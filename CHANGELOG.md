@@ -3,6 +3,32 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.1.0] - 2026-10-13
+
+Smarter clip finding, and live recording without ads.
+
+### Added
+- **No ads in live clips.** VodClipper now reads the live stream itself and recognises the ad breaks Twitch stitches in (its `twitch-stitched-ad` markers). Ad breaks are left out of the recording, so they can never end up in a clip; the recording just pauses while an ad would play, and the live header shows how much was skipped.
+- **Twitch sign-in** in Settings › Twitch sign-in, through Twitch's own login page in a small window or by pasting your token. With Turbo (or a sub to the channel) Twitch sends the ad-free stream, so recording never pauses. The sign-in also opens subscriber-only VODs, is stored encrypted, and is only sent to Twitch.
+- **Laughter, scream and cheering detection.** A small sound detector (about 20 MB, bundled) listens to the whole stream. Moments where the streamer cracks up or screams rank higher even when chat is quiet, and loud music counts for less. It runs on the CPU and adds roughly a minute per hour of video; you can switch it off under Advanced.
+- **Clips get their own length (15–90 s).** Each clip starts far enough back to show the setup and runs until the reaction dies down, instead of a fixed 30 seconds. Once a clip has been listened to, its start and end move to the nearest sentence boundary, so nothing starts or stops mid-sentence. Fixed lengths are still available.
+- **Deep scan** (optional). Transcribes the whole stream and scores every line: laughter right after it, chat reacting, a sudden change in voice, and how punchline-like it is. Lines that land but that chat and volume missed show up as **quiet gems** in their own Gems tab. You can start reviewing straight away while it runs, and a VOD you deep scanned before opens with its gems ready.
+- **Learns what you like, per streamer.** The clips you keep, skip and post teach the ranking. After about eight decisions, moments like the ones you keep move up the list, and hands-free live mode passes on the kind you always skip. See or reset it in Settings › Clip ranking.
+- **How many clips are worth it.** The review header shows an estimate like "≈21 strong moments in this 7-hour stream". **Clips to suggest** is now Automatic by default and scales with the stream's length and how much happened.
+
+### Changed
+- **Cleaner chat signal.** Chat is now counted by chatters, not messages. Bots (Nightbot, StreamElements and friends), `!commands` and giveaway entries, sub and gift-sub notices, gift-bomb and raid floods, and copypasta no longer create fake moments.
+- Live chat reads usernames and Twitch's sub and raid notices.
+- Moment reasons mention laughter, screaming or cheering when that's what stood out.
+- Re-ranking keeps clips that are still suggested exactly as they were (title, captions, cuts, kept or skipped).
+
+### Fixed
+- Live chat timing no longer drifts after the stream reconnects.
+- A problem while cutting or adding a live moment no longer stops the recording.
+- Rendering can't stall on a long ffmpeg error output.
+- Unexpected server errors now come back as a message instead of a dropped request.
+- Two live sessions started in the same minute no longer share a folder.
+
 ## [3.0.1] - 2026-10-12
 
 ### Fixed

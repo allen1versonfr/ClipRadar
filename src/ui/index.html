@@ -75,15 +75,20 @@
               <button class="btn" id="browseSrc">Browse…</button>
             </div>
             <div class="form-grid">
-              <label>Clips to suggest<input class="input" type="number" id="count" min="3" max="100" value="10"></label>
-              <label>Clip length<span class="unit-input"><input class="input" type="number" id="length" min="10" max="90" step="5" value="30"><i>sec</i></span></label>
+              <label>Clips to suggest<select class="input" id="count"><option value="0">Automatic</option><option value="5">5</option><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="30">30</option><option value="40">40</option><option value="60">60</option></select></label>
+              <label>Clip length<select class="input" id="length"><option value="0">Auto (15–90 s)</option><option value="15">15 s</option><option value="20">20 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option><option value="90">90 s</option></select></label>
               <label>Rank by<span class="range-row"><span class="tiny">Audio</span><input type="range" id="cw" min="0" max="100" step="5" value="60" aria-label="Chat versus audio"><span class="tiny">Chat</span></span></label>
+            </div>
+            <div class="checks col">
+              <label class="chk" id="deepWrap"><input type="checkbox" id="deep"><span>Deep scan<small id="deepHint">Also transcribes the whole stream to find quiet funny lines that chat and volume miss. Takes longer; you can start reviewing right away.</small></span></label>
             </div>
             <details class="adv">
               <summary>Advanced</summary>
               <div class="form-grid">
                 <label class="span2">Chat log file<span class="row"><input class="input grow" id="chatFile" placeholder="Optional, for local videos" spellcheck="false"><button class="btn" id="browseChat">Browse…</button></span></label>
                 <label>Chat delay<span class="unit-input"><input class="input" type="number" id="delay" min="0" max="20" value="6"><i>sec</i></span></label>
+                <label>Deep scan accuracy<select class="input" id="deepModel"><option value="auto">Automatic</option><option value="base">Fast</option><option value="small">Balanced</option><option value="large-v3">Best (needs a GPU, 3 GB download)</option></select></label>
+                <label class="chk span2"><input type="checkbox" id="events" checked><span>Listen for laughter, screams and cheering<small id="eventsHint">Adds about a minute per hour of video.</small></span></label>
               </div>
             </details>
             <div class="job" id="vodJob" hidden>
@@ -111,13 +116,14 @@
               <div class="fld">How many clips
                 <div class="seg" id="liveFreq"><button data-v="fewer">Fewer</button><button data-v="normal" class="on">Normal</button><button data-v="more">More</button><button data-v="lots">Lots</button></div>
               </div>
-              <label>Clip length<span class="unit-input"><input class="input" type="number" id="liveLength" min="10" max="90" step="5" value="30"><i>sec</i></span></label>
+              <label>Clip length<select class="input" id="liveLength"><option value="0">Auto (15–90 s)</option><option value="20">20 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option></select></label>
             </div>
             <div class="checks col live-opts">
               <label class="chk"><input type="checkbox" id="liveWait" checked><span>Wait for the stream to start<small>Start now even if the channel is offline. Recording begins when it goes live.</small></span></label>
               <label class="chk"><input type="checkbox" id="liveKeep"><span>Keep watching after the stream ends<small>Waits for the channel's next stream and starts again.</small></span></label>
               <label class="chk" id="liveDraftWrap"><input type="checkbox" id="liveDraft"><span>Send finished clips to my TikTok drafts<small id="liveDraftHint">You finish each post in the TikTok app. Connect TikTok in Settings first.</small></span></label>
             </div>
+            <p class="fine ad-note" id="liveAdNote"></p>
             <p class="fine" id="liveHotkeyNote">Keeps the last 15 minutes of the stream on disk and cuts each moment out as it happens.</p>
             <div class="err" id="liveErr"></div>
             <footer><button class="btn primary" id="goLive"><svg class="ic"><use href="#i-radio"/></svg>Start live clipping</button></footer>
@@ -144,6 +150,7 @@
               <button data-f="todo" class="on">To review <b id="nTodo"></b></button>
               <button data-f="skipped">Skipped <b id="nSkip"></b></button>
               <button data-f="all">All <b id="nAll"></b></button>
+              <button data-f="gems" id="gemsTab" hidden title="Quiet gems: funny or quotable lines Deep scan found where chat and volume were calm">Gems <b id="nGems"></b></button>
             </div>
             <div class="clip-rows" id="cards"></div>
             <div class="pane-foot" id="listenFoot" hidden><span class="spinner"></span><span id="listenText"></span></div>
@@ -425,6 +432,30 @@
           </div>
         </section>
 
+        <section class="panel set" id="setTwitch">
+          <header><svg class="ic"><use href="#i-link"/></svg><h2>Twitch sign-in</h2><span class="grow"></span><span class="status-dot" id="twDot"></span><span class="muted" id="twState"></span></header>
+          <p class="muted" id="twText">Twitch puts ads into live streams for viewers without Turbo. VodClipper spots those ad breaks and leaves them out of recordings either way. Sign in with an account that has Turbo (or a sub to the channel) and Twitch sends the ad-free stream instead, so recording never pauses for an ad.</p>
+          <div class="row wrap" id="twButtons">
+            <button class="btn primary" id="twLogin">Sign in with Twitch</button>
+            <button class="btn" id="twLogout" hidden>Sign out</button>
+            <span class="muted small" id="twMsg"></span>
+          </div>
+          <details class="upd-token" id="twPasteBox">
+            <summary>Paste a sign-in token instead</summary>
+            <p class="fine">On twitch.tv, signed in, press F12, open Application › Cookies › https://www.twitch.tv and copy the value of <b>auth-token</b>. It's stored encrypted for your Windows account and only sent to Twitch. Also used for subscriber-only VODs.</p>
+            <div class="row"><input class="input grow" id="twToken" type="password" placeholder="auth-token value" autocomplete="off" spellcheck="false"><button class="btn" id="twTokenSave">Save</button></div>
+          </details>
+        </section>
+
+        <section class="panel set" id="setLearn">
+          <header><svg class="ic"><use href="#i-check"/></svg><h2>Clip ranking</h2><span class="grow"></span><label class="switch"><input type="checkbox" id="lrOn" checked><i></i></label></header>
+          <p class="muted">VodClipper learns from the clips you keep, skip and post, separately for each streamer, and moves moments like the ones you pick up the list. It starts after about 8 decisions.</p>
+          <div id="lrBody">
+            <table class="table compact" id="lrTable"><tbody></tbody></table>
+            <div class="row"><button class="btn sm" id="lrForgetAll"><svg class="ic"><use href="#i-trash"/></svg>Forget everything</button><span class="muted small" id="lrTotal"></span></div>
+          </div>
+        </section>
+
         <section class="panel set" id="setLive">
           <header><svg class="ic"><use href="#i-radio"/></svg><h2>Live clipping</h2></header>
           <label class="fld switch-label"><span>Clip hotkey <span class="kbd" id="hkKeys">Ctrl+Alt+C</span><span class="hint block" id="hkState"></span></span><span class="switch"><input type="checkbox" id="hkOn" checked><i></i></span></label>
@@ -435,7 +466,7 @@
           <header><svg class="ic"><use href="#i-exports"/></svg><h2>Downloads and tools</h2></header>
           <div class="form-grid two">
             <label>Download quality<select class="input" id="maxh"><option value="720">720p (faster)</option><option value="1080" selected>1080p</option><option value="1440">1440p</option></select></label>
-            <label>Sign in to Twitch with<select class="input" id="cookies"><option value="">Nobody (public streams)</option><option value="firefox">Firefox</option><option value="chrome">Chrome</option><option value="edge">Edge</option><option value="brave">Brave</option><option value="opera">Opera</option></select><span class="hint">Only needed for subscriber-only VODs. Close that browser first.</span></label>
+            <label>Use cookies from<select class="input" id="cookies"><option value="">No browser</option><option value="firefox">Firefox</option><option value="chrome">Chrome</option><option value="edge">Edge</option><option value="brave">Brave</option><option value="opera">Opera</option></select><span class="hint">Older way to reach subscriber-only VODs. Twitch sign-in above is easier and is used first.</span></label>
           </div>
           <table class="table compact" id="toolTable"><tbody></tbody></table>
           <div class="row"><button class="btn" id="updYtdlp"><svg class="ic"><use href="#i-refresh"/></svg>Update downloader</button><span class="muted small">Use this if Twitch downloads start failing.</span></div>

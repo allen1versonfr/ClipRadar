@@ -339,14 +339,22 @@ def recent_projects(workroot: str, limit: int = 8) -> list:
 @dataclass
 class Source:
     video: str
-    chat: list  # [(seconds, text)] sorted
+    chat: list  # [(seconds, text, user, kind)] sorted
     title: str
     workdir: str
+    streamer: str = ""      # channel name when known (for learning what you like per streamer)
+
+
+def _meta(workdir: str) -> dict:
+    try:
+        return json.load(open(os.path.join(workdir, "meta.json"), encoding="utf-8"))
+    except Exception:
+        return {}
 
 
 def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1080,
             cookies_browser: str = "", log: Log = _noop, progress: Progress = _noop,
-            step: Log = _noop, check: Check = _noop) -> Source:
+            step: Log = _noop, check: Check = _noop, cookie_file: str = "") -> Source:
     source = source.strip().strip('"').strip("'")
     chat_file = (chat_file or "").strip().strip('"').strip("'")
     if chat_file and not os.path.isfile(chat_file):
@@ -361,15 +369,18 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         workdir = os.path.join(workroot, _slug(title))
         os.makedirs(workdir, exist_ok=True)
         log(f"Using local file: {video}")
+        info: dict = {}
         if chat_file:
-            shutil.copyfile(chat_file, os.path.join(workdir, "chat.json"))
-            chat = load_chat(chat_file)
+            if os.path.abspath(chat_file) != os.path.abspath(os.path.join(workdir, "chat.json")):
+                shutil.copyfile(chat_file, os.path.join(workdir, "chat.json"))
+            chat = load_chat(chat_file, info)
             log(f"Loaded {len(chat):,} chat messages.")
         else:
-            chat = _sidecar_chat(video, workdir, log)
-        _save_meta(workdir, title=title, source=video, local=True)
+            chat = _sidecar_chat(video, workdir, log, info)
+        streamer = info.get("streamer") or _meta(workdir).get("streamer", "")
+        _save_meta(workdir, title=title, source=video, local=True, streamer=streamer)
         progress(1.0)
-        return Source(video, chat, title, workdir)
+        return Source(video, chat, title, workdir, streamer)
 
     if not re.match(r"^https?://", source, re.I) and (
             "\\" in source or "/" in source or re.match(r"^[a-zA-Z]:", source)) and "twitch.tv" not in source:
@@ -390,20 +401,23 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
 
     step("Downloading the VOD")
     video, title = _download_video(url, vod_id, workdir, max_height, cookies_browser,
-                                   log, progress, step, check)
+                                   log, progress, step, check, cookie_file)
     check()
     step("Getting chat replay")
+    info: dict = {}
     if chat_file:
         shutil.copyfile(chat_file, os.path.join(workdir, "chat.json"))
-        chat = load_chat(chat_file)
+        chat = load_chat(chat_file, info)
     else:
-        chat = _download_chat(url, vod_id, workdir, log)
-    _save_meta(workdir, title=title, source=url, local=False)
-    return Source(video, chat, title, workdir)
+        chat = _download_chat(url, vod_id, workdir, log, info)
+    streamer = _meta(workdir).get("streamer") or info.get("streamer", "")
+    _save_meta(workdir, title=title, source=url, local=False, streamer=streamer)
+    return Source(video, chat, title, workdir, streamer)
 
 
 def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: int,
-                    cookies_browser: str, log: Log, progress: Progress, step: Log, check: Check):
+                    cookies_browser: str, log: Log, progress: Progress, step: Log, check: Check,
+                    cookie_file: str = ""):
     existing = _video_in(workdir)
     meta_p = os.path.join(workdir, "meta.json")
     if existing:
@@ -426,7 +440,7 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
     exe = which("yt-dlp")
     if exe:
         try:
-            return _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check)
+            return _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file)
         except Cancelled:
             raise
         except Exception as e:
@@ -440,7 +454,7 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
         yt_dlp = None
     if yt_dlp:
         try:
-            return _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, step, check)
+            return _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file)
         except Cancelled:
             raise
         except Exception as e:
@@ -526,8 +540,8 @@ class _Stepper:
                 self.log(f"Download {int(frac * 100)}%")
 
 
-def _finish_download(workdir: str, title: str, duration, progress: Progress, log: Log):
-    _save_meta(workdir, title=title, duration=duration or 0)
+def _finish_download(workdir: str, title: str, duration, progress: Progress, log: Log, streamer: str = ""):
+    _save_meta(workdir, title=title, duration=duration or 0, **({"streamer": streamer} if streamer else {}))
     video = _video_in(workdir)
     if not video:
         raise RuntimeError("the download finished but no video file was found")
@@ -536,7 +550,7 @@ def _finish_download(workdir: str, title: str, duration, progress: Progress, log
     return video, title
 
 
-def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check):
+def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file=""):
     def num(x):
         try:
             return float(x)
@@ -544,7 +558,7 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
             return None
 
     cmd = [exe, "--newline", "--progress", "--no-colors", "--no-simulate", "--ignore-config",
-           "--print", "before_dl:VCINFO %(.{title,is_live,duration})j",
+           "--print", "before_dl:VCINFO %(.{title,is_live,duration,uploader_id,uploader})j",
            "--progress-template",
            "download:VCPROG %(progress.downloaded_bytes)s %(progress.total_bytes)s "
            "%(progress.total_bytes_estimate)s %(progress.fragment_index)s "
@@ -554,7 +568,9 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
     ff = which("ffmpeg")
     if ff:
         cmd += ["--ffmpeg-location", os.path.dirname(ff)]
-    if cookies_browser:
+    if cookie_file:
+        cmd += ["--cookies", cookie_file]
+    elif cookies_browser:
         cmd += ["--cookies-from-browser", cookies_browser]
     cmd.append(url)
     log("Downloading the VOD. Long streams take a while.")
@@ -590,10 +606,11 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
         if info.get("is_live") or any("is_live" in t for t in tail):
             raise RuntimeError("That stream is live. Wait until it ends and use the VOD link.")
         raise RuntimeError(errors[-1] if errors else (tail[-1] if tail else f"yt-dlp exited with code {p.returncode}"))
-    return _finish_download(workdir, info.get("title") or "vod", info.get("duration"), progress, log)
+    return _finish_download(workdir, info.get("title") or "vod", info.get("duration"), progress, log,
+                            str(info.get("uploader_id") or info.get("uploader") or "").lower())
 
 
-def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, step, check):
+def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file=""):
     st = _Stepper(progress, step, log)
 
     def hook(d):
@@ -619,14 +636,17 @@ def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, ste
     ff = which("ffmpeg")
     if ff:
         opts["ffmpeg_location"] = os.path.dirname(ff)
-    if cookies_browser:
+    if cookie_file:
+        opts["cookiefile"] = cookie_file
+    elif cookies_browser:
         opts["cookiesfrombrowser"] = (cookies_browser,)
     log("Downloading the VOD. Long streams take a while.")
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True) or {}
     if info.get("is_live"):
         raise RuntimeError("That stream is live. Wait until it ends and use the VOD link.")
-    return _finish_download(workdir, info.get("title") or "vod", info.get("duration"), progress, log)
+    return _finish_download(workdir, info.get("title") or "vod", info.get("duration"), progress, log,
+                            str(info.get("uploader_id") or info.get("uploader") or "").lower())
 
 
 def _clean_ytdlp_error(s: str) -> str:
@@ -635,11 +655,11 @@ def _clean_ytdlp_error(s: str) -> str:
     return s.splitlines()[0][:300] if s else "unknown error"
 
 
-def _download_chat(url: str, vod_id: Optional[str], workdir: str, log: Log) -> list:
+def _download_chat(url: str, vod_id: Optional[str], workdir: str, log: Log, info: Optional[dict] = None) -> list:
     out = os.path.join(workdir, "chat.json")
     if os.path.exists(out) and os.path.getsize(out) > 100:
         try:
-            chat = load_chat(out)
+            chat = load_chat(out, info)
             log(f"Chat already downloaded ({len(chat):,} messages), reusing it.")
             return chat
         except Exception:
@@ -652,7 +672,7 @@ def _download_chat(url: str, vod_id: Optional[str], workdir: str, log: Log) -> l
             if os.path.exists(out):
                 os.remove(out)
             run([tdl, "chatdownload", "--id", vod_id, "-o", out, "-t", "8"], timeout=3600)
-            chat = load_chat(out)
+            chat = load_chat(out, info)
             log(f"Got {len(chat):,} chat messages.")
             return chat
         except Exception as e:
@@ -667,7 +687,7 @@ def _download_chat(url: str, vod_id: Optional[str], workdir: str, log: Log) -> l
         for f in os.listdir(workdir):
             if f.startswith("chat_raw") and f.endswith(".json"):
                 shutil.move(os.path.join(workdir, f), out)
-                chat = load_chat(out)
+                chat = load_chat(out, info)
                 log(f"Got {len(chat):,} chat messages.")
                 return chat
     except Exception:
@@ -678,14 +698,14 @@ def _download_chat(url: str, vod_id: Optional[str], workdir: str, log: Log) -> l
     return []
 
 
-def _sidecar_chat(video: str, workdir: str, log: Log) -> list:
+def _sidecar_chat(video: str, workdir: str, log: Log, info: Optional[dict] = None) -> list:
     base = os.path.splitext(video)[0]
     for cand in (base + ".chat.json", base + "_chat.json", base + ".json",
                  os.path.join(os.path.dirname(video), "chat.json"),
                  os.path.join(workdir, "chat.json")):
         if os.path.exists(cand):
             try:
-                chat = load_chat(cand)
+                chat = load_chat(cand, info)
             except Exception:
                 continue
             log(f"Found chat file {os.path.basename(cand)} ({len(chat):,} messages).")
@@ -694,8 +714,10 @@ def _sidecar_chat(video: str, workdir: str, log: Log) -> list:
     return []
 
 
-def load_chat(path: str) -> list:
-    """Parse TwitchDownloader / yt-dlp rechat / generic chat JSON into [(sec, text)]."""
+def load_chat(path: str, info: Optional[dict] = None) -> list:
+    """Parse TwitchDownloader / yt-dlp rechat / generic chat JSON into [(sec, text, user, kind)].
+    kind is "" for normal chat, or the Twitch notice type ("sub", "subgift", "raid", "bits"...).
+    If info is given, it gets the streamer's channel name when the file has it."""
     import gzip
     opener = gzip.open if path.endswith(".gz") else open
     with opener(path, "rt", encoding="utf-8", errors="replace") as f:
@@ -707,17 +729,30 @@ def load_chat(path: str) -> list:
             return
         t = c.get("content_offset_seconds", c.get("offset", c.get("time", c.get("t"))))
         msg = c.get("message", c.get("text", c.get("body", "")))
+        kind = ""
         if isinstance(msg, dict):
+            notice = msg.get("user_notice_params") or {}
+            if isinstance(notice, dict) and notice.get("msg-id"):
+                kind = str(notice.get("msg-id"))
+            elif (msg.get("bits_spent") or 0) > 0:
+                kind = "bits"
             msg = msg.get("body") or " ".join(
                 fr.get("text", "") for fr in msg.get("fragments", []) or [] if isinstance(fr, dict))
+        who = c.get("commenter") or c.get("author") or c.get("user") or c.get("name") or ""
+        if isinstance(who, dict):
+            who = who.get("name") or who.get("login") or who.get("display_name") or ""
         try:
-            msgs.append((float(t), str(msg or "")))
+            msgs.append((float(t), str(msg or ""), str(who).lower(), kind))
         except (TypeError, ValueError):
             pass
 
     try:
         data = json.loads(raw)
         items = data.get("comments", data) if isinstance(data, dict) else data
+        if isinstance(data, dict) and info is not None:
+            s = data.get("streamer") or {}
+            if isinstance(s, dict) and s.get("name"):
+                info["streamer"] = str(s["name"]).lower()
         for c in items or []:
             take(c)
     except json.JSONDecodeError:
@@ -728,6 +763,10 @@ def load_chat(path: str) -> list:
                 continue
     msgs.sort(key=lambda m: m[0])
     return msgs
+
+
+def chat_times(chat: list) -> list:
+    return [m[0] for m in chat]
 
 
 # --------------------------------------------------------------------------
@@ -744,7 +783,7 @@ HYPE = {
     "letsgo": 1.5, "hypers": 1.5, "gg": 0.8, "goat": 1.2, "insane": 1.5, "🔥": 1.0,
     # shock
     "monkas": 1.5, "wtf": 1.5, "omg": 1.3, "😱": 1.3, "d:": 1.2, "nooo": 1.5, "noway": 1.5,
-    "omegalul": 2.0, "wideeyes": 1.2,
+    "wideeyes": 1.2,
     # clip requests (strong signal)
     "clip": 3.0, "clipit": 3.0, "clipped": 2.5,
 }
@@ -768,43 +807,82 @@ def chat_weight(text: str) -> float:
     return min(w, 8.0)
 
 
-def audio_loudness(video: str, duration: float, progress: Progress = _noop, check: Check = _noop) -> np.ndarray:
-    """Per-second RMS loudness in dB, streamed so multi-hour VODs stay light on RAM."""
-    sr = 8000
+FINE_HZ = 10        # loudness is also kept every 0.1 s, to find pauses between sentences
+
+
+def measure_audio(video: str, duration: float, events: bool = False, progress: Progress = _noop,
+                  check: Check = _noop, log: Log = _noop) -> tuple:
+    """One streamed pass over the audio. Returns (dB per second, dB per 0.1 s, sound events or None).
+    Sound events (laughter, screams, cheering) need the bundled detector; without it they're skipped."""
+    import audio_events
+    use_ev = bool(events) and audio_events.available()
+    sr = audio_events.SR if use_ev else 8000
+    fmt, bps = ("f32le", 4) if use_ev else ("s16le", 2)
     n = int(math.ceil(duration)) + 1
-    out = np.full(n, -90.0, dtype=np.float32)
     cmd = [ffmpeg(), "-v", "error", "-nostdin", "-i", video, "-map", "0:a:0", "-vn", "-sn", "-dn",
-           "-ac", "1", "-ar", str(sr), "-f", "s16le", "-"]
+           "-ac", "1", "-ar", str(sr), "-f", fmt, "-"]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
-    block = sr * 2  # 1 second of 16-bit mono samples
-    i = 0
-    buf = b""
+    blk = sr // FINE_HZ
+    pows: list = []
+    rest = np.zeros(0, dtype=np.float32)
+    scanner = audio_events.Scanner() if use_ev else None
+    got = 0
+    ev_failed = False
     try:
         while True:
-            chunk = p.stdout.read(block * 60)
+            chunk = p.stdout.read(sr * bps * 30)
             if not chunk:
                 break
             check()
-            buf += chunk
-            whole = len(buf) // block
-            if whole and i < n:
-                arr = np.frombuffer(buf[: whole * block], dtype=np.int16).astype(np.float32)
-                arr = arr.reshape(whole, sr)
-                rms = np.sqrt(np.mean(arr * arr, axis=1)) / 32768.0
-                db = 20 * np.log10(np.maximum(rms, 1e-5))
-                end = min(n, i + whole)
-                out[i:end] = db[: end - i]
-                i += whole
-                buf = buf[whole * block:]
-                if duration:
-                    progress(min(0.999, i / duration))
+            chunk = chunk[: len(chunk) // bps * bps]
+            if use_ev:
+                arr = np.frombuffer(chunk, dtype=np.float32)
+            else:
+                arr = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+            got += arr.size
+            if scanner is not None and not ev_failed:
+                try:
+                    scanner.feed(arr)
+                except Exception as e:          # never let the extra detector break the analysis
+                    ev_failed = True
+                    log(f"Laughter detection stopped: {str(e)[:120]}")
+            buf = np.concatenate([rest, arr])
+            whole = buf.size // blk
+            if whole:
+                b = buf[: whole * blk].reshape(whole, blk)
+                pows.append(np.mean(b * b, axis=1))
+            rest = buf[whole * blk:]
+            if duration:
+                progress(min(0.999, got / sr / duration))
+        if scanner is not None and not ev_failed:
+            try:
+                scanner.feed(np.zeros(0, dtype=np.float32), final=True)
+            except Exception as e:
+                ev_failed = True
+                log(f"Laughter detection stopped: {str(e)[:120]}")
     finally:
         if p.poll() is None:
             p.kill()
         p.wait()
+    pw = np.concatenate(pows) if pows else np.zeros(0, dtype=np.float32)
+    fine = np.full(n * FINE_HZ, -100.0, dtype=np.float32)
+    k = min(fine.size, pw.size)
+    fine[:k] = 10 * np.log10(np.maximum(pw[:k], 1e-10))
+    sec_pow = np.zeros(n, dtype=np.float64)
+    full = pw.size // FINE_HZ
+    if full:
+        m = min(n, full)
+        sec_pow[:m] = pw[: m * FINE_HZ].reshape(m, FINE_HZ).mean(axis=1)
+    loud = np.where(sec_pow > 0, 10 * np.log10(np.maximum(sec_pow, 1e-10)), -90.0).astype(np.float32)
     progress(1.0)
-    return out
+    ev = scanner.result(n) if (scanner is not None and not ev_failed) else None
+    return loud, fine, ev
+
+
+def audio_loudness(video: str, duration: float, progress: Progress = _noop, check: Check = _noop) -> np.ndarray:
+    """Per-second loudness in dB (kept for callers that only need that)."""
+    return measure_audio(video, duration, False, progress, check)[0]
 
 
 def _rolling(x: np.ndarray, win: int, fn: str = "mean") -> np.ndarray:
@@ -833,6 +911,15 @@ def _robust_z(x: np.ndarray) -> np.ndarray:
     return ((x - med) / mad).astype(np.float32)
 
 
+def _fit(a, n: int, fill: float = 0.0) -> np.ndarray:
+    a = np.asarray(a, dtype=np.float32)[:n]
+    return np.pad(a, (0, max(0, n - len(a))), constant_values=fill)
+
+
+# how much a clear laugh / scream / cheer adds to a second's score (scores are roughly z-scores)
+EVENT_WEIGHTS = {"laugh": 4.0, "scream": 3.0, "cheer": 2.0}
+
+
 @dataclass
 class Analysis:
     duration: float
@@ -842,48 +929,119 @@ class Analysis:
     has_audio: bool
     score: Optional[np.ndarray] = None
     chat_weight_pct: float = 60.0
+    events: Optional[dict] = None          # per-second probabilities: laugh, scream, cheer, speech, music
+    loud: Optional[np.ndarray] = None      # dB per second
+    fine: Optional[np.ndarray] = None      # dB per 0.1 s (pauses between sentences)
+    chat_stats: Optional[dict] = None
+    speech: Optional[np.ndarray] = None    # deep scan: how quotable each second is
+
+    @property
+    def has_events(self) -> bool:
+        return bool(self.events) and "laugh" in self.events
+
+    def event_level(self, key: str) -> np.ndarray:
+        """How much more than usual this stream is laughing (screaming, cheering) each second, 0..1."""
+        n = len(self.audio_z)
+        if not self.has_events or key not in self.events:
+            return np.zeros(n, dtype=np.float32)
+        cache = self.__dict__.setdefault("_levels", {})
+        if key not in cache:
+            x = _rolling(_fit(self.events[key], n), 3, "mean")
+            base = float(np.median(x)) if len(x) else 0.0
+            cache[key] = np.clip(x - base - 0.05, 0, 1).astype(np.float32)
+        return cache[key]
+
+    def event_bonus(self) -> np.ndarray:
+        n = len(self.audio_z)
+        out = np.zeros(n, dtype=np.float32)
+        if self.has_events:
+            for k, w in EVENT_WEIGHTS.items():
+                out += w * self.event_level(k)
+        return out
 
     def combine(self, chat_weight_pct: float) -> np.ndarray:
-        """Mix chat and audio signals. Cheap, so the UI can re-rank instantly."""
+        """Mix chat, loudness and laughter/screams. Cheap, so the UI can re-rank instantly."""
         wc = (chat_weight_pct / 100.0) if self.has_chat else 0.0
         if not self.has_audio:
             wc = 1.0 if self.has_chat else 0.0
-        s = wc * self.chat_z + (1 - wc) * self.audio_z
+        audio = self.audio_z
+        if self.has_events and "music" in self.events:
+            # a loud song isn't a moment: play down loudness while music is playing
+            music = np.clip(_rolling(_fit(self.events["music"], len(audio)), 5, "mean") - 0.5, 0, 0.5) * 2
+            audio = audio * (1 - 0.5 * music)
+        s = wc * self.chat_z + (1 - wc) * audio + self.event_bonus()
         self.score = _rolling(s, 5, "mean")
         self.chat_weight_pct = chat_weight_pct
         return self.score
 
+    def part(self, a: int, b: int) -> "Analysis":
+        """The same analysis for seconds a..b (live moments are small projects of their own)."""
+        cut = lambda x: None if x is None else np.asarray(x)[a:b].copy()  # noqa: E731
+        sub = Analysis(float(b - a), self.chat_z[a:b].copy(), self.audio_z[a:b].copy(), self.has_chat,
+                       self.has_audio, events={k: cut(v) for k, v in self.events.items()} if self.events else None,
+                       loud=cut(self.loud), fine=None if self.fine is None else self.fine[a * FINE_HZ:b * FINE_HZ].copy(),
+                       chat_stats=self.chat_stats)
+        sub.combine(self.chat_weight_pct)
+        return sub
+
 
 def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: float = 60,
-            log: Log = _noop, progress: Progress = _noop, check: Check = _noop) -> Analysis:
+            log: Log = _noop, progress: Progress = _noop, check: Check = _noop,
+            events: bool = True) -> Analysis:
     info = probe(video)
     dur = info["duration"]
     if dur <= 0:
         raise RuntimeError("Couldn't read the video's length. The file may be incomplete or damaged.")
     n = int(math.ceil(dur)) + 1
-    log(f"VOD length {fmt_ts(dur)}. Measuring audio...")
-
+    ev = fine = None
     if info["has_audio"]:
-        loud = audio_loudness(video, dur, progress, check)[:n]
-        loud = np.pad(loud, (0, max(0, n - len(loud))), constant_values=-90)
+        import audio_events
+        with_ev = events and audio_events.available()
+        log(f"VOD length {fmt_ts(dur)}. Listening for loud moments" + (", laughter and screams..." if with_ev else "..."))
+        loud, fine, ev = measure_audio(video, dur, with_ev, progress, check, log)
+        loud = _fit(loud, n, -90.0)
+        if loud is not None and (loud < -75).mean() > 0.2:
+            log(f"{int((loud < -75).mean() * 100)}% of the audio is silent or muted.")
     else:
-        log("No audio track found, ranking by chat only.")
+        log(f"VOD length {fmt_ts(dur)}. No audio track found, ranking by chat only.")
         loud = None
     if len(chat) > 20:
-        log(f"Scoring {len(chat):,} chat messages...")
-    an = score_signals(loud, chat, n, dur, chat_delay, chat_weight_pct)
-    if loud is not None and (loud < -75).mean() > 0.2:
-        log(f"{int((loud < -75).mean() * 100)}% of the audio is silent or muted.")
+        log(f"Reading {len(chat):,} chat messages...")
+    an = score_signals(loud, chat, n, dur, chat_delay, chat_weight_pct, events=ev, fine=fine)
+    st = an.chat_stats or {}
+    if st.get("messages"):
+        bits = [f"{st['chatters']:,} chatters"] if st.get("chatters") else []
+        if st.get("ignored"):
+            bits.append(f"{st['ignored']:,} bot, command and sub messages ignored")
+        if st.get("raids"):
+            bits.append(f"{st['raids']} raid{'s' if st['raids'] > 1 else ''} played down")
+        if bits:
+            log("Chat: " + ", ".join(bits) + ".")
     progress(1.0)
     return an
 
 
+def chat_rate(chat: list, n: int, chat_delay: float, scorer=None) -> tuple:
+    """(reaction rate per second, scorer). Chat reacts a few seconds late, so it's shifted back."""
+    import chatsignal
+    sc = scorer or chatsignal.ChatScorer(chat_weight)
+    rate = np.zeros(n, dtype=np.float32)
+    if chat:
+        w = np.asarray(sc.feed(chat), dtype=np.float32)
+        idx = (np.asarray([m[0] for m in chat], dtype=np.float64) - chat_delay).astype(np.int64)
+        ok = (idx >= 0) & (idx < n) & (w > 0)
+        np.add.at(rate, idx[ok], w[ok])
+    return rate, sc
+
+
 def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: float,
-                  chat_delay: float = 6.0, chat_weight_pct: float = 60) -> "Analysis":
-    """Per-second hype score from loudness (dB per second) and chat. Shared by VODs and live mode."""
+                  chat_delay: float = 6.0, chat_weight_pct: float = 60, rate: Optional[np.ndarray] = None,
+                  stats: Optional[dict] = None, events: Optional[dict] = None,
+                  fine: Optional[np.ndarray] = None) -> "Analysis":
+    """Per-second hype score from loudness (dB per second), chat and sound events. Shared by VODs and live.
+    rate: chat reaction per second already weighed (live mode keeps it up to date as chat arrives)."""
     if loud is not None and len(loud):
-        loud = np.asarray(loud, dtype=np.float32)[:n]
-        loud = np.pad(loud, (0, max(0, n - len(loud))), constant_values=-90)
+        loud = _fit(loud, n, -90.0)
         # Twitch mutes DMCA'd parts: treat dead silence as "no info" rather than "boring"
         muted = loud < -75
         short = _rolling(loud, 4, "mean")
@@ -895,13 +1053,12 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
         audio = np.zeros(n, dtype=np.float32)
         has_audio = False
 
-    has_chat = len(chat) > 20
+    if rate is None:
+        rate, sc = chat_rate(chat, n, chat_delay)
+        stats = sc.summary()
+    rate = _fit(rate, n)
+    has_chat = float((rate > 0).sum()) > 20
     if has_chat:
-        rate = np.zeros(n, dtype=np.float32)
-        for t, msg in chat:
-            s = int(t - chat_delay)  # chat reacts a few seconds late; shift it back
-            if 0 <= s < n:
-                rate[s] += chat_weight(msg)
         short = _rolling(rate, 8, "mean")
         base = _rolling(rate, 300, "median")
         # relative surge matters more than raw volume (works for small and big streams)
@@ -910,7 +1067,9 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
     else:
         chat_z = np.zeros(n, dtype=np.float32)
 
-    an = Analysis(duration, chat_z, audio, has_chat, has_audio)
+    ev = {k: _fit(v, n) for k, v in events.items()} if events else None
+    an = Analysis(duration, chat_z, audio, has_chat, has_audio, events=ev, loud=loud,
+                  fine=None if fine is None else _fit(fine, n * FINE_HZ, -100.0), chat_stats=stats)
     an.combine(chat_weight_pct)
     return an
 
@@ -918,6 +1077,10 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
 # --------------------------------------------------------------------------
 # 3. pick clips
 # --------------------------------------------------------------------------
+
+MIN_LEN, MAX_LEN = 15.0, 90.0
+STRONG, GOOD = 3.0, 2.0
+
 
 @dataclass
 class Clip:
@@ -927,55 +1090,295 @@ class Clip:
     peak: float
     score: float
     reason: str = ""
+    feat: Optional[dict] = None       # what the signals looked like (for learning what you keep)
+    tuned: float = 0.0                # how much learning moved this clip up or down
 
 
-def pick_clips(an: Analysis, count: int = 10, length: float = 30, lead: float = 0.6,
-               chat: Optional[list] = None, chat_delay: float = 6.0) -> list:
+def estimate(an: Analysis) -> dict:
+    """How many distinct strong / decent moments the stream has (peaks at least 45 s apart),
+    and how many clips to suggest for its length."""
     s = an.score
     n = len(s)
+    hours = an.duration / 3600.0
+    strong = good = 0
+    if n >= 5:
+        order = np.argsort(-s, kind="stable")
+        blocked = np.zeros(n, dtype=bool)
+        edge = min(60, int(n * 0.03))
+        for i in order:
+            v = float(s[i])
+            if v < GOOD:
+                break
+            if blocked[i] or i < edge or i > n - 1 - edge:
+                continue
+            blocked[max(0, i - 45): i + 46] = True
+            good += 1
+            if v >= STRONG:
+                strong += 1
+    base = strong + (good - strong) // 2
+    suggest = int(min(60, max(5, base, round(3 * hours))))
+    return {"strong": strong, "good": good, "hours": round(hours, 2), "suggest": suggest}
+
+
+def _snap(fine: Optional[np.ndarray], t: float, before: float, after: float) -> float:
+    """Move a cut to the quietest moment nearby (a breath between sentences)."""
+    if fine is None or not len(fine):
+        return t
+    a = max(0, int((t - before) * FINE_HZ))
+    b = min(len(fine), int((t + after) * FINE_HZ) + 1)
+    if b - a < 2:
+        return t
+    seg = fine[a:b].astype(np.float64)
+    offs = np.abs(np.arange(a, b) / FINE_HZ - t)
+    k = int(np.argmin(seg + 1.5 * offs))           # quiet, but don't wander far
+    return (a + k) / FINE_HZ + 0.05
+
+
+def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
+                 min_len: float = MIN_LEN, max_len: float = MAX_LEN, final: bool = False) -> tuple:
+    """Where a clip around a peak should start and end: back far enough to show what led up to it,
+    on until the reaction has died down, 15 to 90 seconds. Returns (start, end, complete); complete is
+    False while live mode hasn't seen the reaction end yet."""
+    s = an.score
+    n = len(s) if avail is None else min(len(s), int(avail))
+    dur = min(an.duration, float(n))
+    p = int(min(max(0, peak), n - 1))
+    top = float(s[p])
+    calm = max(0.8, 0.35 * top)            # the reaction is over below this
+    calm_back = max(0.6, 0.25 * top)       # and it hadn't started yet below this
+    # build-up: walk back to where things were calm for 3 seconds
+    lim = max(0, p - 60)
+    build = lim
+    quiet = 0
+    for i in range(p - 1, lim - 1, -1):
+        if s[i] < calm_back:
+            quiet += 1
+            if quiet >= 3:
+                build = i + 3
+                break
+        else:
+            quiet = 0
+    start = min(build - 7.0, p - 6.0)               # a little setup before it kicks off
+    start = max(start, p - 55.0, 0.0)
+    # reaction: walk forward until it has been calm for 4 seconds
+    end = None
+    quiet = 0
+    for j in range(p + 1, min(n, p + 46)):
+        if s[j] < calm:
+            quiet += 1
+            if quiet >= 4:
+                end = j - 4 + 2.5
+                break
+        else:
+            quiet = 0
+    complete = end is not None or avail is None or final or n >= p + 46
+    if end is None:
+        end = min(float(n), p + 45.0)
+    end = max(end, p + 5.0)
+    # length rules: longer clips trim the setup first, short ones grow mostly backwards
+    L = end - start
+    if L < min_len:
+        need = min_len - L
+        start -= need * 0.6
+        end += need * 0.4
+    elif L > max_len:
+        cut = L - max_len
+        room = max(0.0, (p - 8.0) - start)
+        start += min(cut, room)
+        end -= max(0.0, cut - room)
+    if start < 0:
+        end -= start
+        start = 0.0
+    if end > dur:
+        start = max(0.0, start - (end - dur))
+        end = dur
+    start = _snap(an.fine, start, 1.5, 0.8)
+    end = _snap(an.fine, end, 0.8, 1.5)
+    if avail is not None and not final and end > n - 0.5:
+        complete = False                         # live: the end hasn't been recorded yet
+    start, end = max(0.0, start), min(dur, end)
+    return round(start, 2), round(end, 2), bool(complete)
+
+
+def fixed_bounds(an: Analysis, peak: float, length: float, lead: float = 0.6) -> tuple:
     length = min(length, max(5.0, an.duration))
+    start = max(0.0, peak - length * lead)
+    end = min(an.duration, start + length)
+    start = max(0.0, end - length)
+    if an.fine is not None:
+        s2, e2 = _snap(an.fine, start, 1.0, 1.0), _snap(an.fine, end, 1.0, 1.0)
+        start, end = max(0.0, s2), min(an.duration, e2)
+    return round(start, 2), round(end, 2)
+
+
+def _ends_sentence(w: dict) -> bool:
+    return w["word"][-1:] in ".?!"
+
+
+def refine_with_words(start: float, end: float, peak: float, words: list,
+                      min_len: float = MIN_LEN, max_len: float = MAX_LEN, max_move: float = 8.0) -> tuple:
+    """Never start or stop in the middle of a sentence. words: transcript with absolute times."""
+    ws = [w for w in words if w.get("word")]
+    if not ws:
+        return start, end
+    gap = 0.6
+    # ---- start
+    k = next((i for i, w in enumerate(ws) if w["end"] > start + 0.05), None)
+    if k is not None and ws[k]["start"] < end:
+        prev = ws[k - 1] if k > 0 else None
+        mid_word = ws[k]["start"] < start - 0.05
+        joined = prev is not None and ws[k]["start"] - prev["end"] < gap and not _ends_sentence(prev)
+        if mid_word or joined:
+            j = k
+            while j > 0 and ws[j]["start"] - ws[j - 1]["end"] < gap and not _ends_sentence(ws[j - 1]):
+                j -= 1
+            back = ws[j]["start"] - 0.2
+            if start - back <= max_move and end - back <= max_len + 5:
+                start = back
+            else:
+                # too far back: start at the next sentence instead
+                j = k
+                while j + 1 < len(ws) and not (ws[j + 1]["start"] - ws[j]["end"] >= gap or _ends_sentence(ws[j])):
+                    j += 1
+                if j + 1 < len(ws) and ws[j + 1]["start"] - 0.2 < peak - 3:
+                    start = ws[j + 1]["start"] - 0.2
+        elif ws[k]["start"] - start > 1.2:
+            start = max(start, ws[k]["start"] - 0.6)      # don't open on a long silence
+    # ---- end
+    inside = [i for i, w in enumerate(ws) if w["start"] < end - 0.05]
+    if inside:
+        k = inside[-1]
+        nxt = ws[k + 1] if k + 1 < len(ws) else None
+        mid_word = ws[k]["end"] > end + 0.05
+        joined = nxt is not None and nxt["start"] - ws[k]["end"] < gap and not _ends_sentence(ws[k])
+        if mid_word or joined:
+            j = k
+            while j + 1 < len(ws) and ws[j + 1]["start"] - ws[j]["end"] < gap and not _ends_sentence(ws[j]):
+                j += 1
+            fwd = ws[j]["end"] + 0.35
+            if fwd - end <= max_move * 0.75 and fwd - start <= max_len + 5:
+                end = fwd
+            else:
+                j = k
+                while j > 0 and not (_ends_sentence(ws[j - 1]) or ws[j]["start"] - ws[j - 1]["end"] >= gap):
+                    j -= 1
+                if j > 0 and ws[j - 1]["end"] + 0.35 > peak + 2:
+                    end = ws[j - 1]["end"] + 0.35
+    if end - start < min(min_len, 5.0):
+        return start, end
+    return round(max(0.0, start), 2), round(end, 2)
+
+
+def clip_features(an: Analysis, start: float, end: float, peak: float, chat: Optional[list] = None,
+                  chat_t: Optional[list] = None, delay: float = 6.0) -> dict:
+    """What the signals looked like for a clip. Used to learn what you keep and skip."""
+    n = len(an.score)
+    i = int(min(max(0, peak), n - 1))
+    a, b = max(0, int(start)), max(int(start) + 1, min(n, int(math.ceil(end))))
+    w0, w1 = max(0, i - 3), min(n, i + 4)
+    f = {
+        "chat": float(an.chat_z[w0:w1].max()) if an.has_chat else 0.0,
+        "audio": float(an.audio_z[w0:w1].max()) if an.has_audio else 0.0,
+        "laugh": float(np.max(an.event_level("laugh")[a:b])) if an.has_events and b > a else 0.0,
+        "scream": float(np.max(an.event_level("scream")[a:b])) if an.has_events and b > a else 0.0,
+        "cheer": float(np.max(an.event_level("cheer")[a:b])) if an.has_events and b > a else 0.0,
+        "speech": float(np.max(an.speech[a:b])) if an.speech is not None and len(an.speech) > a else 0.0,
+        "length": (end - start) / 60.0,
+        "clipreq": 0.0,
+        "pos": peak / max(1.0, an.duration),
+    }
+    if chat and chat_t is not None:
+        lo = bisect.bisect_left(chat_t, peak + delay - 5)
+        hi = bisect.bisect_right(chat_t, peak + delay + 15)
+        f["clipreq"] = min(2.0, sum(1 for m in chat[lo:hi] if "clip" in m[1].lower()) / 5.0)
+    return {k: round(v, 3) for k, v in f.items()}
+
+
+def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0.6,
+               chat: Optional[list] = None, chat_delay: float = 6.0, adjust=None,
+               min_len: float = MIN_LEN, max_len: float = MAX_LEN) -> list:
+    """The best non-overlapping moments. count 0 = as many as the stream deserves (see estimate);
+    length 0 = each clip gets its own length (smart_bounds). adjust(features) -> score changes
+    learned from what you kept and skipped before."""
+    s = an.score
+    n = len(s)
     if n < 5:
         return []
+    auto = count <= 0
+    if auto:
+        count = estimate(an)["suggest"]
     order = np.argsort(-s, kind="stable")
     top = float(s[order[0]])
-    floor = max(1.0, 0.15 * top)
-    taken = np.zeros(n, dtype=bool)
-    clips: list = []
+    # automatic: only moments that really stand out; a number you chose gets filled with weaker ones too
+    floor = max(1.5 if auto else 1.0, 0.15 * top)
     skip_edge = min(60, int(n * 0.03))  # ignore "starting soon"/outro edges a bit
-    chat_t = [t for t, _ in chat] if chat else []
+    chat_t = chat_times(chat) if chat else []
+    # candidate peaks, a little apart from each other
+    blocked = np.zeros(n, dtype=bool)
+    cands = []
+    want = max(count * 4, count + 10)
     for idx in order:
-        if len(clips) >= count or s[idx] <= floor:
+        if len(cands) >= want or s[idx] <= floor:
             break
-        if idx < skip_edge or idx > n - 1 - skip_edge or taken[idx]:
+        if idx < skip_edge or idx > n - 1 - skip_edge or blocked[idx]:
             continue
-        start = max(0.0, idx - length * lead)
-        end = min(an.duration, start + length)
-        start = max(0.0, end - length)
-        taken[int(start):int(end) + 1] = True
-        if any(start < c.end - 2 and end > c.start + 2 for c in clips):
+        cands.append(int(idx))
+        blocked[max(0, idx - 12): idx + 13] = True
+    items = []
+    for idx in cands:
+        if length and length > 0:
+            st, en = fixed_bounds(an, idx, length, lead)
+        else:
+            st, en, _ = smart_bounds(an, idx, None, min_len, max_len)
+        items.append({"peak": idx, "start": st, "end": en, "base": float(s[idx]),
+                      "feat": clip_features(an, st, en, idx, chat, chat_t, chat_delay)})
+    adj = [0.0] * len(items)
+    if adjust is not None and items:
+        try:
+            adj = list(adjust([it["feat"] for it in items]))
+        except Exception:
+            adj = [0.0] * len(items)
+    for it, a in zip(items, adj):
+        it["tuned"] = float(a)
+        it["rank"] = it["base"] + float(a)
+    items.sort(key=lambda it: -it["rank"])
+    clips: list = []
+    for it in items:
+        if len(clips) >= count:
+            break
+        st, en = it["start"], it["end"]
+        if any(st < c.end - 2 and en > c.start + 2 for c in clips):
             continue  # would overlap a better clip
-        clips.append(Clip(0, round(start, 2), round(end, 2), float(idx),
-                          round(float(s[idx]), 2), _reason(an, int(idx), chat, chat_t, chat_delay)))
+        clips.append(Clip(0, st, en, float(it["peak"]), round(it["rank"], 2),
+                          _reason(an, it["peak"], chat, chat_t, chat_delay), it["feat"], round(it["tuned"], 2)))
     for i, c in enumerate(clips, 1):
         c.id = i
     return clips
 
 
 def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: float) -> str:
+    i = int(min(max(0, i), len(an.audio_z) - 1))
     c = float(an.chat_z[i]) if an.has_chat else 0.0
     a = float(an.audio_z[i])
     parts = []
+    if an.has_events:
+        w0, w1 = max(0, i - 6), min(len(an.audio_z), i + 6)
+        for key, label in (("laugh", "laughter"), ("scream", "screaming"), ("cheer", "cheering")):
+            if float(np.max(an.event_level(key)[w0:w1])) > 0.3:
+                parts.append(label)
+                break
     if an.has_chat and c > 2:
-        parts.append("Chat explodes" if c > 5 else "Chat spike")
-    if a > 2:
+        parts.append("chat explodes" if c > 5 else "chat spike")
+    if a > 2 and not parts[:1] == ["screaming"]:
         parts.append("loud moment" if a > 4 else "volume jump")
     if chat:
+        import chatsignal
         lo = bisect.bisect_left(chat_t, i + delay - 4)
         hi = bisect.bisect_right(chat_t, i + delay + 14)
         words: dict = {}
         emoji = {"😂", "🤣", "💀", "🔥", "😱"}
-        for _, msg in chat[lo:hi]:
-            for tok in set(re.findall(r"\w+|[😂🤣💀🔥😱]", msg)):
+        for m in chatsignal.human(chat[lo:hi]):
+            for tok in set(re.findall(r"\w+|[😂🤣💀🔥😱]", m[1])):
                 if (len(tok) > 1 and tok.lower() in HYPE) or tok in emoji:
                     words[tok] = words.get(tok, 0) + 1
         top = sorted(words.items(), key=lambda kv: -kv[1])[:3]
@@ -1449,6 +1852,15 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         p = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
                              creationflags=CREATE_NO_WINDOW)
+        # read errors on the side: a full stderr pipe would otherwise freeze ffmpeg mid-render
+        err_lines: list = []
+
+        def drain():
+            for ln in p.stderr:
+                err_lines.append(ln)
+                del err_lines[:-60]
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
         try:
             for line in p.stdout:
                 if line.startswith("out_time_us="):
@@ -1462,10 +1874,10 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                 except Cancelled:
                     p.kill()
                     raise
-            err = p.stderr.read()
         finally:
             p.wait()
-        return p.returncode, err
+            reader.join(timeout=5)
+        return p.returncode, "".join(err_lines)
 
     enc_name, enc_args = video_encoder(o)
     try:

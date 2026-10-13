@@ -76,6 +76,33 @@ def run_window(url: str) -> bool:
 
     server.picker_impl[0] = native_pick
     server.MODE["window"] = True
+
+    def twitch_login(timeout: float) -> str:
+        """Open twitch.tv's own login page in a small window; hand back the auth-token cookie once signed in."""
+        closed = threading.Event()
+        w = webview.create_window("Sign in to Twitch", "https://www.twitch.tv/login", width=520, height=780)
+        w.events.closed += lambda *a: closed.set()
+        token = ""
+        end = time.time() + timeout
+        while time.time() < end and not closed.is_set() and not token:
+            time.sleep(1.0)
+            try:
+                for jar in w.get_cookies() or []:
+                    for name, morsel in jar.items():
+                        if name == "auth-token" and morsel.value:
+                            token = morsel.value
+            except Exception:
+                pass
+        if not closed.is_set():
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        return token
+
+    import twitchauth
+    if hasattr(window, "get_cookies"):
+        twitchauth.login_impl[0] = twitch_login
     quitting = {"ok": False}
 
     def on_closing():
@@ -109,6 +136,11 @@ def run_window(url: str) -> bool:
         server.MODE["window"] = False
         server.picker_impl[0] = None
         server.shutdown_hook[0] = server.shutdown_all
+        try:
+            import twitchauth
+            twitchauth.login_impl[0] = None
+        except Exception:
+            pass
         return False
     # window closed
     server.shutdown_all()
@@ -156,15 +188,47 @@ def selftest(out_json: str, media: str = "") -> int:
     except Exception as e:
         rec("encoder", False, e)
 
+    # the new 3.1 parts that don't need a video
+    try:
+        import chatsignal
+        sc = chatsignal.ChatScorer()
+        w = [sc.weight(1.0, "!enter", "a"), sc.weight(1.1, "Follow me on twitter", "nightbot"),
+             sc.weight(1.2, "KEKW", "b"), sc.weight(1.5, "KEKW", "b"), sc.weight(1.6, "", "c", "subgift")]
+        rec("chat cleaning", w[0] == 0 and w[1] == 0 and w[2] > 1 and w[3] < w[2] and w[4] == 0,
+            f"weights {[round(x, 2) for x in w]}")
+    except Exception:
+        rec("chat cleaning", False, traceback.format_exc()[-300:])
+    try:
+        import learning
+        f = {"chat": 1, "audio": 1, "laugh": 0, "scream": 0, "cheer": 0, "speech": 0, "length": 0.4, "clipreq": 0, "pos": 0.5}
+        ok = learning._fit([{"f": dict(f, laugh=float(i % 2)), "y": float(i % 2), "w": 1.0} for i in range(20)])
+        rec("learning model fits", ok and ok["w"][2] > 0, ok and f"laugh weight {ok['w'][2]:.2f}")
+    except Exception:
+        rec("learning model fits", False, traceback.format_exc()[-300:])
+
     if media and os.path.isfile(media):
         try:
             info = engine.probe(media)
+            import audio_events
+            if audio_events.available():
+                ev = audio_events.scan_file(media, info["duration"])
+                sp = float(max(ev["speech"][30:45].max(), ev["laugh"][30:45].max())) if len(ev["speech"]) > 45 else 0.0
+                rec("laughter detector runs", len(ev["laugh"]) >= int(info["duration"]) and sp > 0.3,
+                    f"voice heard {sp:.2f} at 0:30-0:45; laugh max {float(ev['laugh'].max()):.2f}, "
+                    f"music max {float(ev['music'].max()):.2f}; model {audio_events.model_path()}")
+            else:
+                rec("laughter detector runs", False, f"model missing (looked in {paths.RES_DIR / 'models'})")
             # fake chat burst at 30s so the chat path is exercised too
             chat = [(t * 0.7, "hi") for t in range(80)] + [(33 + i * 0.05, "KEKW clip it") for i in range(120)]
             an = engine.analyze(media, sorted(chat))
             clips = engine.pick_clips(an, count=3, length=15, chat=chat)
             rec("analyze", bool(clips), f"{info['duration']:.0f}s video, top clip "
                 f"{engine.fmt_ts(clips[0].start)}-{engine.fmt_ts(clips[0].end)} ({clips[0].reason})" if clips else "no clips")
+            auto = engine.pick_clips(an, count=0, length=0, chat=chat)
+            est = engine.estimate(an)
+            rec("smart clip length", bool(auto) and all(engine.MIN_LEN - 0.5 <= c.end - c.start <= engine.MAX_LEN + 0.5
+                                                        or c.end - c.start >= info["duration"] - 1 for c in auto),
+                f"{[round(c.end - c.start, 1) for c in auto]} s; estimate {est}")
             heard, heard_words, rlog = [], [], []
             real = engine.transcribe
 
@@ -187,6 +251,16 @@ def selftest(out_json: str, media: str = "") -> int:
                 (" ".join(heard)[:200] or "no words heard") + " || log: " + " / ".join(rlog)[-300:])
             import titles
             t = titles.generate(heard_words, [m for _, m in chat if _ > 30], peak_rel=6.0)
+            # sentence-aligned cuts and the deep-scan scorer, on what Whisper heard
+            absw = [dict(w, start=w["start"] + start, end=w["end"] + start) for w in heard_words]
+            if absw:
+                mid = absw[len(absw) // 2]
+                a2, b2 = engine.refine_with_words(mid["start"] + 0.05, absw[-1]["end"] - 0.1, mid["start"], absw)
+                import gems
+                g, curve = gems.find(an, absw, [])
+                rec("cuts land between sentences", a2 <= mid["start"] and b2 >= absw[-1]["end"] - 0.1,
+                    f"{mid['start'] + 0.05:.2f}-{absw[-1]['end'] - 0.1:.2f} -> {a2:.2f}-{b2:.2f}; "
+                    f"deep scan scored {int((curve > 0).sum())} s, {len(g)} quiet gems")
             rec("auto title", bool(t["title"]) and bool(t["quote"]),
                 f"{t['title']} | vibe: {t['vibe'] or 'none'} | others: {' / '.join(t['titles'][1:4])}")
             # hand-edited captions, a bundled font, a highlight box and dragged positions

@@ -55,6 +55,7 @@ echo   [3/5] Installing captions (Whisper). First time takes a few minutes...
 if errorlevel 1 (
   echo   Captions couldn't be installed. VodClipper will still work, just without captions.
 )
+"%VPY%" src\audio_events.py --download src\models >nul 2>&1 || echo   The laughter detector didn't download. You can get it later in Settings.
 
 rem ---------- ffmpeg ----------
 if not exist tools mkdir tools

@@ -6,3 +6,5 @@ projects/
 tools/
 *.spec
 *.log
+src/models/*.onnx
+*.part

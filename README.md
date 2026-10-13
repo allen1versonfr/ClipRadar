@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 3.0.1" src="https://img.shields.io/badge/version-3.0.1-4c8dff?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 3.1.0" src="https://img.shields.io/badge/version-3.1.0-4c8dff?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/vodclipper/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/vodclipper/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -30,11 +30,17 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 
 ## Features
 
-- **Finds the moments for you.** Clips are ranked by chat surges (KEKW, POG, "clip it", `?????`) and audio spikes measured against the surrounding minutes. Twitch's muted DMCA sections are ignored.
+- **Finds the moments for you.** Clips are ranked by chat surges (KEKW, POG, "clip it", `?????`), audio spikes measured against the surrounding minutes, and laughter, screams and cheering heard by a small built-in sound detector. Twitch's muted DMCA sections are ignored.
+  - Chat is counted by chatters, not messages: bots, `!commands`, giveaways, sub notices, gift bombs, raids and copypasta don't create fake moments.
+  - Each clip gets its own length (15–90 s): it starts with the setup, runs until the reaction dies down, and never cuts mid-sentence.
+  - The review header estimates how many strong moments the stream has, and the number of suggestions scales with it.
+  - **Deep scan** (optional) transcribes the whole stream and finds *quiet gems*: lines that landed even though chat and volume stayed calm.
+  - It learns from the clips you keep, skip and post, separately for each streamer.
 - **Hands-free live clipping.** Start it and go watch the stream. Every strong moment is titled, checked and rendered on its own, and finished clips land in Exports.
   - It can wait for the stream to start and keep watching for the next one.
   - Choose how many clips you want (Fewer, Normal, More or Lots).
   - Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> from any window to clip the last 30 seconds.
+  - **No ads in your clips.** Ad breaks Twitch stitches into the stream are recognised and left out of the recording. Sign in to Twitch with Turbo (or a sub) and you get the ad-free stream.
 - **Content check and censoring.** Each clip's words, title and post caption are checked for things TikTok takes down: slurs, self-harm, threats, personal info, sexual terms, drugs, swearing, gambling and your own blocked words.
   - Flagged words can be hidden in captions, muted or bleeped.
   - Hands-free holds risky clips back for you to look at first.
@@ -123,7 +129,12 @@ src/
   app.py          desktop window (pywebview / WebView2) and --selftest
   server.py       local HTTP API the UI talks to, render queue
   engine.py       download, analysis, clip picking, rendering, captions
-  live.py         live recording, chat reader, moment detection
+  live.py         live recording (own HLS reader that skips ads), chat reader, moment detection
+  chatsignal.py   chat cleaning: chatters not messages, bots, notices, raids, copypasta
+  audio_events.py laughter / scream / cheering detector (ONNX, built by scripts/export_audio_model.py)
+  gems.py         Deep scan: scores every transcribed line, finds quiet gems
+  learning.py     learns per streamer from what you keep, skip and post
+  twitchauth.py   Twitch sign-in for ad-free live recording
   tiktok.py       TikTok OAuth (PKCE) and Content Posting API client
   titles.py       auto titles and post captions
   safety.py       content check (TOS scanner) and censoring
@@ -141,15 +152,16 @@ docs/             user guide and images
 
 Every push builds the exe on Windows in GitHub Actions, then:
 
-- runs the content-check unit tests (`tests/test_safety.py`);
+- runs the unit tests: content check (`tests/test_safety.py`), and chat cleaning, Twitch ad markers, smart cuts, learning and the sound detector (`tests/test_signals.py`);
 - runs the app's built-in self-test (`VodClipper.exe --selftest`): rendering, captions on real Whisper output, auto titles, styled text placement and bleeping;
-- runs `tests/e2e.py` against the built exe: hands-free live clipping from a simulated stream that starts late (served over HLS), a fake Twitch IRC chat, the clip hotkey, the content check holding a clip back, a failed render being explained and retried, bleeping, automatic TikTok drafts against a mock of TikTok's API, and private-repository updates;
+- runs `tests/e2e.py` against the built exe: a VOD with a giveaway, a gift bomb, bots and a raid in its chat (the real moment has to win), Deep scan, learning from keeps and skips, hands-free live clipping from a pretend Twitch stream that starts late and has an ad break stitched in (no ad may be downloaded), a fake Twitch IRC chat with bots and sub notices, Twitch sign-in, the clip hotkey, the content check holding a clip back, a failed render being explained and retried, bleeping, automatic TikTok drafts against a mock of TikTok's API, and private-repository updates;
 - installs the app with the real installer, updates it in place through the app's own updater (against a mock GitHub release), then uninstalls it.
 
 Run the end-to-end tests locally against the source:
 
 ```bash
 python tests/test_safety.py
+python tests/test_signals.py
 python tests/e2e.py --app "python src/app.py" --ffmpeg ffmpeg
 ```
 

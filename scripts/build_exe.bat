@@ -59,12 +59,19 @@ if not exist "tools\ffmpeg.exe" (
   echo   Note: ffmpeg didn't download. The app will offer to download it on first launch.
 )
 
+rem ---------- laughter detector (bundled into the exe) ----------
+"%VPY%" src\audio_events.py --download src\models
+if not exist "src\models\audio_events.onnx" (
+  echo   Note: the laughter detector didn't download. The app can download it later from Settings.
+  mkdir src\models 2>nul
+)
+
 rem ---------- PyInstaller ----------
 echo   [3/4] Packaging (this is the slow part)...
 set "PKG=--onedir"
 if "%MODE%"=="onefile" set "PKG=--onefile"
 "%VPY%" -m PyInstaller --noconfirm --clean --log-level WARN %PKG% --windowed ^
-  --name VodClipper --icon "src\ui\icon.ico" --add-data "src\ui;ui" --paths src ^
+  --name VodClipper --icon "src\ui\icon.ico" --add-data "src\ui;ui" --add-data "src\models;models" --paths src ^
   --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime ^
   --collect-all av --collect-all webview --collect-submodules yt_dlp --collect-data certifi ^
   --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog ^

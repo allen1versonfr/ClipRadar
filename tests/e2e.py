@@ -29,10 +29,12 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import fake_irc      # noqa: E402
+import fake_twitch   # noqa: E402
 import mock_tiktok   # noqa: E402
 import mock_github   # noqa: E402
+import mock_twitch_api  # noqa: E402
 
-PORT, IRC_PORT, TT_PORT, HLS_PORT, GH_PORT = 7870, 9461, 9471, 9481, 9491
+PORT, IRC_PORT, TT_PORT, HLS_PORT, GH_PORT, TW_PORT = 7870, 9461, 9471, 9481, 9491, 9501
 B = f"http://127.0.0.1:{PORT}"
 checks: list = []
 diag: dict = {}
@@ -85,12 +87,124 @@ def make_stream_source(ffmpeg, path, seconds=210, burst=70):
                     "-c:a", "aac", path], check=True)
 
 
+def make_vod(a, tmp) -> tuple:
+    """A 150 s 'VOD' with a loud moment at 60 s (and speech at 95 s when given), plus a chat replay
+    full of the things that used to fool the ranking: a giveaway, a gift-sub bomb, bots and a raid."""
+    import json as _json
+    import random
+    vod = os.path.join(tmp, "e2e_vod.mp4")
+    dur = 150
+    cmd = [a.ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size=1280x720:rate=30:duration={dur}",
+           "-f", "lavfi", "-i", f"anoisesrc=color=pink:amplitude=0.02:duration={dur}",
+           "-f", "lavfi", "-i", f"sine=frequency=500:duration={dur}"]
+    fc = "[2:a]volume='if(between(t,60,66),0.8,0)':eval=frame[s]"
+    mix, n = "[1:a][s]", 2
+    if a.speech and os.path.isfile(a.speech):
+        cmd += ["-i", a.speech]
+        fc += ";[3:a]adelay=95000|95000,volume=3[sp]"
+        mix, n = mix + "[sp]", 3
+    fc += f";{mix}amix=inputs={n}:normalize=0:duration=first[a]"
+    cmd += ["-filter_complex", fc, "-map", "0:v", "-map", "[a]", "-t", str(dur), "-c:v", "libx264", "-preset", "ultrafast",
+            "-g", "60", "-c:a", "aac", vod]
+    subprocess.run(cmd, check=True)
+    rnd = random.Random(7)
+    com = []
+
+    def add(t, user, body, notice=None):
+        com.append({"content_offset_seconds": round(t, 2), "commenter": {"name": user, "display_name": user},
+                    "message": {"body": body, "user_notice_params": {"msg-id": notice}, "bits_spent": 0}})
+    users = [f"fan{i}" for i in range(400)]
+    for t in range(dur):
+        for _ in range(rnd.choice([0, 1, 1, 2])):
+            add(t + rnd.random(), rnd.choice(users), rnd.choice(["hi", "lol", "nice", "gg", "what game", "ok"]))
+    for t in range(0, dur, 10):
+        add(t + 0.5, "nightbot", "Follow on twitter KEKW KEKW")
+    for k in range(100):                                       # giveaway
+        add(20 + rnd.random() * 8, users[k], "!enter")
+    for k in range(25):                                        # gift-sub bomb
+        add(35 + k * 0.2, "biggifter", "", "subgift")
+    for k in range(40):
+        add(36 + rnd.random() * 6, users[200 + k % 8], "POGGERS POGGERS")
+    for k in range(90):                                        # the real reaction to the loud moment
+        add(66 + rnd.random() * 8, users[k], rnd.choice(["KEKW", "OMEGALUL", "clip it", "LETSGO", "no way"]))
+    add(119, "streamelements", "bigstreamer is raiding with 900 viewers")
+    for k in range(90):                                        # raid
+        add(120 + rnd.random() * 8, f"raider{k}", "bigstreamerRaid RAID FROM THE BEST COMMUNITY bigstreamerRaid")
+    com.sort(key=lambda c: c["content_offset_seconds"])
+    chat = os.path.join(tmp, "e2e_vod.chat.json")
+    with open(chat, "w", encoding="utf-8") as f:
+        _json.dump({"streamer": {"name": "e2estreamer", "id": 1}, "comments": com}, f)
+    return vod, chat, dur
+
+
+def vod_checks(a, tmp):
+    vod, chat, dur = make_vod(a, tmp)
+    speech = bool(a.speech and os.path.isfile(a.speech))
+    j = post("/api/analyze", {"source": vod, "chat_file": chat, "count": 0, "length": 0, "events": True,
+                              "deep_scan": speech, "deep_model": a.model, "language": "en"})
+    r = wait_job(j.get("job", ""), 300) if j.get("job") else None
+    ok = r and r["status"] == "done"
+    rec("VOD analysis", ok, r and (r.get("error") or " / ".join(r["log"][-4:])))
+    if not ok:
+        return
+    pv = r["result"]
+    pid = pv["pid"]
+    cs = pv.get("chat_stats") or {}
+    rec("chat cleaning: bots, commands, notices and raids", cs.get("ignored", 0) >= 130 and cs.get("raids", 0) >= 1
+        and cs.get("chatters", 0) >= 150, cs)
+    clips = pv["clips"]
+    peaks = [c["peak"] for c in clips]
+    rec("the real reaction ranks first, not the giveaway, gift bomb or raid",
+        # chat is shifted back 6 s: giveaway 14-22, gift bomb 29-36, raid 114-122
+        clips and 54 <= clips[0]["peak"] <= 76 and not any(12 <= p <= 24 or 28 <= p <= 38 or 112 <= p <= 126 for p in peaks),
+        [(c["peak"], c["score"], c["reason"]) for c in clips])
+    lens = [round(c["end"] - c["start"], 1) for c in clips]
+    rec("clips get their own length (15-90 s)", clips and all(14.5 <= x <= 90.5 for x in lens), lens)
+    est = pv.get("estimate") or {}
+    rec("expected clip estimate", est.get("strong", 0) >= 1 and est.get("suggest", 0) >= 5, est)
+    rec("streamer recognised from the chat replay", pv.get("streamer") == "e2estreamer", pv.get("streamer"))
+    # stable ids when re-ranking
+    again = post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 60})
+    rec("re-ranking keeps clips (and their ids)", sorted(c["id"] for c in again.get("clips", [])) == sorted(c["id"] for c in clips),
+        [c["id"] for c in again.get("clips", [])])
+    add = post("/api/add_clip", {"pid": pid, "t": 62, "length": 0})
+    rec("a clip made by hand also gets a smart length", 14.5 <= add.get("end", 0) - add.get("start", 0) <= 90.5,
+        f"{add.get('start')}-{add.get('end')}")
+    # learning: keep the loud ones, skip the quiet ones
+    made = [post("/api/add_clip", {"pid": pid, "t": t, "length": 20}) for t in (10, 30, 45, 85, 100, 110, 140)]
+    for c in clips + [add]:
+        post("/api/feedback", {"pid": pid, "clip": c["id"], "action": "keep"})
+    for c in made:
+        post("/api/feedback", {"pid": pid, "clip": c.get("id"), "action": "skip"})
+    lr = get("/api/learning")
+    prof = next((p for p in lr.get("profiles", []) if p["streamer"] == "e2estreamer"), {})
+    rec("learns from keeps and skips", prof.get("decisions", 0) >= 8 and prof.get("kept", 0) >= 2, prof)
+    tuned = post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 60})
+    rec("ranking tuned for this streamer", (tuned.get("learning") or {}).get("active"), tuned.get("learning"))
+    post("/api/learning/forget", {"streamer": "e2estreamer"})
+    rec("forget what was learned", not any(p["streamer"] == "e2estreamer" for p in get("/api/learning").get("profiles", [])))
+    if speech:
+        done = wait(lambda: (lambda d: d if d["state"] in ("done", "error", "cancelled") else None)(
+            get(f"/api/clips/{pid}")["deep"]), 400, 3)
+        work = os.path.join(tmp, "work")
+        txs = [os.path.join(rt, f) for rt, _, fs in os.walk(work) for f in fs if f == "transcripts.json"]
+        words = 0
+        if txs:
+            import json as _json
+            d = _json.load(open(txs[0], encoding="utf-8"))
+            words = sum(len(v["words"]) for v in d.get("tx", {}).values())
+        rec("deep scan transcribes the whole VOD", done and done["state"] == "done" and words >= 5,
+            f"{done and done.get('state')} {done and done.get('error', '')}; {words} words saved; "
+            f"{len(get(f'/api/clips/{pid}').get('gems', []))} quiet gems")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", required=True)
     ap.add_argument("--ffmpeg", default="ffmpeg")
     ap.add_argument("--out", default="e2e_report.json")
     ap.add_argument("--model", default="tiny")
+    ap.add_argument("--speech", default="", help="a WAV of someone talking, for the VOD and deep scan checks")
     a = ap.parse_args()
 
     tmp = tempfile.mkdtemp(prefix="vc_e2e_")
@@ -100,12 +214,14 @@ def main():
     fake_irc.start_in_thread(IRC_PORT, [72])
     mock_tiktok.start(TT_PORT)
     mock_github.start(GH_PORT, "v99.0.0")
+    mock_twitch_api.start(TW_PORT)
 
     env = dict(os.environ, VODCLIPPER_WORK=work, VODCLIPPER_DATA=data, VODCLIPPER_PORT=str(PORT),
                VODCLIPPER_IRC=f"127.0.0.1:{IRC_PORT}:plain",
                VODCLIPPER_TIKTOK_API=f"http://127.0.0.1:{TT_PORT}",
                VODCLIPPER_TIKTOK_AUTH=f"http://127.0.0.1:{TT_PORT}/v2/auth/authorize/",
                VODCLIPPER_UPDATE_API=f"http://127.0.0.1:{GH_PORT}/repos/allen1versonfr/vodclipper/releases/latest",
+               VODCLIPPER_TWITCH_ID=f"http://127.0.0.1:{TW_PORT}", VODCLIPPER_TWITCH_GQL=f"http://127.0.0.1:{TW_PORT}/gql",
                VODCLIPPER_TEST="1", VODCLIPPER_WAIT_POLL="3")
     cmd = shlex.split(a.app, posix=(os.name != "nt")) + ["--browser"]
     app = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -116,25 +232,15 @@ def main():
         if not st:
             return finish(a.out)
 
+        # ------------------------------------------------------------ VOD: chat cleaning, smart cuts, deep scan, learning
+        vod_checks(a, tmp)
+
         # ------------------------------------------------------------ live mode
         src = os.path.join(tmp, "stream_src.mp4")
         make_stream_source(a.ffmpeg, src)
-        playlist = os.path.join(hls, "live.m3u8")
-        # serve the simulated stream over HTTP, the way Twitch serves a live stream
-        import functools
-        from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-
-        class Quiet(SimpleHTTPRequestHandler):
-            def log_message(self, *a_):
-                pass
-
-            def end_headers(self):
-                self.send_header("Cache-Control", "no-store")
-                super().end_headers()
-        hls_srv = ThreadingHTTPServer(("127.0.0.1", HLS_PORT), functools.partial(Quiet, directory=hls))
-        import threading
-        threading.Thread(target=hls_srv.serve_forever, daemon=True).start()
-        stream_url = f"http://127.0.0.1:{HLS_PORT}/live.m3u8"
+        # a pretend Twitch stream over HTTP, with an ad break stitched in at 100 s
+        tw = fake_twitch.FakeTwitch(HLS_PORT, a.ffmpeg, src, hls, ad_at=100, ad_len=20)
+        stream_url = tw.url
         opts = {"layout": "split", "cam": [0.015, 0.028, 0.25, 0.25], "captions": True,
                 "whisper_model": a.model, "hw_encode": True}
         bad = post("/api/live/start", {"source": "not a channel!!"})
@@ -150,9 +256,7 @@ def main():
         twice = post("/api/live/start", {"source": stream_url})
         rec("only one live session at a time", twice.get("_status") == 409, twice.get("error"))
         rec("busy while live", get("/api/status")["running"])
-        producer = subprocess.Popen([a.ffmpeg, "-v", "error", "-re", "-i", src, "-c", "copy", "-f", "hls",
-                                     "-hls_time", "2", "-hls_list_size", "8",
-                                     "-hls_flags", "delete_segments+omit_endlist", playlist])
+        tw.start()
         ok_rec = wait(lambda: get(f"/api/live/{sid}")["status"] == "recording", 60)
         lv = get(f"/api/live/{sid}")
         segdir0 = os.path.join(lv["dir"], "segments")
@@ -209,11 +313,20 @@ def main():
         on_disk = len([f for f in os.listdir(segdir) if f.endswith(".ts")]) if os.path.isdir(segdir) else 0
         rec("rolling buffer limits disk use", sess["recorded"] < 100 or on_disk * 10 < sess["recorded"],
             f"{on_disk} segments on disk for {sess['recorded']:.0f}s recorded")
-        producer.wait(timeout=200)
-        with open(playlist, "a") as f:
-            f.write("#EXT-X-ENDLIST\n")
+        wait(lambda: tw.done, 260, 2)
+        time.sleep(4)
+        tw.finish()
         ended = wait(lambda: get(f"/api/live/{sid}")["status"] in ("ended", "stopped"), 60)
         rec("notices the stream ended", ended, get(f"/api/live/{sid}")["status"])
+        sess = get(f"/api/live/{sid}")
+        rec("ad break left out of the recording", sess.get("ad_breaks", 0) >= 1 and sess.get("ads_skipped", 0) >= 15
+            and not tw.ad_fetches() and abs(sess["recorded"] - tw.content_seconds) < 15,
+            f"ads skipped {sess.get('ads_skipped')}s in {sess.get('ad_breaks')} break(s); ad files fetched "
+            f"{len(tw.ad_fetches())}; recorded {sess['recorded']:.0f}s of {tw.content_seconds:.0f}s content; mode {sess.get('mode')}")
+        rec("live chat ignores bots, commands and sub notices", sess.get("chat_ignored", 0) >= 3,
+            f"{sess.get('chat_ignored')} ignored, {sess.get('chatters')} chatters")
+        lens = [c["end"] - c["start"] for c in sess["clips"] if not c.get("manual")]
+        rec("live moments get their own length", lens and all(9 <= x <= 95 for x in lens), [round(x, 1) for x in lens])
         rec("not busy after the stream ends", wait(lambda: not get("/api/status")["running"], 60))
 
         # ------------------------------------------------------------ content check, failures and retry
@@ -303,6 +416,24 @@ def main():
         post("/api/tiktok/disconnect")
         rec("TikTok disconnects", not get("/api/tiktok")["connected"])
 
+        # ------------------------------------------------------------ Twitch sign-in (ad-free live recording)
+        tws = get("/api/twitch")
+        rec("Twitch starts signed out", not tws.get("signed_in"), tws)
+        bad = post("/api/twitch/token", {"token": "short"})
+        rec("Twitch rejects something that isn't a token", bad.get("_status") == 400, bad.get("error"))
+        wrong = post("/api/twitch/token", {"token": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"})
+        rec("Twitch rejects a token Twitch doesn't accept", wrong.get("_status") == 400 and "expired" in wrong.get("error", ""),
+            wrong.get("error"))
+        ok_tw = post("/api/twitch/token", {"token": "auth-token=" + mock_twitch_api.GOOD})
+        rec("Twitch sign-in with a token", ok_tw.get("signed_in") and ok_tw.get("login") == "e2e_viewer" and ok_tw.get("turbo") is True,
+            ok_tw)
+        tstore = os.path.join(data, "twitch.dat")
+        thead = open(tstore, "rb").read(6) if os.path.exists(tstore) else b""
+        rec("Twitch sign-in stored encrypted" if os.name == "nt" else "Twitch sign-in stored",
+            thead == b"dpapi:" if os.name == "nt" else thead, thead.decode(errors="replace"))
+        out_tw = post("/api/twitch/logout")
+        rec("Twitch sign-out", not out_tw.get("signed_in") and not os.path.exists(tstore), out_tw)
+
         # ------------------------------------------------------------ storage
         st = get("/api/storage")
         d = post("/api/delete", {"what": "vods"})
@@ -358,12 +489,18 @@ def main():
         for p in (producer, app):
             if p and p.poll() is None:
                 p.kill()
+        if keep_tmp:
+            print("kept", tmp, flush=True)
+            return finish(a.out)
         try:
             diag["app log"] = open(os.path.join(data, "vodclipper.log"), encoding="utf-8", errors="replace").read().splitlines()[-40:]
         except OSError:
             pass
         shutil.rmtree(tmp, ignore_errors=True)
     return finish(a.out)
+
+
+keep_tmp = bool(os.environ.get("VC_E2E_KEEP"))
 
 
 def _try(fn):
