@@ -48,18 +48,27 @@ def main():
     mel.eval()
 
     class Net(torch.nn.Module):
-        def __init__(self, m):
+        """Time-resolved: one pass over a long log-mel, a prediction every 32 frames (0.32 s).
+        The CNN features are averaged over frequency and over a ~3 s neighbourhood in time, then
+        fed through the original classifier head. That is the original model's global average
+        pool, done locally, so each step means "what's happening in the 3 seconds around here"."""
+        def __init__(self, m, k=9):
             super().__init__()
-            self.features, self.classifier = m.features, m.classifier
+            self.features, self.k = m.features, k
+            self.lin1, self.act, self.lin2 = m.classifier[2], m.classifier[3], m.classifier[5]
 
         def forward(self, x):
-            return torch.sigmoid(self.classifier(self.features(x)))
+            f = self.features(x).mean(dim=2)                      # [B, C, T']
+            f = torch.nn.functional.avg_pool1d(f, kernel_size=self.k, stride=1, padding=self.k // 2,
+                                               count_include_pad=False)
+            f = f.transpose(1, 2)                                 # [B, T', C]
+            return torch.sigmoid(self.lin2(self.act(self.lin1(f))))   # [B, T', 527]
 
     net = Net(model).eval()
     out = os.path.join(os.path.abspath(a.out), "audio_events.onnx")
-    dummy = torch.randn(2, 1, 128, 300)
+    dummy = torch.randn(1, 1, 128, 3000)
     kw = dict(input_names=["mel"], output_names=["probs"], opset_version=17,
-              dynamic_axes={"mel": {0: "batch", 3: "frames"}, "probs": {0: "batch"}})
+              dynamic_axes={"mel": {0: "batch", 3: "frames"}, "probs": {0: "batch", 1: "steps"}})
     try:
         torch.onnx.export(net, (dummy,), out, dynamo=False, **kw)
     except TypeError:
@@ -81,18 +90,29 @@ def main():
 
     import onnxruntime as ort
     sess = ort.InferenceSession(out, providers=["CPUExecutionProvider"])
-    onnx_probs = sess.run(None, {"mel": my_mel[None, None, :, :n].astype(np.float32)})[0]
-    report["probs_max_abs_diff"] = float(np.abs(onnx_probs - ref_probs).max())
+    with torch.no_grad():
+        ref_t = net(torch.from_numpy(my_mel)[None, None]).numpy()
+    onnx_t = sess.run(None, {"mel": my_mel[None, None].astype(np.float32)})[0]
+    report["steps_shape"] = list(onnx_t.shape)
+    report["frames_per_step"] = my_mel.shape[1] / onnx_t.shape[1]
+    report["probs_max_abs_diff"] = float(np.abs(onnx_t - ref_t).max())
+    # the time-resolved output in the middle should agree with the original model on that window
+    mid = onnx_t[0, onnx_t.shape[1] // 2]
+    win = torch.from_numpy(my_mel[:, 150:450])[None, None]
+    with torch.no_grad():
+        ref_win = torch.sigmoid(model(win)[0]).numpy().reshape(-1)
+    report["window_vs_steps_top5"] = [[int(i), round(float(ref_win[i]), 3), round(float(mid[i]), 3)]
+                                      for i in np.argsort(-ref_win)[:5]]
     one = sess.run(None, {"mel": my_mel[None, None, :, :300].astype(np.float32)})[0]
     report["batch1_shape"] = list(one.shape)
     report["sha256"] = hashlib.sha256(open(out, "rb").read()).hexdigest()
     report["bytes"] = os.path.getsize(out)
     np.savez_compressed(os.path.join(os.path.abspath(a.out), "audio_events_test.npz"),
-                        wave=wave, mel=ref_mel, probs=ref_probs)
+                        wave=wave, mel=ref_mel, probs=ref_probs, steps=ref_t)
     print(json.dumps(report, indent=1))
     with open(os.path.join(os.path.abspath(a.out), "audio_events_report.json"), "w") as f:
         json.dump(report, f, indent=1)
-    ok = report["mel_max_abs_diff"] < 2e-3 and report["probs_max_abs_diff"] < 2e-3 and report["batch1_shape"] == [1, 527]
+    ok = report["mel_max_abs_diff"] < 2e-3 and report["probs_max_abs_diff"] < 2e-3 and report["batch1_shape"][2] == 527
     print("OK" if ok else "MISMATCH")
     return 0 if ok else 1
 
