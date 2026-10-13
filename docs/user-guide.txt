@@ -180,12 +180,21 @@ CONTENT CHECK (Settings > Content check)
     or Just render it. Remember flags I dismiss. Check a clip again after I
     edit or fix it.
 
-  Auto titles
+  Auto titles and captions
     VodClipper listens to each clip (Whisper) and reads how chat reacted, then
-    writes a title: usually the best line said near the peak, otherwise one that
-    fits the mood (funny, hype, surprise, fail, wholesome). The refresh button
-    next to the title (or T) cycles through other ideas, and you can type your
-    own. Each clip also gets a post caption with hashtags, which you can edit.
+    writes two titles:
+      A  the best line said near the peak, or a short line about how chat
+         reacted (laughing, hyped, shocked...)
+      B  the same idea with the streamer's name worked in
+    Both show under the title box; click one to use it. The refresh button
+    (or T) cycles through more ideas, and you can type your own. Titles only
+    describe what's in the clip: what was said and how chat reacted.
+    The streamer's name comes from the chat replay; "Add the streamer's name"
+    (or "change") sets how it's written, for example JasonTheWeen.
+    The post caption is written separately from the title, with up to five
+    hashtags that fit the clip. The Hashtags switch under it turns tags off
+    for every clip. Settings > Titles and captions picks which title new clips
+    use (A or B) and whether to add hashtags.
 
 POSTING TO TIKTOK
   TikTok only lets registered apps post, so you set up your own (free) TikTok

@@ -176,6 +176,18 @@ def vod_checks(a, tmp):
     rec("7TV, BTTV and FFZ emotes loaded for the channel", pv.get("emotes_known", 0) >= 5, pv.get("emotes_known"))
     rec("clips get a 0-100 score with the signals behind it", clips and all(1 <= c.get("quality", 0) <= 100 and c.get("parts") for c in clips)
         and "chat" in clips[0]["parts"], [(c.get("quality"), c.get("parts")) for c in clips[:2]])
+    # 3.6: titles and captions
+    c0 = clips[0] if clips else {}
+    rec("clips get title A and title B with the streamer's name", c0.get("title_a") and "e2estreamer" in (c0.get("title_b") or "").lower()
+        and c0.get("title_b_named"), (c0.get("title_a"), c0.get("title_b")))
+    rec("a description apart from the title, and a few relevant hashtags", c0.get("description") and c0.get("description") != c0.get("title")
+        and 2 <= len(c0.get("hashtags") or []) <= 5 and "#e2estreamer" in c0.get("hashtags", []), (c0.get("description"), c0.get("hashtags")))
+    post("/api/titles", {"hashtags": False})
+    sn = post("/api/streamer", {"pid": pid, "name": "E2E Streamer"})
+    s0 = next((x for x in sn.get("clips", []) if x["id"] == c0.get("id")), {})
+    rec("setting the streamer's name rewrites title B; hashtags can be switched off",
+        "E2E Streamer" in (s0.get("title_b") or "") and "#" not in (s0.get("post") or "#"), (s0.get("title_b"), s0.get("post")))
+    post("/api/titles", {"hashtags": True})
     # stable ids when re-ranking
     again = post("/api/repick", {"pid": pid, "count": 0, "length": 0, "chat_weight": 60})
     rec("re-ranking keeps clips (and their ids)", sorted(c["id"] for c in again.get("clips", [])) == sorted(c["id"] for c in clips),

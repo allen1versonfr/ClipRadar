@@ -360,11 +360,14 @@ const absOf = (c, t) => t + (c.absOff || 0);
 const isGem = c => c.kind === 'gem';
 const visible = () => !W ? [] : filter === 'flagged' ? flaggedList()
   : W.clips.filter(c => filter === 'gems' ? isGem(c) : !isGem(c) && (filter === 'all' || c.state === filter));
-const DEFAULT_TAGS = '#twitch #twitchclips #streamer #fyp';
+const DEFAULT_TAGS = '#twitch #twitchclips';
+let titlePrefs = { pick: 'a', hashtags: true };
 function postFor(c) {
   if (c.userPost) return c.postText;
-  const tags = (c.post || '').split('\n\n')[1] || DEFAULT_TAGS;
-  return `${(c.title || '').trim() || 'Wait for it...'} ${c.emoji || ''}`.trim() + `\n\n${tags}`;
+  // the description is written separately from the title; hashtags follow the Hashtags switch
+  const desc = c.description || `${(c.title || '').trim() || 'Wait for it...'} ${c.emoji || ''}`.trim();
+  const tags = c.hashtags ? c.hashtags.join(' ') : ((c.post || '').split('\n\n')[1] || DEFAULT_TAGS);
+  return titlePrefs.hashtags && tags ? `${desc}\n\n${tags}` : desc;
 }
 function prepClip(c) {
   c.state = c.state || 'todo';
@@ -376,6 +379,7 @@ function prepClip(c) {
 }
 function mergeClip(c, s) {
   c.listened = s.listened; if (!c.wordsEdited) c.words = s.words || []; c.titles = s.titles || []; c.vibe = s.vibe; c.emoji = s.emoji;
+  ['title_a', 'title_b', 'title_b_named', 'description', 'hashtags'].forEach(k => { if (s[k] !== undefined) c[k] = s[k]; });
   if (s.orig && !c.userTrim) c.orig = s.orig;
   c.reason = s.reason; c.post = s.post; c.held = s.held || ''; if (s.safety) c.safety = s.safety; if (s.check) c.check = s.check;
   if (!c.userTitle && s.title) c.title = s.title;
@@ -685,6 +689,7 @@ function fillInspector() {
   if (document.activeElement !== $('#titleInput')) $('#titleInput').value = c.title;
   if (document.activeElement !== $('#postInput')) $('#postInput').value = postFor(c);
   $('#nextTitle').disabled = (c.titles || []).length < 2;
+  renderTitleOpts(c);
   syncTrimInfo(c);
   const kept = c.state === 'kept', q = queueFor(c), failed = kept && q && q.status === 'error';
   $('#keepBtn').textContent = failed ? 'Retry render' : kept ? (q && q.status === 'done' ? 'Rendered' : 'In render queue') : 'Keep and render';
@@ -2253,6 +2258,54 @@ $('#detApply').onclick = async () => {
   toast('Detection settings applied. Your kept, skipped and edited clips stayed.', '', 3500);
 };
 $('#detCancel').onclick = () => $('#detDlg').close();
+
+/* =============================================================== titles and captions (3.6) */
+function renderTitleOpts(c) {
+  const box = $('#titleOpts'), kept = c.state === 'kept';
+  if (!c.title_a) { box.innerHTML = ''; return; }
+  const chip = (k, t, sub) => `<button class="topt ${c.title === t ? 'on' : ''}" data-pick="${k}" ${kept ? 'disabled' : ''} title="Use this title">`
+    + `<b>${k.toUpperCase()}</b><span>${esc(t)}</span>${sub ? `<i>${sub}</i>` : ''}</button>`;
+  const name = (W && W.meta && W.meta.streamer_name) || '';
+  box.innerHTML = chip('a', c.title_a, '') + (c.title_b && c.title_b !== c.title_a ? chip('b', c.title_b, c.title_b_named ? '' : 'no streamer name yet') : '')
+    + (W.kind === 'vod' ? `<button class="link tname" id="tName">${name ? `Streamer: ${esc(name)} · change` : 'Add the streamer\'s name for title B'}</button>` : '');
+  const tn = $('#tName'); if (tn) tn.onclick = () => setStreamerName();
+}
+$('#titleOpts').addEventListener('click', e => {
+  const b = e.target.closest('[data-pick]'); const c = curClip(); if (!b || !c || c.state === 'kept') return;
+  const t = b.dataset.pick === 'b' ? c.title_b : c.title_a;
+  record(c, `title ${b.dataset.pick.toUpperCase()}`, () => { c.title = t; c.userTitle = true; });
+  fillInspector(); renderRows(); dirty = true; saveClip(c, true); rescanSoon(c);
+});
+async function setStreamerName() {
+  if (!W || W.kind !== 'vod') return;
+  const cur = W.meta.streamer_name || '';
+  const name = window.prompt('The streamer\'s name as it should appear in titles (for example JasonTheWeen):', cur);
+  if (name === null) return;
+  let r;
+  try { r = await api('/api/streamer', { pid: W.pid, name: name.trim() }); } catch (e) { toast(e.message, 'err'); return; }
+  W.meta.streamer_name = r.name;
+  for (const v of r.clips) {
+    const c = W.clips.find(x => x.id === v.id); if (!c) continue;
+    ['title_a', 'title_b', 'title_b_named', 'titles', 'description', 'hashtags', 'post'].forEach(k => { c[k] = v[k]; });
+    if (!c.userTitle && v.title) c.title = v.title;
+  }
+  const c = curClip(); if (c && mode === 'clip') fillInspector();
+  renderRows();
+  toast(r.name ? `Title B now uses "${r.name}".` : 'Streamer name removed.', '', 3000);
+}
+function syncTitlePrefs() {
+  $$('#tpPick button').forEach(b => b.classList.toggle('on', b.dataset.v === titlePrefs.pick));
+  $('#tpTags').checked = $('#tagsOn').checked = !!titlePrefs.hashtags;
+  const c = curClip(); if (c && mode === 'clip' && !c.userPost && document.activeElement !== $('#postInput')) $('#postInput').value = postFor(c);
+}
+async function saveTitlePrefs(patch) {
+  try { titlePrefs = await api('/api/titles', patch); } catch (e) { toast(e.message, 'err'); }
+  syncTitlePrefs();
+}
+$('#tpPick').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveTitlePrefs({ pick: v }); };
+$('#tpTags').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
+$('#tagsOn').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
+api('/api/titles').then(t => { titlePrefs = t; syncTitlePrefs(); }).catch(() => {});
 
 /* =============================================================== boot */
 setInterval(() => { fetch('/api/ping').catch(() => {}); }, 60000);
