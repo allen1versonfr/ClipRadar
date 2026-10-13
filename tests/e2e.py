@@ -29,6 +29,11 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+for _s in (sys.stdout, sys.stderr):      # Windows consoles default to cp1252; app text has arrows and quotes
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 import fake_irc      # noqa: E402
 import fake_twitch   # noqa: E402
 import mock_tiktok   # noqa: E402
