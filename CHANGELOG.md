@@ -3,6 +3,22 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.6.0] - 2026-10-13
+
+Titles and captions: two titles for every clip, a separate description, optional hashtags.
+
+### Added
+- Two titles for every clip: A, the best line said or how chat reacted, and B, the same idea with the streamer's name worked in. Both show under the title box; click one to use it. Both are saved with the project.
+- Set how the streamer's name is written (for example JasonTheWeen); title B and the descriptions update. Without a name, B is a second, different kind of title.
+- Post captions are now a description of their own, not a copy of the title: what was said or how chat reacted, and whose stream.
+- Up to five hashtags that fit the clip (the platform, the streamer, the mood), and a Hashtags switch to leave them off.
+- Settings › Titles and captions: which title new clips use (A or B), and hashtags on or off.
+
+### Changed
+- Titles are tidied: no shouting in capitals, no stammered repeats, no trailing filler, one "!" at most, and long lines end on a word.
+- Title templates only describe what the clip shows. Lines that claimed things the signals can't know ("Absolutely clutch", "The cleanest play of the stream") are gone.
+- Generic tags (#fyp, #streamer) are no longer added.
+
 ## [3.5.0] - 2026-10-13
 
 Better clip finding: more signals, scores you can read, settings for each kind of stream.

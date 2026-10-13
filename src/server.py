@@ -260,15 +260,49 @@ def _chat_window(pr: dict, start: float, end: float) -> list:
     return [m[1] for m in chatsignal.human(pr["chat"]) if lo <= m[0] <= hi]
 
 
+TITLE_PREFS = str(paths.DATA_DIR / "titles.json")
+
+
+def title_prefs() -> dict:
+    """Settings › Titles and captions: which title goes on new clips, and hashtags on or off."""
+    d = persist.read_json(TITLE_PREFS, {}) or {}
+    return {"pick": d.get("pick") if d.get("pick") in ("a", "b") else "a", "hashtags": bool(d.get("hashtags", True))}
+
+
+def set_title_prefs(body: dict) -> dict:
+    cur = title_prefs()
+    if body.get("pick") in ("a", "b"):
+        cur["pick"] = body["pick"]
+    if "hashtags" in body:
+        cur["hashtags"] = bool(body["hashtags"])
+    try:
+        persist.write_json(TITLE_PREFS, cur)
+    except OSError:
+        pass
+    return cur
+
+
+def _streamer_name(pr: dict) -> str:
+    return pr.get("streamer_display") or pr.get("streamer") or ""
+
+
 def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     rel = [{"start": w["start"] - d["start"], "end": w["end"] - d["start"], "word": w["word"]}
            for w in words_abs if d["start"] - 0.2 <= w["start"] <= d["end"]]
+    tp = title_prefs()
     info = titles.generate(rel, _chat_window(pr, d["start"], d["end"]),
-                           peak_rel=d.get("peak", d["start"]) - d["start"], used=used)
+                           peak_rel=d.get("peak", d["start"]) - d["start"], used=used,
+                           streamer=_streamer_name(pr), with_tags=tp["hashtags"], pick=tp["pick"])
     cfg = safety.load_config()
     if not d.get("user_title") and not d.get("userTitle"):
         d["title"] = safety.mask_text(info["title"], cfg)
         d["post"] = safety.mask_text(info["post"], cfg)
+    # both title options, the description and the tags are kept with the clip (and saved with the VOD)
+    d["title_a"] = safety.mask_text(info["title_a"], cfg)
+    d["title_b"] = safety.mask_text(info["title_b"], cfg)
+    d["title_b_named"] = info["title_b_named"]
+    d["description"] = safety.mask_text(info["description"], cfg)
+    d["hashtags"] = info["hashtags"]
     d["titles"] = [safety.mask_text(t, cfg) for t in info["titles"]]
     d["vibe"] = info["vibe"]
     d["emoji"] = info["emoji"]
@@ -326,7 +360,8 @@ def project_view(pid: str) -> dict:
         "has_chat": an.has_chat, "has_audio": an.has_audio, "chat_count": len(pr["chat"]),
         "chat_weight": an.chat_weight_pct, "chat_stats": an.chat_stats or {},
         "events": an.has_events, "estimate": engine.estimate(an),
-        "streamer": pr.get("streamer", ""), "learning": learning.describe(pr.get("streamer", "")),
+        "streamer": pr.get("streamer", ""), "streamer_name": _streamer_name(pr),
+        "learning": learning.describe(pr.get("streamer", "")),
         "curve": curve_preview(an.score), "clips": pr["clips"], "gems": pr.get("gems", []),
         "deep": deep_status(pr), "length_mode": pr.get("length", 0),
         "vod": f"/vod/{pid}", "vcodec": pr["info"].get("vcodec", ""),
@@ -441,6 +476,7 @@ def do_analyze(job, body: dict):
                      "count": count, "tx_lock": threading.Lock(), "gems": [], "detect": det,
                      "book": {"next": 1, "moments": []}}
     pr = projects[pid]
+    pr["streamer_display"] = engine._meta(s.workdir).get("streamer_display", "")
     engine._save_meta(s.workdir, duration=an.duration)
     _load_transcripts(pr)
     est = engine.estimate(an)
@@ -1651,6 +1687,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(twitchauth.status(refresh="refresh" in q))
         if p == "/api/learning":
             return self._json(learning.summary())
+        if p == "/api/titles":
+            return self._json(title_prefs())
         if p == "/callback/" or p == "/callback":
             params = {k: v[0] for k, v in q.items()}
             try:
@@ -2133,6 +2171,30 @@ class Handler(BaseHTTPRequestHandler):
             except RuntimeError as e:
                 return self._err(str(e))
             return self._json({"job": job["id"]})
+
+        if p == "/api/titles":
+            return self._json(set_title_prefs(body))
+
+        if p == "/api/streamer":
+            # the streamer's name as it should appear in titles (Title B) and descriptions
+            pid = body.get("pid")
+            pr = projects.get(pid)
+            if not pr:
+                return self._err("This session expired. Press Find clips again.", 404)
+            name = re.sub(r"\s+", " ", str(body.get("name") or "")).strip()[:40]
+            if name and not re.fullmatch(r"[\w.\- ]{2,40}", name):
+                return self._err("Use letters, numbers, spaces, dots, dashes or underscores.")
+            pr["streamer_display"] = name
+            if not pr.get("live"):
+                engine._save_meta(pr["workdir"], streamer_display=name)
+            used: set = set()
+            for d in pr.get("clips", []) + pr.get("gems", []):
+                _title_clip(pr, d, d.get("words") or [], used)
+            if not pr.get("live"):
+                save_project_soon(pid)
+            return self._json({"name": name, "clips": [{k: d.get(k) for k in ("id", "title", "title_a", "title_b", "title_b_named",
+                                                                                  "titles", "description", "hashtags", "post")}
+                                                         for d in pr.get("clips", []) + pr.get("gems", [])]})
 
         if p == "/api/clip_state":
             # what you did to a clip in the app (keep, skip, trims, title, captions), saved with the VOD
