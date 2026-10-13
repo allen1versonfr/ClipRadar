@@ -1,0 +1,13 @@
+::notice title=VOD::🔴BEATING DOUG DOUG WORLD RECORD🔴TBANKS PUDGY DUB🔴 | jasontheween | 8:14:59 | 2026-08-17T19:19:46Z
+Traceback (most recent call last):
+  File "/home/runner/work/vodclipper/vodclipper/tests/eval_vod.py", line 263, in <module>
+    main()
+  File "/home/runner/work/vodclipper/vodclipper/tests/eval_vod.py", line 196, in main
+    clips = clips_of(login, a.vod, info["createdAt"])
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/vodclipper/vodclipper/tests/eval_vod.py", line 76, in clips_of
+    d = gql(q, {"login": login, "after": after})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/vodclipper/vodclipper/tests/eval_vod.py", line 59, in gql
+    raise RuntimeError(f"Twitch GQL: {out['errors'][:2]}")
+RuntimeError: Twitch GQL: [{'message': 'server error', 'path': ['user', 'clips']}]
