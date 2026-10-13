@@ -1499,7 +1499,7 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
             st, en, _ = smart_bounds(an, idx, None, min_len, max_len, trigger=trig)
             if ds or de:      # learned from how you trim this streamer's clips
                 st2, en2 = max(0.0, st + ds), min(an.duration, en + de)
-                if en2 - st2 >= min_len * 0.8 and st2 < idx < en2:
+                if min_len <= en2 - st2 <= max_len and st2 < idx < en2:   # your lengths still apply
                     st, en = round(st2, 2), round(en2, 2)
         items.append({"peak": idx, "start": st, "end": en, "base": float(s[idx]), "trigger": trig,
                       "feat": clip_features(an, st, en, idx, chat, chat_t, chat_delay)})
@@ -1619,6 +1619,18 @@ class RenderOpts:
     crf: int = 20
     fps: int = 30
     aspect: str = "9:16"            # 9:16 vertical | 1:1 square | 16:9 wide
+    # 3.7 export settings (presets in exports.py)
+    scale: float = 1.0              # output size relative to the shape's full size (0.6667 = 720p)
+    vcodec: str = "h264"            # h264 | hevc | vp9
+    vbitrate: int = 0               # kbps; 0 = constant quality (crf)
+    acodec: str = "aac"             # aac | opus
+    abitrate: int = 192             # kbps
+    container: str = "mp4"          # mp4 | mov | webm
+    loudness: float = -14.0         # LUFS target; 0 = leave the volume as it is (peaks are still limited)
+    denoise: bool = False           # reduce steady background noise
+    voice: bool = False             # make speech clearer (gentle compression) without burying game audio
+    cap_outline: int = 100          # caption outline, percent of normal
+    cap_shadow: int = 100           # caption shadow, percent of normal
 
 
 W, H = 1080, 1920
@@ -1627,6 +1639,27 @@ SHAPES = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}
 
 def out_size(o: "RenderOpts") -> tuple:
     return SHAPES.get(getattr(o, "aspect", "9:16"), SHAPES["9:16"])
+
+
+def final_size(o: "RenderOpts") -> tuple:
+    """The exported frame size: the shape's size times the preset's scale (even numbers)."""
+    w, h = out_size(o)
+    k = min(1.0, max(0.25, float(getattr(o, "scale", 1.0) or 1.0)))
+    return (_even(w * k), _even(h * k)) if k < 0.999 else (w, h)
+
+
+def audio_filter(o: "RenderOpts") -> str:
+    """Audio chain for an export: optional noise reduction and voice clarity, then loudness to the
+    preset's target (or just a peak limiter), at 48 kHz."""
+    f = []
+    if getattr(o, "denoise", False):
+        f.append("afftdn=nr=12:nf=-40")
+    if getattr(o, "voice", False):
+        f.append("highpass=f=80,acompressor=threshold=-20dB:ratio=2.5:attack=10:release=200:makeup=2")
+    lufs = float(getattr(o, "loudness", -14.0) or 0)
+    f.append(f"loudnorm=I={lufs:g}:TP=-1.5:LRA=11" if lufs < 0 else "alimiter=limit=0.89:level=false")
+    f.append("aresample=48000")
+    return ",".join(f)
 
 
 def effective_layout(o: "RenderOpts") -> str:
@@ -1724,15 +1757,31 @@ def _load_whisper(model_size: str, log: Log):
     raise RuntimeError("Couldn't load Whisper. " + " | ".join(errors))
 
 
-def transcribe(audio, model_size: str, language: str, log: Log) -> list:
-    """audio: path or 16 kHz mono float32 numpy array."""
+_HALLUCINATION = re.compile(r"thank(s| you) (so much )?for watching|please subscribe|like and subscribe|"
+                            r"subtitles by|amara\.org|♪|\[music\]|\(music\)", re.I)
+
+
+def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = "") -> list:
+    """audio: path or 16 kHz mono float32 numpy array. prompt: names and words to expect (the
+    streamer, emotes, your own vocabulary), so Whisper spells them right."""
     with _whisper_lock:
         model = _load_whisper(model_size, log)
-        segs, _ = model.transcribe(audio, language=language or None, word_timestamps=True,
-                                   vad_filter=True, beam_size=5,
-                                   vad_parameters={"min_silence_duration_ms": 400})
+        kw = dict(language=language or None, word_timestamps=True, vad_filter=True, beam_size=5,
+                  vad_parameters={"min_silence_duration_ms": 400}, condition_on_previous_text=False)
+        if prompt:
+            kw["initial_prompt"] = prompt[:400]
+        try:
+            segs, _ = model.transcribe(audio, **kw)
+        except TypeError:                      # an older faster-whisper without some of these options
+            kw.pop("condition_on_previous_text", None)
+            segs, _ = model.transcribe(audio, **kw)
         words = []
         for seg in segs:
+            # Whisper's own check for text made up during silence or music
+            if getattr(seg, "no_speech_prob", 0) > 0.6 and getattr(seg, "avg_logprob", 0) < -1.0:
+                continue
+            if _HALLUCINATION.search(getattr(seg, "text", "") or ""):
+                continue
             for w in seg.words or []:
                 txt = w.word.strip()
                 if txt:
@@ -1842,12 +1891,14 @@ def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, titl
     tstyle = o.title_style if o.title_style in TITLE_STYLES else "box"
     base_fs = int(86 * max(50, min(160, o.caption_size)) / 100 * FONT_SCALE.get(o.caption_font, 1.0))
     title_fs = int(64 * max(50, min(160, o.title_size)) / 100 * FONT_SCALE.get(o.title_font, 1.0))
-    bord = max(4, base_fs // 12)
+    ob = lambda x: max(0, int(round(x * max(0, min(300, getattr(o, "cap_outline", 100))) / 100)))  # noqa: E731
+    shd = lambda x: max(0, int(round(x * max(0, min(300, getattr(o, "cap_shadow", 100))) / 100)))  # noqa: E731
+    bord = ob(max(4, base_fs // 12))
     white, black, dark = "&H00FFFFFF", "&H00000000", "&H00141414"
     if style == "clean":
-        cap_style = f"Style: Cap,{cfont},{base_fs},{white},{white},{black},&H64000000,{cbold},0,0,0,100,100,1,0,1,0,4,5,70,70,0,1"
+        cap_style = f"Style: Cap,{cfont},{base_fs},{white},{white},{black},&H64000000,{cbold},0,0,0,100,100,1,0,1,0,{shd(4)},5,70,70,0,1"
     else:
-        cap_style = f"Style: Cap,{cfont},{base_fs},{white},{white},{black},&H96000000,{cbold},0,0,0,100,100,1,0,1,{bord},3,5,70,70,0,1"
+        cap_style = f"Style: Cap,{cfont},{base_fs},{white},{white},{black},&H96000000,{cbold},0,0,0,100,100,1,0,1,{bord},{shd(3)},5,70,70,0,1"
     tpad = max(8, title_fs // 4)
     if tstyle == "outline":
         t_style = f"Style: Title,{tfont},{title_fs},{white},{white},{black},&H96000000,{tbold},0,0,0,100,100,0,0,1,{max(4, title_fs // 10)},3,8,90,90,0,1"
@@ -1907,15 +1958,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 elif style == "karaoke":
                     parts.append(f"{{\\c{hi}}}{t}{{\\c{white}&}}" if k <= wi else t)
                 elif style == "box":
-                    parts.append(f"{{\\3c{hi}\\bord{max(8, int(fs * 0.22))}\\c{dark}&}}{t}{{\\3c{black}&\\bord{max(4, fs // 12)}\\c{white}&}}"
+                    parts.append(f"{{\\3c{hi}\\bord{max(8, int(fs * 0.22))}\\c{dark}&}}{t}{{\\3c{black}&\\bord{ob(max(4, fs // 12))}\\c{white}&}}"
                                  if k == wi else t)
                 else:
                     parts.append(t)
             lead = ""
             if style == "glow":
-                lead = f"\\3c{hi}\\bord{max(4, fs // 12)}\\blur{max(5, fs // 8)}"
+                lead = f"\\3c{hi}\\bord{ob(max(4, fs // 12))}\\blur{max(5, fs // 8)}"
             if style == "box":
-                lead = f"\\bord{max(4, fs // 12)}"
+                lead = f"\\bord{ob(max(4, fs // 12))}"
             pop = r"{\fscx114\fscy114\t(0,100,\fscx100\fscy100)}" if (wi == 0 and o.caption_anim and style != "clean") else ""
             lines.append(f"Dialogue: 0,{_ass_time(st)},{_ass_time(en)},Cap,,{ml},{mr},0,,"
                          f"{{\\an5\\pos({x},{y})\\fs{fs}{lead}}}{pop}{' '.join(parts)}")
@@ -1926,6 +1977,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 _encoder_cache: dict = {}
 
+RENDER_THREADS: list = []         # ["-threads", "N"] when Settings › Performance asks to keep the PC responsive
+RENDER_PRIORITY = [0]             # Windows priority class for ffmpeg (BELOW_NORMAL when keeping the PC responsive)
 _HW = [
     ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr",
                     "-cq", "21", "-b:v", "0", "-profile:v", "high"]),
@@ -1935,9 +1988,24 @@ _HW = [
 ]
 
 
+def _rate_args(o: RenderOpts) -> list:
+    kb = int(getattr(o, "vbitrate", 0) or 0)
+    return ["-b:v", f"{kb}k", "-maxrate", f"{int(kb * 1.5)}k", "-bufsize", f"{kb * 2}k"] if kb > 0 else []
+
+
 def video_encoder(o: RenderOpts) -> tuple:
-    """(name, args). Tries GPU encoders once (fast), falls back to x264."""
-    x264 = ("libx264", ["-c:v", "libx264", "-preset", "medium", "-crf", str(o.crf),
+    """(name, args). H.264 tries GPU encoders once (fast) and falls back to x264. H.265 and VP9
+    (for .webm) use the CPU encoders. A bitrate from the preset replaces constant quality."""
+    vc = getattr(o, "vcodec", "h264")
+    if vc == "vp9" or getattr(o, "container", "mp4") == "webm":
+        kb = int(getattr(o, "vbitrate", 0) or 0)
+        q = ["-b:v", f"{kb}k"] if kb else ["-crf", str(min(63, o.crf + 12)), "-b:v", "0"]
+        return "libvpx-vp9", ["-c:v", "libvpx-vp9", "-deadline", "good", "-cpu-used", "4", "-row-mt", "1", *q]
+    if vc == "hevc":
+        q = _rate_args(o) or ["-crf", str(o.crf + 4)]
+        return "libx265", ["-c:v", "libx265", "-preset", "medium", *q, "-tag:v", "hvc1"]
+    rate = _rate_args(o)
+    x264 = ("libx264", ["-c:v", "libx264", "-preset", "medium", *(rate or ["-crf", str(o.crf)]),
                         "-profile:v", "high"])
     if not o.hw_encode:
         return x264
@@ -1957,7 +2025,50 @@ def video_encoder(o: RenderOpts) -> tuple:
                 break
             except Exception:
                 continue
-    return _encoder_cache["hw"] or x264
+    hw = _encoder_cache["hw"]
+    if hw and rate:          # a target bitrate: swap the GPU encoder's quality setting for it
+        name, args = hw
+        keep, skip = [], {"-cq", "-global_quality", "-qp_i", "-qp_p", "-qp_b", "-b:v", "-rc"}
+        i = 0
+        while i < len(args):
+            if args[i] in skip:
+                i += 2
+                continue
+            keep.append(args[i])
+            i += 1
+        return name, keep + rate
+    return hw or x264
+
+
+def write_srt(words: list, o: "RenderOpts", path: str, clip_len: float):
+    """Captions as a subtitle file next to the video (times relative to the clip)."""
+    def ts(t):
+        t = max(0.0, t)
+        h, m, sec = int(t // 3600), int(t % 3600 // 60), t % 60
+        return f"{h:02d}:{m:02d}:{int(sec):02d},{int(round((sec - int(sec)) * 1000)) % 1000:03d}"
+    lines = []
+    chunks = _chunks(words, o, clip_len)
+    for i, ch in enumerate(chunks, 1):
+        end = min(clip_len, chunks[i][0]["start"] if i < len(chunks) else ch[-1]["end"] + 0.4)
+        text = " ".join(w["word"] for w in ch)
+        lines.append(f"{i}\n{ts(ch[0]['start'])} --> {ts(max(end, ch[0]['start'] + 0.3))}\n{text.upper() if o.uppercase else text}\n")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    os.replace(tmp, path)
+
+
+def audio_peak(path: str) -> Optional[float]:
+    """Loudest point of a file's audio in dB (None if it has no audio track)."""
+    try:
+        if not probe(path)["has_audio"]:
+            return None
+        out = subprocess.run([ffmpeg(), "-v", "info", "-nostdin", "-i", path, "-vn", "-af", "volumedetect", "-f", "null", "-"],
+                             capture_output=True, text=True, timeout=120, creationflags=CREATE_NO_WINDOW).stderr
+        m = re.search(r"max_volume:\s*(-?[\d.]+|-inf) dB", out)
+        return -200.0 if m and m.group(1) == "-inf" else float(m.group(1)) if m else None
+    except Exception:
+        return None
 
 
 def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o: RenderOpts,
@@ -2034,7 +2145,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     if spans and info["has_audio"]:
         on = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b, _ in spans)
         beeps = [(a, b) for a, b, m in spans if m == "bleep"]
-        tail = "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000"
+        tail = audio_filter(o)
         if beeps:
             on_b = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in beeps)
             af = (f";[0:a:0]volume=0:enable='{on}'[am];"
@@ -2045,7 +2156,17 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             af = f";[0:a:0]volume=0:enable='{on}',{tail}[a]"
         vf = vf + af
 
-    tmp_name = f"vc_{tag}.part.mp4"
+    # export size below the shape's full size: scale the finished frame (captions included)
+    fw, fh = final_size(o)
+    if (fw, fh) != out_size(o):
+        i = vf.rfind("[v]")
+        vf = vf[:i] + f",scale={fw}:{fh}:flags=lanczos[v]" + vf[i + 3:]
+    cont = getattr(o, "container", "mp4") if getattr(o, "container", "mp4") in ("mp4", "mov", "webm") else "mp4"
+    if cont == "webm":
+        acodec = ["-c:a", "libopus", "-b:a", f"{int(getattr(o, 'abitrate', 128))}k"]
+    else:
+        acodec = ["-c:a", "aac", "-b:a", f"{int(getattr(o, 'abitrate', 192))}k"]
+    tmp_name = f"vc_{tag}.part.{cont}"
     tmp_path = os.path.join(work, tmp_name)
 
     def encode(enc_args: list):
@@ -2053,15 +2174,16 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                "-ss", f"{clip_start:.3f}", "-t", f"{length:.3f}", "-i", video,
                "-filter_complex", vf, "-map", "[v]"]
         if info["has_audio"] and af:
-            cmd += ["-map", "[a]", "-c:a", "aac", "-b:a", "192k", "-ar", "48000"]
+            cmd += ["-map", "[a]", *acodec, "-ar", "48000"]
         elif info["has_audio"]:
-            cmd += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "192k",
-                    "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000", "-ar", "48000"]
-        cmd += [*enc_args, "-pix_fmt", "yuv420p", "-r", str(o.fps), "-movflags", "+faststart",
-                tmp_name]
+            cmd += ["-map", "0:a:0", *acodec, "-af", audio_filter(o), "-ar", "48000"]
+        cmd += [*enc_args, "-pix_fmt", "yuv420p", "-r", str(o.fps)]
+        if cont != "webm":
+            cmd += ["-movflags", "+faststart"]
+        cmd += [*RENDER_THREADS, tmp_name]
         p = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
-                             creationflags=CREATE_NO_WINDOW)
+                             creationflags=CREATE_NO_WINDOW | RENDER_PRIORITY[0])
         # read errors on the side: a full stderr pipe would otherwise freeze ffmpeg mid-render
         err_lines: list = []
 
@@ -2095,7 +2217,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         if code != 0 and enc_name != "libx264":
             log(f"GPU encoder ({enc_name}) failed, re-encoding on CPU.")
             _encoder_cache["hw"] = None
-            code, err = encode(video_encoder(RenderOpts(hw_encode=False, crf=o.crf))[1])
+            code, err = encode(video_encoder(RenderOpts(hw_encode=False, crf=o.crf, vbitrate=getattr(o, "vbitrate", 0)))[1])
         if code != 0:
             raise RuntimeError("ffmpeg render failed:\n" + "\n".join(err.strip().splitlines()[-10:]))
         os.replace(tmp_path, out_path)
