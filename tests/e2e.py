@@ -646,6 +646,16 @@ def main():
         titled = wait(lambda: (lambda c: c if c and all(x["listened"] for x in c) else None)(
             get(f"/api/live/{sid}")["clips"]), 240, 2)
         rec("moments get titles", titled, titled and " | ".join(f"{c['title']} ({c.get('vibe') or '-'})" for c in titled))
+        lvn = get(f"/api/live/{sid}")
+        auto_c = [c for c in (titled or []) if not c.get("manual")]
+        rec("live latency measured per stage", {"ingest", "detect", "context", "cut", "title"} <= set(lvn.get("latency") or {})
+            and auto_c and {"detect", "cut", "title"} <= set(auto_c[0].get("lat") or {}),
+            (lvn.get("latency"), auto_c and auto_c[0].get("lat")))
+        rec("live status: chat health and delay", lvn.get("chat_state") == "ok" and lvn.get("delay_auto") and lvn.get("chat_delay") > 0,
+            {k: lvn.get(k) for k in ("chat_state", "chat_delay", "delay_sure", "delay_auto")})
+        mq = post(f"/api/live/{sid}/settings", {"min_quality": 60})
+        rec("lowest score can be changed while live", mq.get("min_quality") == 60, mq.get("min_quality"))
+        post(f"/api/live/{sid}/settings", {"min_quality": 0})
         # content check: a word on your blocked list makes hands-free hold the clip back
         cfg = post("/api/safety", {"custom": ["twitch"], "hold": True})
         held_clip = None

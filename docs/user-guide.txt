@@ -109,7 +109,18 @@ USE
                          in Exports while you watch. (Moments the content check
                          flags as serious are held back for you in Review.)
       Review each clip   moments wait in Review; you keep the ones you want.
-    How many clips: Fewer, Normal, More or Lots. You can change it while live.
+    How many clips: Fewer, Normal, More or Lots. Lowest score: moments under
+    it aren't clipped (50 is a clear moment, 75 a strong one). You can change
+    both while live.
+    While live, the line under the header shows a moment as it forms, how
+    late chat reacts (worked out from the stream unless you set Chat delay),
+    how long each step takes and about how many seconds after something
+    happens its clip is ready, and how many moments were passed on (hover
+    for why: under your lowest score, only one or two people in chat,
+    unlike your picks, or a repeat of a moment already clipped).
+    If chat disconnects or goes quiet, moments are found from the stream's
+    sound until chat is back. When several moments wait to be captioned or
+    rendered, a clip you asked for goes first, then the strongest.
     Wait for the stream to start: start before the channel goes live and
     recording begins by itself. Keep watching: after the stream ends,
     VodClipper waits for the channel's next stream and starts again.

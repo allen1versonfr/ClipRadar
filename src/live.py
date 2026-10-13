@@ -184,11 +184,15 @@ class LiveSession:
     SENSITIVITY = {"low": 4.0, "normal": 3.0, "high": 2.4, "fewer": 4.0, "more": 2.4, "lots": 1.9}
     WAIT_POLL = float(os.environ.get("VODCLIPPER_WAIT_POLL", "30"))
     STALL = 45.0
+    DUP_GAP = 20.0          # two automatic moments with peaks this close are the same moment
+    CHAT_QUIET = 120.0      # chat that went silent this long (after being busy) is treated as gone
+    DELAY_EVERY = 120       # re-work-out the chat delay every this many recorded seconds
+    LAT_STAGES = ("ingest", "detect", "context", "cut", "title", "render", "total")
 
     def __init__(self, sid: str, source: str, workroot: str, *, length: float = 0, sensitivity: str = "normal",
-                 chat_delay: float = 6.0, chat_weight: float = 60, max_height: int = 1080, cookies: str = "",
+                 chat_delay="auto", chat_weight: float = 60, max_height: int = 1080, cookies: str = "",
                  warmup: float = 90, buffer_minutes: float = 15, wait_for_live: bool = False,
-                 events: bool = True, on_moment: Callable = None, log: Callable = None):
+                 events: bool = True, on_moment: Callable = None, log: Callable = None, min_quality: int = 0):
         self.id = sid
         self.source = source.strip()
         self.channel = parse_channel(self.source)
@@ -213,7 +217,12 @@ class LiveSession:
         self.set_frequency(sensitivity)
         self.wait_for_live = bool(wait_for_live)
         self.waited = 0.0
-        self.chat_delay = float(chat_delay)
+        # chat reacts a few seconds after the picture; "auto" works it out from the stream as it goes
+        self.delay_auto = chat_delay in (None, "", "auto")
+        self.chat_delay = 6.0 if self.delay_auto else float(chat_delay)
+        self.delay_sure = not self.delay_auto
+        self._delay_at = 0
+        self.min_quality = int(min(max(int(min_quality or 0), 0), 95))
         self.chat_weight = float(chat_weight)
         self.max_height = int(max_height)
         self.cookies = cookies
@@ -233,7 +242,15 @@ class LiveSession:
         self.chat_lock = threading.Lock()
         import chatsignal
         self.scorer = chatsignal.ChatScorer(engine.chat_weight)
-        self._rate: list = []                  # chat reaction per media second (already weighed)
+        self._raw: list = []                   # chat reaction per media second it arrived (weighed, not shifted)
+        self._last_chat: Optional[float] = None   # wall clock of the last chat message
+        self._busy_chat = False                # chat has been active this session
+        self._arrive: list = []                # (media end, wall clock, seconds spent measuring) per piece
+        self._cand: dict = {}                  # peak -> timings while a moment forms
+        self.forming: dict = {}                # peak -> what the UI shows while a moment forms
+        self.lat: dict = {k: [] for k in self.LAT_STAGES}   # recent latencies per stage (seconds)
+        self.last_lat: dict = {}
+        self.skipped = {"repeat": 0, "confidence": 0, "learned": 0, "crowd": 0}
         self.taken: list = []                  # (start, end) already clipped
         self.auto_peaks: list = []             # peaks of automatic moments (for spacing)
         self.pending: list = []                # peaks waiting for their reaction to finish
@@ -326,7 +343,42 @@ class LiveSession:
             "warming_up": self.recorded < self.warmup, "in_ad": self.in_ad,
             "ads_skipped": round(self.ads_skipped, 1), "ad_breaks": self.ad_breaks, "mode": self.mode,
             "signed_in": self.signed_in, "laughter": self.events is not None,
+            "chat_state": self.chat_state(), "chat_delay": self.chat_delay, "delay_sure": self.delay_sure,
+            "delay_auto": self.delay_auto, "min_quality": self.min_quality,
+            "forming": sorted(self.forming.values(), key=lambda f: f["at"]),
+            "latency": self.latency_summary(), "latency_last": dict(self.last_lat), "skipped": dict(self.skipped),
         }
+
+    # ------------------------------------------------------------------ latency and chat health
+    def note_latency(self, stage: str, seconds: Optional[float]):
+        if seconds is None or stage not in self.lat or not (0 <= seconds < 36000):
+            return
+        self.lat[stage] = (self.lat[stage] + [round(float(seconds), 2)])[-30:]
+
+    def latency_summary(self) -> dict:
+        """Typical (median) seconds each stage takes, over the last moments."""
+        return {k: round(float(np.median(v)), 1) for k, v in self.lat.items() if v}
+
+    def _arrival(self, t: float) -> Optional[tuple]:
+        """(wall clock it was recorded, media end of its piece, seconds measuring) for media time t."""
+        import bisect
+        arr = self._arrive
+        i = bisect.bisect_left([a[0] for a in arr], t)
+        return (arr[i][1], arr[i][0], arr[i][2]) if i < len(arr) else None
+
+    def chat_state(self) -> str:
+        """none (no chat for this stream), offline (can't connect), quiet (went silent after being
+        busy: probably delayed or dropped) or ok."""
+        if not self.channel:
+            return "none"
+        if not self.irc_ok:
+            return "offline"
+        if self._busy_chat and self._last_chat is not None and _now() - self._last_chat > self.CHAT_QUIET:
+            return "quiet"
+        return "ok"
+
+    def chat_usable(self) -> bool:
+        return self.chat_state() == "ok"
 
     # ------------------------------------------------------------------ control
     def start(self):
@@ -616,7 +668,9 @@ class LiveSession:
     def _add_segment(self, path: str, dur: float):
         start = self.segments[-1]["start"] + self.segments[-1]["dur"] if self.segments else 0.0
         self.segments.append({"path": path, "start": start, "dur": dur, "name": os.path.basename(path)})
+        t0 = _now()
         self._measure(path, dur)
+        self._arrive = (self._arrive + [(start + dur, _now(), _now() - t0)])[-4000:]
 
     # ---- ffmpeg recorder (for playlists VodClipper doesn't read itself)
     def _run_ffmpeg(self, hls: str) -> bool:
@@ -751,19 +805,36 @@ class LiveSession:
 
     # ------------------------------------------------------------------ detection
     def _analysis(self, n: int):
-        rate = engine._fit(np.asarray(self._rate[:n], dtype=np.float32), n)
-        ev = self.events.result(n) if self.events is not None else None
-        an = engine.score_signals(np.asarray(self.loud[:n], dtype=np.float32), [], n, float(n), self.chat_delay,
-                                  self.chat_weight, rate=rate, stats=self.scorer.summary(), events=ev,
-                                  fine=np.asarray(self.fine[: n * engine.FINE_HZ], dtype=np.float32))
         import detect
+        loud = np.asarray(self.loud[:n], dtype=np.float32)
+        ev = self.events.result(n) if self.events is not None else None
+        with self.chat_lock:
+            raw = np.asarray(self._raw[: n + 20], dtype=np.float32)
+        if self.delay_auto and n >= 300 and n - self._delay_at >= self.DELAY_EVERY:
+            # how late chat reacts, worked out again as the stream goes on
+            self._delay_at = n
+            lag, sure = detect.estimate_delay(engine._fit(raw[:n], n), engine._audio_z(loud, n), ev, self.chat_delay)
+            if sure and (not self.delay_sure or abs(lag - self.chat_delay) >= 1):
+                self.log(f"Chat reacts about {lag:.0f} s after the stream")
+            if sure:
+                self.chat_delay, self.delay_sure = lag, True
+        rate = engine._fit(detect.shift(engine._fit(raw, n + 20), self.chat_delay)[:n], n)
+        # chat that dropped or went quiet: rank by what's on stream instead of waiting for chat
+        use_chat = self.chat_usable()
+        cw = self.chat_weight if use_chat else 0.0
+        if not use_chat:
+            rate = np.zeros(n, dtype=np.float32)
+        an = engine.score_signals(loud, [], n, float(n), self.chat_delay,
+                                  cw, rate=rate, stats=self.scorer.summary(), events=ev,
+                                  fine=np.asarray(self.fine[: n * engine.FINE_HZ], dtype=np.float32))
         an.surge = detect.surge_signal(rate) if an.has_chat else None
         an.react = detect.react_signal(an)
         an.noise = detect.noise_mult(an)
-        an.combine(self.chat_weight, getattr(self, "weights", None) or detect.preset("any"))
+        an.combine(cw, getattr(self, "weights", None) or detect.preset("any"))
         return an
 
     def _detect(self, final: bool = False):
+        import detect
         n = len(self.loud)
         if n < 5:
             return
@@ -795,18 +866,33 @@ class LiveSession:
                 continue
             a, b = max(0, i - win), min(n, i + win + 1)
             if b < i + win + 1 and not final:
-                break                                   # can't tell yet whether this is the top of the peak
+                # can't tell yet whether this is the top of the peak; show it as forming meanwhile
+                j = a + int(np.argmax(s[a:n]))
+                if not any(abs(j - p) < max(self.min_gap, self.DUP_GAP) for p in self.auto_peaks + self.pending) \
+                        and not any(ts <= j <= te for ts, te in self.taken):
+                    prev = next((k for k, f in self.forming.items() if f.get("early") and abs(k - j) <= win), None)
+                    since = self.forming.pop(prev)["since"] if prev is not None else _now()
+                    self.forming[j] = {"at": float(j), "quality": detect.quality(float(s[j])), "since": since, "early": True}
+                break
             scanned = i + 1
             if s[i] < s[a:b].max():
                 continue
-            if any(abs(i - p) < max(self.min_gap, 1) for p in self.auto_peaks) or \
+            if any(abs(i - p) < max(self.min_gap, self.DUP_GAP) for p in self.auto_peaks) or \
                     any(abs(i - p) < gap for p in self.pending) or any(ts <= i <= te for ts, te in self.taken):
                 continue
             self.pending.append(i)
+            # a candidate: shown right away, cut once the reaction has played out
+            early = next((k for k, f in self.forming.items() if f.get("early") and abs(k - i) <= win), None)
+            now = self.forming.pop(early)["since"] if early is not None else _now()
+            arr = self._arrival(i + 1)
+            aired = arr[0] - (arr[1] - i) - arr[2] if arr else None
+            self._cand[i] = {"aired": aired, "arrived": arr[0] if arr else None, "found": now}
+            self.forming[i] = {"at": float(i), "quality": detect.quality(float(s[i])), "since": now, "early": False}
         # scores near the live edge still change as more arrives, so look at the last minute again next time
         self._scan_from = max(0, scanned - 60)
         chat_t = engine.chat_times(chat)
-        for p in sorted(self.pending):
+        # strongest first: when moments compete for the same stretch (or the PC is busy), the best one wins
+        for p in sorted(self.pending, key=lambda q: -float(s[min(q, len(s) - 1)])):
             if self.length > 0:
                 st, en = engine.fixed_bounds(an, p, self.length, 0.6)
                 done = final or en <= n - 1
@@ -815,23 +901,69 @@ class LiveSession:
             if not done:
                 continue
             self.pending.remove(p)
-            if any(st < te - 2 and en > ts + 2 for ts, te in self.taken):
+            self.forming.pop(p, None)
+            cand = self._cand.pop(p, {})
+            if any(st < te - 2 and en > ts + 2 for ts, te in self.taken) or \
+                    any(abs(p - q) < max(self.min_gap, self.DUP_GAP) for q in self.auto_peaks):
+                self.skipped["repeat"] += 1
+                self.log(f"Skipped {engine.fmt_ts(p)}: same moment as one already clipped")
                 continue
-            if any(abs(p - q) < self.min_gap for q in self.auto_peaks):
-                continue
+            adj = 0.0
             if self.adjust is not None:
                 try:
                     adj = float(self.adjust([engine.clip_features(an, st, en, p, chat, chat_t, self.chat_delay)])[0])
                 except Exception:
                     adj = 0.0
                 if s[p] + adj < self.threshold:
+                    self.skipped["learned"] += 1
                     self.log(f"Passed on a moment at {engine.fmt_ts(p)}: not like the clips you usually keep")
                     continue
+            if self.chat_usable() and not self._crowd_ok(an, p, chat):
+                self.skipped["crowd"] = self.skipped.get("crowd", 0) + 1
+                self.log(f"Passed on {engine.fmt_ts(p)}: only chat, and only one or two people")
+                continue
+            q = detect.quality(float(s[p]) + adj)
+            if q < self.min_quality:
+                self.skipped["confidence"] += 1
+                self.log(f"Passed on a moment at {engine.fmt_ts(p)}: score {q}, under your minimum of {self.min_quality}")
+                continue
+            now = _now()
+            lat = {}
+            if cand.get("aired") is not None:
+                lat["ingest"] = cand["arrived"] - cand["aired"]
+                lat["detect"] = cand["found"] - cand["arrived"]
+                lat["context"] = now - cand["found"]
+            for k, v in lat.items():
+                self.note_latency(k, v)
             self.auto_peaks.append(p)
-            self._make_moment(st, en, float(p), engine._reason(an, p, chat, chat_t, self.chat_delay), an, chat)
+            self._make_moment(st, en, float(p), engine._reason(an, p, chat, chat_t, self.chat_delay), an, chat,
+                              lat=lat, aired=cand.get("aired"))
+        # candidates that were dropped before they became moments
+        for p in list(self.forming):
+            if p not in self.pending and not (self.forming[p].get("early") and not final):
+                self.forming.pop(p, None)
+                self._cand.pop(p, None)
+
+    def _crowd_ok(self, an, p: float, chat: list) -> bool:
+        """A moment carried by chat alone needs a crowd: more people than usual reacting, not one
+        or two spamming."""
+        import detect
+        bd = detect.breakdown(an, p)
+        total = sum(v for k, v in bd.items() if k not in ("noise", "tuned") and v > 0)
+        chatty = sum(bd.get(k, 0) for k in ("chat", "emotes", "surge") if bd.get(k, 0) > 0)
+        if total <= 0 or chatty < 0.75 * total:
+            return True                                  # the stream itself backs it up
+        d = self.chat_delay
+
+        def people(a, b):
+            return len({m[2] for m in chat if a <= m[0] < b and not m[3]})
+        now = people(p + d - 2, p + d + 12)
+        base = [people(t, t + 14) for t in np.arange(max(0.0, p - 300), max(0.0, p - 30), 14.0)]
+        usual = float(np.median(base)) if base else 0.0
+        return now >= usual + 3
 
     def _make_moment(self, start: float, end: float, peak: float, reason: str, an, chat: list,
-                     manual: bool = False):
+                     manual: bool = False, lat: Optional[dict] = None, aired: Optional[float] = None):
         self.taken.append((start, end))
         margin = 12.0                 # room to move the start or end to a sentence boundary later
         segs = [g for g in self.segments if g["start"] + g["dur"] > start - margin and g["start"] < end + margin
@@ -846,6 +978,8 @@ class LiveSession:
         with open(lst, "w", encoding="utf-8") as f:
             for g in segs:
                 f.write("file '" + g["path"].replace("\\", "/").replace("'", "'\\''") + "'\n")
+        lat = dict(lat or {})
+        t_cut = _now()
         try:
             engine.run([engine.ffmpeg(), "-v", "error", "-y", "-nostdin", "-f", "concat", "-safe", "0", "-i", lst,
                         "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart", out], timeout=120)
@@ -857,6 +991,8 @@ class LiveSession:
                 os.remove(lst)
             except OSError:
                 pass
+        lat["cut"] = _now() - t_cut
+        self.note_latency("cut", lat["cut"])
         offset = segs[0]["start"]
         last = segs[-1]["start"] + segs[-1]["dur"]
         mchat = [(m[0] - offset,) + tuple(m[1:]) for m in chat if offset - 30 <= m[0] <= last + 30]
@@ -870,7 +1006,8 @@ class LiveSession:
         self.log(f"Moment {self._moment_n} at {engine.fmt_ts(peak)}" + (" (yours)" if manual else ""))
         try:
             self.on_moment(self, {"video": out, "chat": mchat, "analysis": sub, "clip": clip, "offset": offset,
-                                  "manual": manual, "number": self._moment_n})
+                                  "manual": manual, "number": self._moment_n,
+                                  "lat": {k: round(v, 2) for k, v in lat.items()}, "aired": aired})
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -926,18 +1063,25 @@ class LiveSession:
             user = prefix
         if self.in_ad:
             return            # chat during an ad break is about something not in the recording
-        t = self.live_edge()
-        w = self.scorer.weight(t, text, user.lower(), kind)
+        self.add_chat(self.live_edge(), text, user.lower(), kind)
+
+    def add_chat(self, t: float, text: str, user: str, kind: str = ""):
+        """A chat message seen at media time t (when it arrived; the delay is applied when scoring)."""
+        w = self.scorer.weight(t, text, user, kind)
+        now = _now()
         with self.chat_lock:
-            self.chat.append((t, text, user.lower(), kind))
+            self.chat.append((t, text, user, kind))
             if len(self.chat) > 300000:
                 del self.chat[:100000]
+            self._last_chat = now
+            if len(self.chat) >= 30:
+                self._busy_chat = True
             if w > 0:
-                s = int(t - self.chat_delay)
+                s = int(t)
                 if s >= 0:
-                    if s >= len(self._rate):
-                        self._rate.extend([0.0] * (s + 1 - len(self._rate)))
-                    self._rate[s] += w
+                    if s >= len(self._raw):
+                        self._raw.extend([0.0] * (s + 1 - len(self._raw)))
+                    self._raw[s] += w
 
     def _chat_loop(self):
         host, port, use_tls = self._irc_target()

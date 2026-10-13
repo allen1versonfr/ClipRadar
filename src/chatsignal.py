@@ -79,6 +79,7 @@ class ChatScorer:
             from engine import chat_weight as hype_weight
         self.hype = hype_weight
         self.last_counted: dict = {}           # user -> time their message last counted fully
+        self.repeat_n: dict = {}               # user -> messages since then, inside those 8 s
         self.seen: set = set()
         self.pasta: dict = {}                  # normalised long text -> recent times
         self.events: deque = deque()           # recent sub / gift notice times
@@ -165,9 +166,11 @@ class ChatScorer:
             last = self.last_counted.get(u)
             if last is not None and t - last < 8:
                 st["repeats"] += 1
-                w *= 0.25                      # one chatter, not many: count each person about once per 8 s
+                k = self.repeat_n[u] = self.repeat_n.get(u, 0) + 1
+                w *= 0.25 ** min(k, 4)         # one chatter, not many: count each person about once per 8 s
             else:
                 self.last_counted[u] = t
+                self.repeat_n[u] = 0
             # a raid without a notice: a wave of people who never chatted before
             self.newcomers.append((t, new))
             while self.newcomers and self.newcomers[0][0] < t - 20:

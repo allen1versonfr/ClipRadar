@@ -3,6 +3,22 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.8.0] - 2026-10-13
+
+Live clipping: more accurate, measured, and quicker to show what's coming.
+
+### Added
+- Lowest score for live clipping (on Home and in the live header): moments under it aren't clipped.
+- A live status line: moments as they form, how late chat reacts, how long each step takes (recording, spotting, waiting for the reaction, cutting, captions and title, rendering) and how soon after it happens a clip is ready, and how many moments were passed on and why.
+- The chat delay is worked out live from the stream and kept up to date (leave Chat delay empty), instead of a fixed 6 seconds.
+- A replay tool (tests/live_replay.py) that runs a recorded stream through live detection against known moments and reports precision, recall, false positives, misses, boundaries and delay.
+
+### Changed
+- When chat disconnects or goes quiet, live clipping finds moments from the stream's sound until chat is back.
+- A moment carried only by chat needs more people than usual reacting; one or two people spamming no longer make a clip. Repeated messages from one person count less and less.
+- Two automatic moments less than 20 seconds apart are one moment, whatever the clip amount.
+- When moments compete for the same stretch, or wait for captions or rendering, the strongest goes first (and a clip you asked for before all of them).
+
 ## [3.7.0] - 2026-10-13
 
 Export formats, better captions and sound, honest time estimates, and performance settings.

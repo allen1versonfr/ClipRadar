@@ -279,6 +279,7 @@ function syncLiveCard() {
 }
 $('#liveMode').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { liveCfg.mode = v; store.set('liveMode', v); syncLiveCard(); } };
 $('#liveFreq').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { liveCfg.freq = v; store.set('liveFreq', v); syncLiveCard(); } };
+$('#liveMinQ').value = store.get('liveMinQ', '0'); $('#liveMinQ').onchange = e => store.set('liveMinQ', e.target.value);
 ['liveWait', 'liveKeep', 'liveDraft'].forEach(id => {
   $('#' + id).checked = store.get(id, id === 'liveWait');
   $('#' + id).onchange = e => store.set(id, e.target.checked);
@@ -332,7 +333,8 @@ $('#goLive').onclick = async () => {
       auto_draft: liveCfg.mode === 'hands' && $('#liveDraft').checked,
       opts: JSON.parse(JSON.stringify(opts)), model: opts.whisper_model,
       language: opts.language, max_height: +$('#maxh').value, cookies: $('#cookies').value,
-      chat_delay: $('#delay').value === '' ? 6 : +$('#delay').value, preset: $('#livePreset').value, emotes: $('#useEmotes').checked });
+      chat_delay: $('#delay').value === '' ? 'auto' : +$('#delay').value, preset: $('#livePreset').value, emotes: $('#useEmotes').checked,
+      min_quality: +$('#liveMinQ').value });
     openLive(v, true);
   } catch (e) { $('#liveErr').textContent = e.message; }
   $('#goLive').disabled = false;
@@ -455,14 +457,18 @@ function buildHead() {
       <span class="ad-tag" id="lvAd" hidden><i></i>Ad break: left out</span>
       <span class="facts"><span>Recorded <b class="tnum" id="lvRec">0:00</b></span><span>Chat <b class="tnum" id="lvChat">0</b>/min</span><span><b class="tnum" id="lvMoments">0</b> <span id="lvMomentsWord">moments</span></span><span id="lvAdsWrap" hidden title="Ads Twitch put in the stream, kept out of the recording">Ads skipped <b class="tnum" id="lvAds">0:00</b></span></span>
       <span class="acts">
+        <select class="input" id="lvMinQ" title="Lowest score a moment needs to be clipped"><option value="0">Any score</option><option value="40">Score 40+</option><option value="50">Score 50+</option><option value="60">Score 60+</option><option value="75">Score 75+</option></select>
         <select class="input" id="lvSens" title="How many clips to make"><option value="fewer">Fewer clips</option><option value="normal">Normal</option><option value="more">More clips</option><option value="lots">Lots of clips</option></select>
         <label class="switch-label" title="Title, check and render every moment by itself">Hands-free<span class="switch"><input type="checkbox" id="lvAuto"><i></i></span></label>
         <button class="btn" id="lvClip" title="Clip the last 30 seconds (C)">${icon('scissors')}Clip last 30s</button>
         <button class="btn" id="lvStop">${icon('stop')}Stop</button>
-      </span>`;
+      </span>
+      <span class="lv-status" id="lvStatus"></span>`;
     $('#lvSens').value = W.live.frequency || 'normal';
     $('#lvAuto').checked = !!W.live.hands_free;
     $('#lvSens').onchange = e => liveSettings({ frequency: e.target.value });
+    $('#lvMinQ').value = String([0, 40, 50, 60, 75].includes(W.live.min_quality) ? W.live.min_quality : 0);
+    $('#lvMinQ').onchange = e => { liveSettings({ min_quality: +e.target.value }); try { store.set('liveMinQ', e.target.value); } catch (_) {} };
     $('#lvAuto').onchange = e => {
       liveSettings({ hands_free: e.target.checked, opts: JSON.parse(JSON.stringify(opts)) });
       toast(e.target.checked ? 'Hands-free is on: new moments render by themselves.' : 'Hands-free is off: new moments wait for you in Review.', '', 3500);
@@ -489,7 +495,27 @@ function updateLiveHead() {
   $('#lvClip').disabled = L.status !== 'recording';
   $('#lvStop').disabled = !active;
   $('#lvStop').hidden = !active;
+  $('#lvStatus').innerHTML = liveStatusText(L);
   if (L.status === 'error' && L.error && !W.errShown) { W.errShown = true; toast(L.error, 'err', 9000); }
+}
+const LAT_LABEL = { ingest: 'recording', detect: 'spotting', context: 'waiting for the reaction', cut: 'cutting', title: 'captions and title', render: 'rendering' };
+function liveStatusText(L) {
+  const bits = [];
+  const chat = { offline: 'Chat not connected: clipping from the stream\'s sound', quiet: 'Chat went quiet: clipping from the stream\'s sound until it\'s back' }[L.chat_state];
+  if (chat) bits.push(`<span class="warn">${chat}</span>`);
+  else if (L.chat_state === 'ok') bits.push(`Chat delay ${Math.round(L.chat_delay)} s${L.delay_auto ? (L.delay_sure ? ' (worked out)' : ' (working it out)') : ''}`);
+  (L.forming || []).slice(-2).forEach(f => bits.push(`<span class="forming">Moment forming at ${fmt(f.at)} · score ${f.quality}</span>`));
+  const lat = L.latency || {};
+  if (lat.total != null) {
+    const parts = Object.keys(LAT_LABEL).filter(k => lat[k] != null).map(k => `${LAT_LABEL[k]} ${lat[k]} s`).join(' · ');
+    bits.push(`<span title="${esc(parts)}">Ready about ${Math.round(lat.total)} s after it happens</span>`);
+  } else if (lat.context != null) {
+    bits.push(`Cut about ${Math.round((lat.ingest || 0) + (lat.detect || 0) + lat.context + (lat.cut || 0))} s after it happens`);
+  }
+  const sk = L.skipped || {};
+  const passed = (sk.confidence || 0) + (sk.crowd || 0) + (sk.learned || 0);
+  if (passed || sk.repeat) bits.push(`<span title="Under your lowest score: ${sk.confidence || 0} · only one or two people in chat: ${sk.crowd || 0} · unlike your picks: ${sk.learned || 0} · repeats: ${sk.repeat || 0}">Passed on ${passed + (sk.repeat || 0)}</span>`);
+  return bits.join('<i class="sep">·</i>');
 }
 async function liveSettings(body) {
   try { W.live = Object.assign(W.live, await api(`/api/live/${W.sid}/settings`, body)); } catch (e) { toast(e.message, 'err'); }
