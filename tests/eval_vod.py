@@ -65,28 +65,57 @@ def video_info(vod: str) -> dict:
     return d["video"]
 
 
-def clips_of(login: str, vod: str, since: str, max_pages: int = 80) -> list:
-    """Every clip of this VOD, walking the channel's clips newest first until before the stream."""
-    q = """query($login: String!, $after: Cursor) { user(login: $login) {
-      clips(first: 100, after: $after, criteria: {period: ALL_TIME, sort: CREATED_AT_DESC}) {
-        pageInfo { hasNextPage }
-        edges { cursor node { id slug title viewCount durationSeconds videoOffsetSeconds createdAt video { id } } } } } }"""
-    out, after = [], None
-    for _ in range(max_pages):
-        d = gql(q, {"login": login, "after": after})
-        cl = (d.get("user") or {}).get("clips") or {}
-        edges = cl.get("edges") or []
-        if not edges:
+CLIP_FIELDS = "id slug title viewCount durationSeconds videoOffsetSeconds createdAt video { id }"
+
+
+def clips_of(login: str, vod: str, since: str, max_pages: int = 100) -> list:
+    """Every clip of this VOD that Twitch will list. Tries a few ways of asking, since Twitch's
+    unofficial API changes; the first that works is used."""
+    variants = [
+        ("video", None),
+        ("criteria", "{filter: ALL_TIME, sort: CREATED_AT_DESC}"),
+        ("criteria", "{period: ALL_TIME, sort: CREATED_AT_DESC}"),
+        ("criteria", "{filter: LAST_MONTH}"),
+        ("criteria", "{filter: ALL_TIME}"),
+        ("criteria", "{period: ALL_TIME, sort: VIEWS_DESC}"),
+    ]
+    found: dict = {}
+    for kind, crit in variants:
+        got, pages, err = 0, 0, ""
+        try:
+            after = None
+            for _ in range(max_pages):
+                if kind == "video":
+                    q = ("query($id: ID!, $after: Cursor) { video(id: $id) { clips(first: 100, after: $after) { "
+                         "pageInfo { hasNextPage } edges { cursor node { " + CLIP_FIELDS + " } } } } }")
+                    d = gql(q, {"id": vod, "after": after})
+                    cl = (d.get("video") or {}).get("clips") or {}
+                else:
+                    q = ("query($login: String!, $after: Cursor) { user(login: $login) { clips(first: 100, after: $after, "
+                         f"criteria: {crit}) {{ pageInfo {{ hasNextPage }} edges {{ cursor node {{ " + CLIP_FIELDS + " } } } } }")
+                    d = gql(q, {"login": login, "after": after})
+                    cl = (d.get("user") or {}).get("clips") or {}
+                edges = cl.get("edges") or []
+                pages += 1
+                for e in edges:
+                    n = e["node"]
+                    if (n.get("video") or {}).get("id") == vod and n.get("videoOffsetSeconds") is not None:
+                        if n["id"] not in found:
+                            got += 1
+                        found[n["id"]] = n
+                if not edges or not cl.get("pageInfo", {}).get("hasNextPage"):
+                    break
+                after = edges[-1]["cursor"]
+                if "CREATED_AT_DESC" in (crit or "") and edges[-1]["node"]["createdAt"] < since:
+                    break
+                time.sleep(0.15)
+        except Exception as e:
+            err = str(e)[:200]
+        print(f"clips via {kind} {crit or ''}: {got} new of this VOD in {pages} pages {('ERROR ' + err) if err else ''}",
+              flush=True)
+        if len(found) >= 300:
             break
-        for e in edges:
-            n = e["node"]
-            if (n.get("video") or {}).get("id") == vod and n.get("videoOffsetSeconds") is not None:
-                out.append(n)
-        after = edges[-1]["cursor"]
-        if edges[-1]["node"]["createdAt"] < since or not cl.get("pageInfo", {}).get("hasNextPage"):
-            break
-        time.sleep(0.2)
-    return out
+    return list(found.values())
 
 
 def highlights(clips: list, gap: float = 8.0) -> list:
