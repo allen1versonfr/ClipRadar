@@ -18,6 +18,7 @@ import copy
 import glob
 import hashlib
 import json
+import math
 import mimetypes
 import os
 import re
@@ -306,6 +307,8 @@ def clip_dicts(pid: str, clips: list, kind: str = "hype") -> list:
         d.setdefault("words", [])
         d.setdefault("listened", False)
         d.setdefault("kind", kind)
+        d.setdefault("orig", [d["start"], d["end"]])       # the cut as found, for "Restore original cut"
+        d["fps"] = pr["info"].get("fps", 30.0)
         # quick first title from chat alone; replaced once the clip has been listened to
         _title_clip(pr, d, [], used)
         out.append(d)
@@ -374,6 +377,7 @@ def _revive(pid: str, d: dict) -> dict:
             pass
     d.setdefault("kind", "hype")
     d.setdefault("words", [])
+    d["fps"] = pr["info"].get("fps", 30.0)
     if isinstance(d.get("safety"), dict) and "status" not in d["safety"]:
         checkflow.refresh(d, None, pr["info"].get("has_audio", True))     # saved by 3.2: add statuses
     return d
@@ -713,6 +717,7 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
                 a2, b2 = max(0.0, a2), min(pr["analysis"].duration, b2)
                 if b2 - a2 >= 3 and (abs(a2 - d["start"]) > 0.05 or abs(b2 - d["end"]) > 0.05):
                     d["start"], d["end"] = round(a2, 2), round(b2, 2)
+                    d["orig"] = [d["start"], d["end"]]
                     if d.get("abs_start") is not None and d.get("at") is not None:
                         off = d["at"] - d.get("peak", 0)
                         d["abs_start"], d["abs_end"] = round(off + d["start"], 1), round(off + d["end"], 1)
@@ -881,6 +886,7 @@ def _ropts(o: dict) -> engine.RenderOpts:
         whisper_model=o.get("whisper_model", "small"),
         language=o.get("language", ""),
         hw_encode=bool(o.get("hw_encode", True)),
+        aspect=o.get("aspect") if o.get("aspect") in engine.SHAPES else "9:16",
     )
 
 
@@ -1000,31 +1006,12 @@ class BrokenOutput(RuntimeError):
     pass
 
 
-def _render_item(it: dict):
-    pr = _render_project(it)
-    if not os.path.exists(pr["video"]):
-        raise RuntimeError("The VOD for this clip was deleted.")
-    ro = _ropts(it["opts"])
-    outdir = os.path.join(pr["workdir"], "tiktok")
-    os.makedirs(outdir, exist_ok=True)
-    name = _file_name(it, outdir)
-    _check_space(outdir, it["end"] - it["start"])
-
-    def check():
-        if it["cancel"]:
-            raise engine.Cancelled()
-
-    def prog(x):
-        it["progress"] = round(max(0.0, min(1.0, x)), 3)
-
-    if TEST_HOOKS.get("fail_next_render"):
-        TEST_HOOKS["fail_next_render"] = False
-        raise OSError(28, "No space left on device")
-
+def _render_inputs(it: dict, pr: dict, ro, check) -> tuple:
+    """Captions, title and censoring for a render of it['start']..it['end'] (a clip, or a few seconds
+    of one for the exact preview). Returns (words, title, post, spans, mode)."""
     cfg = safety.load_config()
     censoring = cfg.get("enabled", True) and cfg.get("censor", "off") != "off"
     words = None
-    it["source_title"] = pr["title"]
     if it.get("words") is not None:
         # captions corrected by hand in the app
         words = [dict(w, start=w["start"] - it["start"], end=w["end"] - it["start"])
@@ -1059,6 +1046,32 @@ def _render_item(it: dict):
             it["censored"] = it.get("censored", 0) + 1
     if not ro.captions:
         words = []
+    return words, title, post, spans, mode
+
+
+def _render_item(it: dict):
+    pr = _render_project(it)
+    if not os.path.exists(pr["video"]):
+        raise RuntimeError("The VOD for this clip was deleted.")
+    ro = _ropts(it["opts"])
+    outdir = os.path.join(pr["workdir"], "tiktok")
+    os.makedirs(outdir, exist_ok=True)
+    name = _file_name(it, outdir)
+    _check_space(outdir, it["end"] - it["start"])
+
+    def check():
+        if it["cancel"]:
+            raise engine.Cancelled()
+
+    def prog(x):
+        it["progress"] = round(max(0.0, min(1.0, x)), 3)
+
+    if TEST_HOOKS.get("fail_next_render"):
+        TEST_HOOKS["fail_next_render"] = False
+        raise OSError(28, "No space left on device")
+
+    it["source_title"] = pr["title"]
+    words, title, post, spans, mode = _render_inputs(it, pr, ro, check)
     path = os.path.join(outdir, name)
     expect = min(it["end"], pr["info"]["duration"] or it["end"]) - max(0.0, it["start"])
     for attempt in (1, 2):
@@ -1090,6 +1103,74 @@ def _render_item(it: dict):
 
 
 TEST_HOOKS = {"fail_next_render": False, "break_next_output": False}
+
+
+def strip_data(pr: dict, a: float, b: float) -> dict:
+    an = pr["analysis"]
+    dur = an.duration
+    a, b = max(0.0, a), min(dur, b)
+    if b - a > 3600:                       # an hour at most per request: the timeline asks for what it shows
+        b = a + 3600
+    i0, i1 = int(a), int(math.ceil(b))
+    hz = engine.FINE_HZ
+    out = {"a": a, "b": b, "hz": hz, "wave": [], "events": {}, "chat": []}
+    if an.fine is not None:
+        out["wave"] = [round(float(x), 1) for x in an.fine[int(a * hz):int(b * hz)]]
+    elif an.loud is not None:
+        out["hz"] = 1
+        out["wave"] = [round(float(x), 1) for x in an.loud[i0:i1]]
+    out["start"] = i0
+    if an.has_events:
+        for k in ("laugh", "scream", "cheer"):
+            out["events"][k] = [round(float(x), 2) for x in an.event_level(k)[i0:i1]]
+    if an.has_chat:
+        out["chat"] = [round(float(x), 2) for x in an.chat_z[i0:i1]]
+    return out
+
+
+_previews: dict = {}
+
+
+def start_preview_render(pid: str, c: dict, opts: dict, at: float) -> dict:
+    pr = projects[pid]
+    start_, end_ = float(c["start"]), float(c["end"])
+    if end_ - start_ < 1:
+        raise RuntimeError("That clip is too short.")
+    seg_a = min(max(start_, at - 1.0), max(start_, end_ - 6.0))
+    seg_b = min(end_, seg_a + 6.0)
+    d = _find_clip(pr, c.get("id")) or {}
+    it = {"start": seg_a, "end": seg_b, "title": str(c.get("title") or "")[:120], "post": "",
+          "words": _clean_words(c.get("words")), "fix_spans": checkflow.render_spans(d) if d else [],
+          "keep_fps": [f["fp"] for f in (d.get("safety") or {}).get("flags", []) if f.get("status") in ("accepted", "dismissed")],
+          "cancel": False}
+    job = new_job("preview")
+    old = _previews.get(pid)
+    if old and old["status"] == "running":
+        old["cancel"] = True
+    _previews[pid] = job
+
+    def go():
+        check = job_check(job)
+        ro = _ropts(dict(opts, hw_encode=opts.get("hw_encode", True)))
+        ro.crf = 28
+        outdir = os.path.join(pr["workdir"], "preview")
+        os.makedirs(outdir, exist_ok=True)
+        for f in sorted(glob.glob(os.path.join(outdir, "preview_*.mp4")))[:-2]:   # keep the last few
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        job["step"] = "Getting captions ready"
+        words, title, _post, spans, mode = _render_inputs(it, pr, ro, check)
+        if not ro.captions:
+            words = []
+        name = f"preview_{int(time.time() * 1000)}.mp4"
+        job["step"] = "Rendering"
+        engine.render_clip(pr["video"], seg_a, seg_b, os.path.join(outdir, name), ro, title=title,
+                           progress=job_progress(job, 0.1, 1.0), check=check, words=words, censor=spans, censor_mode=mode)
+        return {"url": f"/files/{pid}/preview/{name}", "start": seg_a, "end": seg_b}
+    run_job(job, go)
+    return job
 
 
 def friendly_render_error(e: Exception) -> tuple:
@@ -1523,6 +1604,17 @@ class Handler(BaseHTTPRequestHandler):
             with queue_lock:
                 items = [queue_public(it) for it in queue]
             return self._json({"items": items})
+        m = re.fullmatch(r"/api/strip/(\w+)", p)
+        if m:
+            # what the editing timeline draws for a stretch of the video: loudness, laughter, chat
+            pr = projects.get(m.group(1))
+            if not pr or "analysis" not in pr:
+                return self._err("This session expired. Press Find clips again.", 404)
+            try:
+                a, b = float(q.get("a", ["0"])[0]), float(q.get("b", ["0"])[0])
+            except ValueError:
+                return self._err("bad range")
+            return self._json(strip_data(pr, a, b))
         m = re.fullmatch(r"/api/clips/(\w+)", p)
         if m:
             pr = projects.get(m.group(1))
@@ -1825,7 +1917,8 @@ class Handler(BaseHTTPRequestHandler):
                     # the same moment: it keeps its number, title and transcript
                     o.update(score=c.score, reason=c.reason, feat=c.feat, tuned=c.tuned)
                     if o.get("len_mode", 0) != length:     # new length: new cuts, then a fresh listen
-                        o.update(start=c.start, end=c.end, peak=c.peak, len_mode=length, listened=False)
+                        o.update(start=c.start, end=c.end, peak=c.peak, len_mode=length, listened=False,
+                                 orig=[c.start, c.end])
                     order.append(o)
                 else:
                     fresh.append(c)
@@ -1949,6 +2042,17 @@ class Handler(BaseHTTPRequestHandler):
             if not pr.get("live"):
                 save_project_soon(pid, 0.2)
             return self._json({"ok": True, "clip": d if p == "/api/clip_restore" else None})
+
+        if p == "/api/preview_render":
+            # a few seconds rendered exactly like the export, to check an edit without exporting
+            pid = body.get("pid")
+            if pid not in projects:
+                return self._err("This session expired. Press Find clips again.", 404)
+            try:
+                job = start_preview_render(pid, body.get("clip") or {}, body.get("opts") or {}, float(body.get("at", 0)))
+            except RuntimeError as e:
+                return self._err(str(e))
+            return self._json({"job": job["id"]})
 
         if p == "/api/clip_state":
             # what you did to a clip in the app (keep, skip, trims, title, captions), saved with the VOD

@@ -110,9 +110,22 @@ def probe(path: str) -> dict:
     if rot == 90:
         w, h = h, w
     out = {"duration": dur, "width": w, "height": h, "has_audio": a is not None,
-           "vcodec": v.get("codec_name", "")}
+           "vcodec": v.get("codec_name", ""), "fps": _fps(v)}
     _probe_cache[key] = out
     return out
+
+
+def _fps(v: dict) -> float:
+    """Frames per second of a video stream (30 when it can't be read)."""
+    for key in ("avg_frame_rate", "r_frame_rate"):
+        try:
+            n, d = str(v.get(key) or "0/1").split("/")
+            f = float(n) / float(d or 1)
+            if 1 <= f <= 240:
+                return round(f, 3)
+        except (ValueError, ZeroDivisionError):
+            continue
+    return 30.0
 
 
 def fmt_ts(sec: float) -> str:
@@ -1501,9 +1514,20 @@ class RenderOpts:
     hw_encode: bool = True
     crf: int = 20
     fps: int = 30
+    aspect: str = "9:16"            # 9:16 vertical | 1:1 square | 16:9 wide
 
 
 W, H = 1080, 1920
+SHAPES = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}
+
+
+def out_size(o: "RenderOpts") -> tuple:
+    return SHAPES.get(getattr(o, "aspect", "9:16"), SHAPES["9:16"])
+
+
+def effective_layout(o: "RenderOpts") -> str:
+    """Cam + game stacks the facecam over gameplay; in a wide frame that doesn't fit, so it uses the whole frame."""
+    return "full" if o.layout == "split" and getattr(o, "aspect", "9:16") == "16:9" else o.layout
 
 
 def _even(x: float) -> int:
@@ -1514,6 +1538,8 @@ def build_filter(info: dict, o: RenderOpts) -> tuple:
     """Return (filter_complex producing [v] in yuv420p, caption_center_y)."""
     sw, sh = info["width"], info["height"]
     z = max(1.0, o.game_zoom)
+    W, H = out_size(o)
+    layout = effective_layout(o)
 
     def game_crop(out_w: int, out_h: int) -> str:
         aspect = out_w / out_h
@@ -1524,7 +1550,7 @@ def build_filter(info: dict, o: RenderOpts) -> tuple:
         cy = (sh - ch) // 2
         return f"crop={cw}:{ch}:{cx}:{cy},scale={out_w}:{out_h}:flags=lanczos,setsar=1"
 
-    if o.layout == "split":
+    if layout == "split":
         top_h = _even(H * min(max(o.cam_height, 0.2), 0.5))
         bot_h = H - top_h
         x, y, w, h = [min(max(float(v), 0.0), 1.0) for v in o.cam]
@@ -1537,17 +1563,17 @@ def build_filter(info: dict, o: RenderOpts) -> tuple:
         f = (f"[0:v]split=2[a][b];[a]{cam}[cam];[b]{game_crop(W, bot_h)}[game];"
              f"[cam][game]vstack=inputs=2,fps={o.fps},format=yuv420p[v]")
         cap_y = top_h  # right on the seam reads best
-    elif o.layout == "full":
+    elif layout == "full":
         f = f"[0:v]{game_crop(W, H)},fps={o.fps},format=yuv420p[v]"
         cap_y = H * 0.70
-    elif o.layout == "blur":
+    elif layout == "blur":
         fg_h = _even(W * sh / sw)
         fg = game_crop(W, fg_h) if z > 1 else f"scale={W}:{fg_h}:flags=lanczos,setsar=1"
         f = (f"[0:v]split=2[a][b];"
              f"[a]scale=-2:{H // 4},crop={W // 4}:{H // 4},boxblur=12:2,eq=brightness=-0.12,"
              f"scale={W}:{H},setsar=1[bg];"
              f"[b]{fg}[fg];[bg][fg]overlay=0:(H-h)/2,fps={o.fps},format=yuv420p[v]")
-        cap_y = H / 2 + fg_h / 2 + 170
+        cap_y = min(H / 2 + fg_h / 2 + 170, H * 0.8)
     else:
         raise ValueError(f"unknown layout {o.layout}")
 
@@ -1704,6 +1730,7 @@ def _chunks(words: list, o: "RenderOpts", clip_len: float) -> list:
 
 
 def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, title: str = "") -> str:
+    W, H = out_size(o)
     hi = _ass_color(o.caption_color)
     cfont, cbold, _ = _font(o.caption_font)
     tfont, tbold, _ = _font(o.title_font)

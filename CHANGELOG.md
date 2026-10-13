@@ -3,6 +3,23 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.4.0] - 2026-10-13
+
+Editing: a real timeline, frame-accurate trims, undo, and previews that match the export.
+
+### Added
+- An editing timeline under the player: the clip's stretch of the stream with its sound, captions, laughter/screams/cheers, chat activity and content check flags. Drag the clip's edges to trim (they snap to word edges; hold Alt to stop), click to jump, scroll to move, Ctrl+scroll or − Fit + to zoom. Times are stream times, to the hundredth of a second.
+- Trim by a single frame (−1f/+1f), or press I and O to start or end the clip at the playhead.
+- Restore original cut: back to the cut VodClipper found, any time.
+- Undo and Redo (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) for trims, titles, post captions and caption edits.
+- Frame back and forward (, and .), playback speed from 0.25× to 2× (< and >), jump to the clip's start or end ([ and ]), and a shortcut sheet (?).
+- Square (1:1, 1080×1080) and wide (16:9, 1920×1080) clips next to vertical, in Layout › Shape. The preview shows exactly that shape, and the export matches it.
+- Exact preview: renders a few seconds around the playhead through the same pipeline as the export (captions, title, censoring, shape), so you can check an edit without exporting the clip.
+
+### Changed
+- The shortest clip is now 1 second (was 3).
+- Clip times in Review show hundredths of a second.
+
 ## [3.3.0] - 2026-10-13
 
 Content Check review: decide what happens to each flag, and keep track of it.

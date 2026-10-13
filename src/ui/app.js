@@ -85,7 +85,7 @@ const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, g
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
   caption_style: 'pop', caption_font: 'classic', caption_anim: true, cap_x: 0.5, cap_y: 0.7,
   title_style: 'box', title_font: 'classic', title_size: 100, title_x: 0.5, title_y: 0.05,
-  whisper_model: 'small', language: '', hw_encode: true };
+  whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16' };
 const opts = Object.assign({}, DEFAULTS, store.get('opts', {}));
 const SWATCHES = ['#ffe600', '#ffffff', '#4fd1ff', '#5ee6a8', '#ff6b8b'];
 const PRIVACY = { PUBLIC_TO_EVERYONE: 'Everyone', MUTUAL_FOLLOW_FRIENDS: 'Friends', FOLLOWER_OF_CREATOR: 'Followers', SELF_ONLY: 'Only me' };
@@ -365,6 +365,7 @@ function prepClip(c) {
 }
 function mergeClip(c, s) {
   c.listened = s.listened; if (!c.wordsEdited) c.words = s.words || []; c.titles = s.titles || []; c.vibe = s.vibe; c.emoji = s.emoji;
+  if (s.orig && !c.userTrim) c.orig = s.orig;
   c.reason = s.reason; c.post = s.post; c.held = s.held || ''; if (s.safety) c.safety = s.safety; if (s.check) c.check = s.check;
   if (!c.userTitle && s.title) c.title = s.title;
   // once a clip has been listened to, its cuts move to sentence boundaries (unless you trimmed it yourself)
@@ -402,6 +403,7 @@ function openLive(v, fresh) {
     : 'Live clipping started. Moments will appear here as they happen.', '', 6000);
 }
 function startWorkspace() {
+  hist.undo = []; hist.redo = []; syncUndo(); hideExact(); ed.key = null; ed.data = null;
   cur = null; mode = 'clip'; filter = W.kind === 'live' && W.live.hands_free ? 'all' : 'todo'; syncFilterTabs();
   vod.removeAttribute('src'); vod.dataset.src = '';
   buildHead();
@@ -614,7 +616,7 @@ function scrollRowIntoView(k) {
 /* --- selecting --- */
 function select(k, play = true) {
   const c = byKey(k); if (!c) return;
-  if (cur !== k) { stopPreview(); const old = curClip(); if (old) old._prop = null; }
+  if (cur !== k) { stopPreview(); hideExact(); const old = curClip(); if (old) old._prop = null; }
   cur = k; mode = 'clip'; c.isNew = false;
   loadSource(c.vod, c.start, play);
   loadFrame(c.pid, c.start + (c.end - c.start) * 0.6);
@@ -640,6 +642,7 @@ function advance(fromKey) {
 function showInspector() {
   const c = curClip();
   $('#clipForm').hidden = $('#clipActions').hidden = !(mode === 'clip' && c);
+  $('#editor').hidden = !(mode === 'clip' && c); edDirty = true;
   $('#freePane').hidden = mode !== 'free';
   $('#donePane').hidden = !(mode === 'clip' && !c);
   if (mode === 'clip' && !c && W) {
@@ -660,13 +663,14 @@ function fillInspector() {
   const gemList = W.clips.filter(isGem), hypeList = W.clips.filter(x => !isGem(x));
   $('#cRank').textContent = W.kind === 'live' ? `Moment ${c.moment || rankOf(c)}${c.manual ? ' (clipped by you)' : ''}`
     : isGem(c) ? `Quiet gem #${c.id} · ${gemList.indexOf(c) + 1} of ${gemList.length}` : `Clip #${c.id} · ${hypeList.indexOf(c) + 1} of ${hypeList.length}`;
-  $('#cTime').textContent = `${fmt(absOf(c, c.start))} to ${fmt(absOf(c, c.end))} (${Math.round(c.end - c.start)}s)`;
+  $('#cTime').textContent = `${fmtA(absOf(c, c.start))} to ${fmtA(absOf(c, c.end))} (${(c.end - c.start).toFixed(1)}s)`;
+  edDirty = true;
   $('#cWhy').textContent = c.reason || '';
   $('#cVibe').textContent = c.vibe ? VIBE[c.vibe] || c.vibe : c.listened ? 'Neutral' : 'Listening…';
   if (document.activeElement !== $('#titleInput')) $('#titleInput').value = c.title;
   if (document.activeElement !== $('#postInput')) $('#postInput').value = postFor(c);
   $('#nextTitle').disabled = (c.titles || []).length < 2;
-  $('#tStart').textContent = fmt(absOf(c, c.start)); $('#tEnd').textContent = fmt(absOf(c, c.end));
+  syncTrimInfo(c);
   const kept = c.state === 'kept', q = queueFor(c), failed = kept && q && q.status === 'error';
   $('#keepBtn').textContent = failed ? 'Retry render' : kept ? (q && q.status === 'done' ? 'Rendered' : 'In render queue') : 'Keep and render';
   $('#keepBtn').disabled = kept && !failed;
@@ -686,15 +690,15 @@ function fillInspector() {
 }
 $('#titleInput').addEventListener('input', e => {
   const c = curClip(); if (!c) return;
-  c.title = e.target.value; c.userTitle = true;
+  record(c, 'title change', () => { c.title = e.target.value; c.userTitle = true; }, 'title');
   if (!c.userPost) $('#postInput').value = postFor(c);
   dirty = true; renderRowsSoon(); rescanSoon(c);
 });
-$('#postInput').addEventListener('input', e => { const c = curClip(); if (!c) return; c.userPost = true; c.postText = e.target.value; rescanSoon(c); });
+$('#postInput').addEventListener('input', e => { const c = curClip(); if (!c) return; record(c, 'post caption change', () => { c.userPost = true; c.postText = e.target.value; }, 'post'); rescanSoon(c); });
 function nextTitle() {
   const c = curClip(); if (!c || !(c.titles || []).length || c.state === 'kept') return;
   const i = c.titles.findIndex(t => t === c.title);
-  c.title = c.titles[(i + 1) % c.titles.length]; c.userTitle = true;
+  record(c, 'new title', () => { c.title = c.titles[(i + 1) % c.titles.length]; c.userTitle = true; });
   fillInspector(); renderRows(); dirty = true; saveClip(c, true);
 }
 $('#nextTitle').onclick = nextTitle;
@@ -704,15 +708,14 @@ $('#copyPost').onclick = () => { const c = curClip(); if (c) copyText($('#postIn
 $('#clipForm').addEventListener('click', e => {
   const t = e.target.closest('[data-t]')?.dataset.t; if (!t) return;
   const c = curClip(); if (!c || c.state === 'kept') return;
-  const [which, d] = t.split(','), now = vod.currentTime;
-  c.userTrim = true;
-  const maxEnd = c.duration_max || vod.duration || 1e9;
-  if (which === 's') c.start = Math.max(0, Math.min(c.end - 3, d === 'now' ? now : c.start + +d));
-  else c.end = Math.min(maxEnd, Math.max(c.start + 3, d === 'now' ? now : c.end + +d));
-  try { vod.currentTime = which === 'e' ? Math.max(c.start, c.end - 3) : c.start; } catch {}
-  vod.play().catch(() => {});
-  fillInspector(); renderRows(); drawHeat(); dirty = true; saveClip(c, true);
-  if (W.kind === 'vod' && c.words.length && (c.start < c.words[0].start - 6 || c.end > c.words[c.words.length - 1].end + 6)) { c.listened = false; listen([c.id]); }
+  const [which, d] = t.split(','), now = vod.currentTime, f = 1 / fpsOf(c);
+  const by = d === 'f' ? f : d === '-f' ? -f : +d;
+  const frames = d === 'f' || d === '-f';
+  const ok = which === 's' ? setBounds(c, d === 'now' ? now : c.start + by, c.end, d === 'now' ? 'set start' : 'move start', d === 'now' ? null : 'trim-s')
+    : setBounds(c, c.start, d === 'now' ? now : c.end + by, d === 'now' ? 'set end' : 'move end', d === 'now' ? null : 'trim-e');
+  if (!ok) return;
+  if (frames) { vod.pause(); try { vod.currentTime = which === 'e' ? Math.max(c.start, c.end - f) : c.start; } catch {} }
+  else { try { vod.currentTime = which === 'e' ? Math.max(c.start, c.end - 3) : c.start; } catch {} vod.play().catch(() => {}); }
 });
 
 /* --- keep / skip --- */
@@ -1112,8 +1115,10 @@ $('#phoneBox').addEventListener('wheel', e => {
 
 function sizePhone() {
   const box = $('#playerBox'); if (!box.clientWidth) return;
-  const h = Math.max(200, Math.min(box.clientHeight - 32, (box.clientWidth - 32) * 16 / 9));
-  $('#phoneBox').style.height = h + 'px'; $('#phoneBox').style.width = (h * 9 / 16) + 'px';
+  let ow = 1080, oh = 1920; try { [ow, oh] = OUT(); } catch {}
+  const r = ow / oh;
+  const h = Math.max(120, Math.min(box.clientHeight - 32, (box.clientWidth - 32) / r));
+  $('#phoneBox').style.height = h + 'px'; $('#phoneBox').style.width = (h * r) + 'px';
 }
 new ResizeObserver(sizePhone).observe($('#playerBox'));
 
@@ -1143,7 +1148,8 @@ function layoutDraw(g, src, sw, sh, Wd, Ht) {
   const z = Math.max(1, opts.game_zoom);
   const gameCrop = (ow, oh) => { const a = ow / oh; const cw = Math.min(sw, sh * a) / z, ch = cw / a;
     const cx = Math.min(Math.max(0, opts.game_x * sw - cw / 2), sw - cw); return [cx, (sh - ch) / 2, cw, ch]; };
-  if (opts.layout === 'split') {
+  const lay = layoutOf();
+  if (lay === 'split') {
     const th = Math.round(Ht * Math.min(.5, Math.max(.2, opts.cam_height)));
     const x = opts.cam[0] * sw, y = opts.cam[1] * sh, w = Math.max(4, opts.cam[2] * sw), h = Math.max(4, opts.cam[3] * sh);
     const s = Math.max(Wd / w, th / h), vw = Wd / s, vh = th / s;
@@ -1151,15 +1157,16 @@ function layoutDraw(g, src, sw, sh, Wd, Ht) {
     const [gx, gy, gw, gh] = gameCrop(Wd, Ht - th); g.drawImage(src, gx, gy, gw, gh, 0, th, Wd, Ht - th);
     return th;
   }
-  if (opts.layout === 'full') { const [gx, gy, gw, gh] = gameCrop(Wd, Ht); g.drawImage(src, gx, gy, gw, gh, 0, 0, Wd, Ht); return Ht * .7; }
-  const b = bgCanvas.getContext('2d'), bw = sh * 9 / 16;
-  b.drawImage(src, (sw - bw) / 2, 0, bw, sh, 0, 0, 36, 64);
+  if (lay === 'full') { const [gx, gy, gw, gh] = gameCrop(Wd, Ht); g.drawImage(src, gx, gy, gw, gh, 0, 0, Wd, Ht); return Ht * .7; }
+  const b = bgCanvas.getContext('2d'), bw = Math.min(sw, sh * Wd / Ht), bh = bw * Ht / Wd;
+  bgCanvas.width = 36; bgCanvas.height = Math.max(8, Math.round(36 * Ht / Wd));
+  b.drawImage(src, (sw - bw) / 2, (sh - bh) / 2, bw, bh, 0, 0, bgCanvas.width, bgCanvas.height);
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
   g.drawImage(bgCanvas, 0, 0, Wd, Ht); g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, 0, Wd, Ht);
   const fh = Wd * sh / sw;
   if (z > 1) { const [gx, gy, gw, gh] = gameCrop(Wd, fh); g.drawImage(src, gx, gy, gw, gh, 0, (Ht - fh) / 2, Wd, fh); }
   else g.drawImage(src, 0, (Ht - fh) / 2, Wd, fh);
-  return Ht / 2 + fh / 2 + Ht * 170 / 1920;
+  return Math.min(Ht / 2 + fh / 2 + Ht * 170 / OUT()[1], Ht * .8);
 }
 const FONTS = {
   classic: { label: 'Classic', css: "'Arial Black', 'Segoe UI Black', 'Segoe UI', sans-serif", w: 900, scale: 1 },
@@ -1179,7 +1186,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const hit = { title: null, cap: null };   // where the title and captions were drawn (canvas px), for dragging
 
 function drawTitle(g, text, Wd, Ht) {
-  const k = Wd / 1080, st = opts.title_style;
+  const k = Wd / OUT()[0], st = opts.title_style;
   const fs = 64 * clamp(opts.title_size, 50, 160) / 100 * fontOf(opts.title_font).scale * k;
   const pad = Math.max(8, Math.floor(64 * clamp(opts.title_size, 50, 160) / 100 * fontOf(opts.title_font).scale / 4)) * k;
   g.font = fontCss(opts.title_font, fs); g.textAlign = 'center'; g.textBaseline = 'top';
@@ -1240,12 +1247,13 @@ function censorWord(c, w) {
     && t >= f.start - 0.02 && t <= f.end + 0.02) ? maskWord(w.word) : w.word;
 }
 function capAnchor(capY, Wd, Ht) {
-  if (opts.caption_pos === 'custom') return [clamp(opts.cap_x, .3, .7) * Wd, clamp(opts.cap_y * Ht, Ht * 120 / 1920, Ht - Ht * 120 / 1920)];
+  const oh = OUT()[1];
+  if (opts.caption_pos === 'custom') return [clamp(opts.cap_x, .3, .7) * Wd, clamp(opts.cap_y * Ht, Ht * 120 / oh, Ht - Ht * 120 / oh)];
   capY = { top: Ht * .22, middle: Ht * .5, bottom: Ht * .78 }[opts.caption_pos] ?? capY;
-  return [Wd / 2, clamp(capY, Ht * 260 / 1920, Ht - Ht * 220 / 1920)];
+  return [Wd / 2, clamp(capY, Ht * 260 / oh, Ht - Ht * 220 / oh)];
 }
 function drawCaption(g, cap, capY, Wd, Ht, t) {
-  const k = Wd / 1080, st = opts.caption_style, hi = opts.caption_color;
+  const k = Wd / OUT()[0], st = opts.caption_style, hi = opts.caption_color;
   const [cx, cy] = capAnchor(capY, Wd, Ht);
   const chars = cap.texts.join(' ').length, fsBase = 86 * opts.caption_size / 100 * fontOf(opts.caption_font).scale;
   const fs1080 = chars <= 16 ? fsBase : Math.max(fsBase * .75, fsBase * 18 / chars), fs = fs1080 * k;
@@ -1369,7 +1377,7 @@ phone.addEventListener('pointermove', e => {
     dragState.moved = true;
     let fx = (x - dragState.ox) / Wd; dragState.snapX = Math.abs(fx - .5) < .025; if (dragState.snapX) fx = .5;
     if (dragState.what === 'title') { opts.title_x = clamp(fx, .3, .7); opts.title_y = clamp((y - dragState.oy) / Ht, 0, .92); }
-    else { opts.caption_pos = 'custom'; opts.cap_x = clamp(fx, .3, .7); opts.cap_y = clamp((y - dragState.oy) / Ht, 120 / 1920, 1 - 120 / 1920); }
+    else { opts.caption_pos = 'custom'; opts.cap_x = clamp(fx, .3, .7); opts.cap_y = clamp((y - dragState.oy) / Ht, 120 / OUT()[1], 1 - 120 / OUT()[1]); }
     dirty = true; return;
   }
   const h = mode === 'clip' ? hitTest(x, y) : null;
@@ -1403,6 +1411,7 @@ function tick() {
     $('#scrubFill').style.width = '0'; $('#timeText').textContent = fmt(vod.currentTime); $('#freeAt').textContent = fmt(vod.currentTime);
   } else { $('#scrubFill').style.width = '0'; $('#timeText').textContent = '0:00 / 0:00'; }
   if (dirty || !vod.paused) { dirty = false; renderPhone(); if (!$('#pane-captions').hidden) syncCapActive(); }
+  if (mode === 'clip' && c) { edFollow(); if (edDirty || !vod.paused || ed.drag) { edDirty = false; drawEditor(); } }
   if (!vod.paused) drawHeatSoon();
 }
 requestAnimationFrame(tick);
@@ -1485,7 +1494,10 @@ $('#swatches').innerHTML = SWATCHES.map(c => `<button data-c="${c}" style="backg
   '<input type="color" id="capColor" aria-label="Custom highlight color">';
 function syncControls() {
   $$('#layoutSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === opts.layout));
-  $('#camBlock').hidden = opts.layout !== 'split';
+  $$('#shapeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === (opts.aspect || '9:16')));
+  $('#camBlock').hidden = layoutOf() !== 'split';
+  $('#shapeHint').textContent = opts.aspect === '16:9' && opts.layout === 'split' ? 'Cam + game needs a tall frame, so a wide clip uses the whole frame.' : '';
+  setShapeCanvas();
   $('#camH').value = Math.round(opts.cam_height * 100); $('#camHOut').textContent = $('#camH').value + '%';
   $('#gameX').value = Math.round(opts.game_x * 100);
   $('#gameXOut').textContent = opts.game_x < .45 ? 'Left' : opts.game_x > .55 ? 'Right' : 'Center';
@@ -1512,6 +1524,7 @@ function syncControls() {
 }
 let lsTimer = 0; function liveSettingsSoon() { clearTimeout(lsTimer); lsTimer = setTimeout(() => liveSettings({ opts: JSON.parse(JSON.stringify(opts)), model: opts.whisper_model, language: opts.language }), 600); }
 $('#layoutSeg').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { opts.layout = v; syncControls(); } };
+$('#shapeSeg').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { opts.aspect = v; hideExact(); syncControls(); } };
 $('#camH').oninput = e => { opts.cam_height = e.target.value / 100; syncControls(); };
 $('#gameX').oninput = e => { opts.game_x = e.target.value / 100; syncControls(); };
 $('#zoom').oninput = e => { opts.game_zoom = e.target.value / 100; syncControls(); };
@@ -1608,6 +1621,7 @@ function rescanSoon(c) {
 }
 function applyCapEdit(i, text) {
   const c = curClip(); if (!c || c.state === 'kept') return;
+  const before = snapEdit(c);
   editWords(c);
   const row = chunksFor(c)[i]; if (!row) return;
   const toks = text.trim().split(/\s+/).filter(Boolean);
@@ -1625,7 +1639,8 @@ function applyCapEdit(i, text) {
     fresh = toks.map((t, j) => ({ start: +(a + j * d).toFixed(3), end: +(a + (j + 1) * d - 0.01).toFixed(3), word: t, g, edited: true }));
   }
   c.words = c.words.filter(w => !row.words.includes(w)).concat(fresh).sort((x, y) => x.start - y.start);
-  renderCapEditor(); dirty = true; rescanSoon(c);
+  pushEdit(c, text.trim() ? 'caption edit' : 'caption deleted', before);
+  renderCapEditor(); dirty = true; edDirty = true; rescanSoon(c);
 }
 function seekClip(t) { const c = curClip(); if (!c) return; vod.pause(); try { vod.currentTime = clamp(t, c.start, c.end - 0.05); } catch {} dirty = true; }
 function syncCapActive(force) {
@@ -1654,6 +1669,7 @@ $('#capLines').addEventListener('change', e => {
 });
 $('#capAdd').onclick = () => {
   const c = curClip(); if (!c || c.state === 'kept') return;
+  const before = snapEdit(c);
   editWords(c);
   let t = clamp(vod.currentTime, c.start, c.end - 1);
   const inRow = chunksFor(c).find(r => t >= r.start && t < r.end); if (inRow) t = Math.min(inRow.end, c.end - 0.4);
@@ -1661,13 +1677,14 @@ $('#capAdd').onclick = () => {
   const len = Math.max(0.4, Math.min(1.2, (nextW ? nextW.start - 0.01 : c.end) - t)), g = ++capGroup;
   const nw = [{ start: +t.toFixed(3), end: +(t + len / 2).toFixed(3), word: 'New', g, edited: true }, { start: +(t + len / 2).toFixed(3), end: +(t + len).toFixed(3), word: 'caption', g, edited: true }];
   c.words = c.words.concat(nw).sort((x, y) => x.start - y.start);
-  renderCapEditor(); dirty = true; rescanSoon(c);
+  pushEdit(c, 'caption added', before);
+  renderCapEditor(); dirty = true; edDirty = true; rescanSoon(c);
   const i = capRows.findIndex(r => r.words.includes(c.words.find(w => w === nw[0] || (w.start === nw[0].start && w.word === 'New'))));
   const inp = $(`#capLines input[data-i="${i}"]`); if (inp) { inp.focus(); inp.select(); }
 };
 $('#capReset').onclick = () => {
   const c = curClip(); if (!c || !c.wordsEdited) return;
-  c.words = c.wordsOrig || []; c.wordsEdited = false; delete c.wordsOrig;
+  record(c, 'caption reset', () => { c.words = c.wordsOrig || []; c.wordsEdited = false; delete c.wordsOrig; });
   renderCapEditor(); dirty = true; rescanSoon(c); toast('Captions are back to what Whisper heard.', '', 2500);
 };
 
@@ -2157,4 +2174,371 @@ $('#lrForgetAll').onclick = async () => {
 setInterval(() => { fetch('/api/ping').catch(() => {}); }, 60000);
 setInterval(loadStatus, 5000);
 loadStatus().then(() => { updateStatusBar(); });
+/* =============================================================== editor (3.4): timeline, trims, undo/redo */
+const MIN_LEN = 1;                       // shortest clip, seconds
+const SHAPES = { '9:16': [1080, 1920], '1:1': [1080, 1080], '16:9': [1920, 1080] };
+const OUT = () => SHAPES[opts.aspect] || SHAPES['9:16'];
+const layoutOf = () => (opts.layout === 'split' && opts.aspect === '16:9') ? 'full' : opts.layout;
+const fpsOf = c => (c && c.fps) || 30;
+const fmtA = t => {                      // stream time with hundredths: 1:23:45.20
+  t = Math.max(0, t || 0); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+  const ss = (s < 10 ? '0' : '') + s.toFixed(2);
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+};
+function setShapeCanvas() {
+  const [ow, oh] = OUT(), scale = 960 / Math.max(ow, oh);
+  const w = Math.round(ow * scale / 2) * 2, h = Math.round(oh * scale / 2) * 2;
+  if (phone.width !== w || phone.height !== h) { phone.width = w; phone.height = h; }
+  $('#phoneBox').style.aspectRatio = `${ow} / ${oh}`;
+  sizePhone(); dirty = true;
+}
+
+/* --- undo / redo: every edit to a clip's cut, title, post caption and captions --- */
+const EDIT_KEYS = ['start', 'end', 'userTrim', 'title', 'userTitle', 'postText', 'userPost', 'words', 'wordsEdited', 'wordsOrig'];
+const hist = { undo: [], redo: [] };
+const snapEdit = c => JSON.parse(JSON.stringify(Object.fromEntries(EDIT_KEYS.map(k => [k, c[k] === undefined ? null : c[k]]))));
+function pushEdit(c, label, before, group) {
+  const after = snapEdit(c);
+  if (JSON.stringify(before) === JSON.stringify(after)) return;
+  const last = hist.undo[hist.undo.length - 1], now = Date.now();
+  if (group && last && last.group === group && last.key === keyOf(c) && now - last.t < 1500) { last.after = after; last.t = now; }
+  else hist.undo.push({ key: keyOf(c), label, before, after, group, t: now });
+  if (hist.undo.length > 200) hist.undo.shift();
+  hist.redo = [];
+  syncUndo();
+}
+function record(c, label, fn, group) { const before = snapEdit(c); fn(); pushEdit(c, label, before, group); }
+function applyEdit(c, s) { EDIT_KEYS.forEach(k => { if (s[k] === null) delete c[k]; else c[k] = JSON.parse(JSON.stringify(s[k])); }); }
+function syncUndo() {
+  const u = hist.undo[hist.undo.length - 1], r = hist.redo[hist.redo.length - 1];
+  $('#edUndo').disabled = !u; $('#edRedo').disabled = !r;
+  $('#edUndo').title = u ? `Undo ${u.label} (Ctrl+Z)` : 'Nothing to undo';
+  $('#edRedo').title = r ? `Redo ${r.label} (Ctrl+Shift+Z)` : 'Nothing to redo';
+}
+function undoRedo(redo) {
+  const from = redo ? hist.redo : hist.undo, to = redo ? hist.undo : hist.redo;
+  const e = from[from.length - 1]; if (!e) return;
+  const c = byKey(e.key);
+  if (!c) { from.pop(); syncUndo(); return; }
+  if (c.state === 'kept') { toast('That clip is in the render queue. Remove it from the queue to change it.', 'err', 4000); return; }
+  from.pop(); applyEdit(c, redo ? e.after : e.before); to.push(e);
+  if (cur !== e.key) select(e.key, false); else { fillInspector(); renderRows(); }
+  if (!$('#pane-captions').hidden) renderCapEditor();
+  drawHeat(); dirty = true; edDirty = true; rescanSoon(c);
+  toast(`${redo ? 'Redone' : 'Undone'}: ${e.label}`, '', 1600);
+  syncUndo();
+}
+$('#edUndo').onclick = () => undoRedo(false);
+$('#edRedo').onclick = () => undoRedo(true);
+
+/* --- trimming --- */
+function setBounds(c, start, end, label, group) {
+  const dur = clipMaxEnd(c);
+  start = clamp(start, 0, Math.max(0, dur - MIN_LEN)); end = clamp(end, start + MIN_LEN, dur);
+  if (Math.abs(start - c.start) < 1e-4 && Math.abs(end - c.end) < 1e-4) return false;
+  record(c, label, () => { c.start = +start.toFixed(3); c.end = +end.toFixed(3); c.userTrim = true; }, group);
+  afterTrim(c);
+  return true;
+}
+function clipMaxEnd(c) { return W.kind === 'vod' ? W.duration : (vod.duration && isFinite(vod.duration) ? vod.duration : c.end + 30); }
+function afterTrim(c) {
+  fillInspector(); renderRows(); drawHeat(); dirty = true; edDirty = true; saveClip(c, true); rescanSoon(c);
+  if (W.kind === 'vod' && c.words.length && (c.start < c.words[0].start - 6 || c.end > c.words[c.words.length - 1].end + 6)) { c.listened = false; listen([c.id]); }
+}
+function restoreOriginal(c) {
+  if (!c.orig || c.state === 'kept') return;
+  record(c, 'restore original cut', () => { c.start = c.orig[0]; c.end = c.orig[1]; c.userTrim = false; });
+  afterTrim(c); edFit(c);
+  try { vod.currentTime = c.start; } catch {}
+  toast('Back to the original cut. Undo brings your trim back.', '', 2500);
+}
+$('#tRestore').onclick = () => { const c = curClip(); if (c) restoreOriginal(c); };
+function syncTrimInfo(c) {
+  $('#tStart').textContent = fmtA(absOf(c, c.start)); $('#tEnd').textContent = fmtA(absOf(c, c.end));
+  const changed = c.orig && (Math.abs(c.orig[0] - c.start) > 0.01 || Math.abs(c.orig[1] - c.end) > 0.01);
+  $('#tRestore').hidden = !changed || c.state === 'kept';
+  $('#tLen').textContent = `${(c.end - c.start).toFixed(2)} s` + (changed ? ` · found as ${(c.orig[1] - c.orig[0]).toFixed(1)} s` : '');
+}
+function stepFrame(dir) {
+  const c = curClip(); vod.pause();
+  const f = 1 / fpsOf(c);
+  try { vod.currentTime = Math.max(0, Math.round(vod.currentTime / f + dir) * f + f * 0.25); } catch {}
+  dirty = true; edDirty = true;
+}
+$('#edFrameBack').onclick = () => stepFrame(-1);
+$('#edFrameFwd').onclick = () => stepFrame(1);
+const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2];
+function setSpeed(v) { vod.playbackRate = v; $('#edSpeed').value = String(v); }
+$('#edSpeed').onchange = e => setSpeed(+e.target.value);
+function speedStep(dir) { const i = SPEEDS.indexOf(vod.playbackRate); setSpeed(SPEEDS[clamp((i < 0 ? 3 : i) + dir, 0, SPEEDS.length - 1)]); toast(`Speed ${vod.playbackRate}×`, '', 1200); }
+
+/* --- the timeline --- */
+const edc = $('#edCanvas'), edg = edc.getContext('2d');
+const ed = { key: null, a: 0, b: 60, data: null, fetching: false, drag: null, hover: null };
+let edDirty = true;
+function edDur(c) { return clipMaxEnd(c); }
+function edFit(c) {
+  if (!c) return;
+  const len = c.end - c.start, pad = Math.max(2, len * 0.15), dur = edDur(c);
+  ed.a = Math.max(0, c.start - pad); ed.b = Math.min(dur, c.end + pad);
+  if (ed.b - ed.a < 2) ed.b = Math.min(dur, ed.a + 2);
+  ed.key = keyOf(c); edDirty = true; edFetch(c);
+}
+function edZoom(f, at) {
+  const c = curClip(); if (!c) return;
+  const span = ed.b - ed.a, dur = edDur(c);
+  at = at ?? (vod.currentTime >= ed.a && vod.currentTime <= ed.b ? vod.currentTime : (ed.a + ed.b) / 2);
+  const ns = clamp(span * f, 1.5, Math.min(dur, 1800));
+  const r = (at - ed.a) / span;
+  ed.a = clamp(at - ns * r, 0, Math.max(0, dur - ns)); ed.b = ed.a + ns;
+  edDirty = true; edFetch(c);
+}
+function edPan(dt) {
+  const c = curClip(); if (!c) return;
+  const span = ed.b - ed.a, dur = edDur(c);
+  ed.a = clamp(ed.a + dt, 0, Math.max(0, dur - span)); ed.b = ed.a + span; edDirty = true; edFetch(c);
+}
+$('#edZoomIn').onclick = () => edZoom(0.5);
+$('#edZoomOut').onclick = () => edZoom(2);
+$('#edFit').onclick = () => edFit(curClip());
+async function edFetch(c) {
+  // loudness, laughter and chat for what's on screen (plus a screen either side), only when needed
+  const d = ed.data, span = ed.b - ed.a;
+  if (ed.fetching || (d && d.pid === c.pid && d.a <= ed.a && d.b >= Math.min(ed.b, edDur(c) - 0.5))) return;
+  const a = Math.max(0, ed.a - span), b = ed.b + span;
+  ed.fetching = true;
+  try { const r = await api(`/api/strip/${c.pid}?a=${a.toFixed(2)}&b=${b.toFixed(2)}`); r.pid = c.pid; ed.data = r; }
+  catch { ed.data = { pid: c.pid, a, b, hz: 10, wave: [], events: {}, chat: [], start: Math.floor(a) }; }
+  ed.fetching = false; edDirty = true;
+  const cc = curClip(); if (cc && cc.pid === c.pid && (ed.data.a > ed.a || ed.data.b < Math.min(ed.b, edDur(cc) - 0.5))) edFetch(cc);
+}
+function edSize() {
+  const dpr = window.devicePixelRatio || 1, w = Math.max(100, edc.clientWidth), h = 92;
+  if (edc.width !== Math.round(w * dpr)) { edc.width = Math.round(w * dpr); edc.height = Math.round(h * dpr); }
+  return [w, h, dpr];
+}
+new ResizeObserver(() => { edDirty = true; }).observe(edc);
+const ED = { ruler: [0, 14], wave: [16, 42], caps: [45, 62], ev: [65, 89] };
+const tToX = (t, w) => (t - ed.a) / (ed.b - ed.a) * w;
+const xToT = (x, w) => ed.a + x / w * (ed.b - ed.a);
+function rulerStep(span, w) {
+  const want = span / (w / 90);
+  return [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800].find(s => s >= want) || 3600;
+}
+function drawEditor() {
+  const c = curClip();
+  if (!c || mode !== 'clip' || $('#editor').hidden) return;
+  if (ed.key !== keyOf(c)) edFit(c);
+  const [w, h, dpr] = edSize(), g = edg;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#0e0f11'; g.fillRect(0, 0, w, h);
+  const span = ed.b - ed.a;
+  // ruler (stream time)
+  const st = rulerStep(span, w);
+  g.font = '10px Inter, sans-serif'; g.textBaseline = 'top'; g.fillStyle = '#6d7079'; g.strokeStyle = '#26272c'; g.lineWidth = 1;
+  for (let t = Math.ceil(ed.a / st) * st; t <= ed.b; t += st) {
+    const x = Math.round(tToX(t, w)) + .5;
+    g.beginPath(); g.moveTo(x, 10); g.lineTo(x, h); g.stroke();
+    const label = st < 1 ? fmtA(absOf(c, t)).replace(/0$/, '') : fmt(absOf(c, t));
+    g.fillText(label, x + 3, 1);
+  }
+  // waveform
+  const d = ed.data;
+  if (d && d.wave && d.wave.length) {
+    const [y0, y1] = ED.wave, mid = (y0 + y1) / 2, amp = (y1 - y0) / 2, hz = d.hz || 10, base = d.hz === 1 ? d.start : d.a;
+    g.fillStyle = '#3a3d46';
+    for (let x = 0; x < w; x++) {
+      const ta = xToT(x, w), tb = xToT(x + 1, w);
+      let i0 = Math.floor((ta - base) * hz), i1 = Math.max(i0 + 1, Math.ceil((tb - base) * hz));
+      let m = -90; for (let i = Math.max(0, i0); i < Math.min(d.wave.length, i1); i++) if (d.wave[i] > m) m = d.wave[i];
+      if (m <= -89) continue;
+      const v = clamp((m + 60) / 60, 0.02, 1) * amp;
+      g.fillRect(x, mid - v, 1, v * 2);
+    }
+  }
+  // captions (lines, or single words when zoomed in)
+  const pps = w / span, [cy0, cy1] = ED.caps;
+  const showWords = pps > 90;
+  g.font = '10.5px Inter, sans-serif'; g.textBaseline = 'middle';
+  const blocks = showWords ? c.words.filter(x => x.end >= ed.a && x.start <= ed.b).map(x => ({ start: x.start, end: x.end, text: censorWord(c, x), edited: x.edited }))
+    : chunksFor(c).map(ch => ({ start: ch.start, end: ch.end, text: ch.words.map(x => censorWord(c, x)).join(' '), edited: ch.words.some(x => x.edited) }));
+  for (const b of blocks) {
+    const x0 = tToX(b.start, w), x1 = Math.max(x0 + 2, tToX(b.end, w));
+    if (x1 < 0 || x0 > w) continue;
+    g.fillStyle = b.edited ? '#4a4128' : '#25324a'; g.fillRect(x0, cy0, x1 - x0 - 1, cy1 - cy0);
+    if (x1 - x0 > 18) {
+      g.save(); g.beginPath(); g.rect(x0 + 2, cy0, x1 - x0 - 4, cy1 - cy0); g.clip();
+      g.fillStyle = b.edited ? '#ffd666' : '#c6d4f0'; g.fillText(b.text, x0 + 3, (cy0 + cy1) / 2); g.restore();
+    }
+  }
+  // detected events and chat
+  const [ey0, ey1] = ED.ev;
+  if (d && d.events) {
+    const cols = { laugh: '#5ee6a8', scream: '#ff9f43', cheer: '#c9a7ff' };
+    for (const [k, arr] of Object.entries(d.events)) {
+      g.fillStyle = cols[k] || '#888';
+      arr.forEach((v, i) => { if (v < 0.12) return; const t = d.start + i, x0 = tToX(t, w), x1 = tToX(t + 1, w); if (x1 < 0 || x0 > w) return;
+        g.globalAlpha = clamp(v, 0.2, 0.9); g.fillRect(x0, ey0 + 3, Math.max(1, x1 - x0), ey1 - ey0 - 6); });
+    }
+    g.globalAlpha = 1;
+  }
+  if (d && d.chat && d.chat.length) {
+    g.strokeStyle = '#4c8dff'; g.lineWidth = 1.2; g.beginPath();
+    d.chat.forEach((v, i) => { const x = tToX(d.start + i + 0.5, w), y = ey1 - 2 - clamp(v, 0, 8) / 8 * (ey1 - ey0 - 4); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
+  }
+  // content check flags and fixes
+  for (const s of fixSpans(c)) { const x0 = tToX(s[0], w), x1 = tToX(s[1], w); g.fillStyle = 'rgba(62,194,143,.85)'; g.fillRect(x0, ey0, Math.max(2, x1 - x0), 3); }
+  for (const f of ((c.safety && c.safety.flags) || []).filter(f => f.source === 'speech' && f.status === 'open')) {
+    const x0 = tToX(c.start + f.start, w), x1 = tToX(c.start + f.end, w);
+    g.fillStyle = f.severity >= 3 ? '#f05a5e' : f.severity === 2 ? '#e3a33b' : '#a3a6ae'; g.fillRect(x0, ey0, Math.max(3, x1 - x0), 3);
+  }
+  // outside the clip: dimmed; the clip: framed; original cut: dashed
+  const xs = tToX(c.start, w), xe = tToX(c.end, w);
+  g.fillStyle = 'rgba(14,15,17,.62)'; g.fillRect(0, 12, Math.max(0, xs), h); g.fillRect(xe, 12, Math.max(0, w - xe), h);
+  if (c.orig && (Math.abs(c.orig[0] - c.start) > 0.01 || Math.abs(c.orig[1] - c.end) > 0.01)) {
+    g.setLineDash([3, 3]); g.strokeStyle = '#6d7079';
+    [c.orig[0], c.orig[1]].forEach(t => { const x = Math.round(tToX(t, w)) + .5; g.beginPath(); g.moveTo(x, 14); g.lineTo(x, h); g.stroke(); });
+    g.setLineDash([]);
+  }
+  const locked = c.state === 'kept', acc = locked ? '#6d7079' : '#4c8dff';
+  g.strokeStyle = acc; g.lineWidth = 1.5; g.strokeRect(xs, 13, xe - xs, h - 14);
+  for (const [x, which] of [[xs, 's'], [xe, 'e']]) {
+    const hot = ed.hover === which || (ed.drag && ed.drag.which === which);
+    g.fillStyle = hot ? '#9cc0ff' : acc; g.fillRect(x - (which === 's' ? 0 : 6), 13, 6, h - 14);
+    g.fillStyle = '#0e0f11'; for (let k = 0; k < 3; k++) g.fillRect(x - (which === 's' ? -2 : 4), h / 2 - 6 + k * 5, 2, 2);
+    if (hot) { const label = fmtA(absOf(c, which === 's' ? c.start : c.end)); g.font = '600 10.5px Inter, sans-serif';
+      const tw = g.measureText(label).width + 8, lx = clamp(x - tw / 2, 0, w - tw); g.fillStyle = '#e9eaed'; g.fillRect(lx, 14, tw, 14); g.fillStyle = '#0e0f11'; g.textBaseline = 'middle'; g.fillText(label, lx + 4, 21); }
+  }
+  // playhead
+  const px = tToX(vod.currentTime, w);
+  if (px >= 0 && px <= w) { g.fillStyle = '#fff'; g.fillRect(Math.round(px) - 1, 10, 2, h - 10); g.beginPath(); g.moveTo(px - 5, 10); g.lineTo(px + 5, 10); g.lineTo(px, 16); g.fill(); }
+  $('#edTime').textContent = `${fmtA(absOf(c, vod.currentTime))} · frame ${Math.round(vod.currentTime * fpsOf(c))}`;
+}
+function edPos(e) { const r = edc.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top, r.width]; }
+function edHit(x, w, c) {
+  const xs = tToX(c.start, w), xe = tToX(c.end, w);
+  if (Math.abs(x - xs) <= 8 && Math.abs(x - xs) <= Math.abs(x - xe)) return 's';
+  if (Math.abs(x - xe) <= 8) return 'e';
+  return null;
+}
+function edSnap(c, t, w, alt) {
+  if (alt) return t;
+  const tol = 6 / w * (ed.b - ed.a);
+  let best = t, bd = tol;
+  const cand = [vod.currentTime];
+  for (const x of c.words) { cand.push(x.start - 0.05, x.end + 0.05); }
+  for (const v of cand) { const dd = Math.abs(v - t); if (dd < bd) { bd = dd; best = v; } }
+  return best;
+}
+edc.addEventListener('pointerdown', e => {
+  const c = curClip(); if (!c || e.button !== 0) return;
+  const [x, , w] = edPos(e), which = edHit(x, w, c);
+  if (which && c.state !== 'kept') {
+    ed.drag = { which, before: snapEdit(c), moved: false };
+    vod.pause();
+  } else {
+    ed.drag = { which: 'seek' };
+    try { vod.currentTime = clamp(xToT(x, w), 0, edDur(c)); } catch {}
+  }
+  edc.setPointerCapture(e.pointerId); edDirty = true; dirty = true;
+});
+edc.addEventListener('pointermove', e => {
+  const c = curClip(); if (!c) return;
+  const [x, , w] = edPos(e);
+  if (!ed.drag) {
+    const hv = c.state === 'kept' ? null : edHit(x, w, c);
+    if (hv !== ed.hover) { ed.hover = hv; edDirty = true; }
+    edc.style.cursor = hv ? 'ew-resize' : 'text';
+    return;
+  }
+  const t = clamp(xToT(x, w), 0, edDur(c));
+  if (ed.drag.which === 'seek') { try { vod.currentTime = t; } catch {} edDirty = true; dirty = true; return; }
+  const v = edSnap(c, t, w, e.altKey);
+  if (ed.drag.which === 's') c.start = +clamp(v, 0, c.end - MIN_LEN).toFixed(3);
+  else c.end = +clamp(v, c.start + MIN_LEN, edDur(c)).toFixed(3);
+  c.userTrim = true; ed.drag.moved = true;
+  try { vod.currentTime = ed.drag.which === 's' ? c.start : Math.max(c.start, c.end - 0.04); } catch {}
+  syncTrimInfo(c); edDirty = true; dirty = true;
+});
+edc.addEventListener('pointerup', () => {
+  const c = curClip(), dr = ed.drag; ed.drag = null; edDirty = true;
+  if (c && dr && dr.which !== 'seek' && dr.moved) { pushEdit(c, dr.which === 's' ? 'move start' : 'move end', dr.before); afterTrim(c); }
+});
+edc.addEventListener('pointerleave', () => { if (ed.hover) { ed.hover = null; edDirty = true; } });
+edc.addEventListener('wheel', e => {
+  const c = curClip(); if (!c) return;
+  e.preventDefault();
+  const [x, , w] = edPos(e);
+  if (e.ctrlKey || e.metaKey) edZoom(e.deltaY > 0 ? 1.25 : 0.8, xToT(x, w));
+  else edPan((Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / w * (ed.b - ed.a));
+}, { passive: false });
+function edFollow() {
+  // while playing, keep the playhead in view
+  const c = curClip(); if (!c || vod.paused || ed.drag) return;
+  const t = vod.currentTime, span = ed.b - ed.a;
+  if (t > ed.b - span * 0.02 || t < ed.a) { ed.a = clamp(t - span * 0.1, 0, Math.max(0, edDur(c) - span)); ed.b = ed.a + span; edFetch(c); }
+}
+
+/* --- exact preview: a few seconds rendered by the real export pipeline --- */
+let exactBusy = false;
+async function exactPreview() {
+  const c = curClip(); if (!c || mode !== 'clip' || exactBusy) return;
+  exactBusy = true; const btn = $('#edExact'); btn.disabled = true;
+  const clip = { id: c.id, start: c.start, end: c.end, title: (c.title || '').trim() };
+  if (c.wordsEdited) clip.words = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end);
+  try {
+    const { job } = await api('/api/preview_render', { pid: c.pid, clip, opts: JSON.parse(JSON.stringify(opts)), at: vod.currentTime });
+    const j = await waitJob(job, j => { btn.textContent = j.step === 'Rendering' ? `Rendering ${Math.round(j.progress * 100)}%` : 'Getting ready…'; });
+    if (j && j.status === 'done' && curClip() === c) showExact(j.result);
+    else if (j && j.status === 'error') toast(j.error, 'err', 7000);
+  } catch (e) { toast(e.message, 'err', 6000); }
+  exactBusy = false; btn.disabled = false; btn.textContent = 'Exact preview';
+}
+function showExact(r) {
+  const v = $('#filePlayer');
+  vod.pause();
+  v.src = r.url; v.hidden = false; v.loop = true; v.muted = userMuted; v.play().catch(() => {});
+  $('#exactClose').hidden = false; $('#phoneBox').classList.add('exact');
+  $('#exactClose').textContent = `Exact preview ${fmtA(r.start)}–${fmtA(r.end)} · close ×`;
+}
+function hideExact() {
+  const v = $('#filePlayer'); if (v.hidden) return;
+  v.pause(); v.removeAttribute('src'); v.load(); v.hidden = true;
+  $('#exactClose').hidden = true; $('#phoneBox').classList.remove('exact');
+}
+$('#edExact').onclick = exactPreview;
+$('#exactClose').onclick = hideExact;
+
+/* --- shortcuts help --- */
+function showKeys() { const d = $('#keysDlg'); if (!d.open) d.showModal(); }
+$('#edKeys').onclick = showKeys;
+$('#keysClose').onclick = () => $('#keysDlg').close();
+document.addEventListener('keydown', e => {
+  if (view !== 'review' || !W || $('#dlg').open || $('#keysDlg').open) return;
+  const typing = e.target.closest('input,select,textarea');
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && !typing && (e.key === 'z' || e.key === 'Z' || e.key === 'y')) {
+    e.preventDefault(); undoRedo(e.key === 'y' || e.shiftKey); return;
+  }
+  if (typing || mod || e.altKey) return;
+  const c = curClip(), k = e.key;
+  if (k === '?') { e.preventDefault(); showKeys(); return; }
+  if (!c || mode !== 'clip') return;
+  if (k === 'i' || k === 'I') { if (c.state !== 'kept') setBounds(c, vod.currentTime, c.end, 'set start', null); }
+  else if (k === 'o' || k === 'O') { if (c.state !== 'kept') setBounds(c, c.start, vod.currentTime, 'set end', null); }
+  else if (k === ',') stepFrame(-1);
+  else if (k === '.') stepFrame(1);
+  else if (k === '<') speedStep(-1);
+  else if (k === '>') speedStep(1);
+  else if (k === '[') { try { vod.currentTime = c.start; } catch {} edDirty = true; }
+  else if (k === ']') { try { vod.currentTime = Math.max(c.start, c.end - 0.05); } catch {} edDirty = true; }
+  else if (k === '+' || k === '=') edZoom(0.5);
+  else if (k === '-' || k === '_') edZoom(2);
+  else if (k === '0') edFit(c);
+  else if (k === 'Escape') hideExact();
+  else return;
+  e.preventDefault();
+});
+
 loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); loadUpdate(); loadSafety(); loadTwitch();
