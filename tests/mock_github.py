@@ -13,6 +13,7 @@ Point Clip Radar at it with:
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 import os
 import sys
@@ -115,6 +116,19 @@ class H(BaseHTTPRequestHandler):
             for i in range(0, len(blob), 1 << 20):
                 self.wfile.write(blob[i:i + (1 << 20)])
             return
+        if re.search(r"/releases(\?|$)", self.path):
+            # every release, newest first: the latest, an older one you can't go back to, an archive with no
+            # installer, and the laughter-model download (not a version)
+            blob = _blob()
+            def rel(tag, setup=True):
+                assets = [{"name": "ClipRadar-Setup.exe", "size": len(blob), "digest": "sha256:" + hashlib.sha256(blob).hexdigest(),
+                           "browser_download_url": f"http://{host}/download/ClipRadar-Setup.exe",
+                           "url": f"http://{host}/repos/allen1versonfr/vodclipper/releases/assets/1"}] if setup else \
+                    [{"name": "VodClipper-1.0.0-source.zip", "size": 3, "browser_download_url": f"http://{host}/download/src.zip"}]
+                return {"tag_name": tag, "name": f"Clip Radar {tag}", "draft": False, "prerelease": tag == "models-v1",
+                        "html_url": f"https://github.com/allen1versonfr/vodclipper/releases/tag/{tag}",
+                        "published_at": "2026-10-14T00:00:00Z", "body": f"Notes for {tag}.", "assets": assets}
+            return self._json([rel(STATE["tag"]), rel("v98.5.0"), rel("v3.11.0"), rel("v1.0.0", setup=False), rel("models-v1", setup=False)])
         if self.path == "/__state":
             return self._json({k: v for k, v in STATE.items() if k != "data"})
         self._json({"message": "Not Found"}, 404)

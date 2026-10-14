@@ -2089,6 +2089,8 @@ class Handler(BaseHTTPRequestHandler):
             })
         if p == "/api/update":
             return self._json(updater.view())
+        if p == "/api/update/versions":
+            return self._json(updater.versions(refresh="refresh" in (urlparse(self.path).query or ""), log=_say))
         if p == "/api/safety":
             return self._json(safety.public_config())
         if p == "/api/hotkey":
@@ -2335,9 +2337,16 @@ class Handler(BaseHTTPRequestHandler):
             updater.set_prefs(bool(body.get("auto", True)))
             return self._json(updater.view())
         if p == "/api/update/install":
+            if body.get("version") and not updater.newer(str(body["version"]), VERSION):
+                return self._err("You can only install a version newer than the one you have.", 400)
             if not updater.installed():
                 return self._err("This copy of Clip Radar wasn't installed with Setup, so it can't update itself. "
                                  "Download the new version from GitHub instead.", 400)
+            if body.get("version") and updater.view()["state"] not in ("downloading", "installing"):
+                try:
+                    updater.choose(str(body["version"]))      # a particular newer version, from All versions
+                except ValueError as e:
+                    return self._err(str(e), 400)
             v = updater.view()
             if not v["available"]:
                 return self._err("You already have the latest version.", 400)

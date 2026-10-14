@@ -1,0 +1,63 @@
+# Keeps every version on GitHub's Releases page as an archive.
+#
+# For each version in CHANGELOG.md, this makes sure there is a release with the source code of that
+# version attached as <Name>-<version>-source.zip. Versions released before releases were automated
+# (VodClipper 1.0.0 to 1.3.0) get a release of their own, marked as an archive and never "latest".
+# The version on main right now is skipped: build.yml publishes it with its installer.
+#
+# Runs when this file changes on main, and by hand (Actions › Archive versions › Run workflow).
+
+name: Archive versions
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/archive.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Make sure every version has a release with its source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          current=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' src/version.py)
+          mkdir -p dist
+          made=0; added=0; skipped=""
+          for ver in $(grep -oP '^## \[\K[0-9]+\.[0-9]+\.[0-9]+(?=\])' CHANGELOG.md); do
+            tag="v$ver"
+            if [ "$ver" = "$current" ]; then continue; fi
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              sha=$(git rev-list -n1 "$tag")
+            else
+              sha=$(grep -oP "^\[$ver\]: .*/commit/\K[0-9a-f]+" CHANGELOG.md | head -1 || true)
+            fi
+            if [ -z "$sha" ] || ! git cat-file -e "$sha^{commit}" 2>/dev/null; then skipped="$skipped $ver"; continue; fi
+            sha=$(git rev-parse "$sha^{commit}")          # GitHub wants the full commit id
+            major=${ver%%.*}
+            name=$([ "$major" -ge 4 ] && echo ClipRadar || echo VodClipper)
+            title=$([ "$major" -ge 4 ] && echo "Clip Radar $ver" || echo "VodClipper $ver")
+            zip="dist/$name-$ver-source.zip"
+            git archive --format=zip --prefix="$name-$ver/" -o "$zip" "$sha"
+            if gh release view "$tag" >/dev/null 2>&1; then
+              if ! gh release view "$tag" --json assets -q '.assets[].name' | grep -qx "$name-$ver-source.zip"; then
+                gh release upload "$tag" "$zip" && added=$((added+1))
+              fi
+            else
+              # this version's section of the changelog
+              awk -v v="$ver" '$0 ~ "^## \\["v"\\]" {on=1; next} on && /^## \[/ {exit} on && /^\[[0-9]/ {exit} on {print}' CHANGELOG.md > notes.md
+              printf '\n---\nArchived: the source code of this version (no installer was published for it). Built from commit %s.\n' "${sha:0:7}" >> notes.md
+              gh release create "$tag" "$zip" --target "$sha" --title "$title" --notes-file notes.md --latest=false && made=$((made+1))
+            fi
+          done
+          echo "::notice title=Archive::$made release(s) created, $added source archive(s) added${skipped:+; no commit found for$skipped}"

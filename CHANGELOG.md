@@ -3,6 +3,14 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.1.0] - 2026-10-14
+
+All versions, and every version archived on GitHub.
+
+### Added
+- Settings › Updates › All versions: every version of Clip Radar (and VodClipper before it), newest first, with what changed in each. Install any version newer than yours from there. Going back to an older version isn't offered.
+- Every version is on GitHub's Releases page with its source code attached, including VodClipper 1.0.0 to 1.3.0 from before releases were automated (marked as archives; no installer was published for them). New releases include their source code too.
+
 ## [4.0.0] - 2026-10-14
 
 VodClipper is now Clip Radar.

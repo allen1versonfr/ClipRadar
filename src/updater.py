@@ -175,9 +175,7 @@ def check(log=print) -> dict:
         tag = rel.get("tag_name") or ""
         if not parse_version(tag):
             raise ValueError(f"unexpected release tag {tag!r}")
-        assets = rel.get("assets") or []
-        asset = next((a for a in assets if a.get("name") == SETUP_ASSET), None) or \
-            next((a for a in assets if a.get("name") == OLD_ASSET), {})
+        asset = _pick_asset(rel.get("assets") or [])
         avail = newer(tag, VERSION)
         with _lock:
             _asset.clear()
@@ -212,6 +210,62 @@ def check(log=print) -> dict:
             state.update(state="error", error="Couldn't reach GitHub to check for updates. Check your internet connection.",
                          checked=time.time())
     return view()
+
+
+_versions = {"at": 0.0, "list": []}
+LIST_API = API.rsplit("/latest", 1)[0] + "?per_page=100"
+
+
+def _pick_asset(assets: list) -> dict:
+    return next((a for a in assets if a.get("name") == SETUP_ASSET), None) or \
+        next((a for a in assets if a.get("name") == OLD_ASSET), {})
+
+
+def versions(refresh: bool = False, log=print) -> dict:
+    """Every release on GitHub, newest first (Settings › Updates › All versions). Cached for 10 minutes."""
+    if refresh or time.time() - _versions["at"] > 600 or not _versions["list"]:
+        try:
+            with _request(LIST_API) as r:
+                rels = json.load(r)
+            out = []
+            for rel in rels if isinstance(rels, list) else []:
+                tag = rel.get("tag_name") or ""
+                if not parse_version(tag) or rel.get("draft"):
+                    continue                        # the laughter-model download (models-v1) isn't a version
+                a = _pick_asset(rel.get("assets") or [])
+                out.append({"version": tag.lstrip("v"), "name": rel.get("name") or tag, "published": rel.get("published_at") or "",
+                            "notes": _plain_notes(rel.get("body", "")), "page": rel.get("html_url") or RELEASES_PAGE,
+                            "setup": a, "archive": not a})
+            out.sort(key=lambda x: parse_version(x["version"]), reverse=True)
+            _versions.update(at=time.time(), list=out, error="")
+        except Exception as e:
+            log(f"Couldn't list versions: {e}")
+            _versions["error"] = "Couldn't get the list of versions from GitHub. Check your internet connection."
+    can = installed()
+    rows = []
+    for x in _versions["list"]:
+        rows.append({k: v for k, v in x.items() if k != "setup"} | {
+            "current": x["version"] == VERSION, "newer": newer(x["version"], VERSION),
+            "installable": can and newer(x["version"], VERSION) and bool(x["setup"].get("browser_download_url"))})
+    return {"current": VERSION, "versions": rows, "error": _versions.get("error", ""), "can_install": can}
+
+
+def choose(version: str):
+    """Install this newer version instead of the latest (Settings › Updates › All versions). Going back isn't offered."""
+    if not newer(version, VERSION):
+        raise ValueError("You can only install a version newer than the one you have.")
+    if not _versions["list"]:
+        versions(refresh=True)
+    rel = next((x for x in _versions["list"] if x["version"] == version), None)
+    if not rel or not rel["setup"].get("browser_download_url"):
+        raise ValueError(f"Version {version} can't be installed from here (it has no installer).")
+    with _lock:
+        _asset.clear()
+        _asset.update(rel["setup"])
+        state.update(available=True, latest=version, notes=rel["notes"], page=rel["page"], published=rel["published"],
+                     size=int(rel["setup"].get("size") or 0), state="idle", error="")
+        if _file[0] and not _file[0].endswith(f"-{version}.exe"):
+            _file[0] = ""
 
 
 def download(log=print) -> str:
