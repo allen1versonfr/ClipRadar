@@ -16,6 +16,9 @@ Framing: follow the streamer's face, find the facecam, and pick the layout for y
 - Captions in the automatic position move off the face. The preview follows the face the same way the render does.
 - Faces are found by a small built-in detector (UltraFace RFB-320, MIT licence, about 1 MB) on the onnxruntime VodClipper already ships.
 
+### Fixed
+- Live: the "spotting" time could come out negative when a moment was seen forming before its peak arrived, and then went missing from the status line.
+
 ## [3.8.0] - 2026-10-13
 
 Live clipping: more accurate, measured, and quicker to show what's coming.

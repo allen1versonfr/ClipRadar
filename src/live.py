@@ -931,8 +931,9 @@ class LiveSession:
             lat = {}
             if cand.get("aired") is not None:
                 lat["ingest"] = cand["arrived"] - cand["aired"]
-                lat["detect"] = cand["found"] - cand["arrived"]
-                lat["context"] = now - cand["found"]
+                # spotted as forming before its peak had even arrived: no time lost spotting it
+                lat["detect"] = max(0.0, cand["found"] - cand["arrived"])
+                lat["context"] = now - max(cand["found"], cand["arrived"])
             for k, v in lat.items():
                 self.note_latency(k, v)
             self.auto_peaks.append(p)
