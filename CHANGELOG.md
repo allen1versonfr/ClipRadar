@@ -3,6 +3,22 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.9.0] - 2026-10-14
+
+Framing: follow the streamer's face, find the facecam, and pick the layout for you.
+
+### Added
+- Follow the streamer's face (Layout tab, Whole frame layout): the crop moves with the face, smoothly, never faster than a slow pan, ignoring small wobbles and one-off misdetections. It holds still while the face is hidden for a moment and eases back to Focus if it's gone. When it isn't sure (face seen only now and then, or only a facecam overlay), the crop stays at Focus.
+- Who to follow: automatic (biggest face), left-most or right-most person, or nearest to a focus point you set.
+- Auto-frame: looks at the video and picks Cam + game with the facecam boxed (a face sitting still in a corner), Whole frame following the face (a person filling the frame), or the middle of the frame (no face).
+- Cam only layout: the facecam filling the frame.
+- Saved framings: keep a layout, facecam box, focus, zoom and follow settings and reuse them in one click.
+- Captions in the automatic position move off the face. The preview follows the face the same way the render does.
+- Faces are found by a small built-in detector (UltraFace RFB-320, MIT licence, about 1 MB) on the onnxruntime VodClipper already ships.
+
+### Fixed
+- Live: the "spotting" time could come out negative when a moment was seen forming before its peak arrived, and then went missing from the status line.
+
 ## [3.8.0] - 2026-10-13
 
 Live clipping: more accurate, measured, and quicker to show what's coming.

@@ -206,6 +206,18 @@ def selftest(out_json: str, media: str = "") -> int:
     except Exception:
         rec("learning model fits", False, traceback.format_exc()[-300:])
 
+    try:
+        import framing
+        import numpy as _np
+        if framing.available():
+            f = _np.zeros((1, framing.IN_H, framing.IN_W, 3), dtype=_np.uint8) + 100
+            framing.detect(f)      # loads and runs the face model
+            rec("face finder runs", framing._sess() is not None, f"model {framing.model_path()}")
+        else:
+            rec("face finder runs", False, f"model missing (looked in {paths.RES_DIR / 'models' / 'face'})")
+    except Exception:
+        rec("face finder runs", False, traceback.format_exc()[-300:])
+
     if media and os.path.isfile(media):
         try:
             info = engine.probe(media)

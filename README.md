@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 3.8.0" src="https://img.shields.io/badge/version-3.8.0-4c8dff?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 3.9.0" src="https://img.shields.io/badge/version-3.9.0-4c8dff?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/vodclipper/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/vodclipper/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -50,7 +50,7 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
   - Five caption styles: Pop, Highlight, Karaoke, Glow and Clean.
   - Four title styles.
   - Eight bundled fonts, including Montserrat, Anton, Bebas Neue and Bangers.
-- **Three vertical layouts:** facecam above gameplay, full crop, or blurred fit.
+- **Layouts and framing:** facecam above gameplay, the whole frame (following the streamer's face), the facecam alone, or a blurred fit. Auto-frame finds a facecam or a person and picks the layout.
 - **Background render queue.** Clips render to 1080×1920 MP4 on your GPU's encoder (NVIDIA, Intel or AMD), falling back to the CPU automatically. If one fails, VodClipper says why in plain words and gives you a Retry button.
 - **Post to TikTok** through TikTok's official Content Posting API, either directly or to your drafts. Hands-free mode can also send finished clips to your drafts automatically; you finish each post in the TikTok app.
 - **Updates itself.** When a new release is posted on GitHub, VodClipper offers it in the app. One click downloads it, installs it and reopens the app.

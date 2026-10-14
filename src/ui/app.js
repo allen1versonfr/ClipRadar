@@ -85,7 +85,8 @@ const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, g
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
   caption_style: 'pop', caption_font: 'classic', caption_anim: true, cap_x: 0.5, cap_y: 0.7,
   title_style: 'box', title_font: 'classic', title_size: 100, title_x: 0.5, title_y: 0.05,
-  whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16', cap_outline: 100, cap_shadow: 100 };
+  whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16', cap_outline: 100, cap_shadow: 100,
+  track: 'auto', track_target: 'auto', focus_y: 0.4 };
 const opts = Object.assign({}, DEFAULTS, store.get('opts', {}));
 const SWATCHES = ['#ffe600', '#ffffff', '#4fd1ff', '#5ee6a8', '#ff6b8b'];
 const PRIVACY = { PUBLIC_TO_EVERYONE: 'Everyone', MUTUAL_FOLLOW_FRIENDS: 'Friends', FOLLOWER_OF_CREATOR: 'Followers', SELF_ONLY: 'Only me' };
@@ -1196,9 +1197,17 @@ document.addEventListener('keydown', e => {
 const bgCanvas = document.createElement('canvas'); bgCanvas.width = 36; bgCanvas.height = 64;
 function layoutDraw(g, src, sw, sh, Wd, Ht) {
   const z = Math.max(1, opts.game_zoom);
-  const gameCrop = (ow, oh) => { const a = ow / oh; const cw = Math.min(sw, sh * a) / z, ch = cw / a;
-    const cx = Math.min(Math.max(0, opts.game_x * sw - cw / 2), sw - cw); return [cx, (sh - ch) / 2, cw, ch]; };
   const lay = layoutOf();
+  const follow = lay === 'full' ? trackNow() : null;      // where the crop is while following the face
+  const gameCrop = (ow, oh) => { const a = ow / oh; const cw = Math.min(sw, sh * a) / z, ch = cw / a;
+    const fx = follow != null ? follow : opts.game_x;
+    const cx = Math.min(Math.max(0, fx * sw - cw / 2), sw - cw); return [cx, (sh - ch) / 2, cw, ch]; };
+  if (lay === 'cam') {
+    const x = opts.cam[0] * sw, y = opts.cam[1] * sh, w = Math.max(4, opts.cam[2] * sw), h = Math.max(4, opts.cam[3] * sh);
+    const s = Math.max(Wd / w, Ht / h), vw = Wd / s, vh = Ht / s;
+    g.drawImage(src, x + (w - vw) / 2, y + (h - vh) / 2, vw, vh, 0, 0, Wd, Ht);
+    return Ht * .78;
+  }
   if (lay === 'split') {
     const th = Math.round(Ht * Math.min(.5, Math.max(.2, opts.cam_height)));
     const x = opts.cam[0] * sw, y = opts.cam[1] * sh, w = Math.max(4, opts.cam[2] * sw), h = Math.max(4, opts.cam[3] * sh);
@@ -1207,7 +1216,15 @@ function layoutDraw(g, src, sw, sh, Wd, Ht) {
     const [gx, gy, gw, gh] = gameCrop(Wd, Ht - th); g.drawImage(src, gx, gy, gw, gh, 0, th, Wd, Ht - th);
     return th;
   }
-  if (lay === 'full') { const [gx, gy, gw, gh] = gameCrop(Wd, Ht); g.drawImage(src, gx, gy, gw, gh, 0, 0, Wd, Ht); return Ht * .7; }
+  if (lay === 'full') {
+    const [gx, gy, gw, gh] = gameCrop(Wd, Ht); g.drawImage(src, gx, gy, gw, gh, 0, 0, Wd, Ht);
+    const tr = follow != null && trackCur();
+    if (tr && tr.face_y != null) {          // captions move off the face, like the render
+      const top = (tr.face_y - tr.face_h * 0.7) * Ht, bot = (tr.face_y + tr.face_h * 0.9) * Ht, d = Ht * .7, m = Ht * 140 / OUT()[1];
+      if (top - m <= d && d <= bot + m) { const below = bot + Ht * 230 / OUT()[1]; return below <= Ht * .86 ? below : Math.max(Ht * 260 / OUT()[1], top - Ht * 230 / OUT()[1]); }
+    }
+    return Ht * .7;
+  }
   const b = bgCanvas.getContext('2d'), bw = Math.min(sw, sh * Wd / Ht), bh = bw * Ht / Wd;
   bgCanvas.width = 36; bgCanvas.height = Math.max(8, Math.round(36 * Ht / Wd));
   b.drawImage(src, (sw - bw) / 2, (sh - bh) / 2, bw, bh, 0, 0, bgCanvas.width, bgCanvas.height);
@@ -1546,7 +1563,14 @@ $('#swatches').innerHTML = SWATCHES.map(c => `<button data-c="${c}" style="backg
 function syncControls() {
   $$('#layoutSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === opts.layout));
   $$('#shapeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === (opts.aspect || '9:16')));
-  $('#camBlock').hidden = layoutOf() !== 'split';
+  $('#camBlock').hidden = !['split', 'cam'].includes(layoutOf());
+  $('#trackBlock').hidden = layoutOf() !== 'full';
+  $('#track').checked = opts.track !== 'off'; $('#trackTarget').value = opts.track_target || 'auto';
+  $('#trackTarget').disabled = opts.track === 'off';
+  $('#focusYWrap').hidden = !(layoutOf() === 'full' && opts.track !== 'off' && opts.track_target === 'point');
+  $('#focusY').value = Math.round((opts.focus_y ?? .4) * 100); $('#focusYOut').textContent = opts.focus_y < .35 ? 'High' : opts.focus_y > .6 ? 'Low' : 'Middle';
+  $('#gameXWrap').firstChild.textContent = layoutOf() === 'full' && opts.track !== 'off' ? 'Focus (when no face)' : 'Focus';
+  trackSoon();
   $('#shapeHint').textContent = opts.aspect === '16:9' && opts.layout === 'split' ? 'Cam + game needs a tall frame, so a wide clip uses the whole frame.' : '';
   setShapeCanvas();
   $('#camH').value = Math.round(opts.cam_height * 100); $('#camHOut').textContent = $('#camH').value + '%';
@@ -1582,6 +1606,56 @@ $('#layoutSeg').onclick = e => { const v = e.target.closest('button')?.dataset.v
 $('#shapeSeg').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { opts.aspect = v; hideExact(); syncControls(); } };
 $('#camH').oninput = e => { opts.cam_height = e.target.value / 100; syncControls(); };
 $('#gameX').oninput = e => { opts.game_x = e.target.value / 100; syncControls(); };
+$('#focusY').oninput = e => { opts.focus_y = e.target.value / 100; syncControls(); };
+$('#track').onchange = e => { opts.track = e.target.checked ? 'auto' : 'off'; hideExact(); syncControls(); };
+$('#trackTarget').onchange = e => { opts.track_target = e.target.value; hideExact(); syncControls(); };
+/* --- following the face (3.9): the path comes from the app, and the preview moves the crop along it --- */
+var tracks = {}, trackWant = {}, trackTimer = 0;   // var: syncControls can run before this line
+const trackKey = c => c && `${W && W.pid}|${c.pid || ''}|${(+c.start).toFixed(2)}|${(+c.end).toFixed(2)}|${opts.track_target}|${opts.track_target === 'point' ? opts.game_x.toFixed(2) + ',' + (opts.focus_y ?? .4).toFixed(2) : ''}|${opts.aspect}|${opts.game_zoom}`;
+function trackCur() { const c = curClip(); const t = c && tracks[trackKey(c)]; return t && t.path ? t : null; }
+function trackNow() {
+  if (opts.track === 'off' || mode !== 'clip') return null;
+  const c = curClip(); if (!c || layoutOf() !== 'full') return null;
+  const t = trackCur();
+  if (!t) { const k = trackKey(c); if (!trackWant[k] && !tracks[k]) { trackWant[k] = 1; trackSoon(); } return null; }
+  if (!t.path.length) return null;
+  const at = vod.currentTime - c.start, p = t.path;
+  if (at <= p[0][0]) return p[0][1];
+  for (let i = 1; i < p.length; i++) if (at < p[i][0]) { const [t0, a] = p[i - 1], [t1, b] = p[i]; return a + (b - a) * (at - t0) / (t1 - t0); }
+  return p[p.length - 1][1];
+}
+function trackSoon() {
+  clearTimeout(trackTimer);
+  trackTimer = setTimeout(async () => {
+    if (!W || layoutOf() !== 'full' || opts.track === 'off' || typeof mode === 'undefined' || mode !== 'clip') { $('#trackNote').dataset.k = ''; return; }
+    const c = curClip(); if (!c) return;
+    const k = trackKey(c);
+    if (tracks[k]) { showTrack(tracks[k]); return; }
+    $('#trackNote').textContent = 'Finding the face in this clip…';
+    try {
+      const r = await api('/api/framing/track', { pid: c.pid || W.pid, start: c.start, end: c.end, opts: JSON.parse(JSON.stringify(opts)) });
+      tracks[k] = r; if (trackKey(curClip()) === k) showTrack(r); dirty = true;
+    } catch (e) { $('#trackNote').textContent = e.message; }
+  }, 500);
+}
+function showTrack(r) {
+  $('#trackNote').textContent = r.path && r.path.length
+    ? `Following the face (seen in ${Math.round((r.coverage || 0) * 100)}% of the clip). The crop moves smoothly and holds still while the face is hidden.`
+    : `${r.reason || 'No face found'}. The crop stays at the focus point.`;
+}
+$('#autoFrame').onclick = async () => {
+  if (!W) return;
+  const b = $('#autoFrame'); b.disabled = true; $('#autoFrameNote').textContent = 'Looking for faces…';
+  try {
+    const r = await api(`/api/framing/${W.pid}`);
+    if (!r.layout) { $('#autoFrameNote').textContent = r.reason || 'Nothing to suggest.'; return; }
+    opts.layout = r.layout; if (r.cam) opts.cam = r.cam; if (r.track) opts.track = r.track;
+    if (r.layout === 'split' && opts.aspect === '16:9') opts.aspect = '9:16';
+    hideExact(); syncControls();
+    $('#autoFrameNote').textContent = r.reason + (r.confidence < .6 ? ' (not sure: check it)' : '');
+  } catch (e) { $('#autoFrameNote').textContent = e.message; }
+  finally { b.disabled = false; }
+};
 $('#zoom').oninput = e => { opts.game_zoom = e.target.value / 100; syncControls(); };
 $('#caps').onchange = e => { opts.captions = e.target.checked; syncControls(); };
 $('#capPos').onchange = e => { opts.caption_pos = e.target.value; syncControls(); };
@@ -2339,7 +2413,7 @@ $('#tagsOn').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
 api('/api/titles').then(t => { titlePrefs = t; syncTitlePrefs(); }).catch(() => {});
 
 /* =============================================================== export format, caption words, performance (3.7) */
-let queueEta = null, exState = null, capPresets = [];
+let queueEta = null, exState = null, capPresets = [], framePresets = [];
 function fmtLeft(s) {
   if (s == null) return 'working out time left';
   if (s < 5) return 'almost done';
@@ -2375,6 +2449,7 @@ function renderExportSettings() {
   $('#pfRenders').value = String(pr.renders); $('#pfDownloads').value = String(pr.downloads);
   $$('#pfPriority button').forEach(b => b.classList.toggle('on', b.dataset.v === pr.priority));
   capPresets = pr.cap_presets || []; renderCapPresets();
+  framePresets = pr.frame_presets || []; renderFramePresets();
   dirty = true;
 }
 async function loadExport() { try { exState = await api('/api/export'); renderExportSettings(); } catch {} loadPerf(); }
@@ -2429,6 +2504,24 @@ $('#capPresets').onclick = e => {
   if (x) { saveExport({ cap_presets: capPresets.filter((_, i) => i !== +x.dataset.cpx) }); return; }
   const b = e.target.closest('[data-cp]'); if (!b) return;
   Object.assign(opts, capPresets[+b.dataset.cp].opts); syncControls(); toast(`Using "${capPresets[+b.dataset.cp].name}".`, '', 1800);
+};
+// saved framings (Layout tab)
+const FRAME_KEYS = ['layout', 'cam', 'cam_height', 'game_zoom', 'game_x', 'track', 'track_target', 'focus_y', 'aspect'];
+function renderFramePresets() {
+  $('#framePresets').innerHTML = framePresets.length ? framePresets.map((p, i) => `<span class="cp"><button class="chip" data-fp="${i}" title="Use this framing">${esc(p.name)}</button><button class="cp-x" data-fpx="${i}" title="Delete">×</button></span>`).join('')
+    : '<span class="muted small">None yet.</span>';
+}
+$('#framePresetSave').onclick = async () => {
+  const name = (window.prompt('Name this framing (for example "Facecam top right"):', '') || '').trim(); if (!name) return;
+  const o = Object.fromEntries(FRAME_KEYS.map(k => [k, opts[k]]));
+  await saveExport({ frame_presets: framePresets.filter(p => p.name !== name).concat([{ name, opts: o }]) });
+  toast(`Saved "${name}".`, '', 2000);
+};
+$('#framePresets').onclick = e => {
+  const x = e.target.closest('[data-fpx]');
+  if (x) { saveExport({ frame_presets: framePresets.filter((_, i) => i !== +x.dataset.fpx) }); return; }
+  const b = e.target.closest('[data-fp]'); if (!b) return;
+  Object.assign(opts, framePresets[+b.dataset.fp].opts); hideExact(); syncControls(); toast(`Using "${framePresets[+b.dataset.fp].name}".`, '', 1800);
 };
 loadExport();
 
