@@ -49,6 +49,13 @@ jobs:
             title=$([ "$major" -ge 4 ] && echo "Clip Radar $ver" || echo "VodClipper $ver")
             zip="dist/$name-$ver-source.zip"
             git archive --format=zip --prefix="$name-$ver/" -o "$zip" "$sha"
+            if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              # the tag first, with git (creating it through the releases API can be refused for old commits)
+              git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" tag -a "$tag" -m "$title (archived)" "$sha"
+              if ! out=$(git push origin "refs/tags/$tag" 2>&1); then
+                echo "::error title=Couldn't tag $ver::$(echo "$out" | tr '\n' ' ' | cut -c1-400)"; failed=1; continue
+              fi
+            fi
             if gh release view "$tag" >/dev/null 2>&1; then
               if ! gh release view "$tag" --json assets -q '.assets[].name' | grep -qx "$name-$ver-source.zip"; then
                 if out=$(gh release upload "$tag" "$zip" 2>&1); then added=$((added+1)); else echo "::error title=Couldn't add source to $tag::$(echo "$out" | tr '\n' ' ' | cut -c1-400)"; failed=1; fi
