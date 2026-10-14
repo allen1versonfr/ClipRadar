@@ -1,5 +1,5 @@
 """
-What VodClipper remembers between runs:
+What Clip Radar remembers between runs:
 
   workdir/project.json   your review of one VOD: clip numbers, kept/skipped, trims, titles, captions
   DATA_DIR/queue.json    the render queue and Exports list
@@ -178,7 +178,7 @@ def restore_queue(data) -> list:
         tt = it.get("tiktok")
         if isinstance(tt, dict) and tt.get("state") == "posting":
             it["tiktok"] = {"state": "error", "mode": tt.get("mode", ""), "at": tt.get("at", 0),
-                            "error": "VodClipper closed while this was uploading. Post it again."}
+                            "error": "Clip Radar closed while this was uploading. Post it again."}
         it["cancel"] = False
         out.append(it)
     return out

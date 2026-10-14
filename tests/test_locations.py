@@ -20,8 +20,8 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 BASE = tempfile.mkdtemp(prefix="vc_loc_")
-os.environ["VODCLIPPER_DATA"] = os.path.join(BASE, "data")
-os.environ["VODCLIPPER_WORK"] = os.path.join(BASE, "projects")
+os.environ["CLIPRADAR_DATA"] = os.path.join(BASE, "data")
+os.environ["CLIPRADAR_WORK"] = os.path.join(BASE, "projects")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import engine  # noqa: E402

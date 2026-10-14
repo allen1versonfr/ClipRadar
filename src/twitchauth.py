@@ -2,13 +2,13 @@
 Your Twitch sign-in, for ad-free live recording.
 
 Twitch puts ads straight into the live video for viewers without Turbo (or a
-sub to that channel). When VodClipper records with your sign-in, Twitch hands
-it the same ad-free stream you'd see in your browser. Without one, VodClipper
+sub to that channel). When Clip Radar records with your sign-in, Twitch hands
+it the same ad-free stream you'd see in your browser. Without one, Clip Radar
 still spots the ad breaks in the stream and leaves them out of the recording,
 so nothing ends up in a clip; the recording just pauses while an ad would play.
 
 The sign-in is Twitch's own "auth-token" cookie: either picked up from a small
-Twitch login window inside VodClipper, or pasted in Settings. It's stored
+Twitch login window inside Clip Radar, or pasted in Settings. It's stored
 encrypted for your Windows account (like the TikTok sign-in) and is only ever
 sent to Twitch.
 """
@@ -30,8 +30,8 @@ import paths
 import tiktok
 
 STORE = paths.DATA_DIR / "twitch.dat"
-ID_API = os.environ.get("VODCLIPPER_TWITCH_ID", "https://id.twitch.tv").rstrip("/")
-GQL = os.environ.get("VODCLIPPER_TWITCH_GQL", "https://gql.twitch.tv/gql")
+ID_API = os.environ.get("CLIPRADAR_TWITCH_ID", "https://id.twitch.tv").rstrip("/")
+GQL = os.environ.get("CLIPRADAR_TWITCH_GQL", "https://gql.twitch.tv/gql")
 WEB_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"     # the twitch.tv website's client id (what the cookie belongs to)
 _lock = threading.Lock()
 _state: dict = {"checked": 0.0}
@@ -69,7 +69,7 @@ def clean_token(raw: str) -> str:
 
 
 def _req(url: str, token_: str, body: Optional[bytes] = None, client_id: bool = False) -> dict:
-    h = {"Authorization": f"OAuth {token_}", "User-Agent": "VodClipper"}
+    h = {"Authorization": f"OAuth {token_}", "User-Agent": "ClipRadar"}
     if client_id:
         h["Client-ID"] = WEB_CLIENT_ID
         h["Content-Type"] = "text/plain;charset=UTF-8"
@@ -162,7 +162,7 @@ login_impl = [None]
 
 def login_with_window(timeout: float = 600) -> dict:
     if not login_impl[0]:
-        raise RuntimeError("Signing in through a window needs the VodClipper app window. Paste your token instead.")
+        raise RuntimeError("Signing in through a window needs the Clip Radar app window. Paste your token instead.")
     t = login_impl[0](timeout)
     if not t:
         raise RuntimeError("The Twitch sign-in window was closed before you signed in.")

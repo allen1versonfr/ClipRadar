@@ -2,7 +2,7 @@
 A system-wide "clip that" key (Ctrl+Alt+C) for live mode on Windows.
 
 It works while you're watching the stream in another window or playing a game:
-VodClipper hears the key, clips the last 30 seconds and plays a short sound.
+Clip Radar hears the key, clips the last 30 seconds and plays a short sound.
 Elsewhere (or if another app already owns the shortcut) it simply reports that
 it isn't available.
 """

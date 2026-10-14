@@ -1,34 +1,39 @@
-VodClipper
+Clip Radar
 ==========
 Turns a Twitch VOD into vertical TikTok clips. It finds the best moments,
 lets you review and trim them, then renders 1080x1920 MP4s with captions.
 Everything runs on your own PC.
 
 INSTALL
-  Download VodClipper-Setup.exe from the repo's Releases page and run it.
-  It installs VodClipper for your user (no admin prompt) and adds Start menu
+  Download ClipRadar-Setup.exe from the repo's Releases page and run it.
+  It installs Clip Radar for your user (no admin prompt) and adds Start menu
   and desktop shortcuts. Windows may show a SmartScreen warning because the
   app isn't signed: More info > Run anyway.
 
-  No-install option: VodClipper-portable.zip. Unzip anywhere and run
-  VodClipper.exe. To remove it, delete the folder.
+  No-install option: ClipRadar-portable.zip. Unzip anywhere and run
+  ClipRadar.exe. To remove it, delete the folder.
 
 UPDATES
-  VodClipper checks GitHub for a new version when it starts (and every few
+  Clip Radar checks GitHub for a new version when it starts (and every few
   hours). When there is one, "Update to x.y.z" appears in the status bar.
   Settings > Updates shows what's new; Update now downloads it, closes
-  VodClipper, installs it and opens VodClipper again. Your clips, projects and
+  Clip Radar, installs it and opens Clip Radar again. Your clips, projects and
   settings are kept. Turn off "Check for updates automatically" there if you
   prefer to check yourself. The portable version links to the download page.
-  If VodClipper's GitHub repository is private, the updater needs a read-only
+  Clip Radar was called VodClipper before version 4.0. Updating VodClipper
+  in the app installs Clip Radar over it: the old program folder and
+  shortcuts go, and on first start your settings move to
+  %LOCALAPPDATA%\ClipRadar and your clips folder to Videos\Clip Radar,
+  with everything in Exports and your projects still in place.
+  If Clip Radar's GitHub repository is private, the updater needs a read-only
   access token: Settings > Updates > Private repository explains how to make
   one. It's stored encrypted for your Windows account.
 
 UNINSTALL
   Any of these:
-    - Settings > Apps > Installed apps > VodClipper > Uninstall
-    - Start menu > Uninstall VodClipper
-    - In VodClipper: Settings > About > Uninstall
+    - Settings > Apps > Installed apps > Clip Radar > Uninstall
+    - Start menu > Uninstall Clip Radar
+    - In Clip Radar: Settings > About > Uninstall
   It removes the app, its downloaded tools, caption models and logs, then asks
   whether to delete your VODs and clips too (it keeps them unless you say Yes).
 
@@ -38,14 +43,14 @@ BUILD IT YOURSELF (optional)
   own PC instead, run scripts\build_exe.bat from the source code.
 
 USE
-  VodClipper has four sections in the left sidebar: Home, Review, Exports and
+  Clip Radar has four sections in the left sidebar: Home, Review, Exports and
   Settings. The status bar at the bottom shows what's running in the background.
 
   Home: start a project
     Past broadcast   paste a link or Browse to a video on your PC, then Find
                      clips. Links can be a Twitch VOD (twitch.tv/videos/...), a
                      YouTube video, Short or finished livestream, or an X post
-                     with a video. VodClipper says what the link is first
+                     with a video. Clip Radar says what the link is first
                      (an ordinary video, a finished livestream, or one that's
                      live now) and explains in plain words when it can't be
                      used: private, age-restricted or members-only (choose
@@ -99,7 +104,7 @@ USE
       Skip (X)                  sets it aside (Skipped tab)
     The header shows how many strong moments the stream has (for example
     "about 21 strong moments in this 7-hour stream"). What you keep, skip and
-    post teaches VodClipper what you like for each streamer; after about eight
+    post teaches Clip Radar what you like for each streamer; after about eight
     decisions the header says "Tuned to your picks" (Settings > Clip ranking).
     Gems tab (after a Deep scan): quiet gems, lines that landed (the streamer
     laughed after, chat reacted, the voice changed, a punchline) even though
@@ -114,7 +119,7 @@ USE
     Ctrl+scroll (or - Fit +) to zoom. Times are stream times.
     Trim in the Clip tab by a second (-1s/+1s) or a single frame (-1f/+1f), or
     press I and O to start or end the clip at the playhead. Restore original
-    cut goes back to the cut VodClipper found. Undo and Redo (Ctrl+Z,
+    cut goes back to the cut Clip Radar found. Undo and Redo (Ctrl+Z,
     Ctrl+Shift+Z) cover trims, titles, post captions and caption edits.
     Frame back/forward (, and .), playback speed (< and >), and ? shows every
     shortcut.
@@ -146,19 +151,19 @@ USE
     rendered, a clip you asked for goes first, then the strongest.
     Wait for the stream to start: start before the channel goes live and
     recording begins by itself. Keep watching: after the stream ends,
-    VodClipper waits for the channel's next stream and starts again.
+    Clip Radar waits for the channel's next stream and starts again.
     Send finished clips to my TikTok drafts (hands-free, optional): each clip
     is uploaded to your TikTok inbox; you finish the post in the TikTok app.
     TikTok only allows a few pending drafts a day.
       Ctrl+Alt+C          clip the last 30 seconds from ANY window (a sound
                           confirms it). Turn it off in Settings > Live clipping.
-      Clip last 30s (C)   the same, from inside VodClipper
+      Clip last 30s (C)   the same, from inside Clip Radar
       Stop                stop recording; you can keep reviewing afterwards
     Only the last 15 minutes of raw stream are kept on disk; moments are cut out
     as they happen, so long streams don't fill your drive. If the connection
     drops it reconnects, and it notices when the stream ends.
     Ads: Twitch stitches ads into live streams for viewers without Turbo.
-    VodClipper recognises those ad breaks and leaves them out of the recording,
+    Clip Radar recognises those ad breaks and leaves them out of the recording,
     so they never end up in a clip (the header shows "Ads skipped"). Sign in
     under Settings > Twitch sign-in with an account that has Turbo (or a sub to
     the channel) and Twitch sends the ad-free stream instead.
@@ -170,7 +175,7 @@ USE
     full") and what to do, with a Retry button. Retry failed retries them all.
     A retry replaces its own file instead of making a "(2)" copy, and every
     finished file is checked before it shows as done. Exports and any renders
-    that hadn't finished are kept when you close VodClipper; unfinished
+    that hadn't finished are kept when you close Clip Radar; unfinished
     renders start again the next time you open it.
 
 CONTENT CHECK (Settings > Content check)
@@ -204,7 +209,7 @@ CONTENT CHECK (Settings > Content check)
     you change what the check looks for. History on each clip lists what was
     decided. Decisions are saved with the VOD.
     Dismissing or leaving a flag never means a clip is safe. This is
-    VodClipper's own check, not TikTok's decision.
+    Clip Radar's own check, not TikTok's decision.
 
   Settings for reviewing
     Sensitivity: Everything, Skip mild (no swearing or gambling) or Only
@@ -215,7 +220,7 @@ CONTENT CHECK (Settings > Content check)
     edit or fix it.
 
   Auto titles and captions
-    VodClipper listens to each clip (Whisper) and reads how chat reacted, then
+    Clip Radar listens to each clip (Whisper) and reads how chat reacted, then
     writes two titles:
       A  the best line said near the peak, or a short line about how chat
          reacted (laughing, hyped, shocked...)
@@ -243,7 +248,7 @@ POSTING TO TIKTOK
   and press Post (or Send to drafts to finish posting in the TikTok app).
   Until TikTok reviews your developer app, direct posts can only be private
   ("Only me"); that's TikTok's rule for new apps. Drafts work either way.
-  VodClipper never posts on its own; every post is a click you make.
+  Clip Radar never posts on its own; every post is a click you make.
 
 STORAGE FOLDERS
   Settings > Storage lists where each kind of file goes, with the free space
@@ -257,17 +262,17 @@ STORAGE FOLDERS
     Temporary files          exact previews, framing data and the live
                              recording buffer. Clear empties it; it never
                              touches your videos, projects or clips.
-    Logs                     vodclipper.log
+    Logs                     clipradar.log
   A folder is checked before it's used (it must exist or be creatable, and be
   writable). New work goes to the new folder; nothing already saved is moved,
   and projects in a previous Projects folder still show up. A folder on a
   drive that isn't plugged in falls back to the default until it's back, and
-  VodClipper says so. Downloads stop before starting if the drive is too full,
+  Clip Radar says so. Downloads stop before starting if the drive is too full,
   and a second render at once waits while memory is short.
 
 FREEING UP SPACE
   Downloaded VODs are big (several GB per stream). Settings > Storage shows
-  how much space VodClipper is using:
+  how much space Clip Radar is using:
     Delete VODs       removes downloaded streams (and their chat/thumbnails).
                       Your rendered clips are kept. Videos of your own that you
                       opened with Browse are never deleted.
@@ -293,7 +298,7 @@ HOW CLIPS ARE PICKED
   - Laughter, screams and cheering, heard by a small built-in sound detector
     (Advanced > Listen for laughter, on by default; it adds about a minute per
     hour of video). Loud music counts for less.
-  - Chat delay: chat reacts a few seconds late. VodClipper works out how late
+  - Chat delay: chat reacts a few seconds late. Clip Radar works out how late
     from the stream itself (leave Advanced > Chat delay empty), or uses the
     number you type.
   - Where a clip starts and ends: far enough back to show the setup (and,
@@ -392,11 +397,11 @@ TROUBLESHOOTING
     you're logged in to Twitch; close that browser first.)
   - Ads still pause live recordings: that's expected without Turbo or a sub;
     the ads are left out of the clips either way.
-  - The window doesn't open: VodClipper falls back to your web browser.
+  - The window doesn't open: Clip Radar falls back to your web browser.
     Installing Microsoft's "WebView2 Runtime" brings the app window back.
   - Preview won't play: some files (MKV, HEVC) can't play in the preview.
     Finding and rendering clips still works.
   - Something else broke: send the log file at
-    %LOCALAPPDATA%\VodClipper\vodclipper.log
+    %LOCALAPPDATA%\ClipRadar\clipradar.log
 
 Only clip VODs you own or have permission to repost.

@@ -2,7 +2,7 @@
 Third-party Twitch emotes: 7TV, BetterTTV and FrankerFaceZ.
 
 Chat is full of emotes those extensions add ("ICANT", "OMEGALUL", "Aware"...). Twitch's chat
-replay only has their names as plain words, so to recognise them VodClipper fetches the
+replay only has their names as plain words, so to recognise them Clip Radar fetches the
 channel's emote lists (and each service's global list) and caches them for a day. Only the
 names are used, never the images.
 
@@ -24,16 +24,16 @@ from typing import Optional
 
 import paths
 
-_BASE = os.environ.get("VODCLIPPER_EMOTE_API", "").rstrip("/")
+_BASE = os.environ.get("CLIPRADAR_EMOTE_API", "").rstrip("/")
 API = {
     "7tv": (_BASE + "/7tv") if _BASE else "https://7tv.io",
     "bttv": (_BASE + "/bttv") if _BASE else "https://api.betterttv.net",
     "ffz": (_BASE + "/ffz") if _BASE else "https://api.frankerfacez.com",
 }
-GQL = os.environ.get("VODCLIPPER_TWITCH_GQL", "https://gql.twitch.tv/gql")
+GQL = os.environ.get("CLIPRADAR_TWITCH_GQL", "https://gql.twitch.tv/gql")
 WEB_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 MAX_AGE = 24 * 3600          # refresh cached lists after a day
-UA = {"User-Agent": "VodClipper (+https://github.com/allen1versonfr/vodclipper)"}
+UA = {"User-Agent": "ClipRadar (+https://github.com/allen1versonfr/vodclipper)"}
 _lock = threading.Lock()
 _mem: dict = {}
 

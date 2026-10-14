@@ -6,9 +6,9 @@ rules, sequential Content-Range uploads, privacy options) and walks posts
 through PROCESSING_UPLOAD -> PUBLISH_COMPLETE (or SEND_TO_USER_INBOX for drafts).
 
   python mock_tiktok.py PORT [--unaudited]
-Point VodClipper at it with:
-  VODCLIPPER_TIKTOK_API=http://127.0.0.1:PORT
-  VODCLIPPER_TIKTOK_AUTH=http://127.0.0.1:PORT/v2/auth/authorize/
+Point Clip Radar at it with:
+  CLIPRADAR_TIKTOK_API=http://127.0.0.1:PORT
+  CLIPRADAR_TIKTOK_AUTH=http://127.0.0.1:PORT/v2/auth/authorize/
 """
 
 from __future__ import annotations

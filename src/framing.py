@@ -3,7 +3,7 @@ Framing (3.9): find faces in the video, follow the streamer smoothly in vertical
 facecam in a corner, and suggest a layout.
 
 Faces come from a small face detector (UltraFace RFB-320, MIT licence, about 1 MB as ONNX) run
-on onnxruntime, which VodClipper already ships for the laughter detector. Frames are read with
+on onnxruntime, which Clip Radar already ships for the laughter detector. Frames are read with
 ffmpeg at a few per second, small, so a 60 s clip takes a few seconds.
 
 Everything degrades gracefully: no model, no faces or low confidence means the crop stays where

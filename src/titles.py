@@ -1,7 +1,7 @@
 """
 Auto titles for clips.
 
-VodClipper "watches" a clip the way a clipper would: it listens to what the
+Clip Radar "watches" a clip the way a clipper would: it listens to what the
 streamer says (Whisper transcript) and reads how chat reacted. From that it
 picks a vibe (funny / hype / shock / fail / wholesome), looks for a quotable
 line near the peak, and writes:

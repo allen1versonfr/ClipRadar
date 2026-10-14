@@ -4,7 +4,7 @@ Builds src/models/audio_events.onnx: the laughter / scream / cheer detector.
 It takes the pretrained EfficientAT MobileNetV3 "mn10_as" AudioSet model
 (https://github.com/fschmid56/EfficientAT, MIT licence), exports the network
 (log-mel in, 527 class probabilities out) to ONNX, and checks that
-VodClipper's numpy front end (src/audio_events.py) and the ONNX model give the
+Clip Radar's numpy front end (src/audio_events.py) and the ONNX model give the
 same answers as the original PyTorch code.
 
   git clone https://github.com/fschmid56/EfficientAT

@@ -1,5 +1,5 @@
 """
-Downloads and updates the helper programs VodClipper uses (Windows):
+Downloads and updates the helper programs Clip Radar uses (Windows):
   ffmpeg / ffprobe       cutting, reframing and encoding video
   TwitchDownloaderCLI    chat replay (and a backup VOD downloader)
   yt-dlp                 VOD downloader, updated whenever Twitch changes things
@@ -33,7 +33,7 @@ FFMPEG_ZIP_MIRROR = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/la
                      "ffmpeg-master-latest-win64-gpl.zip")
 TDL_API = "https://api.github.com/repos/lay295/TwitchDownloader/releases/latest"
 YTDLP_EXE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-UA = {"User-Agent": "VodClipper/1.0 (+https://github.com)"}
+UA = {"User-Agent": "ClipRadar/1.0 (+https://github.com)"}
 
 
 def _noop(*_a, **_k):

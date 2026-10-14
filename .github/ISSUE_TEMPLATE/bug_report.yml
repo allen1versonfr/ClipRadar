@@ -5,7 +5,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: VodClipper version
+      label: Clip Radar version
       description: Shown in the bottom-right corner and in Settings › About.
       placeholder: 2.0.0
     validations:
@@ -28,5 +28,5 @@ body:
     id: log
     attributes:
       label: Log
-      description: Paste the end of `%LOCALAPPDATA%\VodClipper\vodclipper.log` (remove anything private).
+      description: Paste the end of `%LOCALAPPDATA%\ClipRadar\clipradar.log` (remove anything private).
       render: text

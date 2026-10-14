@@ -3,7 +3,7 @@ import os
 import sys
 import tempfile
 
-os.environ.setdefault("VODCLIPPER_DATA", tempfile.mkdtemp(prefix="vc_safety_"))
+os.environ.setdefault("CLIPRADAR_DATA", tempfile.mkdtemp(prefix="vc_safety_"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 import safety  # noqa: E402
 

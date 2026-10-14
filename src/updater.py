@@ -1,13 +1,13 @@
 """
 Updates from GitHub Releases.
 
-VodClipper checks the latest release of the repository and compares its tag
+Clip Radar checks the latest release of the repository and compares its tag
 (vX.Y.Z) with the running version. Installed copies download the new
-VodClipper-Setup.exe and run it silently; the installer closes VodClipper,
+ClipRadar-Setup.exe and run it silently; the installer closes Clip Radar,
 upgrades it in place and opens it again. Portable and source copies just point
 to the release page.
 
-VODCLIPPER_UPDATE_API overrides the release URL (tests).
+CLIPRADAR_UPDATE_API overrides the release URL (tests).
 """
 
 from __future__ import annotations
@@ -28,9 +28,10 @@ import paths
 from version import VERSION
 
 REPO = "allen1versonfr/vodclipper"
-API = os.environ.get("VODCLIPPER_UPDATE_API", f"https://api.github.com/repos/{REPO}/releases/latest")
+API = os.environ.get("CLIPRADAR_UPDATE_API", f"https://api.github.com/repos/{REPO}/releases/latest")
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
-SETUP_ASSET = "VodClipper-Setup.exe"
+SETUP_ASSET = "ClipRadar-Setup.exe"
+OLD_ASSET = "VodClipper-Setup.exe"         # releases also carry the installer under the old name, for VodClipper's updater
 AUTO_EVERY = 6 * 3600                      # background check interval
 PREFS = paths.DATA_DIR / "update.json"
 DOWNLOADS = paths.DATA_DIR / "updates"
@@ -132,7 +133,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _request(url: str, timeout: float = 15, accept: str = "application/vnd.github+json", auth: bool = True):
-    headers = {"Accept": accept, "User-Agent": f"VodClipper/{VERSION}", "X-GitHub-Api-Version": "2022-11-28"}
+    headers = {"Accept": accept, "User-Agent": f"Clip Radar/{VERSION}", "X-GitHub-Api-Version": "2022-11-28"}
     tok = get_token() if auth else ""
     if tok:
         headers["Authorization"] = f"Bearer {tok}"
@@ -174,7 +175,9 @@ def check(log=print) -> dict:
         tag = rel.get("tag_name") or ""
         if not parse_version(tag):
             raise ValueError(f"unexpected release tag {tag!r}")
-        asset = next((a for a in rel.get("assets") or [] if a.get("name") == SETUP_ASSET), {})
+        assets = rel.get("assets") or []
+        asset = next((a for a in assets if a.get("name") == SETUP_ASSET), None) or \
+            next((a for a in assets if a.get("name") == OLD_ASSET), {})
         avail = newer(tag, VERSION)
         with _lock:
             _asset.clear()
@@ -191,8 +194,8 @@ def check(log=print) -> dict:
         elif e.code in (403, 429):
             msg = "GitHub is limiting update checks right now. Try again in an hour."
         elif e.code == 404:
-            msg = ("Your access token can't see VodClipper's releases. Give it read access to the repository's contents."
-                   if has_tok else "Couldn't find VodClipper's releases. The repository is private: add a GitHub "
+            msg = ("Your access token can't see Clip Radar's releases. Give it read access to the repository's contents."
+                   if has_tok else "Couldn't find Clip Radar's releases. The repository is private: add a GitHub "
                    "access token under Private repository below, or make the repository public.")
         else:
             msg = f"Couldn't check for updates (GitHub said {e.code})."
@@ -221,12 +224,12 @@ def download(log=print) -> str:
         ver = state["latest"]
         state.update(state="downloading", progress=0.0, error="")
     DOWNLOADS.mkdir(parents=True, exist_ok=True)
-    for old in DOWNLOADS.glob("VodClipper-Setup-*"):        # earlier updates
+    for old in [*DOWNLOADS.glob("ClipRadar-Setup-*"), *DOWNLOADS.glob("VodClipper-Setup-*")]:        # earlier updates
         try:
             old.unlink()
         except OSError:
             pass
-    dest = DOWNLOADS / f"VodClipper-Setup-{ver}.exe"
+    dest = DOWNLOADS / f"ClipRadar-Setup-{ver}.exe"
     part = dest.with_suffix(".part")
     try:
         h = hashlib.sha256()
@@ -268,9 +271,9 @@ def download(log=print) -> str:
 
 
 def launch_installer(path: str, log=print):
-    """Run Setup silently. It waits for VodClipper to close, upgrades it, then opens it again."""
+    """Run Setup silently. It waits for Clip Radar to close, upgrades it, then opens it again."""
     if not installed():
-        raise RuntimeError("This copy of VodClipper wasn't installed with Setup, so it can't update itself.")
+        raise RuntimeError("This copy of Clip Radar wasn't installed with Setup, so it can't update itself.")
     args = [path, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/UPDATE=1",
             f"/LOG={DOWNLOADS / 'update-install.log'}"]
     flags = 0x00000008 | 0x00000200        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP

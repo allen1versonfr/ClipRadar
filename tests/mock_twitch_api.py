@@ -1,5 +1,5 @@
 """
-Stand-in for the two Twitch endpoints VodClipper calls when you sign in:
+Stand-in for the two Twitch endpoints Clip Radar calls when you sign in:
 id.twitch.tv/oauth2/validate (whose token is this?) and gql.twitch.tv (Turbo?).
 Accepts one token, GOOD, and says that account has Turbo.
 """
@@ -31,7 +31,7 @@ class H(BaseHTTPRequestHandler):
         return self.headers.get("Authorization", "") == f"OAuth {GOOD}"
 
     def do_GET(self):
-        emotes = {   # 7TV, BetterTTV and FrankerFaceZ stand-ins (VODCLIPPER_EMOTE_API points here)
+        emotes = {   # 7TV, BetterTTV and FrankerFaceZ stand-ins (CLIPRADAR_EMOTE_API points here)
             "/7tv/v3/emote-sets/global": {"emotes": [{"name": "EZ"}, {"name": "Clap"}]},
             "/7tv/v3/users/twitch/1": {"emote_set": {"emotes": [{"name": "ICANT"}, {"name": "Aware"}]}},
             "/bttv/3/cached/emotes/global": [{"code": "LULW"}],
