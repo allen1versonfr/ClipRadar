@@ -33,7 +33,7 @@ jobs:
           set -u
           current=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' src/version.py)
           mkdir -p dist
-          made=0; added=0; skipped=""
+          made=0; added=0; skipped=""; failed=0
           for ver in $(grep -oP '^## \[\K[0-9]+\.[0-9]+\.[0-9]+(?=\])' CHANGELOG.md); do
             tag="v$ver"
             if [ "$ver" = "$current" ]; then continue; fi
@@ -49,15 +49,35 @@ jobs:
             title=$([ "$major" -ge 4 ] && echo "Clip Radar $ver" || echo "VodClipper $ver")
             zip="dist/$name-$ver-source.zip"
             git archive --format=zip --prefix="$name-$ver/" -o "$zip" "$sha"
+            if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              # the tag first, with git (creating it through the releases API can be refused for old commits)
+              # GitHub won't let this workflow's token tag a commit that carries other workflow files (old CI
+              # setups), so the tag goes on a copy of that version's code without the .github folder. The full
+              # original, CI files included, is the attached source zip.
+              export GIT_INDEX_FILE="$RUNNER_TEMP/archive.index"
+              git read-tree "$sha" && git rm -r -q --cached --ignore-unmatch .github >/dev/null
+              tree=$(git write-tree); unset GIT_INDEX_FILE
+              commit=$(git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" \
+                       commit-tree "$tree" -m "$title, archived (code from ${sha:0:7})")
+              git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" tag -a "$tag" -m "$title (archived)" "$commit"
+              if ! out=$(git push origin "refs/tags/$tag" 2>&1); then
+                echo "::error title=Couldn't tag $ver::$(echo "$out" | tr '\n' ' ' | cut -c1-400)"; failed=1; continue
+              fi
+            fi
             if gh release view "$tag" >/dev/null 2>&1; then
               if ! gh release view "$tag" --json assets -q '.assets[].name' | grep -qx "$name-$ver-source.zip"; then
-                gh release upload "$tag" "$zip" && added=$((added+1))
+                if out=$(gh release upload "$tag" "$zip" 2>&1); then added=$((added+1)); else echo "::error title=Couldn't add source to $tag::$(echo "$out" | tr '\n' ' ' | cut -c1-400)"; failed=1; fi
               fi
             else
               # this version's section of the changelog
               awk -v v="$ver" '$0 ~ "^## \\["v"\\]" {on=1; next} on && /^## \[/ {exit} on && /^\[[0-9]/ {exit} on {print}' CHANGELOG.md > notes.md
               printf '\n---\nArchived: the source code of this version (no installer was published for it). Built from commit %s.\n' "${sha:0:7}" >> notes.md
-              gh release create "$tag" "$zip" --target "$sha" --title "$title" --notes-file notes.md --latest=false && made=$((made+1))
+              if out=$(gh release create "$tag" "$zip" --verify-tag --title "$title" --notes-file notes.md --latest=false 2>&1); then
+                made=$((made+1))
+              else
+                echo "::error title=Couldn't archive $ver::$(echo "$out" | tr '\n' ' ' | cut -c1-400)"; failed=1
+              fi
             fi
           done
           echo "::notice title=Archive::$made release(s) created, $added source archive(s) added${skipped:+; no commit found for$skipped}"
+          exit $failed
