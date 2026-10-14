@@ -42,15 +42,37 @@ USE
   Settings. The status bar at the bottom shows what's running in the background.
 
   Home: start a project
-    Past broadcast   paste a VOD link (twitch.tv/videos/...) or Browse to a video
-                     on your PC, then Find clips.
+    Past broadcast   paste a link or Browse to a video on your PC, then Find
+                     clips. Links can be a Twitch VOD (twitch.tv/videos/...), a
+                     YouTube video, Short or finished livestream, or an X post
+                     with a video. VodClipper says what the link is first
+                     (an ordinary video, a finished livestream, or one that's
+                     live now) and explains in plain words when it can't be
+                     used: private, age-restricted or members-only (choose
+                     your browser under Advanced > Sign in with), removed,
+                     not available in your country, or a post with no video.
+                     A finished YouTube livestream brings its chat replay, so
+                     chat counts like it does for Twitch. A link with a start
+                     time (?t=1m30s) opens the preview there. Each clip has a
+                     link back to that moment in the original (Clip tab, and
+                     Copy source link in Exports) for crediting the source.
                      Clips to suggest and Clip length are Automatic by default:
                      the number scales with how long the stream is and how much
                      happened, and each clip gets its own length (15-90 s).
                      Deep scan (optional) also transcribes the whole stream to
                      find quiet gems (see below).
-    Live channel     enter a channel name (or twitch.tv/name) and press Start live
-                     clipping while the stream is on air.
+    Live stream      enter a Twitch channel (twitch.tv/name) or a YouTube
+                     livestream link and press Start live clipping while the
+                     stream is on air. YouTube live chat isn't read, so YouTube
+                     streams are clipped from what's on stream.
+    Running now      every video being opened and every stream being clipped,
+                     with its progress. Open, Pause (Resume carries on where the
+                     download stopped), Cancel or Stop each one by itself; one
+                     failing doesn't affect the others. You can open another
+                     video while one is still being opened, and clip up to
+                     three streams at once (Settings > Performance > Live
+                     streams at once; two by default). Each source keeps its
+                     own folder, chat, captions and clip numbers.
 
   Review: decide what to keep
     The suggested clips are listed on the left. The middle shows the selected

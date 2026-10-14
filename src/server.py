@@ -52,6 +52,7 @@ import detect
 import emotes
 import exports
 import framing
+import sources
 import gems
 import learning
 import persist
@@ -160,9 +161,14 @@ def run_job(job, fn):
             job["progress"] = 1.0
             job["step"] = "Done"
         except engine.Cancelled:
-            job["status"] = "cancelled"
-            job["step"] = "Cancelled"
-            job_logger(job)("Cancelled.")
+            if job.get("pause"):
+                job["status"] = "paused"            # Resume starts it again; downloads carry on where they stopped
+                job["step"] = "Paused"
+                job_logger(job)("Paused.")
+            else:
+                job["status"] = "cancelled"
+                job["step"] = "Cancelled"
+                job_logger(job)("Cancelled.")
         except Exception as e:
             job["status"] = "error"
             job["error"] = str(e) or type(e).__name__
@@ -364,6 +370,18 @@ def clip_dicts(pid: str, clips: list, kind: str = "hype") -> list:
     return out
 
 
+def _origin(pr: dict) -> dict:
+    """Where the video came from: platform, what kind of video, who made it, and links back to it."""
+    m = engine._meta(pr.get("workdir", ""))
+    c = sources.classify(m.get("source") or pr.get("source") or "")
+    plat = m.get("platform") or c["platform"]
+    return {"platform": plat, "platform_label": sources.PLATFORMS.get(plat, "Web"),
+            "kind": m.get("kind") or c["kind"], "label": m.get("label") or c["label"],
+            "uploader": m.get("uploader", ""), "uploaded": m.get("uploaded", ""),
+            "url": m.get("source") or pr.get("source", ""), "start": float(m.get("start") or 0),
+            "link": sources.link_template(m)}
+
+
 def project_view(pid: str) -> dict:
     pr = projects[pid]
     an = pr["analysis"]
@@ -387,6 +405,7 @@ def project_view(pid: str) -> dict:
         "detect_text": detect.describe(pr.get("detect") or {}, an.chat_delay if getattr(an, "delay_sure", False) else None,
                                        an.has_chat),
         "chat_delay": an.chat_delay,
+        "origin": _origin(pr),
         "emotes_known": getattr(an, "emotes_known", 0),
         "presets": [{"key": k, "label": v["label"], "hint": v["hint"], "chat": v["chat"], "min": v["min"], "max": v["max"]}
                     for k, v in detect.PRESETS.items()],
@@ -475,7 +494,7 @@ def do_analyze(job, body: dict):
     log, step, check = job_logger(job), job_step(job), job_check(job)
     src = (body.get("source") or "").strip()
     if not src:
-        raise RuntimeError("Paste a Twitch VOD link or the path to a video file.")
+        raise RuntimeError("Paste a Twitch, YouTube or X video link, or the path to a video file.")
     step("Getting the VOD")
     with _download_slot(job, step, check), twitchauth.cookie_file() as cookie:
         s = engine.acquire(src, WORKROOT, chat_file=body.get("chat_file") or "",
@@ -1063,6 +1082,10 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
           "fix_spans": checkflow.render_spans(d) if d else [],
           "keep_fps": [f["fp"] for f in ((d or {}).get("safety") or {}).get("flags", [])
                        if f.get("status") in ("accepted", "dismissed")]}
+    try:
+        it["link"] = sources.link_at(engine._meta(pr.get("workdir", "")), start_)    # back to the source, at this moment
+    except Exception:
+        it["link"] = ""
     prefs = exports.load()
     ex = exports.settings(prefs)
     it["export"] = ex
@@ -1635,8 +1658,45 @@ live_sessions: dict = {}
 SERVER_PORT = [PORT]
 
 
+LIVE_ON = ("starting", "waiting", "recording", "reconnecting")
+
+
 def live_active():
-    return next((s for s in live_sessions.values() if s.status in ("starting", "waiting", "recording", "reconnecting")), None)
+    return next((s for s in live_sessions.values() if s.status in LIVE_ON), None)
+
+
+def live_list() -> list:
+    return [s for s in live_sessions.values() if s.status in LIVE_ON]
+
+
+def _same_source(a: str, b: str) -> bool:
+    ca, cb = sources.classify(a), sources.classify(b)
+    return (ca["platform"], ca["id"] or ca["url"].lower()) == (cb["platform"], cb["id"] or cb["url"].lower())
+
+
+def sources_view() -> dict:
+    """Everything going on, per source (Home › Sources): VODs being opened and streams being clipped."""
+    out = []
+    for j in sorted(jobs.values(), key=lambda j: j["started"]):
+        if j["kind"] != "analyze" or (j["status"] in ("done", "cancelled") and time.time() - j["started"] > 1800):
+            continue
+        body = j.get("body") or {}
+        c = sources.classify(body.get("source", ""))
+        res = j.get("result") or {}
+        out.append({"type": "vod", "id": j["id"], "status": j["status"], "step": j["step"], "progress": round(j["progress"], 3),
+                    "eta": j.get("eta"), "source": body.get("source", ""), "label": c["label"],
+                    "title": res.get("title") or (os.path.basename(body.get("source", "")) if c["platform"] == "local" else c["url"]),
+                    "pid": res.get("pid", ""), "error": (j.get("error") or "").splitlines()[0] if j.get("error") else "",
+                    "started": j["started"]})
+    for sess in live_sessions.values():
+        if sess.status not in LIVE_ON and time.time() - sess.started > 6 * 3600:
+            continue
+        out.append({"type": "live", "id": sess.id, "status": sess.status, "title": sess.title, "source": sess.source,
+                    "label": sources.classify(sess.source)["label"] if not sess.channel else "Twitch livestream",
+                    "recorded": sess.recorded, "moments": len(sess.moments), "chat_state": sess.chat_state(),
+                    "error": sess.error, "started": sess.started})
+    p = exports.load()
+    return {"items": out, "limits": {"downloads": p["downloads"], "lives": p["lives"]}}
 
 
 def on_hotkey():
@@ -1979,6 +2039,7 @@ class Handler(BaseHTTPRequestHandler):
                 "version": VERSION,
                 "running": busy(),
                 "live": (live_active().id if live_active() else ""),
+                "lives": [{"id": x.id, "title": x.title, "status": x.status} for x in live_list()],
                 "hotkey": hotkey.status(),
             })
         if p == "/api/update":
@@ -2023,6 +2084,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"items": items, "eta": queue_eta(), "workers": MAX_WORKERS[0]})
         if p == "/api/export":
             return self._json(export_view())
+        if p == "/api/sources":
+            return self._json(sources_view())
         m = re.fullmatch(r"/api/framing/(\w+)", p)
         if m:
             # Layout › Auto-frame: what fits this video (a facecam, a person filling the frame, or neither)
@@ -2050,6 +2113,11 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 return self._err("bad range")
             return self._json(strip_data(pr, a, b))
+        m = re.fullmatch(r"/api/project/(\w+)", p)
+        if m:
+            if m.group(1) not in projects:
+                return self._err("This session expired. Press Find clips again.", 404)
+            return self._json(project_view(m.group(1)))
         m = re.fullmatch(r"/api/clips/(\w+)", p)
         if m:
             pr = projects.get(m.group(1))
@@ -2132,9 +2200,41 @@ class Handler(BaseHTTPRequestHandler):
     def _post(self, p: str, body: dict):
 
         if p == "/api/analyze":
+            src = (body.get("source") or "").strip()
+            dup = next((j for j in jobs.values() if j["kind"] == "analyze" and j["status"] == "running"
+                        and _same_source((j.get("body") or {}).get("source", ""), src)), None)
+            if dup:
+                return self._json({"job": dup["id"], "already": True})     # opening it already
             job = new_job("analyze")
+            job["body"] = dict(body)
             run_job(job, lambda: do_analyze(job, body))
             return self._json({"job": job["id"]})
+
+        if p == "/api/sources/pause":
+            job = jobs.get(body.get("job", ""))
+            if job and job["kind"] == "analyze" and job["status"] == "running":
+                job["pause"] = job["cancel"] = True
+                job["step"] = "Pausing"
+            return self._json(sources_view())
+
+        if p == "/api/sources/resume":
+            old = jobs.get(body.get("job", ""))
+            if not old or old["kind"] != "analyze" or old["status"] not in ("paused", "error", "cancelled"):
+                return self._err("Nothing to resume.")
+            job = new_job("analyze")
+            job["body"] = dict(old.get("body") or {})
+            run_job(job, lambda: do_analyze(job, job["body"]))
+            jobs.pop(old["id"], None)
+            return self._json({"job": job["id"]})
+
+        if p == "/api/sources/forget":
+            job = jobs.get(body.get("job", ""))
+            if job and job["status"] != "running":
+                jobs.pop(job["id"], None)
+            sess = live_sessions.get(body.get("live", ""))
+            if sess and sess.status not in LIVE_ON:
+                sess.started = 0                    # drops out of the list
+            return self._json(sources_view())
 
         if p == "/api/setup_tools":
             want = [w for w in body.get("want", []) if w in ("ffmpeg", "twitchdownloader", "ytdlp", "laughter")]
@@ -2239,11 +2339,16 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if p == "/api/live/start":
-            if live_active():
-                return self._err("Live clipping is already running. Stop it first.", 409)
+            src = (body.get("source") or "").strip()
+            on = live_list()
+            if any(_same_source(sess.source, src) for sess in on):
+                return self._err("That stream is already being clipped.", 409)
+            limit = exports.load()["lives"]
+            if len(on) >= limit:
+                return self._err(f"Already clipping {len(on)} stream{'s' if len(on) != 1 else ''}. Stop one first, or allow more under "
+                                 "Settings › Performance › Live streams at once.", 409)
             if not engine.which("ffmpeg"):
                 return self._err("ffmpeg is missing. Download the tools first.")
-            src = (body.get("source") or "").strip()
             try:
                 sess = start_live_session(src, dict(body))
             except ValueError as e:
@@ -2619,6 +2724,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True})
             if act == "hotkey":
                 return self._json({"ok": hotkey.simulate()})
+            if act == "yt_hls":
+                # stands in for YouTube: live links resolve to this playlist (a local test stream)
+                os.environ["VODCLIPPER_TEST_YT_HLS"] = str(body.get("url") or "")
+                return self._json({"ok": True})
             return self._err("not found", 404)
 
         if p == "/api/safety":

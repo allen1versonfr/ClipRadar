@@ -203,10 +203,12 @@ function updateStatusBar() {
 const LIVE_ON = ['recording', 'reconnecting', 'starting', 'waiting'];
 function updateLivePill() {
   const mine = W && W.kind === 'live' && W.live && LIVE_ON.includes(W.live.status);
+  const n = (status.lives || []).length;
   $('#livePill').hidden = !(mine || status.live);
-  $('#livePillText').textContent = mine ? (W.live.status === 'waiting' ? 'Waiting for stream' : `Live ${fmt(W.live.recorded)}`) : 'Live clipping';
+  $('#livePillText').textContent = n > 1 ? `Live: ${n} streams` : mine ? (W.live.status === 'waiting' ? 'Waiting for stream' : `Live ${fmt(W.live.recorded)}`) : 'Live clipping';
 }
 $('#livePill').onclick = async () => {
+  if ((status.lives || []).length > 1) { setView('home'); loadSources(); return; }     // pick one under Running now
   if (status.live && (!W || W.kind !== 'live' || W.sid !== status.live)) {
     try { openLive(await api('/api/live/' + status.live), false); } catch (e) { toast(e.message, 'err'); }
   } else setView('review');
@@ -301,26 +303,88 @@ $('#analyze').onclick = async () => {
   if (status.ffmpeg === false) { toast('Download the missing tools first.', 'err'); return; }
   store.set('src', source);
   $('#analyze').disabled = true; $('#vodJob').hidden = false; $('#vodErr').textContent = ''; $('#vodLog').textContent = '';
+  let started = false;
   try {
     const { job } = await api('/api/analyze', { source, chat_file: $('#chatFile').value, count: +$('#count').value,
       length: +$('#length').value, chat_weight: +$('#cw').value, detect: detectAsked(), emotes: $('#useEmotes').checked,
       max_height: +$('#maxh').value, cookies: $('#cookies').value, events: $('#events').checked,
       deep_scan: $('#deep').checked && !$('#deep').disabled, deep_model: $('#deepModel').value, language: opts.language });
-    vodJob = job;
+    vodJob = job; started = true;
     $('#vodCancel').hidden = false;
     $('#vodCancel').onclick = () => api('/api/cancel', { job }).catch(() => {});
+    $('#analyze').disabled = false;          // another video can start while this one is opened (Home › Running now)
+    loadSources();
     const j = await waitJob(job, j => {
+      if (vodJob !== job) return;            // a newer one is shown here; this one is in Running now
       $('#vodStep').textContent = j.step; $('#vodPct').textContent = Math.round(j.progress * 100) + '%' + (j.eta != null ? ' · ' + fmtLeft(j.eta) : '');
       $('#vodBar').style.width = Math.round(j.progress * 100) + '%';
       $('#vodLog').textContent = j.log.slice(-4).join('\n'); updateStatusBar();
     });
-    $('#vodCancel').hidden = true;
-    if (j && j.status === 'done') { $('#vodJob').hidden = true; openVod(j.result); loadStorage(); }
-    else if (j && j.status === 'error') $('#vodErr').textContent = j.error;
-    else if (j && j.status === 'cancelled') $('#vodJob').hidden = true;
+    const mine = vodJob === job;
+    if (mine) { $('#vodCancel').hidden = true; vodJob = null; }
+    if (j && j.status === 'done') {
+      if (mine) $('#vodJob').hidden = true;
+      loadStorage();
+      // open it, unless you're busy reviewing something else
+      if (view === 'home' || !W) openVod(j.result);
+      else toast(`${j.result.title} is ready.`, '', 9000, { label: 'Open', fn: () => openVod(j.result) });
+    } else if (j && j.status === 'error') { if (mine) $('#vodErr').textContent = j.error; else toast(j.error, 'err', 8000); }
+    else if (j && (j.status === 'cancelled' || j.status === 'paused') && mine) $('#vodJob').hidden = true;
   } catch (e) { $('#vodErr').textContent = e.message; }
-  vodJob = null; $('#analyze').disabled = false; updateStatusBar();
+  if (!started) $('#analyze').disabled = false;
+  loadSources(); updateStatusBar();
 };
+
+/* --- Home › Running now (3.10): every video being opened and every stream being clipped --- */
+let srcTimer = 0;
+async function loadSources() {
+  clearTimeout(srcTimer);
+  let v;
+  try { v = await api('/api/sources'); } catch { srcTimer = setTimeout(loadSources, 5000); return; }
+  const items = v.items || [];
+  $('#srcDash').hidden = !items.length;
+  $('#srcLimits').textContent = `Up to ${plural(v.limits.downloads, 'download')} and ${plural(v.limits.lives, 'live stream')} at once (Settings › Performance)`;
+  const ST = { running: 'Working', done: 'Ready', error: 'Failed', cancelled: 'Cancelled', paused: 'Paused', starting: 'Connecting',
+    waiting: 'Waiting for the stream', recording: 'Recording', reconnecting: 'Reconnecting', ended: 'Stream ended', stopped: 'Stopped' };
+  $('#srcList').innerHTML = items.map(x => {
+    const live = x.type === 'live', on = live ? LIVE_ON.includes(x.status) : x.status === 'running';
+    const detail = live ? `${x.status === 'recording' ? 'Recording ' + fmt(x.recorded) : ST[x.status] || x.status} · ${plural(x.moments, 'moment')}${x.chat_state === 'quiet' || x.chat_state === 'offline' ? ' · no chat' : ''}`
+      : x.status === 'running' ? `${esc(x.step)} · ${Math.round(x.progress * 100)}%${x.eta != null ? ' · ' + fmtLeft(x.eta) : ''}` : (x.error ? esc(x.error) : ST[x.status] || x.status);
+    const acts = live
+      ? `<button class="btn sm" data-src-open-live="${x.id}">Open</button>${on ? `<button class="btn sm ghost" data-src-stop="${x.id}">Stop</button>` : `<button class="link" data-src-forget-live="${x.id}">Hide</button>`}`
+      : x.status === 'running' ? `<button class="btn sm ghost" data-src-pause="${x.id}" title="Stop for now; Resume carries on where it left off">Pause</button><button class="link" data-src-cancel="${x.id}">Cancel</button>`
+      : x.status === 'done' ? `<button class="btn sm" data-src-open="${x.pid}">Open</button><button class="link" data-src-forget="${x.id}">Hide</button>`
+      : `<button class="btn sm" data-src-resume="${x.id}">${x.status === 'error' ? 'Try again' : 'Resume'}</button><button class="link" data-src-forget="${x.id}">Hide</button>`;
+    return `<div class="src-row ${x.status}"><span class="src-dot ${on ? 'on' : ''} ${live ? 'live' : ''}"></span>
+      <div class="src-main"><b title="${esc(x.source)}">${esc(x.title || x.source)}</b><small>${esc(x.label)} · ${detail}</small>
+      ${x.type === 'vod' && x.status === 'running' ? `<div class="meter"><i style="width:${Math.round(x.progress * 100)}%"></i></div>` : ''}</div>
+      <span class="src-acts">${acts}</span></div>`;
+  }).join('');
+  if (items.some(x => x.status === 'running' || LIVE_ON.includes(x.status))) srcTimer = setTimeout(loadSources, view === 'home' ? 1500 : 5000);
+}
+$('#srcList').onclick = async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const d = b.dataset;
+  try {
+    if (d.srcOpen) openVod(await api('/api/project/' + d.srcOpen));
+    else if (d.srcOpenLive) openLive(await api('/api/live/' + d.srcOpenLive), false);
+    else if (d.srcStop) await api(`/api/live/${d.srcStop}/stop`, {});
+    else if (d.srcPause) await api('/api/sources/pause', { job: d.srcPause });
+    else if (d.srcCancel) await api('/api/cancel', { job: d.srcCancel });
+    else if (d.srcResume) { const r = await api('/api/sources/resume', { job: d.srcResume }); watchSourceJob(r.job); }
+    else if (d.srcForget) await api('/api/sources/forget', { job: d.srcForget });
+    else if (d.srcForgetLive) await api('/api/sources/forget', { live: d.srcForgetLive });
+  } catch (err) { toast(err.message, 'err'); }
+  setTimeout(loadSources, 300);
+};
+async function watchSourceJob(job) {
+  loadSources();
+  const j = await waitJob(job, () => {});
+  if (j && j.status === 'done') toast(`${j.result.title} is ready.`, '', 9000, { label: 'Open', fn: () => openVod(j.result) });
+  else if (j && j.status === 'error') toast(j.error, 'err', 8000);
+  loadSources();
+}
+loadSources();
 
 $('#goLive').onclick = async () => {
   const source = $('#liveSrc').value.trim();
@@ -336,7 +400,7 @@ $('#goLive').onclick = async () => {
       language: opts.language, max_height: +$('#maxh').value, cookies: $('#cookies').value,
       chat_delay: $('#delay').value === '' ? 'auto' : +$('#delay').value, preset: $('#livePreset').value, emotes: $('#useEmotes').checked,
       min_quality: +$('#liveMinQ').value });
-    openLive(v, true);
+    openLive(v, true); loadSources();
   } catch (e) { $('#liveErr').textContent = e.message; }
   $('#goLive').disabled = false;
 };
@@ -407,10 +471,21 @@ function openVod(p) {
   }
   startWorkspace();
   listen();
+  const og = p.origin || {};
+  if (og.start > 0 && !p.restored && og.start < p.duration) {
+    // the link pointed at a moment (…?t=): start the preview there
+    setTimeout(() => { try { vod.currentTime = og.start; } catch {} }, 600);
+    toast(`The link starts at ${fmt(og.start)}; the preview is there. Click the timeline to make a clip.`, '', 5000);
+  }
   if (p.restored) {
     const r = p.review || {};
     toast(`Picked up where you left off: ${plural(r.kept || 0, 'clip')} kept, ${r.skipped || 0} skipped, ${r.todo || 0} to review.`, '', 5000);
   }
+}
+function sourceLink(c) {
+  const t = W && W.meta && W.meta.origin && W.meta.origin.link; if (!t || !c) return '';
+  const s = Math.max(0, Math.floor(c.start)), hms = `${Math.floor(s / 3600)}h${Math.floor(s % 3600 / 60)}m${s % 60}s`;
+  return t.replace('{s}', s).replace('{hms}', hms);
 }
 function openLive(v, fresh) {
   W = { kind: 'live', sid: v.id, title: v.title, duration: Math.max(1, v.recorded), curve: v.curve, live: v,
@@ -441,8 +516,11 @@ function buildHead() {
       : cs.chatters ? `<b class="tnum">${cs.chatters.toLocaleString()}</b> chatters` : `<b class="tnum">${p.chat_count.toLocaleString()}</b> chat messages`;
     const chatTip = cs.ignored ? `${cs.ignored.toLocaleString()} bot, command and sub messages ignored` + (cs.raids ? `, ${plural(cs.raids, 'raid')} played down` : '') : '';
     const lr = p.learning || {};
+    const og = p.origin || {};
+    const ogFact = og.platform && og.platform !== 'local'
+      ? `<span class="origin" title="${esc(og.url)}">${esc(og.label)}${og.uploader ? ' · ' + esc(og.uploader) : ''}${og.uploaded ? ' · ' + esc(og.uploaded) : ''}</span>` : '';
     h.innerHTML = `<span class="t" title="${esc(W.title)}">${esc(W.title)}</span>
-      <span class="facts"><span><b class="tnum">${fmt(p.duration)}</b> long</span>
+      <span class="facts">${ogFact}<span><b class="tnum">${fmt(p.duration)}</b> long</span>
       <span title="${esc(chatTip)}">${chatFact}</span>
       ${est.strong != null ? `<span class="est" title="Distinct moments that stand out clearly (${est.good} worth a look in total)">≈<b class="tnum">${est.strong}</b> strong ${est.strong === 1 ? 'moment' : 'moments'} in this ${len} stream</span>` : ''}
       ${lr.active ? `<span class="tuned" title="Ranking learned from ${lr.decisions} of your keeps and skips${lr.using === 'all your picks' ? ' across all streamers' : ''}">Tuned to your picks</span>` : ''}
@@ -709,6 +787,9 @@ function fillInspector() {
   $('#cRank').textContent = W.kind === 'live' ? `Moment ${c.moment || rankOf(c)}${c.manual ? ' (clipped by you)' : ''}`
     : isGem(c) ? `Quiet gem #${c.id} · ${gemList.indexOf(c) + 1} of ${gemList.length}` : `Clip #${c.id} · ${hypeList.indexOf(c) + 1} of ${hypeList.length}`;
   $('#cTime').textContent = `${fmtA(absOf(c, c.start))} to ${fmtA(absOf(c, c.end))} (${(c.end - c.start).toFixed(1)}s)`;
+  const sl = W.kind === 'vod' ? sourceLink(c) : '';
+  $('#cSrcT').hidden = $('#cSrc').hidden = !sl;
+  if (sl) $('#cSrc').innerHTML = `<button class="link" data-copy-link="${esc(sl)}" title="${esc(sl)}">Copy link to this moment</button>`;
   edDirty = true;
   $('#cWhy').textContent = c.reason || '';
   renderScore(c);
@@ -1926,6 +2007,7 @@ function renderDetail(force) {
   const newItem = shownItem !== q.id;
   shownItem = q.id; shownState = stateKey;
   $('#exTitle').textContent = q.title || 'Clip ' + q.rank;
+  $('#exLink').hidden = !q.link; $('#exLink').dataset.link = q.link || '';
   $('#exFile').textContent = q.name || (q.status === 'error' ? 'Not rendered' : q.status === 'queued' ? 'Waiting to render' : 'Rendering…');
   $('#exErrBox').hidden = q.status !== 'error';
   if (q.status === 'error') {
@@ -2446,7 +2528,7 @@ function renderExportSettings() {
   if (document.activeElement !== $('#cwReplace')) $('#cwReplace').value = (pr.replace || []).map(([a, b]) => `${a} = ${b}`).join('\n');
   if (document.activeElement !== $('#cwVocab')) $('#cwVocab').value = (pr.vocab || []).join(', ');
   replTable = Object.fromEntries((pr.replace || []).map(([a, b]) => [a.toLowerCase(), b]));
-  $('#pfRenders').value = String(pr.renders); $('#pfDownloads').value = String(pr.downloads);
+  $('#pfRenders').value = String(pr.renders); $('#pfDownloads').value = String(pr.downloads); $('#pfLives').value = String(pr.lives || 2);
   $$('#pfPriority button').forEach(b => b.classList.toggle('on', b.dataset.v === pr.priority));
   capPresets = pr.cap_presets || []; renderCapPresets();
   framePresets = pr.frame_presets || []; renderFramePresets();
@@ -2485,6 +2567,7 @@ $('#cwReplace').addEventListener('change', e => saveExport({ replace: e.target.v
 $('#cwVocab').addEventListener('change', e => saveExport({ vocab: e.target.value.split(/[,\n]/).map(x => x.trim()).filter(Boolean) }));
 $('#pfRenders').onchange = e => saveExport({ renders: +e.target.value });
 $('#pfDownloads').onchange = e => saveExport({ downloads: +e.target.value });
+$('#pfLives').onchange = e => saveExport({ lives: +e.target.value });
 $('#pfPriority').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ priority: v }); };
 // saved caption styles
 const CAP_KEYS = ['captions', 'caption_pos', 'caption_color', 'caption_size', 'words_per_line', 'uppercase', 'caption_style', 'caption_font',
@@ -2902,3 +2985,9 @@ document.addEventListener('keydown', e => {
 });
 
 loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); loadUpdate(); loadSafety(); loadTwitch();
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-copy-link], #exLink'); if (!b) return;
+  const link = b.dataset.copyLink || b.dataset.link; if (!link) return;
+  navigator.clipboard.writeText(link).then(() => toast('Source link copied.', '', 1800)).catch(() => toast(link, '', 6000));
+});

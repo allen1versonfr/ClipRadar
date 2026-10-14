@@ -22,7 +22,7 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -356,6 +356,8 @@ class Source:
     title: str
     workdir: str
     streamer: str = ""      # channel name when known (for learning what you like per streamer)
+    start: float = 0.0      # where the link said to start (YouTube ?t=, Twitch ?t=)
+    info: dict = field(default_factory=dict)   # what the source is (sources.describe)
 
 
 def _meta(workdir: str) -> dict:
@@ -396,38 +398,147 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         progress(1.0)
         return Source(video, chat, title, workdir, streamer)
 
-    if not re.match(r"^https?://", source, re.I) and (
-            "\\" in source or "/" in source or re.match(r"^[a-zA-Z]:", source)) and "twitch.tv" not in source:
-        raise RuntimeError(f"File not found: {source}")
+    import sources
+    c = sources.classify(source)
+    if c["platform"] == "local":
+        if "\\" in source or "/" in source or re.match(r"^[a-zA-Z]:", source):
+            raise RuntimeError(f"File not found: {source}")
+        raise RuntimeError("Paste a Twitch, YouTube or X video link, or pick a video file on your PC.")
+    if c["kind"] == "channel":
+        raise RuntimeError({"twitch": "That's a channel link. Open the channel's Videos tab and paste the link to a past broadcast "
+                                      "(twitch.tv/videos/…), or use Live clipping to clip it as it streams.",
+                            "youtube": "That's a channel link. Paste the link to one of its videos, or use Live clipping for its "
+                                       "livestream."}.get(c["platform"], "That's a channel link. Paste the link to a video."))
 
-    # ---- online
-    if not re.match(r"^https?://", source) and not twitch_vod_id(source):
-        raise RuntimeError("Paste a Twitch VOD link like https://www.twitch.tv/videos/123456789, "
-                           "or the full path to a video file on your PC.")
-    if re.search(r"twitch\.tv/(?!videos/)[\w]+/?(\?.*)?$", source) and "/clip/" not in source:
-        raise RuntimeError("That's a channel link. Open the stream's Videos tab and paste the link "
-                           "to a past broadcast (twitch.tv/videos/…).")
-
-    vod_id = twitch_vod_id(source)
-    url = source if re.match(r"^https?://", source) else f"https://www.twitch.tv/videos/{vod_id}"
-    workdir = os.path.join(workroot, f"vod_{vod_id}" if vod_id else _slug(source)[:40])
+    vod_id = c["id"] if c["platform"] == "twitch" and c["kind"] == "vod" else None
+    url = c["url"]
+    workdir = os.path.join(workroot, sources.workdir_name(c, _slug(source)[:40]))
     os.makedirs(workdir, exist_ok=True)
 
-    step("Downloading the VOD")
-    video, title = _download_video(url, vod_id, workdir, max_height, cookies_browser,
-                                   log, progress, step, check, cookie_file)
+    desc: dict = {}
+    if not vod_id and not _video_in(workdir):
+        # YouTube, X and others: find out what it is first (a video, a finished stream, a live one...)
+        step("Checking the link")
+        meta, err = probe_url(url, cookies_browser, cookie_file)
+        if meta is None and err:
+            raise RuntimeError(sources.explain(err, c["platform"]))
+        desc = sources.describe(meta or {}, c)
+        if desc["live"]:
+            raise RuntimeError(f"That's a {desc['label'].lower()} happening now. Use Live clipping for it, "
+                               "or wait until it ends and paste the link again.")
+        if desc["problem"]:
+            raise RuntimeError(desc["problem"])
+        log(f"{desc['label']}: {desc['title'] or url}" + (f" by {desc['uploader']}" if desc["uploader"] else "")
+            + (f", {fmt_ts(desc['duration'])}" if desc["duration"] else ""))
+        _save_meta(workdir, platform=c["platform"], kind=desc["kind"], label=desc["label"], uploader=desc["uploader"],
+                   uploaded=desc["uploaded"], **({"streamer": desc["uploader_id"].lower()} if desc["uploader_id"] else {}))
+    elif vod_id:
+        _save_meta(workdir, platform="twitch", kind="vod", label="Twitch past broadcast")
+
+    step("Downloading the VOD" if c["platform"] == "twitch" else "Downloading the video")
+    try:
+        video, title = _download_video(url, vod_id, workdir, max_height, cookies_browser,
+                                       log, progress, step, check, cookie_file)
+    except Cancelled:
+        raise
+    except RuntimeError as e:
+        if c["platform"] == "twitch":
+            raise
+        raise RuntimeError(sources.explain(str(e), c["platform"])) from None
     check()
     step("Getting chat replay")
     info: dict = {}
     if chat_file:
         shutil.copyfile(chat_file, os.path.join(workdir, "chat.json"))
         chat = load_chat(chat_file, info)
-    else:
+    elif c["platform"] == "youtube":
+        chat = _youtube_chat(url, workdir, log, cookies_browser, cookie_file) if _meta(workdir).get("kind") == "vod" else []
+        if not chat:
+            log("No chat replay for this video, ranking by audio.")
+    elif c["platform"] == "twitch":
         chat = _download_chat(url, vod_id, workdir, log, info)
+    else:
+        chat = []
+        log("No chat for this video, ranking by audio.")
     streamer = _meta(workdir).get("streamer") or info.get("streamer", "")
-    _save_meta(workdir, title=title, source=url, local=False, streamer=streamer,
+    _save_meta(workdir, title=title, source=url, local=False, streamer=streamer, start=c["start"],
                **({"streamer_id": info["streamer_id"]} if info.get("streamer_id") else {}))
-    return Source(video, chat, title, workdir, streamer)
+    m = _meta(workdir)
+    return Source(video, chat, title, workdir, streamer, start=c["start"],
+                  info={k: m.get(k, "") for k in ("platform", "kind", "label", "uploader", "uploaded")})
+
+
+def probe_url(url: str, cookies_browser: str = "", cookie_file: str = "") -> tuple:
+    """yt-dlp's metadata for a link, without downloading: (info or None, error text)."""
+    exe = which("yt-dlp")
+    if exe:
+        cmd = [exe, "-J", "--skip-download", "--no-warnings", "--ignore-config", "--no-playlist"]
+        if cookie_file:
+            cmd += ["--cookies", cookie_file]
+        elif cookies_browser:
+            cmd += ["--cookies-from-browser", cookies_browser]
+        try:
+            p = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=90, stdin=subprocess.DEVNULL,
+                               encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW)
+        except Exception as e:
+            return None, str(e)
+        if p.returncode == 0 and p.stdout.strip().startswith("{"):
+            try:
+                return json.loads(p.stdout), ""
+            except ValueError:
+                pass
+        return None, (p.stderr or p.stdout or "").strip()
+    try:
+        import yt_dlp
+    except ImportError:
+        return None, "yt-dlp isn't installed"
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+    if cookie_file:
+        opts["cookiefile"] = cookie_file
+    elif cookies_browser:
+        opts["cookiesfrombrowser"] = (cookies_browser,)
+    try:
+        with yt_dlp.YoutubeDL(opts) as y:
+            return y.extract_info(url, download=False) or {}, ""
+    except Exception as e:
+        return None, str(e)
+
+
+def _youtube_chat(url: str, workdir: str, log: Log, cookies_browser: str = "", cookie_file: str = "") -> list:
+    """A finished YouTube livestream's chat replay (yt-dlp's live_chat), when it has one."""
+    out = os.path.join(workdir, "chat.json")
+    if os.path.exists(out) and os.path.getsize(out) > 100:
+        try:
+            chat = load_chat(out)
+            log(f"Chat already downloaded ({len(chat):,} messages), reusing it.")
+            return chat
+        except Exception:
+            pass
+    exe = which("yt-dlp")
+    if not exe:
+        return []
+    log("Downloading the chat replay (long streams take a while)...")
+    cmd = [exe, "--skip-download", "--write-subs", "--sub-langs", "live_chat", "--no-warnings", "--ignore-config",
+           "-o", os.path.join(workdir, "chat_yt.%(ext)s")]
+    if cookie_file:
+        cmd += ["--cookies", cookie_file]
+    elif cookies_browser:
+        cmd += ["--cookies-from-browser", cookies_browser]
+    try:
+        subprocess.run(cmd + [url], capture_output=True, text=True, timeout=3600, stdin=subprocess.DEVNULL,
+                       encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW)
+    except Exception:
+        return []
+    for f in os.listdir(workdir):
+        if f.startswith("chat_yt") and f.endswith(".json"):
+            shutil.move(os.path.join(workdir, f), out)
+            try:
+                chat = load_chat(out)
+            except Exception:
+                return []
+            log(f"Got {len(chat):,} chat messages.")
+            return chat
+    return []
 
 
 def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: int,
@@ -517,6 +628,8 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
             return video, title
         err = (err or "") + "\nTwitchDownloader: " + " / ".join(t for t in tail if t)[-300:]
 
+    if not vod_id and "twitch.tv" not in url:
+        raise RuntimeError(err or "yt-dlp is not installed")     # explained by sources.explain in acquire
     raise RuntimeError(
         "Couldn't download that VOD.\n"
         f"{err or 'yt-dlp is not installed'}\n"
@@ -775,11 +888,37 @@ def load_chat(path: str, info: Optional[dict] = None) -> list:
     except json.JSONDecodeError:
         for line in raw.splitlines():
             try:
-                take(json.loads(line))
+                obj = json.loads(line)
             except Exception:
                 continue
+            if isinstance(obj, dict) and "replayChatItemAction" in obj:
+                msgs.extend(_yt_chat(obj))          # YouTube chat replay (yt-dlp live_chat)
+            else:
+                take(obj)
     msgs.sort(key=lambda m: m[0])
     return msgs
+
+
+def _yt_chat(obj: dict) -> list:
+    """Messages from one line of a YouTube chat replay (yt-dlp's live_chat.json)."""
+    r = obj.get("replayChatItemAction") or {}
+    try:
+        t = float(r.get("videoOffsetTimeMsec") or 0) / 1000
+    except (TypeError, ValueError):
+        return []
+    out = []
+    for a in r.get("actions") or []:
+        item = ((a or {}).get("addChatItemAction") or {}).get("item") or {}
+        for key, kind in (("liveChatTextMessageRenderer", ""), ("liveChatPaidMessageRenderer", "superchat"),
+                          ("liveChatMembershipItemRenderer", "sub"), ("liveChatSponsorshipsGiftPurchaseAnnouncementRenderer", "subgift")):
+            m = item.get(key)
+            if not isinstance(m, dict):
+                continue
+            runs = ((m.get("message") or m.get("headerSubtext") or {}).get("runs")) or []
+            text = "".join(x.get("text") or (((x.get("emoji") or {}).get("shortcuts") or [""])[0]) for x in runs if isinstance(x, dict))
+            who = ((m.get("authorName") or {}).get("simpleText")) or ""
+            out.append((t, text, str(who).lower(), kind))
+    return out
 
 
 def chat_times(chat: list) -> list:

@@ -63,15 +63,19 @@
           <button class="btn primary" id="getTools">Download</button>
         </div>
 
+        <section class="panel src-dash" id="srcDash" hidden>
+          <header><h2>Running now</h2><span class="hint" id="srcLimits"></span></header>
+          <div id="srcList"></div>
+        </section>
         <h1>New project</h1>
         <div class="sources">
           <section class="panel source" id="vodCard">
             <header>
               <svg class="ic lg"><use href="#i-film"/></svg>
-              <div><h2>Past broadcast</h2><p>Find the best moments in a Twitch VOD or a recording on your PC.</p></div>
+              <div><h2>Past broadcast or video</h2><p>Find the best moments in a Twitch VOD, a YouTube video or finished stream, an X video, or a recording on your PC.</p></div>
             </header>
             <div class="row">
-              <input class="input grow" id="src" placeholder="twitch.tv/videos/… or a video file" spellcheck="false" autocomplete="off" aria-label="VOD link or file">
+              <input class="input grow" id="src" placeholder="Twitch, YouTube or X link, or a video file" spellcheck="false" autocomplete="off" aria-label="Video link or file">
               <button class="btn" id="browseSrc">Browse…</button>
             </div>
             <div class="form-grid">
@@ -108,10 +112,10 @@
           <section class="panel source" id="liveCard">
             <header>
               <svg class="ic lg"><use href="#i-radio"/></svg>
-              <div><h2>Live channel</h2><p>Clip a stream while it's on air, so you can just watch.</p></div>
+              <div><h2>Live stream</h2><p>Clip a Twitch or YouTube stream while it's on air, so you can just watch. You can clip more than one at once.</p></div>
             </header>
             <div class="row">
-              <input class="input grow" id="liveSrc" placeholder="Channel name or twitch.tv/name" spellcheck="false" autocomplete="off" aria-label="Twitch channel">
+              <input class="input grow" id="liveSrc" placeholder="twitch.tv/name, or a YouTube live link" spellcheck="false" autocomplete="off" aria-label="Twitch channel or YouTube livestream">
             </div>
             <div class="fld">Mode
               <div class="seg" id="liveMode"><button data-v="hands" class="on">Hands-free</button><button data-v="review">Review each clip</button></div>
@@ -236,6 +240,7 @@
                     <dt>Signal</dt><dd id="cWhy"></dd>
                     <dt>Mood</dt><dd id="cVibe"></dd>
                     <dt>Content</dt><dd id="cSafe"></dd>
+                    <dt id="cSrcT" hidden>Source</dt><dd id="cSrc" hidden></dd>
                   </dl>
                 </div>
                 <div class="check-box" id="checkBox" hidden></div>
@@ -400,7 +405,7 @@
               <div class="ex-info">
                 <div class="insp-title" id="exTitle"></div>
                 <div class="muted small ellipsis" id="exFile"></div>
-                <div class="row wrap"><button class="btn sm" id="exShow"><svg class="ic"><use href="#i-folder"/></svg>Show in folder</button><button class="btn sm" id="exCopy"><svg class="ic"><use href="#i-copy"/></svg>Copy caption</button></div>
+                <div class="row wrap"><button class="btn sm" id="exShow"><svg class="ic"><use href="#i-folder"/></svg>Show in folder</button><button class="btn sm" id="exCopy"><svg class="ic"><use href="#i-copy"/></svg>Copy caption</button><button class="btn sm" id="exLink" hidden title="A link to the original video at this moment, to credit the source"><svg class="ic"><use href="#i-copy"/></svg>Copy source link</button></div>
                 <div class="ex-safe small" id="exSafe"></div>
               </div>
             </div>
@@ -530,7 +535,8 @@
           <header><svg class="ic"><use href="#i-settings"/></svg><h2>Performance</h2></header>
           <div class="form-grid">
             <label>Clips rendering at once<select class="input" id="pfRenders"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
-            <label>Downloads at once<select class="input" id="pfDownloads"><option value="1">1</option><option value="2">2</option></select></label>
+            <label>Downloads at once<select class="input" id="pfDownloads"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+            <label>Live streams at once<select class="input" id="pfLives"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
           </div>
           <div class="fld">While rendering
             <div class="seg" id="pfPriority"><button data-v="responsive">Keep the PC responsive</button><button data-v="fast">Finish faster</button></div>
