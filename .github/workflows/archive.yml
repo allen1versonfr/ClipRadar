@@ -33,7 +33,7 @@ jobs:
           set -u
           current=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' src/version.py)
           mkdir -p dist
-          made=0; added=0; skipped=""
+          made=0; added=0; skipped=""; failed=0
           for ver in $(grep -oP '^## \[\K[0-9]+\.[0-9]+\.[0-9]+(?=\])' CHANGELOG.md); do
             tag="v$ver"
             if [ "$ver" = "$current" ]; then continue; fi
@@ -51,13 +51,18 @@ jobs:
             git archive --format=zip --prefix="$name-$ver/" -o "$zip" "$sha"
             if gh release view "$tag" >/dev/null 2>&1; then
               if ! gh release view "$tag" --json assets -q '.assets[].name' | grep -qx "$name-$ver-source.zip"; then
-                gh release upload "$tag" "$zip" && added=$((added+1))
+                if out=$(gh release upload "$tag" "$zip" 2>&1); then added=$((added+1)); else echo "::error title=Couldn't add source to $tag::$(echo "$out" | tr '\n' ' ' | cut -c1-400)"; failed=1; fi
               fi
             else
               # this version's section of the changelog
               awk -v v="$ver" '$0 ~ "^## \\["v"\\]" {on=1; next} on && /^## \[/ {exit} on && /^\[[0-9]/ {exit} on {print}' CHANGELOG.md > notes.md
               printf '\n---\nArchived: the source code of this version (no installer was published for it). Built from commit %s.\n' "${sha:0:7}" >> notes.md
-              gh release create "$tag" "$zip" --target "$sha" --title "$title" --notes-file notes.md --latest=false && made=$((made+1))
+              if out=$(gh release create "$tag" "$zip" --target "$sha" --title "$title" --notes-file notes.md --latest=false 2>&1); then
+                made=$((made+1))
+              else
+                echo "::error title=Couldn't archive $ver::$(echo "$out" | tr '\n' ' ' | cut -c1-400)"; failed=1
+              fi
             fi
           done
           echo "::notice title=Archive::$made release(s) created, $added source archive(s) added${skipped:+; no commit found for$skipped}"
+          exit $failed
