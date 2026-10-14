@@ -62,6 +62,7 @@ jobs:
           python tests/test_sources.py
           python tests/test_locations.py
           python tests/test_rename.py
+          python tests/test_versions.py
 
       - name: Get ffmpeg, TwitchDownloader and yt-dlp
         env:
@@ -397,7 +398,9 @@ jobs:
           Compress-Archive -Path dist/ClipRadar -DestinationPath dist/ClipRadar-portable.zip -Force
           # the same installer under the old name too: VodClipper's built-in updater looks for that file
           Copy-Item dist/ClipRadar-Setup.exe dist/VodClipper-Setup.exe -Force
-          gh release create $tag dist/ClipRadar-Setup.exe dist/VodClipper-Setup.exe dist/ClipRadar-portable.zip --title "Clip Radar $ver" --notes-file notes.md --target "${{ github.sha }}" --latest
+          # and the source code of this version, so every release keeps an archive of it
+          git archive --format=zip --prefix="ClipRadar-$ver/" -o "dist/ClipRadar-$ver-source.zip" HEAD
+          gh release create $tag dist/ClipRadar-Setup.exe dist/VodClipper-Setup.exe dist/ClipRadar-portable.zip "dist/ClipRadar-$ver-source.zip" --title "Clip Radar $ver" --notes-file notes.md --target "${{ github.sha }}" --latest
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # retire the old rolling "latest" release from before versioned releases
           gh release view latest 2>$null | Out-Null

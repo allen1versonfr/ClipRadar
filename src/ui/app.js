@@ -2295,6 +2295,34 @@ $('#updAuto').onchange = async e => {
   try { upd = await api('/api/update/settings', { auto: e.target.checked }); renderUpdate(); } catch (err) { toast(err.message, 'err'); }
 };
 $('#updPage').onclick = e => { e.preventDefault(); openUrl(upd.page); };
+// All versions (4.1): newer ones can be installed; older ones are history
+let verState = null;
+async function loadVersions(refresh) {
+  try { verState = await api('/api/update/versions' + (refresh ? '?refresh=1' : '')); } catch (e) { $('#verList').textContent = e.message; return; }
+  const v = verState;
+  if (!v.versions.length) { $('#verList').innerHTML = `<span class="muted small">${esc(v.error || 'No versions found.')}</span>`; return; }
+  $('#verList').innerHTML = v.versions.map(x => {
+    const date = x.published ? new Date(x.published).toLocaleDateString() : '';
+    const tag = x.current ? '<span class="ver-tag cur">Installed</span>' : x.archive ? '<span class="ver-tag">Archive</span>' : x.newer ? '<span class="ver-tag new">Newer</span>' : '';
+    const act = x.installable ? `<button class="btn sm" data-ver-install="${esc(x.version)}">Install</button>`
+      : x.newer && !v.can_install ? `<button class="btn sm ghost" data-ver-page="${esc(x.page)}">Download</button>` : '';
+    return `<details class="ver-row${x.current ? ' cur' : ''}"><summary><b class="tnum">${esc(x.version)}</b>${tag}<span class="muted small">${esc(date)}</span><span class="grow"></span>${act}</summary>
+      <div class="ver-notes">${esc(x.notes || 'No notes.')}</div><a href="#" class="small" data-ver-page="${esc(x.page)}">On GitHub</a></details>`;
+  }).join('');
+}
+$('#updVersions').addEventListener('toggle', e => { if (e.target.open) loadVersions(); });
+$('#verList').onclick = async e => {
+  const page = e.target.closest('[data-ver-page]');
+  if (page) { e.preventDefault(); openUrl(page.dataset.verPage); return; }
+  const b = e.target.closest('[data-ver-install]'); if (!b) return;
+  e.preventDefault();
+  const ver = b.dataset.verInstall;
+  const ok = await ask({ title: `Install Clip Radar ${ver}?`, ok: 'Install',
+    body: 'Clip Radar will download this version, close, install it and open again. Your clips, projects and settings are kept.' });
+  if (!ok) return;
+  try { upd = await api('/api/update/install', { version: ver }); renderUpdate(); loadUpdate(); }
+  catch (err) { toast(err.message, 'err', 8000); }
+};
 
 /* =============================================================== content check + hotkey settings */
 const SEV = { 3: 'Serious', 2: 'Medium', 1: 'Mild' };

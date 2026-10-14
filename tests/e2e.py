@@ -101,7 +101,7 @@ def make_vod(a, tmp) -> tuple:
     vod = os.path.join(tmp, "e2e_vod.mp4")
     dur = 150
     cmd = [a.ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size=1280x720:rate=30:duration={dur}",
-           "-f", "lavfi", "-i", f"anoisesrc=color=pink:amplitude=0.02:duration={dur}",
+           "-f", "lavfi", "-i", f"anoisesrc=color=pink:amplitude=0.02:duration={dur}:seed=7",
            "-f", "lavfi", "-i", f"sine=frequency=500:duration={dur}"]
     fc = "[2:a]volume='if(between(t,60,66),0.8,0)':eval=frame[s]"
     mix, n = "[1:a][s]", 2
@@ -959,6 +959,12 @@ def main():
         rec("update notes are readable", "Something new" in u.get("notes", "") and "**" not in u.get("notes", "")
             and "Download" not in u.get("notes", ""), u.get("notes", "")[:120])
         rec("automatic update checks run", mock_github.STATE["hits"] >= 2, f"{mock_github.STATE['hits']} checks")
+        vv = get("/api/update/versions?refresh=1")
+        rec("All versions lists every release, newest first", [x["version"] for x in vv.get("versions", [])][:2] == ["99.0.0", "98.5.0"]
+            and any(x["archive"] for x in vv["versions"]) and not any(x["version"] == "models-v1" for x in vv["versions"])
+            and not any(x["installable"] for x in vv["versions"] if not x["newer"]), [(x["version"], x["newer"], x["archive"]) for x in vv.get("versions", [])])
+        old = post("/api/update/install", {"version": "1.0.0"})
+        rec("an older version can't be installed", old.get("_status") == 400 and "newer" in old.get("error", ""), old.get("error"))
         i = post("/api/update/install")
         rec("a copy without Setup won't try to install", i.get("_status") == 400 and "installed" in i.get("error", ""), i.get("error"))
         a1 = post("/api/update/settings", {"auto": False})

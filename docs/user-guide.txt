@@ -20,6 +20,9 @@ UPDATES
   Clip Radar, installs it and opens Clip Radar again. Your clips, projects and
   settings are kept. Turn off "Check for updates automatically" there if you
   prefer to check yourself. The portable version links to the download page.
+  Settings > Updates > All versions lists every version with what changed.
+  Install any version newer than yours from there; older versions are kept
+  on GitHub's Releases page as an archive (with their source code).
   Clip Radar was called VodClipper before version 4.0. Updating VodClipper
   in the app installs Clip Radar over it: the old program folder and
   shortcuts go, and on first start your settings move to
