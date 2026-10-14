@@ -51,7 +51,15 @@ jobs:
             git archive --format=zip --prefix="$name-$ver/" -o "$zip" "$sha"
             if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
               # the tag first, with git (creating it through the releases API can be refused for old commits)
-              git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" tag -a "$tag" -m "$title (archived)" "$sha"
+              # GitHub won't let this workflow's token tag a commit that carries other workflow files (old CI
+              # setups), so the tag goes on a copy of that version's code without the .github folder. The full
+              # original, CI files included, is the attached source zip.
+              export GIT_INDEX_FILE="$RUNNER_TEMP/archive.index"
+              git read-tree "$sha" && git rm -r -q --cached --ignore-unmatch .github >/dev/null
+              tree=$(git write-tree); unset GIT_INDEX_FILE
+              commit=$(git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" \
+                       commit-tree "$tree" -m "$title, archived (code from ${sha:0:7})")
+              git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" tag -a "$tag" -m "$title (archived)" "$commit"
               if ! out=$(git push origin "refs/tags/$tag" 2>&1); then
                 echo "::error title=Couldn't tag $ver::$(echo "$out" | tr '\n' ' ' | cut -c1-400)"; failed=1; continue
               fi
@@ -64,7 +72,7 @@ jobs:
               # this version's section of the changelog
               awk -v v="$ver" '$0 ~ "^## \\["v"\\]" {on=1; next} on && /^## \[/ {exit} on && /^\[[0-9]/ {exit} on {print}' CHANGELOG.md > notes.md
               printf '\n---\nArchived: the source code of this version (no installer was published for it). Built from commit %s.\n' "${sha:0:7}" >> notes.md
-              if out=$(gh release create "$tag" "$zip" --target "$sha" --title "$title" --notes-file notes.md --latest=false 2>&1); then
+              if out=$(gh release create "$tag" "$zip" --verify-tag --title "$title" --notes-file notes.md --latest=false 2>&1); then
                 made=$((made+1))
               else
                 echo "::error title=Couldn't archive $ver::$(echo "$out" | tr '\n' ' ' | cut -c1-400)"; failed=1
