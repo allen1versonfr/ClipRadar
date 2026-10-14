@@ -51,7 +51,7 @@ DEFAULTS = {
     # captions: words to swap in captions, and words Whisper should expect
     "replace": [], "vocab": [],
     # performance
-    "renders": 1, "downloads": 1, "priority": "responsive",
+    "renders": 1, "downloads": 1, "priority": "responsive", "lives": 2,
     # saved caption styles (Text tab) and framings (Layout tab)
     "cap_presets": [], "frame_presets": [],
 }
@@ -113,7 +113,8 @@ def clean(d: dict) -> dict:
     out["replace"] = rep
     out["vocab"] = [str(w).strip()[:40] for w in (d.get("vocab") or []) if str(w).strip()][:200]
     out["renders"] = int(min(max(int(d.get("renders") or 1), 1), 3))
-    out["downloads"] = int(min(max(int(d.get("downloads") or 1), 1), 2))
+    out["downloads"] = int(min(max(int(d.get("downloads") or 1), 1), 3))
+    out["lives"] = int(min(max(int(d.get("lives") or 2), 1), 3))
     out["priority"] = d.get("priority") if d.get("priority") in ("responsive", "fast") else "responsive"
     presets = []
     for cp in (d.get("cap_presets") or [])[:30]:

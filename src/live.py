@@ -24,6 +24,7 @@ Live mode: clip a Twitch stream while it's still going.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import random
@@ -195,11 +196,16 @@ class LiveSession:
                  events: bool = True, on_moment: Callable = None, log: Callable = None, min_quality: int = 0):
         self.id = sid
         self.source = source.strip()
+        import sources
+        self.origin = sources.classify(self.source)
         self.channel = parse_channel(self.source)
         self.direct = bool(re.search(r"\.m3u8(\?|$)", self.source)) or os.path.isfile(self.source)
-        if not self.channel and not self.direct:
-            raise ValueError("Enter a Twitch channel name or link, like twitch.tv/yourname.")
-        label = self.channel or "stream"
+        # YouTube livestreams (a video link, youtube.com/live/…, or a channel's /live page) go through yt-dlp
+        self.via_ytdlp = not self.channel and not self.direct and self.origin["platform"] == "youtube" \
+            and self.origin["kind"] in ("video", "live", "vod")
+        if not self.channel and not self.direct and not self.via_ytdlp:
+            raise ValueError("Enter a Twitch channel (twitch.tv/name) or a YouTube livestream link.")
+        label = self.channel or (re.sub(r"[^\w-]", "", self.origin.get("id") or "")[:24] if self.via_ytdlp else "") or "stream"
         self.title = f"{label} (live)"
         stamp = time.strftime("%Y-%m-%d %H-%M")
         self.dir = os.path.join(workroot, f"live_{label}_{stamp}")
@@ -408,7 +414,61 @@ class LiveSession:
         return end
 
     # ------------------------------------------------------------------ recording
+    def _resolve_ytdlp(self) -> str:
+        """A YouTube livestream's playlist address (it expires after some hours; reconnecting asks again)."""
+        import sources
+        test = os.environ.get("VODCLIPPER_TEST_YT_HLS") if os.environ.get("VODCLIPPER_TEST") else ""
+        if test:
+            info = {"live_status": "is_live", "url": test, "title": "Test livestream", "uploader": "testchannel"}
+        else:
+            fmt = f"best[height<={self.max_height}][protocol^=m3u8]/best[height<={self.max_height}]/best"
+            exe = engine.which("yt-dlp")
+            info, err = None, ""
+            if exe:
+                cmd = [exe, "-J", "-f", fmt, "--no-warnings", "--ignore-config", "--no-playlist"]
+                if self.cookies:
+                    cmd += ["--cookies-from-browser", self.cookies]
+                p = subprocess.run(cmd + [self.source], capture_output=True, text=True, timeout=90, stdin=subprocess.DEVNULL,
+                                   encoding="utf-8", errors="replace", creationflags=engine.CREATE_NO_WINDOW)
+                if p.returncode == 0 and p.stdout.strip().startswith("{"):
+                    try:
+                        info = json.loads(p.stdout)
+                    except ValueError:
+                        info = None
+                err = (p.stderr or p.stdout or "").strip()
+            else:
+                try:
+                    import yt_dlp
+                    with yt_dlp.YoutubeDL({"format": fmt, "quiet": True, "no_warnings": True, "noplaylist": True}) as y:
+                        info = y.extract_info(self.source, download=False)
+                except Exception as e:
+                    err = str(e)
+            if info is None:
+                msg = sources.explain(err, "youtube")
+                if re.search(r"hasn't started|not live|offline|premieres", msg + err, re.I):
+                    raise NotLive("That livestream hasn't started yet.")
+                if re.search(r"isn't available|private|removed", msg, re.I):
+                    raise NotLive(msg, kind="missing")
+                raise RuntimeError(msg)
+        ls = info.get("live_status") or ("is_live" if info.get("is_live") else "")
+        if ls == "is_upcoming":
+            raise NotLive("That livestream hasn't started yet.")
+        if ls != "is_live":
+            raise NotLive("That video isn't live (it's an ordinary video or the stream has ended). Open it from Past broadcast instead.",
+                          kind="ended" if ls in ("was_live", "post_live") else "missing")
+        if info.get("uploader") and self.title.endswith("(live)") and not self.segments:
+            self.title = f"{info['uploader']} (live)"
+            engine._save_meta(self.dir, title=self.title, source=self.source, live=True, streamer=str(info.get("uploader_id") or "").lower(),
+                              platform="youtube", kind="live", label="YouTube livestream", uploader=info.get("uploader", ""))
+        url = info.get("url") or next((f.get("url") for f in reversed(info.get("requested_formats") or info.get("formats") or [])
+                                       if f.get("url") and "m3u8" in str(f.get("protocol", ""))), "")
+        if not url:
+            raise RuntimeError("couldn't get the livestream's address")
+        return url
+
     def _resolve(self) -> str:
+        if self.via_ytdlp:
+            return self._resolve_ytdlp()
         if self.direct:
             if self.source.startswith("http"):
                 try:

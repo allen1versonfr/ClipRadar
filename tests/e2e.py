@@ -480,6 +480,44 @@ def _face_video(a, tmp, name, overlay, scale):
     return path
 
 
+def multi_source_checks(a, tmp):
+    """3.10: two videos opened at once, their own folders and numbers, pause and resume."""
+    v1 = _face_video(a, tmp, "src_one.mp4", "x=100:y=100", "240:300")
+    v2 = _face_video(a, tmp, "src_two.mp4", "x=900:y=300", "240:300")
+    j1 = post("/api/analyze", {"source": v1, "count": 3, "length": 10, "events": False})
+    j2 = post("/api/analyze", {"source": v2, "count": 3, "length": 10, "events": False})
+    again = post("/api/analyze", {"source": v1, "count": 3, "length": 10, "events": False})
+    r1, r2 = wait_job(j1.get("job", ""), 300), wait_job(j2.get("job", ""), 300)
+    ok = r1 and r2 and r1["status"] == r2["status"] == "done"
+    rec("two videos open at the same time, each in its own project", ok and r1["result"]["pid"] != r2["result"]["pid"]
+        and bool(again.get("already")) and again.get("job") == j1.get("job"),
+        (r1 and r1["status"], r2 and r2["status"], again))
+    dash = get("/api/sources")
+    done = [x for x in dash["items"] if x["type"] == "vod" and x["status"] == "done" and x["pid"] in
+            ((r1 or {}).get("result", {}).get("pid"), (r2 or {}).get("result", {}).get("pid"))]
+    rec("Running now lists each source", len(done) == 2 and all(x["label"] == "Video file" for x in done), [(x["title"], x["status"]) for x in dash["items"]])
+    if ok:
+        pv = get(f"/api/project/{r1['result']['pid']}")
+        rec("a project can be reopened from Running now", pv.get("pid") == r1["result"]["pid"] and pv.get("origin", {}).get("platform") == "local",
+            pv.get("origin"))
+    # pause and resume
+    long_v = os.path.join(tmp, "src_long.mp4")
+    subprocess.run([a.ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=900", "-f", "lavfi", "-i",
+                    "anoisesrc=color=pink:amplitude=0.05:duration=900", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+                    "-shortest", long_v], check=True, timeout=600)
+    j = post("/api/analyze", {"source": long_v, "count": 3, "length": 10, "events": True})
+    time.sleep(0.5)
+    post("/api/sources/pause", {"job": j["job"]})
+    pj = wait_job(j["job"], 120)
+    if pj and pj["status"] == "done":
+        rec("pause and resume", True, "finished before it could be paused")
+    else:
+        rs = post("/api/sources/resume", {"job": j["job"]})
+        rj = wait_job(rs.get("job", ""), 600) if rs.get("job") else None
+        rec("pause and resume", pj and pj["status"] == "paused" and rj and rj["status"] == "done",
+            (pj and pj["status"], rj and (rj["status"], rj.get("error"))))
+
+
 def framing_checks(a, tmp):
     """3.9: auto-framing, following a face, facecam only, and a facecam found in the corner."""
     irl = _face_video(a, tmp, "irl_face.mp4", "x='200+min(t,20)*55':y=200:enable='not(between(t,28,29.5))'", "480:600")
@@ -643,6 +681,7 @@ def main():
             editing_checks(ctx)
             export_checks(ctx)
             framing_checks(a, tmp)
+            multi_source_checks(a, tmp)
 
         # ------------------------------------------------------------ live mode
         src = os.path.join(tmp, "stream_src.mp4")
@@ -663,7 +702,7 @@ def main():
         waiting = wait(lambda: get(f"/api/live/{sid}")["status"] == "waiting", 20)
         rec("waits for an offline stream to start", waiting, get(f"/api/live/{sid}")["status"])
         twice = post("/api/live/start", {"source": stream_url})
-        rec("only one live session at a time", twice.get("_status") == 409, twice.get("error"))
+        rec("the same stream can't be clipped twice", twice.get("_status") == 409 and "already" in twice.get("error", ""), twice.get("error"))
         rec("busy while live", get("/api/status")["running"])
         tw.start()
         ok_rec = wait(lambda: get(f"/api/live/{sid}")["status"] == "recording", 60)
@@ -676,6 +715,26 @@ def main():
             if lst:
                 diag["segment list"] = open(os.path.join(segdir0, lst[0]), encoding="utf-8", errors="replace").read()[-600:]
         rec("chat connected", wait(lambda: get(f"/api/live/{sid}")["chat_connected"], 30))
+        # a second stream at the same time: a YouTube livestream (resolved to the same test stream)
+        post("/api/test/yt_hls", {"url": stream_url})
+        yv = post("/api/live/start", {"source": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "length": 20, "warmup": 30,
+                                      "buffer_minutes": 1, "frequency": "normal", "opts": opts, "model": a.model})
+        ysid = yv.get("id")
+        yrec = ysid and wait(lambda: get(f"/api/live/{ysid}")["status"] == "recording", 60)
+        yl = get(f"/api/live/{ysid}") if ysid else {}
+        rec("a YouTube livestream records alongside the Twitch one", yrec and yl.get("title") == "testchannel (live)"
+            and yl.get("chat_state") == "none" and len(get("/api/status").get("lives", [])) == 2,
+            {k: yl.get(k) for k in ("status", "title", "chat_state", "error")} if ysid else yv.get("error"))
+        third = post("/api/live/start", {"source": "twitch.tv/someoneelse"})
+        rec("live streams at once is limited (Settings › Performance)", third.get("_status") == 409 and "at once" in third.get("error", ""),
+            third.get("error"))
+        dash = get("/api/sources")
+        rec("Running now lists both streams", sum(1 for x in dash["items"] if x["type"] == "live" and x["status"] == "recording") == 2,
+            [(x["type"], x["status"], x["title"]) for x in dash["items"]])
+        if ysid:
+            post(f"/api/live/{ysid}/stop")
+            rec("stopping one stream leaves the other recording", wait(lambda: get(f"/api/live/{ysid}")["status"] == "stopped", 30)
+                and get(f"/api/live/{sid}")["status"] == "recording", (get(f"/api/live/{ysid}")["status"], get(f"/api/live/{sid}")["status"]))
         first = wait(lambda: (lambda c: c if c else None)(get(f"/api/live/{sid}")["clips"]), 150, 2)
         rec("found a moment automatically", first and all(c["at"] >= 30 for c in first if not c.get("manual")),
             first and f"{first[0]['reason']} at {first[0]['at']}s")

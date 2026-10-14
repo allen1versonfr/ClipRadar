@@ -3,6 +3,23 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.10.0] - 2026-10-14
+
+More sources: YouTube and X, several at once.
+
+### Added
+- YouTube: ordinary videos, Shorts and finished livestreams open in Past broadcast. A finished livestream brings its chat replay, so chat counts like it does for Twitch.
+- YouTube livestreams in live clipping (a video link, youtube.com/live/…, or a channel's /live page). YouTube live chat isn't read, so they're clipped from what's on stream.
+- X: posts with a video open in Past broadcast.
+- VodClipper says what a link is before downloading (an ordinary video, a finished livestream, one that's live now or hasn't started) and explains in plain words when it can't be used: private, age-restricted, members-only, removed, not in your country, a post with no video, or the site limiting downloads.
+- Start times in links (?t=1m30s) open the preview there. Each clip has a link back to that moment in the original (Clip tab, and Copy source link in Exports), for crediting the source. The header shows where the video came from.
+- Home › Running now: every video being opened and every stream being clipped, with progress, and Open, Pause, Resume, Cancel or Stop for each. Open another video while one is still being opened.
+- Clip up to three streams at once (Settings › Performance › Live streams at once; two by default). Downloads at once now goes up to three.
+
+### Changed
+- Each source gets its own folder by its ID (yt_…, x_…), so opening the same video again reuses the download.
+- Opening the same link twice while it's still opening joins the first one instead of starting again.
+
 ## [3.9.0] - 2026-10-14
 
 Framing: follow the streamer's face, find the facecam, and pick the layout for you.

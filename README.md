@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 3.9.0" src="https://img.shields.io/badge/version-3.9.0-4c8dff?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 3.10.0" src="https://img.shields.io/badge/version-3.10.0-4c8dff?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/vodclipper/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/vodclipper/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -30,6 +30,7 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 
 ## Features
 
+- **Twitch, YouTube and X.** Open a Twitch VOD, a YouTube video, Short or finished livestream (with its chat replay), an X video, or a file on your PC. Clip Twitch and YouTube livestreams as they happen, several at once, and follow everything under Home › Running now.
 - **Finds the moments for you.** Clips are ranked by chat surges (KEKW, POG, "clip it", `?????`), audio spikes measured against the surrounding minutes, and laughter, screams and cheering heard by a small built-in sound detector. Twitch's muted DMCA sections are ignored.
   - Chat is counted by chatters, not messages: bots, `!commands`, giveaways, sub notices, gift bombs, raids and copypasta don't create fake moments.
   - Each clip gets its own length (15–90 s): it starts with the setup, runs until the reaction dies down, and never cuts mid-sentence.
