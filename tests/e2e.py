@@ -469,6 +469,57 @@ def export_checks(ctx):
         post("/api/export", dict(before, renders=1))
 
 
+def _face_video(a, tmp, name, overlay, scale):
+    """A made-up stream with a face in it (tests/assets/face.jpg) over moving test colours."""
+    path = os.path.join(tmp, name)
+    subprocess.run([a.ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=30:d=40",
+                    "-f", "lavfi", "-i", "sine=frequency=300:duration=40", "-loop", "1", "-i", os.path.join(HERE, "assets", "face.jpg"),
+                    "-filter_complex", f"[2]scale={scale}[f];[0][f]overlay={overlay}[v]", "-map", "[v]", "-map", "1:a",
+                    "-t", "40", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", path],
+                   check=True, timeout=180)
+    return path
+
+
+def framing_checks(a, tmp):
+    """3.9: auto-framing, following a face, facecam only, and a facecam found in the corner."""
+    irl = _face_video(a, tmp, "irl_face.mp4", "x='200+min(t,20)*55':y=200:enable='not(between(t,28,29.5))'", "480:600")
+    cam = _face_video(a, tmp, "cam_face.mp4", "x=W-w-40:y=40", "240:300")
+    pids = {}
+    for name, v in (("irl", irl), ("cam", cam)):
+        j = post("/api/analyze", {"source": v, "count": 0, "length": 0, "events": False})
+        r = wait_job(j.get("job", ""), 300) if j.get("job") else None
+        pids[name] = r and r["status"] == "done" and r["result"]["pid"]
+    if not all(pids.values()):
+        rec("framing: test videos open", False, pids)
+        return
+    s1 = get(f"/api/framing/{pids['irl']}")
+    rec("auto-frame: a person filling the frame is followed", s1.get("layout") == "full" and s1.get("track") == "auto", s1)
+    s2 = get(f"/api/framing/{pids['cam']}")
+    box = s2.get("cam") or [0, 0, 0, 0]
+    real = (1640 / 1920, 40 / 1080, 240 / 1920, 300 / 1080)
+    inside = box[0] <= real[0] + 0.01 and box[1] <= real[1] + 0.01 and box[0] + box[2] >= real[0] + real[2] - 0.01 \
+        and box[1] + box[3] >= real[1] + real[3] - 0.01 and box[2] < 0.35
+    rec("auto-frame: a facecam in the corner gives Cam + game, boxed around the camera", s2.get("layout") == "split" and inside, s2)
+    opts = {"layout": "full", "aspect": "9:16", "captions": False, "hw_encode": False, "track": "auto"}
+    tr = post("/api/framing/track", {"pid": pids["irl"], "start": 2, "end": 30, "opts": opts})
+    xs = [x for _, x in tr.get("path", [])]
+    rec("follow face: the crop moves with the person", xs and xs[-1] - xs[0] > 0.3 and tr.get("coverage", 0) > 0.8,
+        {k: tr.get(k) for k in ("reason", "coverage", "confidence")} | {"from": xs[:1], "to": xs[-1:]})
+    clip = {"id": 1, "start": 2, "end": 30, "title": "Following"}
+    it = post("/api/queue/add", {"pid": pids["irl"], "clip": clip, "opts": opts})
+    d = _wait_item(it.get("id"), 300)
+    got = _probe_size(os.path.join(d["folder"], d["name"])) if d and d["status"] == "done" else None
+    rec("a followed clip renders", got and got[:2] == (1080, 1920) and (d.get("framing") or {}).get("followed"),
+        (got, d and (d.get("framing") or d.get("error"))))
+    it = post("/api/queue/add", {"pid": pids["cam"], "clip": dict(clip, title="Cam only", end=8),
+                                 "opts": {"layout": "cam", "cam": box, "aspect": "9:16", "captions": False, "hw_encode": False}})
+    d = _wait_item(it.get("id"), 300)
+    got = _probe_size(os.path.join(d["folder"], d["name"])) if d and d["status"] == "done" else None
+    rec("facecam only renders the camera full frame", got and got[:2] == (1080, 1920), got or (d and d.get("error")))
+    off = post("/api/framing/track", {"pid": pids["irl"], "start": 2, "end": 30, "opts": dict(opts, layout="blur")})
+    rec("follow face only applies to the whole-frame layout", off.get("path") == [] and "Whole frame" in off.get("reason", ""), off)
+
+
 def editing_checks(ctx):
     """3.4: timeline data, the original cut, square and wide renders, and the exact preview."""
     pid = ctx["pid"]
@@ -591,6 +642,7 @@ def main():
             review_checks(ctx)
             editing_checks(ctx)
             export_checks(ctx)
+            framing_checks(a, tmp)
 
         # ------------------------------------------------------------ live mode
         src = os.path.join(tmp, "stream_src.mp4")

@@ -51,6 +51,7 @@ import checkflow
 import detect
 import emotes
 import exports
+import framing
 import gems
 import learning
 import persist
@@ -1007,7 +1008,22 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         language=o.get("language", ""),
         hw_encode=bool(o.get("hw_encode", True)),
         aspect=o.get("aspect") if o.get("aspect") in engine.SHAPES else "9:16",
+        track="off" if o.get("track") == "off" else "auto",
+        track_target=o.get("track_target") if o.get("track_target") in framing.TARGETS else "auto",
+        focus_y=_frac(o.get("focus_y"), 0.4),
     )
+
+
+def _framing_for(pr: dict, start: float, end: float, ro, log=None) -> Optional[dict]:
+    """Follow the face for a whole-frame crop (Layout › Follow face). None when it doesn't apply."""
+    if engine.effective_layout(ro) != "full" or ro.track != "auto" or not framing.available():
+        return None
+    try:
+        return framing.track(pr["video"], start, end, pr["info"], ro, cache_dir=os.path.join(pr["workdir"], "framing"),
+                             log=log or (lambda m: print("  " + m, flush=True)))
+    except Exception as e:
+        print(f"  Framing skipped: {str(e)[:160]}", flush=True)
+        return None
 
 
 def queue_public(it: dict) -> dict:
@@ -1236,6 +1252,13 @@ def _render_item(it: dict):
         raise OSError(28, "No space left on device")
 
     it["source_title"] = pr["title"]
+    fr = None
+    if engine.effective_layout(ro) == "full" and ro.track == "auto":
+        it["step"] = "Finding the face"
+        fr = _framing_for(pr, it["start"], it["end"], ro)
+        check()
+        if fr is not None:
+            it["framing"] = {"followed": bool(fr.get("path")), "reason": fr.get("reason", ""), "confidence": fr.get("confidence", 0)}
     it["step"] = "Getting captions ready"
     words, title, post, spans, mode = _render_inputs(it, pr, ro, check)
     srt_words = list(words or []) if ro.captions else []
@@ -1250,7 +1273,7 @@ def _render_item(it: dict):
         enc_t0[0] = None
         engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=title,
                            progress=prog, check=check, words=words, censor=spans, censor_mode=mode,
-                           log=lambda m: print("  " + m, flush=True))
+                           log=lambda m: print("  " + m, flush=True), framing=fr)
         took = time.time() - (enc_t0[0] or t_start)
         if took > 0.5:
             exports.record_speed(skey, length / took)
@@ -1410,10 +1433,18 @@ def start_preview_render(pid: str, c: dict, opts: dict, at: float) -> dict:
         words, title, _post, spans, mode = _render_inputs(it, pr, ro, check)
         if not ro.captions:
             words = []
+        fr = None
+        if engine.effective_layout(ro) == "full" and ro.track == "auto":
+            job["step"] = "Finding the face"
+            # the whole clip's path (shared with the export, cached), shifted to this stretch
+            fr = _framing_for(pr, float(c["start"]), float(c["end"]), ro)
+            if fr and fr.get("path"):
+                fr = dict(fr, path=framing.shift(fr["path"], seg_a - float(c["start"]), seg_b - seg_a))
         name = f"preview_{int(time.time() * 1000)}.mp4"
         job["step"] = "Rendering"
         engine.render_clip(pr["video"], seg_a, seg_b, os.path.join(outdir, name), ro, title=title,
-                           progress=job_progress(job, 0.1, 1.0), check=check, words=words, censor=spans, censor_mode=mode)
+                           progress=job_progress(job, 0.1, 1.0), check=check, words=words, censor=spans, censor_mode=mode,
+                           framing=fr)
         return {"url": f"/files/{pid}/preview/{name}", "start": seg_a, "end": seg_b}
     run_job(job, go)
     return job
@@ -1992,6 +2023,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"items": items, "eta": queue_eta(), "workers": MAX_WORKERS[0]})
         if p == "/api/export":
             return self._json(export_view())
+        m = re.fullmatch(r"/api/framing/(\w+)", p)
+        if m:
+            # Layout › Auto-frame: what fits this video (a facecam, a person filling the frame, or neither)
+            pr = projects.get(m.group(1))
+            if not pr:
+                return self._err("This session expired. Press Find clips again.", 404)
+            if not framing.available():
+                return self._json({"layout": "", "reason": "Face finding isn't available in this copy.", "available": False})
+            try:
+                res = framing.suggest(pr["video"], float(pr["info"].get("duration") or 0) or 60.0,
+                                      cache_dir=os.path.join(pr["workdir"], "framing"))
+            except Exception as e:
+                return self._err(f"Couldn't look for faces: {str(e)[:160]}")
+            return self._json(dict(res, available=True))
         if p == "/api/perf":
             return self._json(perf_view())
         m = re.fullmatch(r"/api/strip/(\w+)", p)
@@ -2467,6 +2512,22 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/titles":
             return self._json(set_title_prefs(body))
+
+        if p == "/api/framing/track":
+            # where the crop will be over a clip (Layout › Follow face), for the preview
+            pr = projects.get(body.get("pid"))
+            if not pr:
+                return self._err("This session expired. Press Find clips again.", 404)
+            try:
+                a, b = float(body["start"]), float(body["end"])
+            except (KeyError, TypeError, ValueError):
+                return self._err("Bad clip.")
+            ro = _ropts(dict(body.get("opts") or {}, track="auto"))
+            fr = _framing_for(pr, a, b, ro) if b - a >= 1 else None
+            if fr is None:
+                return self._json({"path": [], "reason": "Follow face works with the Whole frame layout." if engine.effective_layout(ro) != "full"
+                                   else "Face finding isn't available in this copy.", "confidence": 0})
+            return self._json(fr)
 
         if p == "/api/export":
             prefs = exports.save(body)

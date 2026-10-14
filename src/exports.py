@@ -52,12 +52,24 @@ DEFAULTS = {
     "replace": [], "vocab": [],
     # performance
     "renders": 1, "downloads": 1, "priority": "responsive",
-    # saved caption styles (Text tab)
-    "cap_presets": [],
+    # saved caption styles (Text tab) and framings (Layout tab)
+    "cap_presets": [], "frame_presets": [],
 }
 CAP_KEYS = ("captions", "caption_pos", "caption_color", "caption_size", "words_per_line", "uppercase", "caption_style",
             "caption_font", "caption_anim", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
             "title_size", "title_x", "title_y")
+FRAME_KEYS = ("layout", "cam", "cam_height", "game_zoom", "game_x", "track", "track_target", "focus_y", "aspect")
+
+
+def _frame_val(k, v):
+    if k == "cam":
+        if isinstance(v, (list, tuple)) and len(v) == 4:
+            try:
+                return [round(min(max(float(x), 0.0), 1.0), 4) for x in v]
+            except (TypeError, ValueError):
+                return None
+        return None
+    return v if isinstance(v, (int, float, str, bool)) else None
 
 
 def load() -> dict:
@@ -109,6 +121,12 @@ def clean(d: dict) -> dict:
             presets.append({"name": str(cp["name"]).strip()[:40],
                             "opts": {k: v for k, v in cp["opts"].items() if k in CAP_KEYS and isinstance(v, (int, float, str, bool))}})
     out["cap_presets"] = presets
+    frames = []
+    for fp in (d.get("frame_presets") or [])[:30]:
+        if isinstance(fp, dict) and str(fp.get("name") or "").strip() and isinstance(fp.get("opts"), dict):
+            o = {k: _frame_val(k, v) for k, v in fp["opts"].items() if k in FRAME_KEYS}
+            frames.append({"name": str(fp["name"]).strip()[:40], "opts": {k: v for k, v in o.items() if v is not None}})
+    out["frame_presets"] = frames
     return out
 
 

@@ -1593,7 +1593,7 @@ def make_thumb(video: str, t: float, out: str, width: int = 480) -> str:
 
 @dataclass
 class RenderOpts:
-    layout: str = "split"           # split | full | blur
+    layout: str = "split"           # split (cam + game) | full (whole frame) | blur | cam (facecam only)
     cam: tuple = (0.0, 0.0, 0.25, 0.25)   # facecam crop x, y, w, h as fractions of source
     cam_height: float = 0.33        # fraction of output height used by facecam in split
     game_zoom: float = 1.0          # >1 zooms gameplay in
@@ -1632,6 +1632,10 @@ class RenderOpts:
     voice: bool = False             # make speech clearer (gentle compression) without burying game audio
     cap_outline: int = 100          # caption outline, percent of normal
     cap_shadow: int = 100           # caption shadow, percent of normal
+    # 3.9 framing
+    track: str = "auto"             # auto: whole-frame crops follow the streamer's face | off
+    track_target: str = "auto"      # auto | largest | left | right | point (nearest to game_x, focus_y)
+    focus_y: float = 0.4            # vertical focus point (for "point")
 
 
 W, H = 1080, 1920
@@ -1672,19 +1676,24 @@ def _even(x: float) -> int:
     return max(2, int(round(x / 2)) * 2)
 
 
-def build_filter(info: dict, o: RenderOpts) -> tuple:
-    """Return (filter_complex producing [v] in yuv420p, caption_center_y)."""
+def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: Optional[dict] = None) -> tuple:
+    """Return (filter_complex producing [v] in yuv420p, caption_center_y).
+    path: [(t, centre x)] for a whole-frame crop that follows a face (3.9 framing).
+    face: {"face_y", "face_h"} so automatic captions don't cover the face."""
     sw, sh = info["width"], info["height"]
     z = max(1.0, o.game_zoom)
     W, H = out_size(o)
     layout = effective_layout(o)
 
-    def game_crop(out_w: int, out_h: int) -> str:
+    def game_crop(out_w: int, out_h: int, follow: Optional[list] = None) -> str:
         aspect = out_w / out_h
         cwf = min(sw, sh * aspect) / z
         cw = min(_even(cwf), sw - sw % 2)
         ch = min(_even(cwf / aspect), sh - sh % 2)
         cx = int(min(max(0, o.game_x * sw - cw / 2), sw - cw))
+        if follow and cw < sw - 2:
+            import framing
+            cx = framing.x_expr(follow, sw, cw)      # moves with the face, smoothly
         cy = (sh - ch) // 2
         return f"crop={cw}:{ch}:{cx}:{cy},scale={out_w}:{out_h}:flags=lanczos,setsar=1"
 
@@ -1702,8 +1711,21 @@ def build_filter(info: dict, o: RenderOpts) -> tuple:
              f"[cam][game]vstack=inputs=2,fps={o.fps},format=yuv420p[v]")
         cap_y = top_h  # right on the seam reads best
     elif layout == "full":
-        f = f"[0:v]{game_crop(W, H)},fps={o.fps},format=yuv420p[v]"
+        f = f"[0:v]{game_crop(W, H, path)},fps={o.fps},format=yuv420p[v]"
         cap_y = H * 0.70
+        if face and path:
+            import framing
+            cap_y = framing.caption_y(face.get("face_y"), face.get("face_h"), H, cap_y)
+    elif layout == "cam":
+        # the facecam by itself, filling the frame
+        x, y, w, h = [min(max(float(v), 0.0), 1.0) for v in o.cam]
+        cx, cy = int(x * sw), int(y * sh)
+        cw, ch = max(16, int(w * sw)), max(16, int(h * sh))
+        cw, ch = min(cw, sw - cx), min(ch, sh - cy)
+        cw, ch = cw - cw % 2, ch - ch % 2
+        f = (f"[0:v]crop={cw}:{ch}:{cx}:{cy},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
+             f"crop={W}:{H},setsar=1,fps={o.fps},format=yuv420p[v]")
+        cap_y = H * 0.78
     elif layout == "blur":
         fg_h = _even(W * sh / sw)
         fg = game_crop(W, fg_h) if z > 1 else f"scale={W}:{fg_h}:flags=lanczos,setsar=1"
@@ -2075,14 +2097,15 @@ def audio_peak(path: str) -> Optional[float]:
 def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o: RenderOpts,
                 title: str = "", log: Log = _noop, progress: Progress = _noop,
                 check: Check = _noop, words: Optional[list] = None,
-                censor: Optional[list] = None, censor_mode: str = "off") -> str:
+                censor: Optional[list] = None, censor_mode: str = "off", framing: Optional[dict] = None) -> str:
     """words: transcript (times relative to clip_start) to caption with; transcribed here if None.
     censor: [(start, end)] spans (relative) to mute ("mute") or bleep ("bleep")."""
     info = probe(video)
     clip_start = max(0.0, clip_start)
     clip_end = min(info["duration"] or clip_end, clip_end)
     length = max(1.0, clip_end - clip_start)
-    vf, cap_y = build_filter(info, o)
+    fr = framing or {}
+    vf, cap_y = build_filter(info, o, fr.get("path") or None, fr)
     work = os.path.dirname(os.path.abspath(out_path))
     os.makedirs(work, exist_ok=True)
     stem = Path(out_path).stem

@@ -626,3 +626,7 @@ h3.sub{font-size:12.5px;font-weight:600;margin:4px 0 -4px;padding-top:12px;borde
 .lv-status .warn{color:var(--warn)}
 .lv-status .forming{color:var(--accent)}
 .rv-head:has(.lv-status:not(:empty)){flex-wrap:wrap;height:auto;min-height:46px;row-gap:2px;padding:7px 16px}
+
+.auto-frame{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
+#trackBlock .hint{display:block;margin-top:2px}
+#layoutSeg{flex-wrap:wrap}

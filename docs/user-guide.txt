@@ -65,7 +65,8 @@ USE
                  style (white, dark or colour box, outline), fonts, size and
                  highlight colour
       Layout     shape (vertical 9:16, square 1:1, wide 16:9), cam + game,
-                 full crop or blur fit, facecam box, zoom
+                 whole frame, cam only or blur fit, facecam box, focus, zoom,
+                 follow the streamer's face, saved framings
     Drag the title or the captions on the preview to move them; a line shows
     when they're centred, and the shaded areas are covered by TikTok's own
     buttons. Text > Reset positions puts them back.
@@ -279,6 +280,27 @@ HOW CLIPS ARE PICKED
     After you skip a clip, you can say why (not interesting, bad cut,
     duplicate, just noise). Settings > Clip ranking shows how many suggestions
     you keep, why you skip, and how many moments you had to add by hand.
+
+FRAMING
+  Layout > Auto-frame looks at a few frames of the video and picks a layout:
+  a face that sits still in a corner is a facecam (Cam + game, with the box
+  drawn around the camera), a person filling the frame is followed (Whole
+  frame), and with no face it shows the middle of the frame. Check the box
+  it draws; you can always drag your own.
+  Follow the streamer's face (Whole frame layout): the crop moves with the
+  face, smoothly and never faster than a slow pan, ignores small wobbles and
+  one-off misdetections, and holds still while the face is hidden for a
+  moment. If the face is gone for longer it eases back to Focus. If a face is
+  only seen now and then, or the only face is a facecam overlay, the crop
+  stays at Focus. Who to follow: automatic (the biggest face), the left-most
+  or right-most person, or the one nearest a focus point you set. Captions in
+  the automatic position move off the face. The preview moves the crop the
+  same way, and the exact preview shows the real render.
+  Cam only fills the frame with the facecam. Saved framings keep a layout,
+  facecam box, focus, zoom and follow settings to reuse in one click.
+  Faces are found by a small built-in detector (UltraFace, MIT licence); it
+  reads a few small frames per second, so following adds a few seconds to a
+  render.
 
 CAPTIONS
   Made with Whisper. The first render with captions downloads the model

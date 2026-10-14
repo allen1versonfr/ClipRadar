@@ -331,7 +331,13 @@
                   <span class="hint" id="shapeHint"></span>
                 </div>
                 <div class="fld">Layout
-                  <div class="seg" id="layoutSeg"><button data-v="split" class="on">Cam + game</button><button data-v="full">Full crop</button><button data-v="blur">Blur fit</button></div>
+                  <div class="seg" id="layoutSeg"><button data-v="split" class="on" title="Facecam on top, gameplay below">Cam + game</button><button data-v="full" title="Crop of the whole frame">Whole frame</button><button data-v="cam" title="Just the facecam, filling the frame">Cam only</button><button data-v="blur" title="The whole frame, fitted, over a blurred copy">Blur fit</button></div>
+                  <div class="row auto-frame"><button class="btn sm" id="autoFrame" title="Look for a facecam or a person and pick the layout that fits">Auto-frame</button><span class="hint" id="autoFrameNote"></span></div>
+                </div>
+                <div id="trackBlock">
+                  <label class="fld switch-label">Follow the streamer's face<span class="switch"><input type="checkbox" id="track" checked><i></i></span></label>
+                  <label class="fld inline">Who to follow<select class="input" id="trackTarget"><option value="auto">Automatic</option><option value="largest">Biggest face</option><option value="left">Left-most person</option><option value="right">Right-most person</option><option value="point">Nearest to the focus point</option></select></label>
+                  <span class="hint" id="trackNote">Smooth, and it holds still while the face is hidden. If no face is found, the crop stays at the focus point.</span>
                 </div>
                 <div id="camBlock">
                   <div class="fld">Facecam
@@ -340,8 +346,13 @@
                   </div>
                   <label class="fld inline">Camera height<input type="range" id="camH" min="20" max="50" value="33"><output id="camHOut" class="tnum"></output></label>
                 </div>
-                <label class="fld inline">Game focus<input type="range" id="gameX" min="0" max="100" value="50"><output id="gameXOut"></output></label>
+                <label class="fld inline" id="gameXWrap">Focus<input type="range" id="gameX" min="0" max="100" value="50"><output id="gameXOut"></output></label>
+                <label class="fld inline" id="focusYWrap" hidden>Focus height<input type="range" id="focusY" min="0" max="100" value="40"><output id="focusYOut"></output></label>
                 <label class="fld inline">Zoom<input type="range" id="zoom" min="100" max="200" step="5" value="100"><output id="zoomOut" class="tnum"></output></label>
+                <div class="fld">Saved framings
+                  <div class="cap-presets" id="framePresets"></div>
+                  <button class="btn sm" id="framePresetSave">Save this framing…</button>
+                </div>
                 <div class="sep"></div>
                 <label class="fld switch-label">Use the GPU to encode<span class="switch"><input type="checkbox" id="hw" checked><i></i></span></label>
                 <p class="hint">Changes show in the preview right away and apply to clips you keep from now on.</p>
