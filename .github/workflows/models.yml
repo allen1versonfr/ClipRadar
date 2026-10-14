@@ -45,6 +45,6 @@ jobs:
           cd "$RUNNER_TEMP/model"
           if ! gh release view models-v1 >/dev/null 2>&1; then
             gh release create models-v1 --prerelease --title "Model files" --target "${{ github.sha }}" \
-              --notes "Model files VodClipper downloads at build time. Not an app release; get VodClipper from the latest release."
+              --notes "Model files Clip Radar downloads at build time. Not an app release; get Clip Radar from the latest release."
           fi
           gh release upload models-v1 audio_events.onnx audio_events_test.npz audio_events_report.json --clobber

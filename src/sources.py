@@ -7,7 +7,7 @@ Where a video comes from (3.10): Twitch, YouTube, X or a file on this PC.
   explain(error)      yt-dlp's error, in plain words, with what to do about it
   link_at(meta, t)    a link back to the source at a time (attribution and timestamps)
 
-Downloads go through yt-dlp, the same supported route VodClipper uses for Twitch.
+Downloads go through yt-dlp, the same supported route Clip Radar uses for Twitch.
 """
 
 from __future__ import annotations
@@ -140,7 +140,7 @@ def describe(info: dict, c: Optional[dict] = None) -> dict:
     elif info.get("availability") in ("premium_only", "subscriber_only"):
         out["problem"] = "That video is for members or subscribers only. Sign in under Home › Advanced › Sign in with, using the browser where you're a member."
     if plat == "x" and not info.get("formats") and not info.get("url") and not out["problem"] and info:
-        out["problem"] = "That post doesn't have a video VodClipper can download."
+        out["problem"] = "That post doesn't have a video Clip Radar can download."
     return out
 
 
@@ -161,13 +161,13 @@ _ERRORS = [
      "That video isn't available in your country."),
     (r"copyright", "That video was taken down for copyright."),
     (r"no video could be found|no video formats found|does not contain (any )?video|unable to extract video|no media found",
-     "That post doesn't have a video VodClipper can download."),
+     "That post doesn't have a video Clip Radar can download."),
     (r"nsfw|sensitive content|log ?in|login required|authentication|cookies",
      "{p} needs you to be signed in to show this. Choose your browser under Home › Advanced › Sign in with."),
     (r"premieres? in|live event will begin|is_upcoming|scheduled",
      "That livestream hasn't started yet. Use Live clipping with 'Wait for the stream to start'."),
     (r"429|too many requests|rate.?limit", "{p} is limiting downloads right now. Wait a few minutes and try again."),
-    (r"unsupported url", "VodClipper can't open that kind of link. Paste a Twitch, YouTube or X video link, or pick a file."),
+    (r"unsupported url", "Clip Radar can't open that kind of link. Paste a Twitch, YouTube or X video link, or pick a file."),
     (r"is_live|is live|live stream|currently live",
      "That's a livestream happening now. Use Live clipping for it, or wait until it ends and use the video link."),
     (r"timed out|connection|network|getaddrinfo|ssl", "Couldn't reach {p}. Check your internet connection and try again."),

@@ -1,5 +1,5 @@
 """
-VodClipper local server. Run:  python server.py
+Clip Radar local server. Run:  python server.py
 Opens http://127.0.0.1:7860 in your browser. Everything stays on your PC.
 """
 
@@ -62,7 +62,7 @@ from version import VERSION
 HERE = paths.RES_DIR
 import locations  # noqa: E402
 WORKROOT = locations.path("projects")        # where new projects go (Settings › Storage › Projects)
-PORT = int(os.environ.get("VODCLIPPER_PORT", "7860"))
+PORT = int(os.environ.get("CLIPRADAR_PORT", "7860"))
 paths.ensure_dirs()
 os.makedirs(WORKROOT, exist_ok=True)
 
@@ -93,7 +93,7 @@ def _allowed_roots() -> list:
             out.append(p_)
     return [os.path.realpath(x) for x in out if x]
 
-MODE = {"window": False}          # True when shown in VodClipper's own app window
+MODE = {"window": False}          # True when shown in Clip Radar's own app window
 last_ping = [time.time()]
 
 
@@ -1950,7 +1950,7 @@ def live_view(sess) -> dict:
 def _callback_page(ok: bool, msg: str) -> bytes:
     color = "#3ec28f" if ok else "#f0565a"
     head = "TikTok connected" if ok else "TikTok sign-in didn't finish"
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>VodClipper</title>
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Clip Radar</title>
 <style>body{{margin:0;height:100vh;display:grid;place-items:center;background:#111214;color:#ececee;
 font:15px "Segoe UI",system-ui,sans-serif}}div{{max-width:420px;padding:28px;border:1px solid #2a2b31;border-radius:8px;
 background:#17181b}}h1{{font-size:18px;margin:0 0 8px;display:flex;gap:10px;align-items:center}}
@@ -1963,7 +1963,7 @@ h1 i{{width:10px;height:10px;border-radius:50%;background:{color};display:inline
 # --------------------------------------------------------------------------
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "VodClipper"
+    server_version = "Clip Radar"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *a):
@@ -2115,7 +2115,7 @@ class Handler(BaseHTTPRequestHandler):
             params = {k: v[0] for k, v in q.items()}
             try:
                 who = tiktok.handle_callback(params)
-                page = _callback_page(True, f"Signed in{' as ' + who if who else ''}. You can close this tab and go back to VodClipper.")
+                page = _callback_page(True, f"Signed in{' as ' + who if who else ''}. You can close this tab and go back to Clip Radar.")
             except tiktok.TikTokError as e:
                 page = _callback_page(False, str(e))
             self.send_response(200)
@@ -2336,7 +2336,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(updater.view())
         if p == "/api/update/install":
             if not updater.installed():
-                return self._err("This copy of VodClipper wasn't installed with Setup, so it can't update itself. "
+                return self._err("This copy of Clip Radar wasn't installed with Setup, so it can't update itself. "
                                  "Download the new version from GitHub instead.", 400)
             v = updater.view()
             if not v["available"]:
@@ -2375,11 +2375,21 @@ class Handler(BaseHTTPRequestHandler):
                 time.sleep(0.1)
             fn = engine.delete_vods if what == "vods" else engine.delete_clips
             res = {"deleted": 0, "freed": 0, "failed": []}
-            for root in locations.project_roots() or [WORKROOT]:
-                r_ = fn(root)
-                res["deleted"] += r_["deleted"]
-                res["freed"] += r_["freed"]
-                res["failed"] += r_["failed"]
+            for attempt in (1, 2):
+                for root in locations.project_roots() or [WORKROOT]:
+                    r_ = fn(root)
+                    if attempt == 1:
+                        res["deleted"] += r_["deleted"]
+                    res["freed"] += r_["freed"]
+                    if attempt == 2:
+                        res["failed"] += r_["failed"]
+                if attempt == 1:
+                    left = engine.storage_summary(WORKROOT)["vods" if what == "vods" else "clips"]["bytes"]
+                    if not left:
+                        break
+                    # Windows can keep a file open for a moment after it was read (a preview, a scan): try once more
+                    print(f"  Some files were busy ({left // 1_000_000} MB); trying again", flush=True)
+                    time.sleep(2.5)
             closed = []
             if what == "vods":
                 # projects whose downloaded VOD is gone can't be previewed or rendered any more
@@ -2786,7 +2796,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("Nothing to retry.", 404)
             return self._json({"ok": True, "retried": n})
 
-        if p.startswith("/api/test/") and os.environ.get("VODCLIPPER_TEST") == "1":
+        if p.startswith("/api/test/") and os.environ.get("CLIPRADAR_TEST") == "1":
             act = p[len("/api/test/"):]
             if act in ("fail_next_render", "break_next_output"):
                 TEST_HOOKS[act] = True
@@ -2795,7 +2805,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": hotkey.simulate()})
             if act == "yt_hls":
                 # stands in for YouTube: live links resolve to this playlist (a local test stream)
-                os.environ["VODCLIPPER_TEST_YT_HLS"] = str(body.get("url") or "")
+                os.environ["CLIPRADAR_TEST_YT_HLS"] = str(body.get("url") or "")
                 return self._json({"ok": True})
             return self._err("not found", 404)
 
@@ -2853,7 +2863,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(twitchauth.set_token(""))
         if p == "/api/twitch/login":
             if not twitchauth.login_impl[0]:
-                return self._err("Signing in through a window needs the VodClipper app window. Paste your token instead.")
+                return self._err("Signing in through a window needs the Clip Radar app window. Paste your token instead.")
             job = new_job("twitchlogin")
             run_job(job, lambda: twitchauth.login_with_window())
             return self._json({"job": job["id"]})
@@ -2907,7 +2917,7 @@ def _install_update():
 
 
 def uninstaller_path() -> str:
-    """The Inno Setup uninstaller sits next to VodClipper.exe when it was installed with Setup."""
+    """The Inno Setup uninstaller sits next to ClipRadar.exe when it was installed with Setup."""
     if not paths.FROZEN:
         return ""
     for name in ("unins000.exe", "unins001.exe"):
@@ -2998,7 +3008,7 @@ def start(port: int = PORT):
 
 
 def load_queue():
-    """Bring back Exports and any renders that hadn't finished when VodClipper last closed."""
+    """Bring back Exports and any renders that hadn't finished when Clip Radar last closed."""
     items = persist.restore_queue(persist.read_json(QUEUE_FILE))
     for it in items:
         if it["status"] == "done":
@@ -3014,7 +3024,7 @@ def load_queue():
 
 
 def _clean_leftovers():
-    """Temporary files a render leaves behind if VodClipper is closed or crashes mid-render."""
+    """Temporary files a render leaves behind if Clip Radar is closed or crashes mid-render."""
     pats = ("vc_*.part.mp4", "vc_*.ass", "*.mp4.*.tmp", "*.txt.*.tmp")
     folders = [f for root in (locations.project_roots() or [WORKROOT]) for f in glob.glob(os.path.join(root, "*", "tiktok"))]
     if locations.path("clips"):
@@ -3042,7 +3052,7 @@ _worker_started = [False]
 
 def main():
     srv, url = start()
-    print(f"\n  VodClipper is running at {url}\n"
+    print(f"\n  Clip Radar is running at {url}\n"
           f"  Clips are saved under {WORKROOT}\n"
           f"  Keep this window open while you use it. Close it to quit.\n", flush=True)
     if "--no-browser" not in sys.argv:

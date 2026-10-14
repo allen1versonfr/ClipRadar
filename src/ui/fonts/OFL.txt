@@ -1,5 +1,5 @@
 Inter — Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
-Subsetted to Latin for VodClipper. Licensed under the SIL Open Font License, Version 1.1:
+Subsetted to Latin for Clip Radar. Licensed under the SIL Open Font License, Version 1.1:
 
 PREAMBLE
 The goals of the Open Font License (OFL) are to stimulate worldwide

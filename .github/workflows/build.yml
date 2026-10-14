@@ -61,6 +61,7 @@ jobs:
           python tests/test_framing.py
           python tests/test_sources.py
           python tests/test_locations.py
+          python tests/test_rename.py
 
       - name: Get ffmpeg, TwitchDownloader and yt-dlp
         env:
@@ -75,7 +76,7 @@ jobs:
       - name: Build exe
         run: >
           python -m PyInstaller --noconfirm --clean --log-level WARN --onedir --windowed
-          --name VodClipper --icon src/ui/icon.ico --add-data "src/ui;ui" --add-data "src/models;models" --paths src
+          --name ClipRadar --icon src/ui/icon.ico --add-data "src/ui;ui" --add-data "src/models;models" --paths src
           --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime
           --collect-all av --collect-all webview --collect-submodules yt_dlp --collect-data certifi
           --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog
@@ -84,8 +85,8 @@ jobs:
       - name: Add tools and readme
         shell: pwsh
         run: |
-          Copy-Item tools dist/VodClipper/tools -Recurse -Force
-          Copy-Item docs/user-guide.txt dist/VodClipper/README.txt
+          Copy-Item tools dist/ClipRadar/tools -Recurse -Force
+          Copy-Item docs/user-guide.txt dist/ClipRadar/README.txt
 
       - name: Make a test stream (video + spoken words)
         shell: pwsh
@@ -115,10 +116,10 @@ jobs:
         shell: pwsh
         run: |
           $t = $env:RUNNER_TEMP
-          $env:VODCLIPPER_WORK = "$t\vc-work"
-          $p = Start-Process dist/VodClipper/VodClipper.exe -ArgumentList "--selftest", "$t\selftest.json", "$t\test.mp4" -PassThru
+          $env:CLIPRADAR_WORK = "$t\vc-work"
+          $p = Start-Process dist/ClipRadar/ClipRadar.exe -ArgumentList "--selftest", "$t\selftest.json", "$t\test.mp4" -PassThru
           if (-not $p.WaitForExit(900000)) { Stop-Process -Id $p.Id -Force; Write-Host "::error title=selftest::timed out" }
-          Get-Content "$env:LOCALAPPDATA\VodClipper\vodclipper.log" -ErrorAction SilentlyContinue | Select-Object -Last 60
+          Get-Content "$env:LOCALAPPDATA\ClipRadar\clipradar.log" -ErrorAction SilentlyContinue | Select-Object -Last 60
           if (-not (Test-Path "$t\selftest.json")) { Write-Host "::error title=selftest::no report written"; exit 1 }
           $r = Get-Content "$t\selftest.json" -Raw | ConvertFrom-Json
           $passed = ($r.checks | Where-Object { $_.ok } | ForEach-Object { $_.name }) -join ", "
@@ -133,8 +134,8 @@ jobs:
       - name: Smoke test (app server starts)
         shell: pwsh
         run: |
-          $env:VODCLIPPER_WORK = "$env:RUNNER_TEMP\vc-work"
-          $p = Start-Process dist/VodClipper/VodClipper.exe -ArgumentList "--browser" -PassThru
+          $env:CLIPRADAR_WORK = "$env:RUNNER_TEMP\vc-work"
+          $p = Start-Process dist/ClipRadar/ClipRadar.exe -ArgumentList "--browser" -PassThru
           $ok = $false
           foreach ($i in 1..40) {
             Start-Sleep 2
@@ -151,7 +152,7 @@ jobs:
       - name: End-to-end test (live clipping + TikTok posting)
         shell: pwsh
         run: |
-          python tests/e2e.py --app "dist/VodClipper/VodClipper.exe" --ffmpeg tools/ffmpeg.exe --out "$env:RUNNER_TEMP\e2e.json" --model tiny --speech "$env:RUNNER_TEMP\speech.wav"
+          python tests/e2e.py --app "dist/ClipRadar/ClipRadar.exe" --ffmpeg tools/ffmpeg.exe --out "$env:RUNNER_TEMP\e2e.json" --model tiny --speech "$env:RUNNER_TEMP\speech.wav"
           $code = $LASTEXITCODE
           if (-not (Test-Path "$env:RUNNER_TEMP\e2e.json")) { Write-Host "::error title=e2e::no report"; exit 1 }
           $r = Get-Content "$env:RUNNER_TEMP\e2e.json" -Raw | ConvertFrom-Json
@@ -178,10 +179,94 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
           if (-not (Test-Path $iscc)) { $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source }
           $ver = (Select-String -Path src/version.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
-          & $iscc /Q "/DAppVersion=$ver" installer\vodclipper.iss
-          if (-not (Test-Path dist\VodClipper-Setup.exe)) { Write-Host "::error title=FAIL installer::not built"; exit 1 }
-          $mb = [math]::Round((Get-Item dist\VodClipper-Setup.exe).Length / 1MB)
-          Write-Host "::notice title=installer::VodClipper-Setup.exe v$ver ($mb MB)"
+          & $iscc /Q "/DAppVersion=$ver" installer\clipradar.iss
+          if (-not (Test-Path dist\ClipRadar-Setup.exe)) { Write-Host "::error title=FAIL installer::not built"; exit 1 }
+          $mb = [math]::Round((Get-Item dist\ClipRadar-Setup.exe).Length / 1MB)
+          Write-Host "::notice title=installer::ClipRadar-Setup.exe v$ver ($mb MB)"
+
+      - name: Test updating from VodClipper (the old name)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          $results = [System.Collections.Generic.List[object]]::new()
+          function Check($name, $ok, $detail = "") { $results.Add([pscustomobject]@{ name = $name; ok = [bool]$ok; detail = "$detail" }) }
+          Remove-Item Env:CLIPRADAR_WORK, Env:VODCLIPPER_WORK -ErrorAction SilentlyContinue
+          $videos = [Environment]::GetFolderPath("MyVideos")
+          $oldApp = "$env:LOCALAPPDATA\Programs\VodClipper"; $oldData = "$env:LOCALAPPDATA\VodClipper"; $oldClips = "$videos\VodClipper"
+          $newApp = "$env:LOCALAPPDATA\Programs\Clip Radar"; $newData = "$env:LOCALAPPDATA\ClipRadar"; $newClips = "$videos\Clip Radar"
+          Remove-Item $newData, $newClips -Recurse -Force -ErrorAction SilentlyContinue      # left by the self-test
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\old" | Out-Null
+          gh release download v3.11.0 -p VodClipper-Setup.exe -D "$env:RUNNER_TEMP\old" --clobber
+          Check "got VodClipper 3.11.0" (Test-Path "$env:RUNNER_TEMP\old\VodClipper-Setup.exe")
+          Start-Process "$env:RUNNER_TEMP\old\VodClipper-Setup.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/TASKS=desktopicon" -Wait
+          Check "VodClipper installed" (Test-Path "$oldApp\VodClipper.exe")
+
+          # use it a little: a project with a rendered clip in the Exports list, and a setting
+          $p = Start-Process "$oldApp\VodClipper.exe" -ArgumentList "--browser" -PassThru
+          $st = $null
+          foreach ($i in 1..40) { Start-Sleep 2; try { $st = Invoke-RestMethod http://127.0.0.1:7860/api/status; break } catch {} }
+          Check "VodClipper runs" ($st -and $st.version -eq "3.11.0") "$($st.version)"
+          Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/export -Body '{"preset":"x"}' -ContentType 'application/json' | Out-Null
+          Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null
+          Start-Sleep 3; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          $proj = "$oldClips\vod_1"
+          New-Item -ItemType Directory -Force "$proj\tiktok" | Out-Null
+          '{"title":"Old project","source":"https://www.twitch.tv/videos/1"}' | Set-Content "$proj\meta.json"
+          Set-Content "$proj\tiktok\Old clip.mp4" "fake clip"
+          $clipPath = "$proj\tiktok\Old clip.mp4"
+          $q = @{ v = 1; items = @(@{ id = "abc12345"; pid = "p1"; start = 0; end = 5; title = "Old clip"; status = "done"; path = $clipPath;
+                  folder = "$proj\tiktok"; name = "Old clip.mp4"; workdir = $proj; video = "$proj\vod.mp4"; opts = @{} }) }
+          $q | ConvertTo-Json -Depth 5 | Set-Content "$oldData\queue.json" -Encoding utf8
+
+          # the in-app update, exactly as VodClipper 3.11 does it: it finds VodClipper-Setup.exe in the newest release
+          $gh = Start-Process python -ArgumentList "tests/mock_github.py","9491","v99.0.0","$(Resolve-Path dist\ClipRadar-Setup.exe)" -PassThru -WindowStyle Hidden
+          $env:VODCLIPPER_UPDATE_API = "http://127.0.0.1:9491/repos/allen1versonfr/vodclipper/releases/latest"
+          $p = Start-Process "$oldApp\VodClipper.exe" -ArgumentList "--browser" -PassThru
+          $u = $null
+          foreach ($n in 1..40) { Start-Sleep 2; try { $u = Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/update/check -Body '{}' -ContentType 'application/json'; break } catch {} }
+          Check "VodClipper finds the Clip Radar update" ($u -and $u.available -and $u.can_install) ($u | ConvertTo-Json -Compress)
+          try { Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/update/install -Body '{}' -ContentType 'application/json' | Out-Null } catch {}
+          Check "VodClipper closes for the update" ($p.WaitForExit(180000))
+          $back = $null
+          foreach ($n in 1..60) { Start-Sleep 3; try { $back = Invoke-RestMethod http://127.0.0.1:7860/api/status; break } catch {} }
+          Check "Clip Radar opens after the update" ($back -and $back.version -ne "3.11.0") "$($back.version)"
+          Start-Sleep 5
+          Check "Clip Radar installed in its own folder" (Test-Path "$newApp\ClipRadar.exe")
+          Check "old program folder removed" (-not (Test-Path $oldApp))
+          Check "shortcuts renamed" ((Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Clip Radar.lnk") -and
+                                     (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\VodClipper.lnk")) -and
+                                     (Test-Path (Join-Path ([Environment]::GetFolderPath("Desktop")) "Clip Radar.lnk")) -and
+                                     (-not (Test-Path (Join-Path ([Environment]::GetFolderPath("Desktop")) "VodClipper.lnk"))))
+          $apps = @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | ForEach-Object { (Get-ItemProperty $_.PSPath).DisplayName } | Where-Object { $_ -match "Clip Radar|VodClipper" })
+          Check "listed once in Settings > Apps, as Clip Radar" ($apps.Count -eq 1 -and $apps[0] -eq "Clip Radar") ($apps -join ", ")
+          Check "settings and data moved" ((Test-Path "$newData\export.json") -and -not (Test-Path $oldData)) "$(Test-Path $newData) / old still there: $(Test-Path $oldData)"
+          Check "clips folder moved" ((Test-Path "$newClips\vod_1\tiktok\Old clip.mp4") -and -not (Test-Path $oldClips))
+          $ex = $null; try { $ex = Invoke-RestMethod http://127.0.0.1:7860/api/export } catch {}
+          Check "settings kept" ($ex -and $ex.prefs.preset -eq "x") "$($ex.prefs.preset)"
+          $qq = $null; try { $qq = Invoke-RestMethod http://127.0.0.1:7860/api/queue } catch {}
+          $it = @($qq.items | Where-Object { $_.id -eq "abc12345" })[0]
+          $served = $false; if ($it -and $it.url) { try { $served = (Invoke-WebRequest "http://127.0.0.1:7860$($it.url)" -UseBasicParsing).StatusCode -eq 200 } catch {} }
+          Check "Exports still finds the old clip" ($it -and $served) ($it | ConvertTo-Json -Compress)
+          $reg = (Get-ItemProperty "HKCU:\Software\ClipRadar" -ErrorAction SilentlyContinue).ClipsFolder
+          Check "folders recorded under the new name" (($reg -eq $newClips) -and -not (Test-Path "HKCU:\Software\VodClipper")) $reg
+          try { Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null } catch {}
+          Start-Sleep 4
+          Get-Process ClipRadar, VodClipper -ErrorAction SilentlyContinue | Stop-Process -Force
+          Stop-Process -Id $gh.Id -Force -ErrorAction SilentlyContinue
+          Remove-Item Env:VODCLIPPER_UPDATE_API -ErrorAction SilentlyContinue
+          # clean up for the install tests below
+          if (Test-Path "$newApp\unins000.exe") { Start-Process "$newApp\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DELETECLIPS=1" -Wait }
+          foreach ($i in 1..30) { if (-not (Test-Path "$newApp\ClipRadar.exe")) { break }; Start-Sleep 2 }
+          Start-Sleep 3
+          Check "the upgraded install uninstalls cleanly" ((-not (Test-Path $newApp)) -and (-not (Test-Path $newData)))
+
+          $passed = @($results | Where-Object { $_.ok })
+          Write-Host "::notice title=Update from VodClipper passed ($($passed.Count) of $($results.Count))::$(($passed | ForEach-Object { $_.name }) -join ', ')"
+          foreach ($r in $results) { if (-not $r.ok) { Write-Host "::error title=FAIL $($r.name)::$($r.detail)" } }
+          if ($passed.Count -ne $results.Count) { exit 1 }
+          exit 0
 
       - name: Test install and uninstall
         shell: pwsh
@@ -189,18 +274,18 @@ jobs:
           $ErrorActionPreference = "Continue"
           $results = [System.Collections.Generic.List[object]]::new()
           function Check($name, $ok, $detail = "") { $results.Add([pscustomobject]@{ name = $name; ok = [bool]$ok; detail = "$detail" }) }
-          $app = "$env:LOCALAPPDATA\Programs\VodClipper"
-          $data = "$env:LOCALAPPDATA\VodClipper"
+          $app = "$env:LOCALAPPDATA\Programs\Clip Radar"
+          $data = "$env:LOCALAPPDATA\ClipRadar"
           $uninstKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E0B5F2A-6C1D-4E8B-9F3A-2D7C1B4A9E10}_is1"
-          $startLnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\VodClipper.lnk"
-          $deskLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "VodClipper.lnk"
-          Remove-Item Env:VODCLIPPER_WORK -ErrorAction SilentlyContinue
+          $startLnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Clip Radar.lnk"
+          $deskLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "Clip Radar.lnk"
+          Remove-Item Env:CLIPRADAR_WORK -ErrorAction SilentlyContinue
 
           function Install() {
-            Start-Process (Resolve-Path dist\VodClipper-Setup.exe) -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/TASKS=desktopicon" -Wait
+            Start-Process (Resolve-Path dist\ClipRadar-Setup.exe) -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/TASKS=desktopicon" -Wait
           }
           function RunAppAndMakeClip() {
-            $p = Start-Process "$app\VodClipper.exe" -ArgumentList "--browser" -PassThru
+            $p = Start-Process "$app\ClipRadar.exe" -ArgumentList "--browser" -PassThru
             $st = $null
             foreach ($i in 1..40) { Start-Sleep 2; try { $st = Invoke-RestMethod http://127.0.0.1:7860/api/storage; break } catch {} }
             $root = $null
@@ -218,30 +303,30 @@ jobs:
           function Uninstall($extra) {
             $ua = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART") + $extra
             Start-Process "$app\unins000.exe" -ArgumentList $ua -Wait
-            foreach ($i in 1..60) { if (-not (Test-Path "$app\VodClipper.exe")) { break }; Start-Sleep 2 }
+            foreach ($i in 1..60) { if (-not (Test-Path "$app\ClipRadar.exe")) { break }; Start-Sleep 2 }
             Start-Sleep 3
           }
 
           # ---- cycle 1: install, run, uninstall keeping clips (the default)
           Install
-          Check "installed exe" (Test-Path "$app\VodClipper.exe") $app
+          Check "installed exe" (Test-Path "$app\ClipRadar.exe") $app
           Check "uninstaller present" (Test-Path "$app\unins000.exe")
           Check "Start menu shortcut" (Test-Path $startLnk)
-          Check "Start menu uninstall shortcut" (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Uninstall VodClipper.lnk")
+          Check "Start menu uninstall shortcut" (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Uninstall Clip Radar.lnk")
           Check "desktop shortcut" (Test-Path $deskLnk)
           $disp = (Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).DisplayName
-          Check "listed in Settings > Apps" ($disp -eq "VodClipper") $disp
+          Check "listed in Settings > Apps" ($disp -eq "Clip Radar") $disp
           $st, $root = RunAppAndMakeClip
           Check "installed app runs" ($st -ne $null) "clips folder: $root"
           Check "app sees its uninstaller" ($st.uninstaller -eq $true)
-          $reg = (Get-ItemProperty "HKCU:\Software\VodClipper" -ErrorAction SilentlyContinue).ClipsFolder
+          $reg = (Get-ItemProperty "HKCU:\Software\ClipRadar" -ErrorAction SilentlyContinue).ClipsFolder
           Check "clips folder recorded for uninstaller" ($reg -eq $root) $reg
 
           # ---- in-app update: the installed app finds a "newer" release, downloads its Setup,
           #      closes, the installer upgrades it in place and reopens it
-          $gh = Start-Process python -ArgumentList "tests/mock_github.py","9491","v99.0.0","$(Resolve-Path dist\VodClipper-Setup.exe)" -PassThru -WindowStyle Hidden
-          $env:VODCLIPPER_UPDATE_API = "http://127.0.0.1:9491/repos/allen1versonfr/vodclipper/releases/latest"
-          $p = Start-Process "$app\VodClipper.exe" -ArgumentList "--browser" -PassThru
+          $gh = Start-Process python -ArgumentList "tests/mock_github.py","9491","v99.0.0","$(Resolve-Path dist\ClipRadar-Setup.exe)" -PassThru -WindowStyle Hidden
+          $env:CLIPRADAR_UPDATE_API = "http://127.0.0.1:9491/repos/allen1versonfr/vodclipper/releases/latest"
+          $p = Start-Process "$app\ClipRadar.exe" -ArgumentList "--browser" -PassThru
           $u = $null
           foreach ($n in 1..40) { Start-Sleep 2; try { $u = Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/update/check -Body '{}' -ContentType 'application/json'; break } catch {} }
           Check "installed app finds the update" ($u -and $u.available -and $u.can_install) ($u | ConvertTo-Json -Compress)
@@ -257,18 +342,18 @@ jobs:
           $utail = if (Test-Path $ulog) { (Get-Content $ulog -Tail 4) -join " | " } else { "no installer log" }
           Check "update installed" ((Test-Path $ulog) -and ((Get-Content $ulog -Raw) -match "Installation process succeeded")) $utail
           Check "desktop shortcut kept after update" (Test-Path $deskLnk)
-          Check "still listed once in Settings > Apps" ((Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).DisplayName -eq "VodClipper")
+          Check "still listed once in Settings > Apps" ((Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).DisplayName -eq "Clip Radar")
           try { Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null } catch {}
           Start-Sleep 4
-          Get-Process VodClipper -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process ClipRadar -ErrorAction SilentlyContinue | Stop-Process -Force
           Stop-Process -Id $gh.Id -Force -ErrorAction SilentlyContinue
-          Remove-Item Env:VODCLIPPER_UPDATE_API -ErrorAction SilentlyContinue
+          Remove-Item Env:CLIPRADAR_UPDATE_API -ErrorAction SilentlyContinue
           Uninstall @()
           Check "uninstall removed app" (-not (Test-Path $app))
           Check "uninstall removed app data" (-not (Test-Path $data))
           Check "uninstall removed shortcuts" ((-not (Test-Path $startLnk)) -and (-not (Test-Path $deskLnk)))
           Check "uninstall removed Apps entry" (-not (Test-Path $uninstKey))
-          Check "uninstall removed settings key" (-not (Test-Path "HKCU:\Software\VodClipper"))
+          Check "uninstall removed settings key" (-not (Test-Path "HKCU:\Software\ClipRadar"))
           Check "uninstall kept clips by default" ($root -and (Test-Path "$root\vod_1\tiktok\clip_01.mp4"))
 
           # ---- cycle 2: reinstall, uninstall choosing to delete clips too
@@ -286,10 +371,10 @@ jobs:
 
       - uses: actions/upload-artifact@v5
         with:
-          name: VodClipper-windows
+          name: ClipRadar-windows
           path: |
-            dist/VodClipper
-            dist/VodClipper-Setup.exe
+            dist/ClipRadar
+            dist/ClipRadar-Setup.exe
 
       - name: Publish release (new versions only)
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
@@ -307,13 +392,15 @@ jobs:
           $log = Get-Content CHANGELOG.md -Raw
           $m = [regex]::Match($log, "(?ms)^## \[$([regex]::Escape($ver))\][^\n]*\n(.*?)(?=^## \[|^\[[0-9]|\z)")
           if (-not $m.Success) { Write-Host "::error title=Changelog::no section for $ver in CHANGELOG.md"; exit 1 }
-          $notes = $m.Groups[1].Value.Trim() + "`n`n---`n**Download:** ``VodClipper-Setup.exe`` (installer, recommended) or ``VodClipper-portable.zip`` (no install). Windows 10 or 11, 64-bit."
+          $notes = $m.Groups[1].Value.Trim() + "`n`n---`n**Download:** ``ClipRadar-Setup.exe`` (installer, recommended) or ``ClipRadar-portable.zip`` (no install). Windows 10 or 11, 64-bit."
           Set-Content -Path notes.md -Value $notes -Encoding utf8
-          Compress-Archive -Path dist/VodClipper -DestinationPath dist/VodClipper-portable.zip -Force
-          gh release create $tag dist/VodClipper-Setup.exe dist/VodClipper-portable.zip --title "VodClipper $ver" --notes-file notes.md --target "${{ github.sha }}" --latest
+          Compress-Archive -Path dist/ClipRadar -DestinationPath dist/ClipRadar-portable.zip -Force
+          # the same installer under the old name too: VodClipper's built-in updater looks for that file
+          Copy-Item dist/ClipRadar-Setup.exe dist/VodClipper-Setup.exe -Force
+          gh release create $tag dist/ClipRadar-Setup.exe dist/VodClipper-Setup.exe dist/ClipRadar-portable.zip --title "Clip Radar $ver" --notes-file notes.md --target "${{ github.sha }}" --latest
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # retire the old rolling "latest" release from before versioned releases
           gh release view latest 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) { gh release delete latest --yes --cleanup-tag }
-          Write-Host "::notice title=OK release::VodClipper $ver published"
+          Write-Host "::notice title=OK release::Clip Radar $ver published"
           exit 0

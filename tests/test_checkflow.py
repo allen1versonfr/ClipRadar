@@ -18,7 +18,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-os.environ["VODCLIPPER_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
+os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import checkflow  # noqa: E402

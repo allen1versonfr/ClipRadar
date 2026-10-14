@@ -1,13 +1,13 @@
 """
-A local imitation of GitHub's "latest release" API, for testing VodClipper's updater.
+A local imitation of GitHub's "latest release" API, for testing Clip Radar's updater.
 
   python mock_github.py PORT TAG [SETUP_EXE]
 
-Serves /repos/<owner>/<repo>/releases/latest with one VodClipper-Setup.exe asset
+Serves /repos/<owner>/<repo>/releases/latest with one ClipRadar-Setup.exe asset
 (the given file, or a few bytes of filler), including its size and sha256 digest
 the way GitHub reports them. POST /__set {"tag": "v1.2.3"} changes the release.
-Point VodClipper at it with:
-  VODCLIPPER_UPDATE_API=http://127.0.0.1:PORT/repos/allen1versonfr/vodclipper/releases/latest
+Point Clip Radar at it with:
+  CLIPRADAR_UPDATE_API=http://127.0.0.1:PORT/repos/allen1versonfr/vodclipper/releases/latest
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ class H(BaseHTTPRequestHandler):
             self.send_response(302)
             # like GitHub's object storage: a different host from the API
             other = host.replace("127.0.0.1", "localhost") if "127.0.0.1" in host else host.replace("localhost", "127.0.0.1")
-            self.send_header("Location", f"http://{other}/signed/VodClipper-Setup.exe?sig=abc")
+            self.send_header("Location", f"http://{other}/signed/ClipRadar-Setup.exe?sig=abc")
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
@@ -73,7 +73,7 @@ class H(BaseHTTPRequestHandler):
             if self.headers.get("Authorization"):
                 STATE["leaked"] += 1        # the real signed URL rejects requests that carry a token
                 return self._json({"message": "Only one auth mechanism allowed"}, 400)
-            self.path = "/download/VodClipper-Setup.exe"
+            self.path = "/download/ClipRadar-Setup.exe"
         if self.path.endswith("/releases/latest"):
             if not self._private_ok():
                 return self._json({"message": "Not Found"}, 404)
@@ -83,21 +83,27 @@ class H(BaseHTTPRequestHandler):
             blob = _blob()
             ver = STATE["tag"].lstrip("v")
             return self._json({
-                "tag_name": STATE["tag"], "name": f"VodClipper {ver}", "draft": False, "prerelease": False,
+                "tag_name": STATE["tag"], "name": f"Clip Radar {ver}", "draft": False, "prerelease": False,
                 "html_url": f"https://github.com/allen1versonfr/vodclipper/releases/tag/{STATE['tag']}",
                 "published_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "body": f"Test release {ver}.\n\n### Added\n- **Something new** for `testing`.\n\n---\n**Download:** the installer.",
                 "assets": [{
+                    "name": "ClipRadar-Setup.exe", "size": len(blob),
+                    "digest": "sha256:" + hashlib.sha256(blob).hexdigest(),
+                    "browser_download_url": f"http://{host}/download/ClipRadar-Setup.exe",
+                    "url": f"http://{host}/repos/allen1versonfr/vodclipper/releases/assets/1",
+                }, {
+                    # the same installer under the old name, for VodClipper's updater (like real releases)
                     "name": "VodClipper-Setup.exe", "size": len(blob),
                     "digest": "sha256:" + hashlib.sha256(blob).hexdigest(),
                     "browser_download_url": f"http://{host}/download/VodClipper-Setup.exe",
                     "url": f"http://{host}/repos/allen1versonfr/vodclipper/releases/assets/1",
                 }, {
-                    "name": "VodClipper-portable.zip", "size": 3,
-                    "browser_download_url": f"http://{host}/download/VodClipper-portable.zip",
+                    "name": "ClipRadar-portable.zip", "size": 3,
+                    "browser_download_url": f"http://{host}/download/ClipRadar-portable.zip",
                 }],
             })
-        if self.path == "/download/VodClipper-Setup.exe":
+        if self.path in ("/download/ClipRadar-Setup.exe", "/download/VodClipper-Setup.exe"):
             if STATE["token"] and not self.headers.get("Authorization") and "signed" not in self.requestline:
                 return self._json({"message": "Not Found"}, 404)   # private: browser links need a login
             STATE["downloads"] += 1

@@ -1,14 +1,14 @@
 """
 Learns what you like, per streamer.
 
-Every time you keep, skip or post a suggested clip, VodClipper remembers what
+Every time you keep, skip or post a suggested clip, Clip Radar remembers what
 that moment's signals looked like (chat surge, loudness, laughter, screams,
 cheering, speech, length, "clip it" requests, how far into the stream). Once
 there are enough decisions it fits a small logistic model per streamer and
 nudges the ranking: if you always keep the moments where the streamer laughs
 and skip the loud-but-empty ones, laughter moves up and loudness moves down.
 
-Stored in learning.json in VodClipper's data folder. Nothing leaves the PC.
+Stored in learning.json in Clip Radar's data folder. Nothing leaves the PC.
 """
 
 from __future__ import annotations

@@ -1,11 +1,11 @@
 """
-Where VodClipper keeps things (3.11), each changeable in Settings › Storage:
+Where Clip Radar keeps things (3.11), each changeable in Settings › Storage:
 
   projects    a folder per video: your review, analysis, transcripts, thumbnails
   downloads   downloaded videos and chat (empty: inside each project folder, as before)
   clips       rendered clips (empty: a "tiktok" folder inside each project folder, as before)
   temp        previews, framing data and the live recording buffer (safe to clear)
-  logs        vodclipper.log
+  logs        clipradar.log
 
 Defaults are where things always went, so upgrading changes nothing. A folder on a drive that isn't
 plugged in falls back to the default until it's back, and says so.
@@ -74,7 +74,7 @@ def path(key: str) -> str:
 
 
 def check(folder: str) -> dict:
-    """Can VodClipper use this folder? {"ok", "error", "free"}: it must exist (or be creatable) and be writable."""
+    """Can Clip Radar use this folder? {"ok", "error", "free"}: it must exist (or be creatable) and be writable."""
     folder = (folder or "").strip().strip('"')
     if not folder:
         return {"ok": True, "error": "", "free": None}
@@ -89,7 +89,7 @@ def check(folder: str) -> dict:
             f.write("ok")
         os.remove(probe)
     except OSError as e:
-        return {"ok": False, "error": f"VodClipper can't write there ({e.strerror or e}).", "free": None}
+        return {"ok": False, "error": f"Clip Radar can't write there ({e.strerror or e}).", "free": None}
     return {"ok": True, "error": "", "free": free_space(folder)}
 
 
@@ -108,7 +108,7 @@ def free_space(folder: str) -> Optional[int]:
 
 def save(patch: dict) -> dict:
     """Change locations. Returns {"ok", "errors": {key: message}}. Nothing is moved: new work goes to the
-    new place, and existing projects stay where they are (VodClipper still finds them)."""
+    new place, and existing projects stay where they are (Clip Radar still finds them)."""
     cur = load_raw()
     errors = {}
     for k in KEYS:

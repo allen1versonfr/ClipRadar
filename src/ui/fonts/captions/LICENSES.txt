@@ -1,4 +1,4 @@
-Caption fonts bundled with VodClipper
+Caption fonts bundled with Clip Radar
 =====================================
 
 --- anton (Anton-Regular.ttf )

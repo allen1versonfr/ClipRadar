@@ -2,7 +2,7 @@
 Hears laughter, screams and cheering in a stream.
 
 A small AudioSet sound-event model (EfficientAT MobileNetV3 "mn10_as", MIT
-licence, about 20 MB as ONNX) runs on onnxruntime, which VodClipper already
+licence, about 20 MB as ONNX) runs on onnxruntime, which Clip Radar already
 ships for Whisper's voice detection. The log-mel front end is computed here
 with numpy so the model file stays small and nothing else needs installing.
 
@@ -33,7 +33,7 @@ N_MELS = 128
 FPS = SR // HOP
 
 MODEL_NAME = "audio_events.onnx"
-MODEL_URL = os.environ.get("VODCLIPPER_MODEL_URL",
+MODEL_URL = os.environ.get("CLIPRADAR_MODEL_URL",
                            "https://github.com/allen1versonfr/vodclipper/releases/download/models-v1/" + MODEL_NAME)
 MODEL_SHA256 = "197920fa51524d0a8078a6a999d97ccbeff76fe61a86034a07d31d236b24803e"
 
@@ -139,7 +139,7 @@ def download(log: Log = _noop, folder: Optional[str] = None, progress=_noop) -> 
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".part")
     log("Downloading the laughter detector (about 20 MB)...")
-    req = urllib.request.Request(MODEL_URL, headers={"User-Agent": "VodClipper"})
+    req = urllib.request.Request(MODEL_URL, headers={"User-Agent": "ClipRadar"})
     h = hashlib.sha256()
     with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)

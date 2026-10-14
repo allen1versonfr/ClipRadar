@@ -3,7 +3,7 @@ Posting to TikTok with the official Content Posting API.
 
 TikTok only lets registered apps post, so you create a (free) app at
 developers.tiktok.com and paste its Client key and Client secret into
-VodClipper's Settings. Sign-in uses TikTok's desktop flow (PKCE + a redirect
+Clip Radar's Settings. Sign-in uses TikTok's desktop flow (PKCE + a redirect
 back to this app on 127.0.0.1); tokens are stored encrypted for your Windows
 user account and refreshed automatically.
 
@@ -33,8 +33,8 @@ from typing import Callable, Optional
 
 import paths
 
-AUTH_URL = os.environ.get("VODCLIPPER_TIKTOK_AUTH", "https://www.tiktok.com/v2/auth/authorize/")
-API = os.environ.get("VODCLIPPER_TIKTOK_API", "https://open.tiktokapis.com").rstrip("/")
+AUTH_URL = os.environ.get("CLIPRADAR_TIKTOK_AUTH", "https://www.tiktok.com/v2/auth/authorize/")
+API = os.environ.get("CLIPRADAR_TIKTOK_API", "https://open.tiktokapis.com").rstrip("/")
 SCOPES = "user.info.basic,video.publish,video.upload"
 REDIRECT_PATH = "/callback/"
 REDIRECT_TO_REGISTER = "http://127.0.0.1:*/callback/"
@@ -64,7 +64,7 @@ FRIENDLY = {
     "picture_size_check_failed": "TikTok rejected the video's resolution.",
     "spam_risk_text": "TikTok flagged the caption text. Edit the caption and try again.",
     "spam_risk": "TikTok flagged this post as spam risk.",
-    "auth_removed": "VodClipper's access was removed in TikTok. Reconnect TikTok in Settings.",
+    "auth_removed": "Clip Radar's access was removed in TikTok. Reconnect TikTok in Settings.",
     "publish_cancelled": "The post was cancelled.",
 }
 
@@ -87,7 +87,7 @@ def _protect(data: bytes) -> bytes:
         _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
     src = BLOB(len(data), ctypes.cast(ctypes.create_string_buffer(data, len(data)), ctypes.POINTER(ctypes.c_char)))
     out = BLOB()
-    if not ctypes.windll.crypt32.CryptProtectData(ctypes.byref(src), "VodClipper", None, None, None, 0x1,
+    if not ctypes.windll.crypt32.CryptProtectData(ctypes.byref(src), "Clip Radar", None, None, None, 0x1,
                                                   ctypes.byref(out)):
         raise OSError("CryptProtectData failed")
     try:
@@ -238,7 +238,7 @@ def handle_callback(params: dict) -> str:
     state = params.get("state", "")
     pend = _pending.pop(state, None)
     if not pend:
-        raise TikTokError("state", "This sign-in link expired or was already used. Start again from VodClipper.")
+        raise TikTokError("state", "This sign-in link expired or was already used. Start again from Clip Radar.")
     d = load()
     j = _form(API + "/v2/oauth/token/", {
         "client_key": d["client_key"], "client_secret": d["client_secret"],

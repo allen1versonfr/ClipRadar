@@ -20,7 +20,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-os.environ["VODCLIPPER_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
+os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 
 # a tiny stand-in for the three emote services
 HITS = {"n": 0, "down": False}
@@ -58,7 +58,7 @@ class H(BaseHTTPRequestHandler):
 
 srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
-os.environ["VODCLIPPER_EMOTE_API"] = f"http://127.0.0.1:{srv.server_address[1]}"
+os.environ["CLIPRADAR_EMOTE_API"] = f"http://127.0.0.1:{srv.server_address[1]}"
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import numpy as np  # noqa: E402

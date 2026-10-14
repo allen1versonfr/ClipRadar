@@ -1,9 +1,9 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0.."
-title Build VodClipper.exe
+title Build ClipRadar.exe
 echo.
-echo   Building VodClipper.exe
+echo   Building ClipRadar.exe
 echo   -----------------------
 echo   This takes 5 to 10 minutes the first time. You only need to do it once.
 echo.
@@ -71,7 +71,7 @@ echo   [3/4] Packaging (this is the slow part)...
 set "PKG=--onedir"
 if "%MODE%"=="onefile" set "PKG=--onefile"
 "%VPY%" -m PyInstaller --noconfirm --clean --log-level WARN %PKG% --windowed ^
-  --name VodClipper --icon "src\ui\icon.ico" --add-data "src\ui;ui" --add-data "src\models;models" --paths src ^
+  --name ClipRadar --icon "src\ui\icon.ico" --add-data "src\ui;ui" --add-data "src\models;models" --paths src ^
   --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime ^
   --collect-all av --collect-all webview --collect-submodules yt_dlp --collect-data certifi ^
   --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog ^
@@ -80,12 +80,12 @@ if errorlevel 1 ( echo. & echo   Packaging failed. Scroll up for the error. & pa
 
 if "%MODE%"=="onefile" (
   set "OUT=dist"
-  set "EXE=dist\VodClipper.exe"
+  set "EXE=dist\ClipRadar.exe"
 ) else (
-  set "OUT=dist\VodClipper"
-  set "EXE=dist\VodClipper\VodClipper.exe"
+  set "OUT=dist\ClipRadar"
+  set "EXE=dist\ClipRadar\ClipRadar.exe"
 )
-if not exist "%EXE%" ( echo   Build finished but VodClipper.exe is missing. & pause & exit /b 1 )
+if not exist "%EXE%" ( echo   Build finished but ClipRadar.exe is missing. & pause & exit /b 1 )
 
 echo   [4/4] Finishing up...
 if exist tools xcopy /e /i /y /q tools "%OUT%\tools" >nul
@@ -94,16 +94,16 @@ copy /y docs\user-guide.txt "%OUT%\README.txt" >nul
 rem desktop shortcut
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$exe=(Resolve-Path '%EXE%').Path; $ws=New-Object -ComObject WScript.Shell;" ^
-  "$lnk=$ws.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'VodClipper.lnk'));" ^
+  "$lnk=$ws.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Clip Radar.lnk'));" ^
   "$lnk.TargetPath=$exe; $lnk.WorkingDirectory=(Split-Path $exe); $lnk.IconLocation=$exe; $lnk.Save()" >nul 2>&1
 
 echo.
-echo   Done!  VodClipper.exe is in:  %CD%\%OUT%
-echo   A VodClipper shortcut was added to your desktop.
+echo   Done!  ClipRadar.exe is in:  %CD%\%OUT%
+echo   A Clip Radar shortcut was added to your desktop.
 echo.
 echo   To use it on another PC, copy the whole "%OUT%" folder. No Python needed there.
 echo.
 start "" explorer "%OUT%"
-choice /c YN /n /m "  Start VodClipper now? [Y/N] "
+choice /c YN /n /m "  Start Clip Radar now? [Y/N] "
 if errorlevel 2 exit /b 0
 start "" "%EXE%"

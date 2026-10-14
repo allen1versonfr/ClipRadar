@@ -19,7 +19,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-os.environ["VODCLIPPER_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
+os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import engine  # noqa: E402
@@ -115,8 +115,8 @@ check("YouTube chat replay is read", [m[:3] for m in chat[:2]] == [(5.0, "lol", 
 work = tempfile.mkdtemp()
 s = live.LiveSession("t1", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", work, events=False)
 check("live mode takes a YouTube livestream link", s.via_ytdlp and s.channel is None and s.chat_state() == "none")
-os.environ["VODCLIPPER_TEST"] = "1"
-os.environ["VODCLIPPER_TEST_YT_HLS"] = "http://127.0.0.1:9/live.m3u8"
+os.environ["CLIPRADAR_TEST"] = "1"
+os.environ["CLIPRADAR_TEST_YT_HLS"] = "http://127.0.0.1:9/live.m3u8"
 check("its playlist comes from yt-dlp (here: the test stand-in)", s._resolve() == "http://127.0.0.1:9/live.m3u8" and s.title == "testchannel (live)", s.title)
 try:
     live.LiveSession("t2", "https://x.com/a/status/1", work, events=False)

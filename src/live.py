@@ -2,12 +2,12 @@
 Live mode: clip a Twitch stream while it's still going.
 
   recorder   yt-dlp finds the stream's HLS playlist (with your Twitch sign-in if
-             you added one, so Turbo / subs get the ad-free stream). VodClipper
+             you added one, so Turbo / subs get the ad-free stream). Clip Radar
              then reads the playlist itself, every couple of seconds, and saves
              the video in 10-second pieces. Ad breaks Twitch stitches into the
              stream are recognised and left out, so they never reach a clip.
              If the connection drops it reconnects; when the channel goes
-             offline the session ends. (Playlists VodClipper can't read itself,
+             offline the session ends. (Playlists Clip Radar can't read itself,
              like encrypted ones, are recorded with ffmpeg instead.)
   chat       reads the channel's chat anonymously over Twitch IRC, with
              usernames and sub/raid notices, so bots, commands, floods and
@@ -16,7 +16,7 @@ Live mode: clip a Twitch stream while it's still going.
              chat exactly like a VOD, and turns every strong peak into a
              moment once the reaction has died down. There is no limit.
   moments    each moment is cut from the pieces into a small MP4 that the
-             rest of VodClipper treats like a tiny VOD: preview, titles,
+             rest of Clip Radar treats like a tiny VOD: preview, titles,
              captions and rendering all work on it.
   buffer     only the last few minutes of raw video are kept, so a 10-hour
              stream doesn't fill the disk.
@@ -183,7 +183,7 @@ class LiveSession:
     FREQUENCY = {"fewer": (4.0, 120.0), "normal": (3.0, 45.0), "more": (2.4, 20.0), "lots": (1.9, 0.0)}
     ALIASES = {"low": "fewer", "high": "more"}          # names used before 3.0
     SENSITIVITY = {"low": 4.0, "normal": 3.0, "high": 2.4, "fewer": 4.0, "more": 2.4, "lots": 1.9}
-    WAIT_POLL = float(os.environ.get("VODCLIPPER_WAIT_POLL", "30"))
+    WAIT_POLL = float(os.environ.get("CLIPRADAR_WAIT_POLL", "30"))
     STALL = 45.0
     DUP_GAP = 20.0          # two automatic moments with peaks this close are the same moment
     CHAT_QUIET = 120.0      # chat that went silent this long (after being busy) is treated as gone
@@ -272,7 +272,7 @@ class LiveSession:
         self._moment_n = 0
         self.log_lines: list = []
         self.irc_ok = False
-        self.mode = ""                         # "hls" (VodClipper reads the playlist) or "ffmpeg"
+        self.mode = ""                         # "hls" (Clip Radar reads the playlist) or "ffmpeg"
         self.in_ad = False
         self.ads_skipped = 0.0                 # seconds of ads left out of the recording
         self.ad_breaks = 0
@@ -419,7 +419,7 @@ class LiveSession:
     def _resolve_ytdlp(self) -> str:
         """A YouTube livestream's playlist address (it expires after some hours; reconnecting asks again)."""
         import sources
-        test = os.environ.get("VODCLIPPER_TEST_YT_HLS") if os.environ.get("VODCLIPPER_TEST") else ""
+        test = os.environ.get("CLIPRADAR_TEST_YT_HLS") if os.environ.get("CLIPRADAR_TEST") else ""
         if test:
             info = {"live_status": "is_live", "url": test, "title": "Test livestream", "uploader": "testchannel"}
         else:
@@ -611,7 +611,7 @@ class LiveSession:
             self.delete_buffer()                 # every moment is cut out by now; the raw buffer was temporary
         self.log("Recording stopped.")
 
-    # ---- VodClipper's own HLS reader (skips ads)
+    # ---- Clip Radar's own HLS reader (skips ads)
     def _get(self, url: str, timeout: float = 15) -> bytes:
         req = urllib.request.Request(url, headers={"User-Agent": UA})
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -736,7 +736,7 @@ class LiveSession:
         self._measure(path, dur)
         self._arrive = (self._arrive + [(start + dur, _now(), _now() - t0)])[-4000:]
 
-    # ---- ffmpeg recorder (for playlists VodClipper doesn't read itself)
+    # ---- ffmpeg recorder (for playlists Clip Radar doesn't read itself)
     def _run_ffmpeg(self, hls: str) -> bool:
         self.mode = "ffmpeg"
         self._slack = SEG_SECONDS + 5.0
@@ -1104,7 +1104,7 @@ class LiveSession:
 
     # ------------------------------------------------------------------ chat
     def _irc_target(self):
-        env = os.environ.get("VODCLIPPER_IRC")          # "host:port[:plain]" for tests
+        env = os.environ.get("CLIPRADAR_IRC")          # "host:port[:plain]" for tests
         if env:
             parts = env.split(":")
             return parts[0], int(parts[1]), not (len(parts) > 2 and parts[2] == "plain")

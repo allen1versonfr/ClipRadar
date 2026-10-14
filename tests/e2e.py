@@ -1,12 +1,12 @@
 """
-End-to-end test of a running VodClipper: live clipping and TikTok posting.
+End-to-end test of a running Clip Radar: live clipping and TikTok posting.
 
 It starts the app itself (the built .exe or `python src/app.py`), a simulated
 Twitch stream (ffmpeg writing a live HLS playlist in real time), a fake Twitch
 chat server, and a mock TikTok API, then drives the app over its HTTP API
 exactly like the UI does.
 
-  python tests/e2e.py --app "dist/VodClipper/VodClipper.exe" --ffmpeg tools/ffmpeg.exe --out report.json
+  python tests/e2e.py --app "dist/ClipRadar/ClipRadar.exe" --ffmpeg tools/ffmpeg.exe --out report.json
   python tests/e2e.py --app "python src/app.py" --ffmpeg ffmpeg --out report.json
 """
 
@@ -655,14 +655,14 @@ def main():
     mock_github.start(GH_PORT, "v99.0.0")
     mock_twitch_api.start(TW_PORT)
 
-    env = dict(os.environ, VODCLIPPER_WORK=work, VODCLIPPER_DATA=data, VODCLIPPER_PORT=str(PORT),
-               VODCLIPPER_IRC=f"127.0.0.1:{IRC_PORT}:plain",
-               VODCLIPPER_TIKTOK_API=f"http://127.0.0.1:{TT_PORT}",
-               VODCLIPPER_TIKTOK_AUTH=f"http://127.0.0.1:{TT_PORT}/v2/auth/authorize/",
-               VODCLIPPER_UPDATE_API=f"http://127.0.0.1:{GH_PORT}/repos/allen1versonfr/vodclipper/releases/latest",
-               VODCLIPPER_TWITCH_ID=f"http://127.0.0.1:{TW_PORT}", VODCLIPPER_TWITCH_GQL=f"http://127.0.0.1:{TW_PORT}/gql",
-               VODCLIPPER_EMOTE_API=f"http://127.0.0.1:{TW_PORT}",
-               VODCLIPPER_TEST="1", VODCLIPPER_WAIT_POLL="3")
+    env = dict(os.environ, CLIPRADAR_WORK=work, CLIPRADAR_DATA=data, CLIPRADAR_PORT=str(PORT),
+               CLIPRADAR_IRC=f"127.0.0.1:{IRC_PORT}:plain",
+               CLIPRADAR_TIKTOK_API=f"http://127.0.0.1:{TT_PORT}",
+               CLIPRADAR_TIKTOK_AUTH=f"http://127.0.0.1:{TT_PORT}/v2/auth/authorize/",
+               CLIPRADAR_UPDATE_API=f"http://127.0.0.1:{GH_PORT}/repos/allen1versonfr/vodclipper/releases/latest",
+               CLIPRADAR_TWITCH_ID=f"http://127.0.0.1:{TW_PORT}", CLIPRADAR_TWITCH_GQL=f"http://127.0.0.1:{TW_PORT}/gql",
+               CLIPRADAR_EMOTE_API=f"http://127.0.0.1:{TW_PORT}",
+               CLIPRADAR_TEST="1", CLIPRADAR_WAIT_POLL="3")
     cmd = shlex.split(a.app, posix=(os.name != "nt")) + ["--browser"]
 
     def start_app():
@@ -949,7 +949,7 @@ def main():
         st = get("/api/storage")
         d = post("/api/delete", {"what": "vods"})
         rec("delete VODs clears live recordings", d.get("freed", 0) > 0 and get("/api/storage")["vods"]["bytes"] == 0,
-            f"freed {d.get('freed', 0) // 1000} KB of {st['vods']['bytes'] // 1000} KB")
+            f"freed {d.get('freed', 0) // 1000} KB of {st['vods']['bytes'] // 1000} KB; couldn't delete: {d.get('failed')}")
         d = post("/api/delete", {"what": "clips"})
         rec("delete all clips", d.get("deleted", 0) >= 1 and get("/api/storage")["clips"]["count"] == 0, d)
         # ------------------------------------------------------------ updates
@@ -1004,7 +1004,7 @@ def main():
             print("kept", tmp, flush=True)
             return finish(a.out)
         try:
-            diag["app log"] = open(os.path.join(data, "vodclipper.log"), encoding="utf-8", errors="replace").read().splitlines()[-40:]
+            diag["app log"] = open(os.path.join(data, "clipradar.log"), encoding="utf-8", errors="replace").read().splitlines()[-40:]
         except OSError:
             pass
         shutil.rmtree(tmp, ignore_errors=True)

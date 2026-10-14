@@ -1,5 +1,5 @@
 """
-VodClipper engine: find the best moments in a Twitch VOD and render them as
+Clip Radar engine: find the best moments in a Twitch VOD and render them as
 vertical (9:16) TikTok clips with optional auto-captions.
 
 Pipeline
@@ -55,7 +55,7 @@ def _noop(*_a, **_k):
 # --------------------------------------------------------------------------
 
 def which(name: str) -> Optional[str]:
-    """Find a tool in VodClipper's tools folders first, then on PATH."""
+    """Find a tool in Clip Radar's tools folders first, then on PATH."""
     for d in paths.tools_dirs():
         for cand in (d / (name + ".exe"), d / name):
             if cand.is_file():
@@ -184,8 +184,8 @@ def _save_meta(workdir: str, **kv):
 # --------------------------------------------------------------------------
 # storage: what's on disk, and cleaning it up
 # --------------------------------------------------------------------------
-# Only folders VodClipper made (they contain meta.json) are ever touched, and a
-# local video you pointed VodClipper at is never deleted; it lives outside these folders.
+# Only folders Clip Radar made (they contain meta.json) are ever touched, and a
+# local video you pointed Clip Radar at is never deleted; it lives outside these folders.
 
 def _project_dirs(workroot: str) -> list:
     if not os.path.isdir(workroot):

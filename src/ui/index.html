@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VodClipper</title>
+<title>Clip Radar</title>
 <link rel="icon" href="/ui/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/ui/app.css">
 </head>
@@ -38,7 +38,7 @@
 
 <div class="app">
   <header class="topbar">
-    <div class="brand"><img src="/ui/icon.svg" alt=""><span>VodClipper</span></div>
+    <div class="brand"><img src="/ui/icon.svg" alt=""><span>Clip Radar</span></div>
     <div class="crumb" id="crumb"></div>
     <div class="topbar-right">
       <button class="live-pill" id="livePill" hidden><i></i><span id="livePillText">Live</span></button>
@@ -260,7 +260,7 @@
                     <span class="trim-lbl">End</span><span class="trim-val" id="tEnd"></span>
                     <span class="trim-btns"><button class="btn sm" data-t="e,-1" title="1 second earlier">−1s</button><button class="btn sm" data-t="e,-f" title="1 frame earlier">−1f</button><button class="btn sm" data-t="e,f" title="1 frame later">+1f</button><button class="btn sm" data-t="e,1" title="1 second later">+1s</button><button class="btn sm" data-t="e,now" title="End where the playhead is (O)">Set</button></span>
                   </div>
-                  <div class="trim-foot"><span class="hint" id="tLen"></span><button class="link" id="tRestore" hidden title="Go back to the cut VodClipper found">Restore original cut</button></div>
+                  <div class="trim-foot"><span class="hint" id="tLen"></span><button class="link" id="tRestore" hidden title="Go back to the cut Clip Radar found">Restore original cut</button></div>
                 </div>
               </div>
               <div class="insp-actions" id="clipActions">
@@ -418,7 +418,7 @@
             <div class="tt" id="ttPanel">
               <div class="tt-head"><svg class="ic"><use href="#i-tiktok"/></svg><h3>Post to TikTok</h3><span class="grow"></span><span class="muted small" id="ttWho"></span></div>
               <div id="ttConnect" hidden>
-                <p class="muted">Connect a TikTok account to post from VodClipper.</p>
+                <p class="muted">Connect a TikTok account to post from Clip Radar.</p>
                 <button class="btn" id="ttGoSettings">Set up TikTok</button>
               </div>
               <div class="muted" id="ttLoading" hidden>Checking your TikTok account…</div>
@@ -591,7 +591,7 @@
 
         <section class="panel set" id="setTwitch">
           <header><svg class="ic"><use href="#i-link"/></svg><h2>Twitch sign-in</h2><span class="grow"></span><span class="status-dot" id="twDot"></span><span class="muted" id="twState"></span></header>
-          <p class="muted" id="twText">Twitch puts ads into live streams for viewers without Turbo. VodClipper spots those ad breaks and leaves them out of recordings either way. Sign in with an account that has Turbo (or a sub to the channel) and Twitch sends the ad-free stream instead, so recording never pauses for an ad.</p>
+          <p class="muted" id="twText">Twitch puts ads into live streams for viewers without Turbo. Clip Radar spots those ad breaks and leaves them out of recordings either way. Sign in with an account that has Turbo (or a sub to the channel) and Twitch sends the ad-free stream instead, so recording never pauses for an ad.</p>
           <div class="row wrap" id="twButtons">
             <button class="btn primary" id="twLogin">Sign in with Twitch</button>
             <button class="btn" id="twLogout" hidden>Sign out</button>
@@ -606,7 +606,7 @@
 
         <section class="panel set" id="setLearn">
           <header><svg class="ic"><use href="#i-check"/></svg><h2>Clip ranking</h2><span class="grow"></span><label class="switch"><input type="checkbox" id="lrOn" checked><i></i></label></header>
-          <p class="muted">VodClipper learns from the clips you keep, skip and post, separately for each streamer, and moves moments like the ones you pick up the list. It starts after about 8 decisions.</p>
+          <p class="muted">Clip Radar learns from the clips you keep, skip and post, separately for each streamer, and moves moments like the ones you pick up the list. It starts after about 8 decisions.</p>
           <div id="lrBody">
             <table class="table compact" id="lrTable"><tbody></tbody></table>
             <div class="row"><button class="btn sm" id="lrForgetAll"><svg class="ic"><use href="#i-trash"/></svg>Forget everything</button><span class="muted small" id="lrTotal"></span></div>
@@ -633,7 +633,7 @@
           <header><svg class="ic"><use href="#i-folder"/></svg><h2>Storage</h2></header>
           <div class="notice warn" id="locWarn" hidden></div>
           <div class="loc-rows" id="locRows"></div>
-          <p class="fine">New work goes to a folder you change; nothing already there is moved, and VodClipper still finds older projects.</p>
+          <p class="fine">New work goes to a folder you change; nothing already there is moved, and Clip Radar still finds older projects.</p>
           <div class="store-rows" id="storeRows"></div>
         </section>
 
@@ -641,7 +641,7 @@
           <header><svg class="ic"><use href="#i-refresh"/></svg><h2>Updates</h2></header>
           <div class="row upd-row">
             <div class="grow">
-              <div class="upd-title">VodClipper <span class="tnum" id="verText"></span></div>
+              <div class="upd-title">Clip Radar <span class="tnum" id="verText"></span></div>
               <div class="upd-state" id="updState">Not checked yet</div>
             </div>
             <button class="btn" id="updCheck">Check for updates</button>
@@ -655,7 +655,7 @@
           <label class="fld switch-label">Check for updates automatically<span class="switch"><input type="checkbox" id="updAuto" checked><i></i></span></label>
           <details class="upd-token" id="updTokenBox">
             <summary>Private repository <span class="muted" id="updTokenState"></span></summary>
-            <p class="fine">If VodClipper's GitHub repository is private, updates need a read-only access token. On GitHub: Settings › Developer settings › Fine-grained tokens › Generate. Pick only the vodclipper repository and give it <b>Contents: Read-only</b>. It's stored encrypted for your Windows account.</p>
+            <p class="fine">If Clip Radar's GitHub repository is private, updates need a read-only access token. On GitHub: Settings › Developer settings › Fine-grained tokens › Generate. Pick only the vodclipper repository and give it <b>Contents: Read-only</b>. It's stored encrypted for your Windows account.</p>
             <div class="row"><input class="input grow" id="updToken" type="password" placeholder="github_pat_…" autocomplete="off" spellcheck="false"><button class="btn" id="updTokenSave">Save</button><button class="btn" id="updTokenClear" hidden>Remove</button></div>
           </details>
         </section>
@@ -663,7 +663,7 @@
         <section class="panel set">
           <header><h2>About</h2></header>
           <div class="row"><span>Made for streamers. Not affiliated with Twitch or TikTok.</span><span class="grow"></span><button class="btn danger" id="uninstallBtn" hidden>Uninstall…</button></div>
-          <p class="fine">If something goes wrong, the log file is at %LOCALAPPDATA%\VodClipper\vodclipper.log.</p>
+          <p class="fine">If something goes wrong, the log file is at %LOCALAPPDATA%\ClipRadar\clipradar.log.</p>
         </section>
       </div>
     </section>

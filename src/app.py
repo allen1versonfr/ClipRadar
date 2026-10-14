@@ -1,7 +1,7 @@
 """
-VodClipper desktop entry point (this is what VodClipper.exe runs).
+Clip Radar desktop entry point (this is what ClipRadar.exe runs).
 
-Opens VodClipper in its own app window (Edge WebView2, built into Windows 10/11).
+Opens Clip Radar in its own app window (Edge WebView2, built into Windows 10/11).
 If that isn't available it falls back to your normal browser.
 
   python app.py              app window (or browser fallback)
@@ -19,6 +19,7 @@ import webbrowser
 import paths
 
 paths.ensure_dirs()
+_fixed_paths = paths.fix_moved_paths()        # upgraded from VodClipper: saved paths follow the moved folders
 paths.register_folders()
 
 try:    # Settings › Storage › Logs (falls back to the default folder when that drive isn't there)
@@ -26,7 +27,7 @@ try:    # Settings › Storage › Logs (falls back to the default folder when t
     _lp = _loc.resolve("logs")["path"]
     if _lp:
         os.makedirs(_lp, exist_ok=True)
-        paths.LOG_FILE = paths.Path(_lp) / "vodclipper.log"
+        paths.LOG_FILE = paths.Path(_lp) / "clipradar.log"
 except Exception:
     pass
 
@@ -36,13 +37,18 @@ if sys.stdout is None or sys.stderr is None or paths.FROZEN:
         if paths.LOG_FILE.exists() and paths.LOG_FILE.stat().st_size > 2_000_000:
             paths.LOG_FILE.replace(paths.LOG_FILE.with_suffix(".old.log"))
         _log = open(paths.LOG_FILE, "a", encoding="utf-8", buffering=1)
-        _log.write(f"\n===== VodClipper started {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+        _log.write(f"\n===== Clip Radar started {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
         if sys.stdout is None or paths.FROZEN:
             sys.stdout = _log
         if sys.stderr is None or paths.FROZEN:
             sys.stderr = _log
     except OSError:
         pass
+
+for _old, _new in paths.MIGRATION.items():
+    print(f"Moved {_old} to {_new}" if _new else f"Couldn't move {_old} yet (in use); using it for now", flush=True)
+if _fixed_paths:
+    print(f"Updated saved paths in {_fixed_paths} file(s)", flush=True)
 
 import server  # noqa: E402  (after stdout is set up)
 
@@ -70,7 +76,7 @@ def run_window(url: str) -> bool:
         return False
 
     window = webview.create_window(
-        "VodClipper", url, width=1480, height=920, min_size=(1100, 700),
+        "Clip Radar", url, width=1480, height=920, min_size=(1100, 700),
         background_color="#141518", text_select=True)
 
     def native_pick(kind: str) -> str:
@@ -354,7 +360,7 @@ def main():
         args = sys.argv[i + 1:] + ["", ""]
         os._exit(selftest(args[0] or str(paths.DATA_DIR / "selftest.json"), args[1]))
     srv, url = server.start()
-    print(f"VodClipper {server.VERSION} at {url}; clips folder {server.WORKROOT}", flush=True)
+    print(f"Clip Radar {server.VERSION} at {url}; clips folder {server.WORKROOT}", flush=True)
     if "--browser" in sys.argv or not run_window(url):
         run_browser(url)
 

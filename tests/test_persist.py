@@ -1,5 +1,5 @@
 """
-Unit tests for what VodClipper remembers between runs (3.2): lasting clip numbers,
+Unit tests for what Clip Radar remembers between runs (3.2): lasting clip numbers,
 the saved review (project.json), the render queue (queue.json) and the analysis cache.
 
   python tests/test_persist.py
@@ -18,7 +18,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-os.environ["VODCLIPPER_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
+os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import numpy as np  # noqa: E402

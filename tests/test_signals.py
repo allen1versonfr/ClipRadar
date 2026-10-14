@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-os.environ["VODCLIPPER_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
+os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import numpy as np  # noqa: E402

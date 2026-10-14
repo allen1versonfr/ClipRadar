@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/images/banner.png" alt="VodClipper: find the best moments in your Twitch streams and turn them into ready-to-post TikToks" width="100%">
+  <img src="docs/images/banner.png" alt="Clip Radar: find the best moments in your Twitch streams and turn them into ready-to-post TikToks" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 3.11.0" src="https://img.shields.io/badge/version-3.11.0-4c8dff?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 4.0.0" src="https://img.shields.io/badge/version-4.0.0-4c8dff?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/vodclipper/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/vodclipper/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest/download/VodClipper-Setup.exe"><b>Download for Windows</b></a>
+  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest/download/ClipRadar-Setup.exe"><b>Download for Windows</b></a>
   &nbsp;·&nbsp;
   <a href="#features">Features</a>
   &nbsp;·&nbsp;
@@ -22,7 +22,7 @@
 
 ---
 
-VodClipper watches a Twitch stream the way your chat does. It finds the moments where chat explodes and the audio spikes, cuts them into vertical 9:16 clips with captions and a title, and lets you review and post them to TikTok. It works on a past broadcast, or live while you're still streaming. Everything runs on your own PC.
+Clip Radar watches a Twitch stream the way your chat does. It finds the moments where chat explodes and the audio spikes, cuts them into vertical 9:16 clips with captions and a title, and lets you review and post them to TikTok. It works on a past broadcast, or live while you're still streaming. Everything runs on your own PC.
 
 <p align="center">
   <img src="docs/images/review.png" alt="Reviewing suggested clips in a 9:16 phone preview" width="100%">
@@ -52,9 +52,9 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
   - Four title styles.
   - Eight bundled fonts, including Montserrat, Anton, Bebas Neue and Bangers.
 - **Layouts and framing:** facecam above gameplay, the whole frame (following the streamer's face), the facecam alone, or a blurred fit. Auto-frame finds a facecam or a person and picks the layout.
-- **Background render queue.** Clips render to 1080×1920 MP4 on your GPU's encoder (NVIDIA, Intel or AMD), falling back to the CPU automatically. If one fails, VodClipper says why in plain words and gives you a Retry button.
+- **Background render queue.** Clips render to 1080×1920 MP4 on your GPU's encoder (NVIDIA, Intel or AMD), falling back to the CPU automatically. If one fails, Clip Radar says why in plain words and gives you a Retry button.
 - **Post to TikTok** through TikTok's official Content Posting API, either directly or to your drafts. Hands-free mode can also send finished clips to your drafts automatically; you finish each post in the TikTok app.
-- **Updates itself.** When a new release is posted on GitHub, VodClipper offers it in the app. One click downloads it, installs it and reopens the app.
+- **Updates itself.** When a new release is posted on GitHub, Clip Radar offers it in the app. One click downloads it, installs it and reopens the app.
 - **Tidy on disk.** Delete VODs and Delete all clips buttons are built in, and a real uninstaller is included.
 
 ## Screenshots
@@ -76,11 +76,11 @@ VodClipper watches a Twitch stream the way your chat does. It finds the moments 
 
 ## Install
 
-1. Download **[VodClipper-Setup.exe](https://github.com/allen1versonfr/vodclipper/releases/latest/download/VodClipper-Setup.exe)** and run it. It installs for your user only, so there's no admin prompt, and adds Start menu and desktop shortcuts.
-2. The first time you open it, VodClipper offers to download FFmpeg, yt-dlp and TwitchDownloader for you.
-3. After that, VodClipper keeps itself up to date. New versions show up in the status bar and in **Settings › Updates**.
+1. Download **[ClipRadar-Setup.exe](https://github.com/allen1versonfr/vodclipper/releases/latest/download/ClipRadar-Setup.exe)** and run it. It installs for your user only, so there's no admin prompt, and adds Start menu and desktop shortcuts.
+2. The first time you open it, Clip Radar offers to download FFmpeg, yt-dlp and TwitchDownloader for you.
+3. After that, Clip Radar keeps itself up to date. New versions show up in the status bar and in **Settings › Updates**.
 
-Prefer not to install? Use [VodClipper-portable.zip](https://github.com/allen1versonfr/vodclipper/releases/latest/download/VodClipper-portable.zip) instead. Unzip it anywhere and run `VodClipper.exe`.
+Prefer not to install? Use [ClipRadar-portable.zip](https://github.com/allen1versonfr/vodclipper/releases/latest/download/ClipRadar-portable.zip) instead. Unzip it anywhere and run `ClipRadar.exe`.
 
 > [!NOTE]
 > The app isn't code-signed yet, so Windows SmartScreen may warn you the first time. Choose **More info › Run anyway**.
@@ -96,7 +96,7 @@ Prefer not to install? Use [VodClipper-portable.zip](https://github.com/allen1ve
 | **Review** | Keep (<kbd>Enter</kbd>) or skip (<kbd>X</kbd>) each suggestion. Trim it and edit the title (<kbd>T</kbd> cycles through ideas). Fix captions in the **Captions** tab, pick styles and fonts in **Text**, and set the layout in **Layout**. Drag the title or captions on the preview to move them. During a live session, <kbd>C</kbd> clips the last 30 seconds. |
 | **Exports** | Kept clips render here, named after their titles, with the post caption saved next to them as `.txt`. Select one to watch it or post it. |
 
-Clips are saved to `Videos\VodClipper`. The full guide ships with the app as `README.txt`, and you can also read it in [docs/user-guide.txt](docs/user-guide.txt).
+Clips are saved to `Videos\Clip Radar`. The full guide ships with the app as `README.txt`, and you can also read it in [docs/user-guide.txt](docs/user-guide.txt).
 
 ## Posting to TikTok
 
@@ -118,10 +118,10 @@ git clone https://github.com/allen1versonfr/vodclipper
 cd vodclipper
 scripts\install.bat      &rem create a virtualenv and install dependencies
 scripts\run.bat          &rem run from source (opens in your browser)
-scripts\build_exe.bat    &rem build dist\VodClipper\VodClipper.exe with PyInstaller
+scripts\build_exe.bat    &rem build dist\ClipRadar\ClipRadar.exe with PyInstaller
 ```
 
-The installer is built from `installer/vodclipper.iss` with [Inno Setup 6](https://jrsoftware.org/isinfo.php).
+The installer is built from `installer/clipradar.iss` with [Inno Setup 6](https://jrsoftware.org/isinfo.php).
 
 ### Project layout
 
@@ -154,7 +154,7 @@ docs/             user guide and images
 Every push builds the exe on Windows in GitHub Actions, then:
 
 - runs the unit tests: content check (`tests/test_safety.py`), and chat cleaning, Twitch ad markers, smart cuts, learning and the sound detector (`tests/test_signals.py`);
-- runs the app's built-in self-test (`VodClipper.exe --selftest`): rendering, captions on real Whisper output, auto titles, styled text placement and bleeping;
+- runs the app's built-in self-test (`ClipRadar.exe --selftest`): rendering, captions on real Whisper output, auto titles, styled text placement and bleeping;
 - runs `tests/e2e.py` against the built exe: a VOD with a giveaway, a gift bomb, bots and a raid in its chat (the real moment has to win), Deep scan, learning from keeps and skips, hands-free live clipping from a pretend Twitch stream that starts late and has an ad break stitched in (no ad may be downloaded), a fake Twitch IRC chat with bots and sub notices, Twitch sign-in, the clip hotkey, the content check holding a clip back, a failed render being explained and retried, bleeping, automatic TikTok drafts against a mock of TikTok's API, and private-repository updates;
 - installs the app with the real installer, updates it in place through the app's own updater (against a mock GitHub release), then uninstalls it.
 
@@ -172,4 +172,4 @@ Versions follow [Semantic Versioning](https://semver.org/), and changes are reco
 
 ---
 
-<sub>VodClipper isn't affiliated with Twitch or TikTok. Only clip streams you own or have permission to repost.</sub>
+<sub>Clip Radar isn't affiliated with Twitch or TikTok. Only clip streams you own or have permission to repost.</sub>

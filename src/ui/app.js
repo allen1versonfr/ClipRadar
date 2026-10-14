@@ -1,5 +1,5 @@
 'use strict';
-/* VodClipper UI. Sections: utilities, app shell, home, workspace (review),
+/* Clip Radar UI. Sections: utilities, app shell, home, workspace (review),
    player, timeline, format, exports + TikTok, settings, boot. */
 
 /* =============================================================== utilities */
@@ -19,7 +19,7 @@ const store = {
 async function api(path, body) {
   let r;
   try { r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}); }
-  catch { throw new Error('Lost connection to VodClipper. Restart it if this keeps happening.'); }
+  catch { throw new Error('Lost connection to Clip Radar. Restart it if this keeps happening.'); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
   return j;
@@ -128,10 +128,10 @@ async function loadStatus() {
   if (!status.twitchdownloader) missing.push(['twitchdownloader', 'TwitchDownloader']);
   toolsMissing = missing.map(m => m[0]);
   if (missing.length && status.can_download_tools) {
-    $('#toolsText').innerHTML = `<b>${missing.map(m => m[1]).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing.</b> VodClipper needs ${missing.length === 1 ? 'it' : 'them'} to download and cut video (about ${!status.ffmpeg ? 130 : 40} MB).`;
+    $('#toolsText').innerHTML = `<b>${missing.map(m => m[1]).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing.</b> Clip Radar needs ${missing.length === 1 ? 'it' : 'them'} to download and cut video (about ${!status.ffmpeg ? 130 : 40} MB).`;
     $('#getTools').hidden = false; $('#toolsBanner').hidden = false;
   } else if (!status.ffmpeg) {
-    $('#toolsText').innerHTML = '<b>FFmpeg is missing.</b> Install FFmpeg and add it to your PATH, then restart VodClipper.';
+    $('#toolsText').innerHTML = '<b>FFmpeg is missing.</b> Install FFmpeg and add it to your PATH, then restart Clip Radar.';
     $('#getTools').hidden = true; $('#toolsBanner').hidden = false;
   } else $('#toolsBanner').hidden = true;
   if (status.live && (!W || (W.kind === 'live' && W.sid !== status.live))) {
@@ -216,12 +216,12 @@ $('#livePill').onclick = async () => {
   } else setView('review');
 };
 $('#quitBtn').onclick = async () => {
-  if (status.running && !await ask({ title: 'Quit VodClipper?', body: 'Something is still running (a download, render or live recording). It will be stopped. Renders that didn\'t finish start again next time you open VodClipper.', ok: 'Quit', danger: true })) return;
+  if (status.running && !await ask({ title: 'Quit Clip Radar?', body: 'Something is still running (a download, render or live recording). It will be stopped. Renders that didn\'t finish start again next time you open Clip Radar.', ok: 'Quit', danger: true })) return;
   await api('/api/quit', {}).catch(() => {});
-  document.body.innerHTML = '<div style="height:100vh;display:grid;place-items:center;color:#a3a6ae;font:14px Segoe UI,system-ui">VodClipper has stopped. You can close this tab.</div>';
+  document.body.innerHTML = '<div style="height:100vh;display:grid;place-items:center;color:#a3a6ae;font:14px Segoe UI,system-ui">Clip Radar has stopped. You can close this tab.</div>';
 };
 window.askQuit = async () => {
-  if (await ask({ title: 'Quit VodClipper?', body: 'Something is still running (a download, render or live recording). It will be stopped. Renders that didn\'t finish start again next time you open VodClipper.', ok: 'Quit', danger: true }))
+  if (await ask({ title: 'Quit Clip Radar?', body: 'Something is still running (a download, render or live recording). It will be stopped. Renders that didn\'t finish start again next time you open Clip Radar.', ok: 'Quit', danger: true }))
     await api('/api/quit', {}).catch(() => {});
 };
 
@@ -930,7 +930,7 @@ function renderCheck(c) {
   const flags = (sf && sf.flags) || [];
   const fps = new Set(flags.map(f => f.fp));
   const extra = (ck.fixes || []).filter(fx => !fps.has(fx.fp));
-  let h = `<div class="cb-head"><span>Content check</span><span class="muted">VodClipper's own check, not TikTok's decision</span></div>`;
+  let h = `<div class="cb-head"><span>Content check</span><span class="muted">Clip Radar's own check, not TikTok's decision</span></div>`;
   if (st === 'unchecked') h += `<div class="cb-row"><span>This clip hasn't been checked.</span><button class="btn xs" data-act="check">Check now</button></div>`;
   if (ck.stale) h += `<div class="cb-row">${icon('alert')}<span>The clip changed since it was checked.</span><button class="btn xs" data-act="check">Check again</button></div>`;
   if (st === 'excluded') h += `<div class="cb-row excl"><span>Excluded from export. It stays here and won't render until you include it again.</span></div>`;
@@ -1068,7 +1068,7 @@ async function checkGate(c) {
   if (mode_ === 'block') { toast('Review its flags first: leave it as is, fix them or dismiss them.', 'err', 5500); c._showFlags = true; renderCheck(c); return false; }
   const open = c.safety.flags.filter(f => f.status === 'open');
   if (!await ask({ title: 'Render a clip with flags?', ok: 'Render anyway',
-    body: `${open.map(f => `${f.label}: “${f.text}”`).join(' · ')}. Rendering it records that you saw this warning. VodClipper's check isn't TikTok's decision either way.` })) return false;
+    body: `${open.map(f => `${f.label}: “${f.text}”`).join(' · ')}. Rendering it records that you saw this warning. Clip Radar's check isn't TikTok's decision either way.` })) return false;
   return !!(await checkAct(c, 'ack'));
 }
 async function flagBatch(action, args, verb, what) {
@@ -2141,7 +2141,7 @@ $('#ttConnectBtn').onclick = async () => {
   } catch (e) { $('#ttConnectMsg').textContent = ''; toast(e.message, 'err', 7000); }
 };
 $('#ttDisconnect').onclick = async () => {
-  if (!await ask({ title: 'Disconnect TikTok?', body: 'VodClipper will sign out of your TikTok account. You can connect again any time.', ok: 'Disconnect' })) return;
+  if (!await ask({ title: 'Disconnect TikTok?', body: 'Clip Radar will sign out of your TikTok account. You can connect again any time.', ok: 'Disconnect' })) return;
   await api('/api/tiktok/disconnect', {}).catch(() => {}); loadTikTok();
 };
 
@@ -2202,8 +2202,8 @@ async function loadStorage() {
 }
 $('#storeRows').onclick = e => { const b = e.target.closest('[data-del]'); if (b && !b.disabled) deleteStuff(b.dataset.del); };
 $('#uninstallBtn').onclick = async () => {
-  if (!await ask({ title: 'Uninstall VodClipper?', ok: 'Uninstall', danger: true, body: 'VodClipper will close and the Windows uninstaller will open. It asks before deleting your VODs and clips.' })) return;
-  try { await api('/api/uninstall', {}); document.body.innerHTML = '<div style="height:100vh;display:grid;place-items:center;color:#a3a6ae;font:14px Segoe UI,system-ui">Uninstalling VodClipper. Follow the uninstaller window.</div>'; }
+  if (!await ask({ title: 'Uninstall Clip Radar?', ok: 'Uninstall', danger: true, body: 'Clip Radar will close and the Windows uninstaller will open. It asks before deleting your VODs and clips.' })) return;
+  try { await api('/api/uninstall', {}); document.body.innerHTML = '<div style="height:100vh;display:grid;place-items:center;color:#a3a6ae;font:14px Segoe UI,system-ui">Uninstalling Clip Radar. Follow the uninstaller window.</div>'; }
   catch (e) { toast(e.message, 'err', 7000); }
 };
 async function deleteStuff(what) {
@@ -2244,7 +2244,7 @@ function renderUpdate() {
   let text, cls = '';
   if (u.state === 'checking') text = 'Checking for updates…';
   else if (u.state === 'downloading') { text = `Downloading version ${u.latest}… ${Math.round(u.progress * 100)}%`; cls = 'new'; }
-  else if (u.state === 'installing') { text = `Installing version ${u.latest}. VodClipper will close and reopen.`; cls = 'new'; }
+  else if (u.state === 'installing') { text = `Installing version ${u.latest}. Clip Radar will close and reopen.`; cls = 'new'; }
   else if (u.state === 'error') { text = u.error; cls = 'err'; }
   else if (u.available) { text = `Version ${u.latest} is available${u.state === 'ready' ? ' and downloaded' : ''}.`; cls = 'new'; }
   else if (u.checked) { text = `You're up to date. Checked ${ago(u.checked)}.`; cls = 'ok'; }
@@ -2272,13 +2272,13 @@ function renderUpdate() {
                : u.state === 'installing' ? '<i></i>Installing update…' : `<i></i>Update to ${esc(u.latest)}`;
   if (u.available && updAnnounced !== u.latest && !busyU) {
     updAnnounced = u.latest;
-    toast(`VodClipper ${u.latest} is available. Open Settings to update.`, '', 7000);
+    toast(`Clip Radar ${u.latest} is available. Open Settings to update.`, '', 7000);
   }
 }
 async function startUpdate() {
   if (!upd.can_install) return openUrl(upd.page);
-  const ok = await ask({ title: `Update to VodClipper ${upd.latest}?`,
-    body: 'VodClipper will download the update, close, install it and open again. Your clips, projects and settings are kept.',
+  const ok = await ask({ title: `Update to Clip Radar ${upd.latest}?`,
+    body: 'Clip Radar will download the update, close, install it and open again. Your clips, projects and settings are kept.',
     ok: 'Update now' });
   if (!ok) return;
   try { upd = await api('/api/update/install', {}); renderUpdate(); loadUpdate(); }
@@ -2366,9 +2366,9 @@ function renderTwitch() {
   $('#twState').innerHTML = t.signed_in ? `${esc(t.login || 'Signed in')}${t.turbo ? ' · <span class="tw-ok">Turbo</span>' : t.turbo === false ? ' · no Turbo' : ''}` : 'Not signed in';
   $('#twLogin').hidden = !!t.signed_in;
   $('#twLogin').disabled = !t.window_login;
-  $('#twLogin').title = t.window_login ? 'Opens Twitch\'s own login page in a small window' : 'Needs the VodClipper app window; paste a token below instead';
+  $('#twLogin').title = t.window_login ? 'Opens Twitch\'s own login page in a small window' : 'Needs the Clip Radar app window; paste a token below instead';
   $('#twLogout').hidden = !t.signed_in;
-  $('#twMsg').textContent = t.error ? t.error : t.signed_in && t.turbo === false ? 'Ads still play on channels you aren\'t subbed to; VodClipper leaves them out of the recording.' : '';
+  $('#twMsg').textContent = t.error ? t.error : t.signed_in && t.turbo === false ? 'Ads still play on channels you aren\'t subbed to; Clip Radar leaves them out of the recording.' : '';
   if (!t.window_login && !t.signed_in) $('#twPasteBox').open = true;
 }
 $('#twLogin').onclick = async () => {
@@ -2410,7 +2410,7 @@ function renderLearning() {
 $('#lrOn').onchange = async e => { try { lrState = await api('/api/learning', { enabled: e.target.checked }); renderLearning(); } catch (err) { toast(err.message, 'err'); } };
 $('#lrTable').onclick = async e => {
   const b = e.target.closest('[data-forget]'); if (!b) return;
-  try { lrState = await api('/api/learning/forget', { streamer: b.dataset.forget }); renderLearning(); toast(`Forgot what VodClipper learned for ${b.dataset.forget}.`, '', 3000); } catch (err) { toast(err.message, 'err'); }
+  try { lrState = await api('/api/learning/forget', { streamer: b.dataset.forget }); renderLearning(); toast(`Forgot what Clip Radar learned for ${b.dataset.forget}.`, '', 3000); } catch (err) { toast(err.message, 'err'); }
 };
 $('#lrForgetAll').onclick = async () => {
   if (!await ask({ title: 'Forget everything learned?', body: 'Clip ranking goes back to the default for every streamer.', ok: 'Forget', danger: true })) return;

@@ -1,7 +1,20 @@
 # Changelog
 
-All notable changes to VodClipper are documented here.
+All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
+
+## [4.0.0] - 2026-10-14
+
+VodClipper is now Clip Radar.
+
+### Changed
+- New name everywhere: the app, its window, shortcuts, the installer (ClipRadar-Setup.exe), Settings › Apps, the help and the logs.
+- Updating from VodClipper in the app just works: Clip Radar installs over it, the old program folder and shortcuts are removed, and on first start your settings and data move to %LOCALAPPDATA%\ClipRadar and your clips folder to Videos\Clip Radar. Exports, projects, sign-ins and settings carry over; saved paths are updated. Folders you chose yourself (Settings › Storage) stay where they are.
+- If the old folders are in use at that moment, Clip Radar keeps using them and moves them next time it starts.
+- Releases carry the installer under both names, so older VodClipper copies still find the update.
+
+### Fixed
+- Delete VODs tries busy files again after a moment instead of leaving them behind.
 
 ## [3.11.0] - 2026-10-14
 

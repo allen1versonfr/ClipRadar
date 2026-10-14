@@ -1,9 +1,9 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0.."
-title VodClipper setup
+title Clip Radar setup
 echo.
-echo   VodClipper setup
+echo   Clip Radar setup
 echo   ----------------
 echo.
 
@@ -53,7 +53,7 @@ if errorlevel 1 ( echo   Package install failed. Check your internet connection 
 echo   [3/5] Installing captions (Whisper). First time takes a few minutes...
 "%VPY%" -m pip install -U --disable-pip-version-check -q faster-whisper
 if errorlevel 1 (
-  echo   Captions couldn't be installed. VodClipper will still work, just without captions.
+  echo   Captions couldn't be installed. Clip Radar will still work, just without captions.
 )
 "%VPY%" src\audio_events.py --download src\models >nul 2>&1 || echo   The laughter detector didn't download. You can get it later in Settings.
 
@@ -80,7 +80,7 @@ if exist "tools\TwitchDownloaderCLI.exe" ( echo   [5/5] TwitchDownloaderCLI foun
 echo   [5/5] Downloading TwitchDownloaderCLI (for chat replay)...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;" ^
-  "$r=Invoke-RestMethod 'https://api.github.com/repos/lay295/TwitchDownloader/releases/latest' -Headers @{'User-Agent'='VodClipper'};" ^
+  "$r=Invoke-RestMethod 'https://api.github.com/repos/lay295/TwitchDownloader/releases/latest' -Headers @{'User-Agent'='Clip Radar'};" ^
   "$a=$r.assets | Where-Object { $_.name -like 'TwitchDownloaderCLI-*Windows-x64.zip' } | Select-Object -First 1;" ^
   "$z=Join-Path $env:TEMP 'vc-tdl.zip'; $d=Join-Path $env:TEMP 'vc-tdl';" ^
   "Invoke-WebRequest $a.browser_download_url -OutFile $z -UseBasicParsing;" ^
@@ -95,6 +95,6 @@ if not exist "tools\TwitchDownloaderCLI.exe" (
 
 :done
 echo.
-echo   Setup finished. Double-click run.bat to start VodClipper.
+echo   Setup finished. Double-click run.bat to start Clip Radar.
 echo.
 pause
