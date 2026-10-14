@@ -1,0 +1,988 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VodClipper</title>
+<link rel="icon" href="/ui/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#141a2e; --ink2:#10152a; --panel:#1c2240; --panel2:#242b4f; --line:#313a66; --line2:#414b80;
+  --text:#ebedf8; --muted:#959cc4; --faint:#666e9e;
+  --cool:#3d4fb0; --warm:#f2c14e; --hot:#ff5d73; --ok:#5fd3a6;
+  --r-sm:7px; --r-lg:14px;
+  color-scheme:dark;
+  font-family:"Archivo",system-ui,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--ink)}
+body{margin:0;color:var(--text);font-size:15px;line-height:1.45;
+  background:radial-gradient(900px 420px at 80% -120px, #262e5c 0%, transparent 70%) no-repeat, var(--ink);min-height:100vh}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:default;opacity:.45}
+:focus-visible{outline:2px solid var(--warm);outline-offset:2px}
+.wrap{max-width:1500px;margin:0 auto;padding:0 28px}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* header */
+header{display:flex;align-items:center;gap:12px;padding:20px 0 4px}
+header img{width:30px;height:30px}
+.brand{font-weight:800;font-size:24px;letter-spacing:-.015em;font-variation-settings:"wdth" 118}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.chip{font-size:12.5px;padding:3px 10px 3px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted);display:flex;align-items:center;gap:6px}
+.chip i{width:7px;height:7px;border-radius:50%;background:var(--hot)}
+.chip.on{color:var(--text)}
+.chip.on i{background:var(--ok)}
+
+/* source */
+.source{margin-top:14px;display:grid;grid-template-columns:1fr auto auto;gap:10px}
+.browse{padding:0 18px;border-radius:var(--r-lg);background:var(--panel);border:1px solid var(--line);font-size:15px}
+.browse:hover{border-color:var(--line2)}
+.inrow{display:flex;gap:8px}
+.inrow .input{flex:1;min-width:0}
+.inrow .btn{flex:none}
+.banner{margin-top:16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:14px 16px;border-radius:var(--r-lg);
+  background:linear-gradient(90deg,#2a2650,#2b2a4a);border:1px solid #4a4380}
+.banner p{margin:0;flex:1;min-width:240px}
+.banner p span{color:var(--muted);display:block;font-size:13.5px}
+.banner .go{padding:10px 18px;font-size:15px}
+.quit{margin-left:4px}
+.storage{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.st-title{grid-column:1/-1;color:var(--muted);font-size:13.5px}
+.st-row{display:flex;align-items:center;gap:12px;background:var(--ink2);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px}
+.st-row > div{flex:1;min-width:0;display:grid;gap:1px}
+.st-row b{font-weight:600;white-space:nowrap}
+.st-row .btn{white-space:nowrap}
+.st-row span{color:var(--faint);font-size:12.5px}
+#storageHome{margin-top:22px}
+#storageHome .storage{grid-template-columns:1fr}
+#storageHome .st-row{background:var(--panel);border-color:transparent}
+.btn.danger{color:#ff9aa8;border-color:#5b3452}
+.btn.danger:not(:disabled):hover{border-color:var(--hot);color:#ffd3d9}
+dialog.modal{background:var(--panel);color:var(--text);border:1px solid var(--line2);border-radius:var(--r-lg);padding:22px;width:min(440px,calc(100% - 32px));box-shadow:0 24px 60px #000a}
+dialog.modal::backdrop{background:rgba(8,10,22,.72)}
+.modal h3{font-size:19px;margin:0 0 8px}
+.modal p{color:var(--muted);margin:0 0 20px;white-space:pre-line}
+.modal .row{display:flex;justify-content:flex-end;gap:10px}
+.modal .go{padding:10px 18px;font-size:15px}
+.go.danger{background:var(--hot);color:#2b0811}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line2);padding:10px 18px;border-radius:99px;font-size:14px;box-shadow:0 12px 30px #0009;display:none;z-index:50;max-width:calc(100% - 32px)}
+.toast.show{display:block}
+.source input{width:100%;padding:15px 16px;font-size:17px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg)}
+.source input:focus{border-color:var(--line2)}
+.source input::placeholder{color:var(--faint)}
+.go{padding:14px 26px;border:0;border-radius:var(--r-lg);background:var(--warm);color:#1d1705;font-weight:700;font-size:16px}
+.go:not(:disabled):hover{filter:brightness(1.06)}
+.knobs{margin-top:12px;display:flex;flex-wrap:wrap;gap:10px 28px;color:var(--muted);font-size:13.5px;align-items:center}
+.knobs label{display:flex;align-items:center;gap:9px}
+.knobs input[type=range]{width:120px;accent-color:var(--warm)}
+.knobs output{color:var(--text);min-width:3.6em;font-variant-numeric:tabular-nums}
+details.more summary{cursor:pointer;list-style:none}
+details.more summary::before{content:"+ ";color:var(--warm)}
+details.more[open] summary::before{content:"− "}
+details.more[open]{flex-basis:100%}
+.more-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px 24px;margin-top:12px;padding:14px 16px;background:var(--panel);border-radius:var(--r-lg)}
+.more-grid label{display:grid;gap:5px;align-content:start}
+.more-grid .help{font-size:12px;color:var(--faint)}
+.input{background:var(--ink2);border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 9px;width:100%}
+
+/* progress */
+.progress{margin-top:16px;display:none;background:var(--panel);border-radius:var(--r-lg);padding:14px 16px}
+.progress.show{display:block}
+.step{display:flex;gap:12px;align-items:center;font-size:14px;margin-bottom:8px}
+.step b{font-weight:600}
+.step .pct{margin-left:auto;color:var(--muted)}
+.linkbtn{background:none;border:0;color:var(--muted);text-decoration:underline;text-underline-offset:3px;padding:0;font-size:13px}
+.linkbtn:hover{color:var(--text)}
+.bar{height:6px;background:var(--ink2);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cool),var(--warm));transition:width .35s}
+.log{margin-top:10px;font-size:12.5px;color:var(--muted);max-height:120px;overflow:auto;white-space:pre-wrap}
+.err{color:#ff8b9b;font-size:14px;margin-top:8px;white-space:pre-wrap}
+.err:empty{display:none}
+
+/* empty */
+.empty{margin:56px 0 40px;display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:48px}
+.empty h2{font-size:30px;line-height:1.15;font-weight:800;margin:0 0 16px;font-variation-settings:"wdth" 112;letter-spacing:-.01em}
+.empty ol{padding-left:22px;margin:0;color:var(--muted)}
+.empty li{margin:8px 0;padding-left:4px}
+.empty li b{color:var(--text);font-weight:600}
+.recent h3{font-size:15px;margin:6px 0 10px;color:var(--muted);font-weight:600}
+#recent button{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid transparent;border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px}
+#recent button:hover{border-color:var(--line2)}
+.recent .rt{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recent .rs{display:block;color:var(--faint);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* workspace */
+main{display:none;grid-template-columns:minmax(0,1fr) 360px;gap:26px;padding:20px 0 60px}
+main.show{display:grid}
+h3{font-size:16px;font-weight:700;margin:0 0 10px;font-variation-settings:"wdth" 110}
+
+/* hype timeline: the signature element */
+.timeline{position:relative;background:var(--panel);border-radius:var(--r-lg);padding:16px 16px 10px}
+.tl-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+.tl-head .title{font-weight:700;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-head .meta{color:var(--muted);font-size:13px;white-space:nowrap;display:flex;gap:14px}
+canvas#heat{display:block;width:100%;height:136px;margin-top:12px;cursor:crosshair;touch-action:none}
+.tl-foot{display:flex;justify-content:space-between;color:var(--faint);font-size:12.5px;margin-top:4px}
+.hover-tag{position:absolute;pointer-events:none;background:var(--ink2);border:1px solid var(--line);padding:2px 7px;border-radius:5px;font-size:12px;display:none;transform:translateX(-50%);top:58px}
+
+.player{position:relative;margin-top:16px}
+video#vod{width:100%;aspect-ratio:16/9;background:#000;border-radius:var(--r-lg);display:block}
+.vid-err{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:30px;color:var(--muted);background:#000c;border-radius:var(--r-lg)}
+.vid-err.show{display:grid}
+.player-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px;color:var(--muted);margin-top:10px}
+.player-bar .now{color:var(--text);min-width:4.5em}
+.player-bar .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 12px;font-size:14px}
+.btn:not(:disabled):hover{border-color:var(--line2)}
+
+.list-head{display:flex;align-items:center;gap:12px;margin:26px 0 10px;flex-wrap:wrap}
+.list-head h3{margin:0}
+.list-head .sub{color:var(--muted);font-size:13.5px}
+.list-head .btns{margin-left:auto;display:flex;gap:8px}
+.clips{display:flex;flex-direction:column;gap:3px}
+.clip{display:grid;grid-template-columns:26px 30px 136px minmax(0,1fr) auto;gap:14px;align-items:center;padding:10px 12px;border-radius:var(--r-sm);background:var(--panel);border-left:3px solid transparent}
+.clip.active{background:var(--panel2);border-left-color:var(--warm)}
+.clip.off .dim{opacity:.4}
+.clip .rank{font-weight:800;font-size:22px;text-align:right;font-variation-settings:"wdth" 68;color:var(--faint)}
+.clip.active .rank{color:var(--warm)}
+.clip .thumbbtn{padding:0;border:0;background:#000;border-radius:5px;overflow:hidden;position:relative;display:block;width:136px;aspect-ratio:16/9}
+.clip .thumbbtn img{width:100%;height:100%;object-fit:cover;display:block}
+.clip .thumbbtn span{position:absolute;right:5px;bottom:4px;font-size:11.5px;background:#000b;padding:0 5px;border-radius:3px}
+.clip .info{min-width:0;display:grid;gap:3px}
+.clip .when{font-weight:700}
+.clip .why{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clip .tinput{background:transparent;border:1px solid transparent;border-radius:5px;padding:3px 6px;margin-left:-6px;font-size:13.5px;max-width:420px}
+.clip .tinput::placeholder{color:var(--faint)}
+.clip .tinput:hover,.clip .tinput:focus{border-color:var(--line);background:var(--ink2)}
+.heatbar{height:4px;border-radius:2px;background:var(--ink2);overflow:hidden;max-width:220px}
+.heatbar i{display:block;height:100%;background:linear-gradient(90deg,var(--cool),var(--warm),var(--hot))}
+.trim{display:grid;grid-template-columns:auto auto;gap:4px;font-size:12px}
+.trim button{background:transparent;border:1px solid var(--line);border-radius:5px;padding:3px 8px;color:var(--muted);white-space:nowrap}
+.trim button:hover{color:var(--text);border-color:var(--line2)}
+.clip input[type=checkbox]{width:18px;height:18px;accent-color:var(--warm);margin:0}
+.noclips{background:var(--panel);border-radius:var(--r-sm);padding:22px;color:var(--muted)}
+
+/* side panel */
+aside{display:flex;flex-direction:column;gap:16px;align-self:start;position:sticky;top:16px}
+.phone-wrap{display:flex;justify-content:center;padding:4px 0}
+.phone{width:200px;aspect-ratio:9/16;border-radius:24px;padding:6px;background:#0a0d1c;border:1px solid var(--line);box-shadow:0 18px 40px #0007}
+.phone canvas{width:100%;height:100%;border-radius:19px;display:block;background:#000}
+.panel{background:var(--panel);border-radius:var(--r-lg);padding:16px}
+.seg{display:flex;background:var(--ink2);border-radius:var(--r-sm);padding:3px;gap:3px}
+.seg button{flex:1;border:0;background:transparent;padding:7px 4px;border-radius:5px;color:var(--muted);font-size:13.5px}
+.seg button.on{background:var(--panel2);color:var(--text);font-weight:600}
+.field{display:grid;grid-template-columns:104px 1fr auto;gap:10px;align-items:center;font-size:13.5px;margin-top:12px;color:var(--muted)}
+.field input[type=range]{width:100%;accent-color:var(--warm)}
+.field output{color:var(--text);min-width:3.2em;text-align:right}
+.field select{background:var(--ink2);border:1px solid var(--line);border-radius:var(--r-sm);padding:5px 7px;grid-column:span 2;min-width:0}
+.swatches{grid-column:span 2;display:flex;gap:7px;align-items:center}
+.swatches button{width:24px;height:24px;border-radius:50%;border:2px solid transparent;padding:0}
+.swatches button.on{border-color:var(--text)}
+.swatches input{width:26px;height:26px;border:0;padding:0;background:none}
+.toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13.5px;color:var(--muted)}
+.toggle input{width:18px;height:18px;accent-color:var(--warm);margin:0}
+.toggle.head{color:var(--text)}
+.toggle.head h3{margin:0}
+.picker{position:relative;margin-top:12px;user-select:none;touch-action:none;cursor:crosshair;border-radius:var(--r-sm);overflow:hidden;background:#000;aspect-ratio:16/9}
+.picker img{width:100%;height:100%;object-fit:fill;display:block;pointer-events:none}
+.picker .box{position:absolute;border:2px solid var(--warm);box-shadow:0 0 0 9999px rgba(10,12,25,.5)}
+.hint{color:var(--faint);font-size:12.5px;margin-top:6px}
+.render{width:100%;padding:15px;font-size:16px}
+.rstatus{display:none;font-size:13px;color:var(--muted);margin-top:10px}
+.rstatus.show{display:block}
+.rstatus .row{display:flex;gap:10px;margin-bottom:6px}
+.rstatus .row span:first-child{color:var(--text)}
+.rstatus .row .pct{margin-left:auto}
+
+.outputs{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px}
+.outputs figure{margin:0}
+.outputs video{width:100%;aspect-ratio:9/16;background:#000;border-radius:12px;display:block}
+.outputs figcaption{font-size:12.5px;color:var(--muted);margin-top:6px;word-break:break-all}
+#outBlock{display:none}
+
+@media (max-width:1100px){
+  main{grid-template-columns:1fr}
+  aside{position:static}
+  .clip{grid-template-columns:22px 24px 104px minmax(0,1fr)}
+  .clip .thumbbtn{width:104px}
+  .clip .trim{grid-column:3/-1;grid-template-columns:repeat(4,auto);justify-content:start}
+  .empty{grid-template-columns:1fr;gap:28px}
+}
+@media (max-width:620px){
+  .wrap{padding:0 16px}
+  header{flex-wrap:wrap}
+  .chips{margin-left:0;width:100%}
+  .tl-foot .mid{display:none}
+  .source{grid-template-columns:1fr auto}
+  .source .go{grid-column:1/-1}
+  .clip{grid-template-columns:22px 1fr;gap:10px}
+  .clip .rank{display:none}
+  .clip .thumbbtn{width:100%;grid-column:2}
+  .clip .info,.clip .trim{grid-column:2}
+  .tl-head{flex-direction:column;gap:2px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <img src="/ui/icon.svg" alt="">
+  <div class="brand">VodClipper</div>
+  <div class="chips" id="chips"></div>
+  <button class="btn quit" id="quitBtn" hidden title="Stop VodClipper">Quit</button>
+</header>
+
+<section class="source">
+  <input type="text" id="src" placeholder="Paste a Twitch VOD link, or the path to a video file on your PC" autocomplete="off" spellcheck="false" aria-label="VOD link or file path">
+  <button class="browse" id="browseSrc" title="Choose a video file on your PC">Browse…</button>
+  <button class="go" id="analyze">Find clips</button>
+</section>
+<div class="knobs">
+  <label title="How many clips to suggest">Clips <input type="range" id="count" min="3" max="30" value="10"><output id="countOut" class="tnum">10</output></label>
+  <label title="Length of each clip">Length <input type="range" id="length" min="10" max="90" step="5" value="30"><output id="lengthOut" class="tnum">30s</output></label>
+  <label title="How much chat hype counts compared to loud audio">Chat vs audio <input type="range" id="cw" min="0" max="100" step="5" value="60"><output id="cwOut" class="tnum">60 / 40</output></label>
+  <details class="more"><summary>More options</summary>
+    <div class="more-grid">
+      <label>Download quality
+        <select id="maxh" class="input"><option value="720">720p (faster download)</option><option value="1080" selected>1080p</option><option value="1440">1440p</option></select>
+      </label>
+      <label>Sign in with
+        <select id="cookies" class="input"><option value="">Nobody (public VODs)</option><option value="firefox">Firefox</option><option value="chrome">Chrome</option><option value="edge">Edge</option><option value="brave">Brave</option><option value="opera">Opera</option></select>
+        <span class="help">Only needed for subscriber-only VODs. Close that browser first.</span>
+      </label>
+      <label>Chat log file
+        <span class="inrow"><input type="text" class="input" id="chatFile" placeholder="Optional, e.g. C:\Videos\chat.json" spellcheck="false"><button class="btn" id="browseChat">Browse…</button></span>
+        <span class="help">For local videos. TwitchDownloader chat JSON works.</span>
+      </label>
+      <label>Chat delay <span style="display:flex;gap:10px;align-items:center"><input type="range" id="delay" min="0" max="15" value="6" style="flex:1;accent-color:var(--warm)"><output id="delayOut" class="tnum" style="color:var(--text)">6s</output></span>
+        <span class="help">How long chat takes to react. Applies next time you press Find clips.</span>
+      </label>
+      <label>Twitch downloader
+        <span class="inrow"><button class="btn" id="updYtdlp" type="button">Update downloader</button></span>
+        <span class="help">If Twitch downloads start failing, this grabs the newest yt-dlp.</span>
+      </label>
+      <label>Clips folder
+        <span class="inrow"><span class="input" id="rootPath" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)"></span><button class="btn" id="openRoot" type="button">Open</button></span>
+      </label>
+      <div class="storage" id="storageMore"></div>
+    </div>
+  </details>
+</div>
+
+<div class="banner" id="toolsBanner" hidden>
+  <p id="toolsText"></p>
+  <button class="go" id="getTools">Download them</button>
+</div>
+
+<div class="progress" id="progress" role="status" aria-live="polite">
+  <div class="step"><b id="stepText">Starting</b><button class="linkbtn" id="cancelA">Cancel</button><span class="pct tnum" id="pct">0%</span></div>
+  <div class="bar"><i id="barFill"></i></div>
+  <div class="log tnum" id="log"></div>
+  <div class="err" id="err"></div>
+</div>
+
+<section class="empty" id="empty">
+  <div>
+    <h2>Turn a stream into TikToks.</h2>
+    <ol>
+      <li>Paste a VOD link and press <b>Find clips</b>.</li>
+      <li>VodClipper scores every second of the stream by chat hype and volume, then suggests the best moments.</li>
+      <li>Preview them, trim, add a title, and untick the misses.</li>
+      <li>Drag a box around your facecam and press <b>Render</b>. You get 1080×1920 MP4s with captions.</li>
+    </ol>
+  </div>
+  <div>
+    <div class="recent" id="recent"></div>
+    <div class="recent" id="storageHome"></div>
+  </div>
+</section>
+
+<dialog class="modal" id="dlg">
+  <h3 id="dlgTitle"></h3>
+  <p id="dlgBody"></p>
+  <div class="row"><button class="btn" id="dlgNo">Cancel</button><button class="go" id="dlgYes">OK</button></div>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+
+<main id="work" class="wrap">
+  <div>
+    <section class="timeline">
+      <div class="tl-head"><div class="title" id="vodTitle"></div><div class="meta" id="vodMeta"></div></div>
+      <canvas id="heat" aria-label="Hype across the whole stream. Click to jump there."></canvas>
+      <div class="tl-foot tnum"><span>0:00</span><span class="mid">Taller and warmer means more hype. Click to jump.</span><span id="durText"></span></div>
+      <div class="hover-tag tnum" id="hoverTag"></div>
+    </section>
+
+    <div class="player">
+      <video id="vod" controls preload="metadata" playsinline></video>
+      <div class="vid-err" id="vidErr"></div>
+    </div>
+    <div class="player-bar">
+      <span class="now tnum" id="nowText">0:00</span>
+      <button class="btn" id="setStart" title="Make the selected clip start at the playhead">Start here</button>
+      <button class="btn" id="setEnd" title="Make the selected clip end at the playhead">End here</button>
+      <span class="sep"></span>
+      <button class="btn" id="addHere" title="New clip centered on the playhead">Add clip here</button>
+      <span id="playingText"></span>
+    </div>
+
+    <div class="list-head">
+      <h3>Best moments</h3><span class="sub tnum" id="listSub"></span>
+      <div class="btns">
+        <button class="btn" id="selAll">Select all</button>
+        <button class="btn" id="selNone">Select none</button>
+      </div>
+    </div>
+    <div class="clips" id="clips"></div>
+
+    <section id="outBlock">
+      <div class="list-head"><h3>Your TikToks</h3><span class="sub" id="outSub"></span><div class="btns"><button class="btn" id="openFolder">Open folder</button></div></div>
+      <div class="outputs" id="outputs"></div>
+    </section>
+  </div>
+
+  <aside>
+    <div class="phone-wrap"><div class="phone"><canvas id="phone" width="360" height="640" aria-label="Preview of the vertical layout"></canvas></div></div>
+
+    <div class="panel">
+      <h3>Layout</h3>
+      <div class="seg" id="layoutSeg" role="group" aria-label="Layout">
+        <button data-v="split" class="on">Cam + game</button>
+        <button data-v="full">Full crop</button>
+        <button data-v="blur">Blur fit</button>
+      </div>
+      <div id="camBlock">
+        <div class="picker" id="picker"><img id="frame" alt="Frame from the stream"><div class="box" id="box"></div></div>
+        <div class="hint">Drag a box around your facecam.</div>
+        <div class="field">Cam height<input type="range" id="camH" min="20" max="50" value="33"><output id="camHOut" class="tnum">33%</output></div>
+      </div>
+      <div class="field">Game focus<input type="range" id="gameX" min="0" max="100" value="50"><output id="gameXOut">center</output></div>
+      <div class="field">Zoom<input type="range" id="zoom" min="100" max="200" step="5" value="100"><output id="zoomOut" class="tnum">1×</output></div>
+    </div>
+
+    <div class="panel">
+      <label class="toggle head"><input type="checkbox" id="caps" checked><h3>Captions</h3></label>
+      <div id="capBlock">
+        <div class="field">Position<select id="capPos"><option value="auto">Auto</option><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select></div>
+        <div class="field">Highlight<div class="swatches" id="swatches"></div></div>
+        <div class="field">Text size<input type="range" id="capSize" min="70" max="140" step="5" value="100"><output id="capSizeOut" class="tnum">100%</output></div>
+        <div class="field">Words at once<input type="range" id="wpl" min="1" max="6" value="3"><output id="wplOut" class="tnum">3</output></div>
+        <div class="field">Accuracy<select id="model">
+          <option value="base">Fast</option>
+          <option value="small">Good</option>
+          <option value="medium">Better (slower)</option>
+          <option value="large-v3">Best (needs a GPU)</option>
+        </select></div>
+        <div class="field">Language<select id="lang"><option value="">Detect automatically</option><option value="en">English</option><option value="es">Spanish</option><option value="pt">Portuguese</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="ar">Arabic</option><option value="tr">Turkish</option><option value="ru">Russian</option><option value="pl">Polish</option><option value="ja">Japanese</option><option value="ko">Korean</option></select></div>
+        <label class="toggle" style="margin-top:14px"><input type="checkbox" id="upper" checked> Capital letters</label>
+        <div class="hint" id="capWarn"></div>
+      </div>
+    </div>
+
+    <div>
+      <button class="go render" id="render">Render selected</button>
+      <label class="toggle" style="margin-top:10px;justify-content:center"><input type="checkbox" id="hw" checked> Use GPU for encoding when available</label>
+      <div class="rstatus" id="rstatus" role="status" aria-live="polite">
+        <div class="row"><span id="rStep">Rendering</span><button class="linkbtn" id="cancelR">Cancel</button><span class="pct tnum" id="rPct">0%</span></div>
+        <div class="bar"><i id="rBar"></i></div>
+        <div class="log" id="rLog" style="max-height:60px"></div>
+        <div class="err" id="rErr"></div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+  return h ? `${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}` : `${m}:${String(x).padStart(2,'0')}`; };
+const store = {
+  get(k, d){ try { const v = localStorage.getItem('vc_'+k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v){ try { localStorage.setItem('vc_'+k, JSON.stringify(v)); } catch {} } };
+
+let P = null, active = null, status = {}, stopAt = null;
+const DEFAULTS = { layout:'split', cam:[0,0,0.25,0.25], cam_height:0.33, game_x:0.5, game_zoom:1.0,
+  captions:true, caption_pos:'auto', caption_color:'#ffe600', caption_size:100, words_per_line:3, uppercase:true,
+  whisper_model:'small', language:'', hw_encode:true };
+const opts = Object.assign({}, DEFAULTS, store.get('opts', {}));
+const SWATCHES = ['#ffe600', '#5fd3a6', '#4fc3ff', '#ff5d73', '#ffffff'];
+
+async function api(path, body){
+  let r;
+  try {
+    r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  } catch { throw new Error('Lost connection to VodClipper. Is the black VodClipper window still open?'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
+  return j;
+}
+
+/* ---------- status + recent ---------- */
+async function loadStatus(){
+  try { status = await api('/api/status'); } catch { return; }
+  const c = [['ffmpeg','ffmpeg'],['ytdlp','Twitch download'],['twitchdownloader','Chat replay'],['whisper','Captions']];
+  $('#chips').innerHTML = c.map(([k,l]) => `<span class="chip ${status[k]?'on':''}" title="${status[k]?'Ready':'Not installed. Run install.bat.'}"><i></i>${l}</span>`).join('');
+  $('#capWarn').textContent = status.whisper ? '' : 'Captions aren\'t available in this install.';
+  $('#quitBtn').hidden = !!status.window;
+  $('#rootPath').textContent = status.workroot; $('#rootPath').title = status.workroot;
+  $('#updYtdlp').disabled = !status.can_download_tools;
+  const missing = [];
+  if (!status.ffmpeg) missing.push(['ffmpeg', 'ffmpeg (needed to cut and render video)']);
+  if (!status.ytdlp) missing.push(['ytdlp', 'yt-dlp (downloads Twitch VODs)']);
+  if (!status.twitchdownloader) missing.push(['twitchdownloader', 'TwitchDownloader (gets chat replay)']);
+  toolsMissing = missing.map(m => m[0]);
+  if (missing.length && status.can_download_tools){
+    $('#toolsText').innerHTML = `<b>${missing.length === 1 ? 'One tool is' : missing.length + ' tools are'} still needed.</b><span>${missing.map(m => esc(m[1])).join(', ')}. About ${!status.ffmpeg ? '130' : '40'} MB, one time.</span>`;
+    $('#getTools').hidden = false; $('#toolsBanner').hidden = false;
+  } else if (!status.ffmpeg){
+    $('#toolsText').innerHTML = `<b>ffmpeg isn't installed.</b><span>Install ffmpeg and make sure it's on your PATH, then restart VodClipper.</span>`;
+    $('#getTools').hidden = true; $('#toolsBanner').hidden = false;
+  } else $('#toolsBanner').hidden = true;
+}
+let toolsMissing = [];
+async function runSetup(want){
+  if (!want.length) return;
+  $('#getTools').disabled = true; $('#updYtdlp').disabled = true;
+  try {
+    const { job } = await api('/api/setup_tools', { want });
+    const j = await follow(job, UI_A);
+    if (j && j.status === 'done') setTimeout(() => { if ($('#err').textContent === '') $('#progress').classList.remove('show'); }, 1500);
+  } catch (e){ $('#progress').classList.add('show'); $('#err').textContent = e.message; }
+  $('#getTools').disabled = false;
+  await loadStatus();
+}
+$('#getTools').onclick = () => runSetup(toolsMissing);
+$('#updYtdlp').onclick = () => runSetup(['ytdlp']);
+$('#openRoot').onclick = () => api('/api/open_folder', { folder: 'root' }).catch(e => alert(e.message));
+$('#quitBtn').onclick = async () => {
+  if (status.running && !await ask({ title: 'Quit VodClipper?', body: 'A download or render is still running. It will be stopped.', ok: 'Quit', danger: true })) return;
+  await api('/api/quit', {}).catch(()=>{});
+  document.body.innerHTML = '<div class="wrap" style="padding-top:80px;color:var(--muted)"><h2 style="color:var(--text)">VodClipper has stopped.</h2><p>You can close this tab. Open VodClipper again to keep going.</p></div>';
+};
+window.askQuit = async () => {
+  if (await ask({ title: 'Quit VodClipper?', body: 'A download or render is still running. It will be stopped.', ok: 'Quit', danger: true }))
+    await api('/api/quit', {}).catch(()=>{});
+};
+
+/* ---------- dialog + toast ---------- */
+function ask({ title, body, ok = 'OK', danger = false }){
+  const d = $('#dlg');
+  $('#dlgTitle').textContent = title; $('#dlgBody').textContent = body;
+  $('#dlgYes').textContent = ok; $('#dlgYes').classList.toggle('danger', danger);
+  return new Promise(res => {
+    const done = v => { d.close(); $('#dlgYes').onclick = $('#dlgNo').onclick = d.oncancel = null; res(v); };
+    $('#dlgYes').onclick = () => done(true);
+    $('#dlgNo').onclick = () => done(false);
+    d.oncancel = e => { e.preventDefault(); done(false); };
+    d.showModal(); $('#dlgNo').focus();
+  });
+}
+let toastTimer = 0;
+function toast(msg, ms = 4500){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+/* ---------- storage: delete VODs / delete all clips / uninstall ---------- */
+const fmtBytes = b => b >= 1e9 ? (b/1e9).toFixed(1) + ' GB' : b >= 1e6 ? Math.round(b/1e6) + ' MB' : b > 0 ? Math.max(1, Math.round(b/1e3)) + ' KB' : 'nothing';
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+let storage = null;
+async function loadStorage(){
+  try { storage = await api('/api/storage'); } catch { return; }
+  const v = storage.vods, c = storage.clips;
+  const rows = (home) => `
+    <div class="st-row"><div><b>Downloaded VODs</b><span class="tnum">${v.bytes ? plural(v.count, 'VOD') + ' · ' + fmtBytes(v.bytes) : 'None'}</span></div>
+      <button class="btn danger" data-del="vods" ${v.bytes ? '' : 'disabled'}>Delete VODs</button></div>
+    <div class="st-row"><div><b>Rendered clips</b><span class="tnum">${c.count ? plural(c.count, 'clip') + ' · ' + fmtBytes(c.bytes) : 'None'}</span></div>
+      <button class="btn danger" data-del="clips" ${c.count ? '' : 'disabled'}>Delete all clips</button></div>` +
+    (!home && storage.uninstaller ? `<div class="st-row"><div><b>Uninstall</b><span>Removes VodClipper from this PC</span></div><button class="btn danger" data-del="uninstall">Uninstall…</button></div>` : '');
+  $('#storageMore').innerHTML = '<div class="st-title">Storage</div>' + rows(false);
+  $('#storageHome').innerHTML = (v.bytes || c.count) ? '<h3>Storage</h3><div class="storage">' + rows(true) + '</div>' : '';
+}
+async function deleteStuff(what){
+  if (what === 'uninstall'){
+    const ok = await ask({ title: 'Uninstall VodClipper?', ok: 'Uninstall', danger: true,
+      body: 'VodClipper will close and the Windows uninstaller will open.\nIt asks before deleting your VODs and clips.' });
+    if (!ok) return;
+    try { await api('/api/uninstall', {}); document.body.innerHTML = '<div class="wrap" style="padding-top:80px;color:var(--muted)"><h2 style="color:var(--text)">Uninstalling VodClipper…</h2><p>Follow the uninstaller window.</p></div>'; }
+    catch (e){ toast(e.message, 7000); }
+    return;
+  }
+  const v = storage.vods, c = storage.clips;
+  const ok = what === 'vods'
+    ? await ask({ title: `Delete ${plural(v.count || 0, 'downloaded VOD')}?`, ok: 'Delete VODs', danger: true,
+        body: `Frees ${fmtBytes(v.bytes)}. Your rendered clips are kept, and so are any videos of your own that you opened with Browse.\nYou can download a VOD again from its link.` })
+    : await ask({ title: c.count === 1 ? 'Delete your 1 clip?' : `Delete all ${c.count} clips?`, ok: 'Delete all clips', danger: true,
+        body: `Frees ${fmtBytes(c.bytes)}. This deletes every rendered TikTok clip in ${storage.workroot}. It can't be undone.\nDownloaded VODs are kept.` });
+  if (!ok) return;
+  // let go of files the page is playing so Windows allows deleting them
+  if (what === 'vods'){ vod.pause(); vod.removeAttribute('src'); vod.load(); }
+  document.querySelectorAll('#outputs video').forEach(el => { el.pause(); el.removeAttribute('src'); el.load(); });
+  await new Promise(r => setTimeout(r, 250));
+  let res;
+  try { res = await api('/api/delete', { what }); }
+  catch (e){ toast(e.message, 7000); if (what === 'vods' && P) vod.src = P.vod; return; }
+  if (what === 'clips'){ $('#outputs').innerHTML = ''; $('#outBlock').style.display = 'none'; }
+  if (P && res.closed.includes(P.pid)){
+    P = null; active = null;
+    $('#work').classList.remove('show'); $('#empty').style.display = '';
+  } else if (P && what === 'vods') vod.src = P.vod;
+  const word = what === 'vods' ? 'VOD' : 'clip';
+  toast(res.failed.length
+    ? `Deleted ${plural(res.deleted, word)}. ${res.failed.length} file${res.failed.length === 1 ? ' was' : 's were'} in use: close any player showing ${res.failed.length === 1 ? 'it' : 'them'} and try again.`
+    : `Deleted ${plural(res.deleted, word)} and freed ${fmtBytes(res.freed)}.`, 6000);
+  await Promise.all([loadStorage(), loadRecent()]);
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-del]'); if (b && !b.disabled) deleteStuff(b.dataset.del); });
+async function pick(kind){
+  try { const r = await api('/api/pick_file', { kind }); return r.path || ''; } catch { return ''; }
+}
+$('#browseSrc').onclick = async () => { const p = await pick('video'); if (p){ $('#src').value = p; $('#analyze').focus(); } };
+$('#browseChat').onclick = async () => { const p = await pick('chat'); if (p) $('#chatFile').value = p; };
+setInterval(() => { fetch('/api/ping').then(r => r.json()).then(j => {}).catch(()=>{}); }, 60000);
+setInterval(async () => { try { const s = await api('/api/status'); status.running = s.running; } catch {} }, 15000);
+async function loadRecent(){
+  let list = [];
+  try { list = await api('/api/recent'); } catch {}
+  if (!list.length){ $('#recent').innerHTML = ''; return; }
+  $('#recent').innerHTML = '<h3>Pick up where you left off</h3>' + list.map(r =>
+    `<button data-src="${esc(r.source)}"><span class="rt">${esc(r.title)}</span><span class="rs">${r.duration ? fmt(r.duration) + ' · ' : ''}${esc(r.source)}</span></button>`).join('');
+}
+$('#recent').addEventListener('click', e => {
+  const b = e.target.closest('button[data-src]'); if (!b) return;
+  $('#src').value = b.dataset.src; $('#analyze').click();
+});
+
+/* ---------- top knobs ---------- */
+function bindRange(id, outId, f, key, onChange){
+  const el = $(id), out = $(outId);
+  el.value = store.get(key, el.value);
+  const upd = () => { out.textContent = f(+el.value); store.set(key, el.value); };
+  el.addEventListener('input', () => { upd(); onChange && onChange(); }); upd();
+}
+let repickTimer = null;
+const repickSoon = () => { if (!P) return; clearTimeout(repickTimer); repickTimer = setTimeout(repick, 280); };
+bindRange('#count', '#countOut', v => v, 'count', repickSoon);
+bindRange('#length', '#lengthOut', v => v + 's', 'length', repickSoon);
+bindRange('#cw', '#cwOut', v => `${v} / ${100-v}`, 'cw', repickSoon);
+bindRange('#delay', '#delayOut', v => v + 's', 'delay');
+$('#src').value = store.get('src', '');
+$('#maxh').value = store.get('maxh', '1080'); $('#maxh').onchange = e => store.set('maxh', e.target.value);
+$('#cookies').value = store.get('cookies', ''); $('#cookies').onchange = e => store.set('cookies', e.target.value);
+
+/* ---------- jobs ---------- */
+const UI_A = { box:'#progress', step:'#stepText', pct:'#pct', bar:'#barFill', log:'#log', err:'#err', cancel:'#cancelA', lines:8 };
+const UI_R = { box:'#rstatus', step:'#rStep', pct:'#rPct', bar:'#rBar', log:'#rLog', err:'#rErr', cancel:'#cancelR', lines:2 };
+async function follow(jobId, ui, onTick){
+  const box = $(ui.box); box.classList.add('show');
+  $(ui.err).textContent = ''; $(ui.log).textContent = ''; $(ui.bar).style.width = '0%';
+  const cancel = $(ui.cancel); cancel.style.display = ''; cancel.disabled = false;
+  cancel.onclick = () => { cancel.disabled = true; api('/api/cancel', { job: jobId }).catch(()=>{}); };
+  while (true){
+    let j;
+    try { j = await api('/api/job/' + jobId); }
+    catch (e){ $(ui.err).textContent = e.message; cancel.style.display = 'none'; return null; }
+    const pct = Math.round(j.progress * 100);
+    $(ui.bar).style.width = pct + '%';
+    $(ui.pct).textContent = pct + '%';
+    $(ui.step).textContent = j.step || 'Working';
+    $(ui.log).textContent = j.log.slice(-ui.lines).join('\n');
+    $(ui.log).scrollTop = 1e9;
+    if (onTick) onTick(j);
+    if (j.status !== 'running'){
+      cancel.style.display = 'none';
+      if (j.status === 'error') $(ui.err).textContent = j.error;
+      return j;
+    }
+    await new Promise(r => setTimeout(r, 600));
+  }
+}
+
+$('#analyze').onclick = async () => {
+  const source = $('#src').value.trim().replace(/^"(.*)"$/, '$1');
+  if (!source){ $('#src').focus(); return; }
+  if (status && status.ffmpeg === false){ $('#progress').classList.add('show'); $('#err').textContent = 'ffmpeg is missing. Use the "Download them" button above first.'; return; }
+  store.set('src', source);
+  $('#analyze').disabled = true;
+  try {
+    const { job } = await api('/api/analyze', { source, chat_file: $('#chatFile').value,
+      count: +$('#count').value, length: +$('#length').value, chat_weight: +$('#cw').value,
+      chat_delay: +$('#delay').value, max_height: +$('#maxh').value, cookies: $('#cookies').value });
+    const j = await follow(job, UI_A);
+    if (j && j.status === 'done'){
+      openProject(j.result); loadStorage();
+      setTimeout(() => { if ($('#err').textContent === '') $('#progress').classList.remove('show'); }, 1800);
+    }
+  } catch (e){ $('#progress').classList.add('show'); $('#err').textContent = e.message; }
+  $('#analyze').disabled = false;
+};
+$('#src').addEventListener('keydown', e => { if (e.key === 'Enter') $('#analyze').click(); });
+
+/* ---------- project ---------- */
+function openProject(p){
+  P = p;
+  P.clips.forEach(c => { c.on = true; c.title = c.title || ''; });
+  $('#empty').style.display = 'none';
+  $('#work').classList.add('show');
+  $('#vodTitle').textContent = p.title;
+  $('#vodTitle').title = p.title;
+  $('#vodMeta').innerHTML = `<span class="tnum">${fmt(p.duration)}</span><span class="tnum">${p.width}×${p.height}</span><span>` +
+    (p.has_chat ? `${p.chat_count.toLocaleString()} chat messages` : 'No chat, ranked by audio') + '</span>';
+  $('#durText').textContent = fmt(p.duration);
+  $('#vidErr').classList.remove('show');
+  $('#vod').src = p.vod;
+  $('#outBlock').style.display = 'none';
+  active = null;
+  renderClips(); drawHeat();
+  if (P.clips.length) selectClip(P.clips[0].id, false);
+  else loadFrame(P.duration / 2);
+}
+
+async function repick(){
+  if (!P) return;
+  try {
+    const manual = P.clips.filter(c => c.manual);
+    const p = await api('/api/repick', { pid: P.pid, count: +$('#count').value, length: +$('#length').value, chat_weight: +$('#cw').value });
+    p.clips.forEach(c => { c.on = true; c.title = ''; });
+    for (const m of manual) if (!p.clips.some(c => m.start < c.end && m.end > c.start)){
+      m.id = Math.max(0, ...p.clips.map(c => c.id)) + 1; p.clips.push(m); }
+    Object.assign(P, { clips: p.clips, curve: p.curve });
+    if (!P.clips.some(c => c.id === active)) active = P.clips[0]?.id ?? null;
+    renderClips(); drawHeat();
+  } catch (e){ $('#progress').classList.add('show'); $('#err').textContent = e.message; }
+}
+
+function renderClips(){
+  const max = Math.max(1, ...P.clips.map(c => c.score));
+  const on = P.clips.filter(c => c.on).length;
+  $('#listSub').textContent = P.clips.length ? `${on} of ${P.clips.length} selected` : '';
+  $('#render').disabled = !on;
+  $('#render').textContent = on ? `Render ${on} clip${on === 1 ? '' : 's'}` : 'Render selected';
+  if (!P.clips.length){
+    $('#clips').innerHTML = `<div class="noclips">Nothing stood out from the rest of the stream. Try moving <b>Chat vs audio</b>, or click the timeline and press <b>Add clip here</b>.</div>`;
+    return;
+  }
+  $('#clips').innerHTML = P.clips.map((c, i) => `
+    <div class="clip ${c.id===active?'active':''} ${c.on?'':'off'}" data-id="${c.id}">
+      <input type="checkbox" ${c.on?'checked':''} aria-label="Include clip ${i+1}">
+      <div class="rank dim">${i+1}</div>
+      <button class="thumbbtn dim" data-play aria-label="Preview clip ${i+1}"><img src="${c.thumb}" alt="" loading="lazy"><span class="tnum">${Math.round(c.end-c.start)}s</span></button>
+      <div class="info dim">
+        <div class="when tnum">${fmt(c.start)} – ${fmt(c.end)}</div>
+        <div class="why" title="${esc(c.reason)}">${esc(c.reason)}</div>
+        <div class="heatbar"><i style="width:${Math.max(6, c.score/max*100)}%"></i></div>
+        <input class="tinput" data-title value="${esc(c.title)}" placeholder="Add a title on the video (optional)" maxlength="80">
+      </div>
+      <div class="trim dim">
+        <button data-t="s,-5" title="Start 5 seconds earlier">−5s start</button><button data-t="s,5" title="Start 5 seconds later">+5s start</button>
+        <button data-t="e,-5" title="End 5 seconds earlier">−5s end</button><button data-t="e,5" title="End 5 seconds later">+5s end</button>
+      </div>
+    </div>`).join('');
+}
+
+function updateRow(c){
+  const row = document.querySelector(`.clip[data-id="${c.id}"]`); if (!row) return;
+  row.querySelector('.when').textContent = `${fmt(c.start)} – ${fmt(c.end)}`;
+  row.querySelector('.thumbbtn span').textContent = Math.round(c.end - c.start) + 's';
+}
+
+$('#clips').addEventListener('click', e => {
+  const row = e.target.closest('.clip'); if (!row) return;
+  const c = P.clips.find(x => x.id == row.dataset.id);
+  if (e.target.matches('input[type=checkbox]')){
+    c.on = e.target.checked; row.classList.toggle('off', !c.on);
+    const on = P.clips.filter(x => x.on).length;
+    $('#listSub').textContent = `${on} of ${P.clips.length} selected`;
+    $('#render').disabled = !on; $('#render').textContent = on ? `Render ${on} clip${on === 1 ? '' : 's'}` : 'Render selected';
+    drawHeat(); return;
+  }
+  if (e.target.matches('[data-title]')) { if (c.id !== active) selectClip(c.id, false); return; }
+  const t = e.target.closest('[data-t]')?.dataset.t;
+  if (t){
+    const [which, d] = t.split(','); const dv = +d;
+    if (which === 's') c.start = Math.max(0, Math.min(c.end - 3, c.start + dv));
+    else c.end = Math.min(P.duration, Math.max(c.start + 3, c.end + dv));
+    updateRow(c); drawHeat();
+    selectClip(c.id, true, which === 'e' ? Math.max(c.start, c.end - 4) : null); return;
+  }
+  selectClip(c.id, true);
+});
+$('#clips').addEventListener('input', e => {
+  if (!e.target.matches('[data-title]')) return;
+  const c = P.clips.find(x => x.id == e.target.closest('.clip').dataset.id);
+  c.title = e.target.value; drawPhone();
+});
+
+function activeClip(){ return P && P.clips.find(x => x.id === active); }
+function selectClip(id, play = true, from = null){
+  active = id;
+  const c = activeClip(); if (!c) return;
+  document.querySelectorAll('.clip').forEach(r => r.classList.toggle('active', r.dataset.id == id));
+  const v = $('#vod');
+  try { v.currentTime = from ?? c.start; } catch {}
+  stopAt = c.end;
+  $('#playingText').textContent = play ? `Playing ${fmt(c.start)} – ${fmt(c.end)}` : '';
+  if (play) v.play().catch(()=>{});
+  loadFrame(c.start + (c.end - c.start) * 0.6);
+  drawHeat(); drawPhone();
+}
+const vod = $('#vod');
+vod.addEventListener('timeupdate', () => {
+  $('#nowText').textContent = fmt(vod.currentTime);
+  if (stopAt !== null && vod.currentTime >= stopAt){ vod.pause(); stopAt = null; $('#playingText').textContent = ''; }
+  drawHeat();
+});
+vod.addEventListener('seeking', () => { const c = activeClip();
+  if (c && (vod.currentTime < c.start - 1 || vod.currentTime > c.end + 1)){ stopAt = null; $('#playingText').textContent = ''; } });
+vod.addEventListener('error', () => {
+  const what = P ? (P.ext || '').replace('.', '').toUpperCase() + (P.vcodec ? ' / ' + P.vcodec.toUpperCase() : '') : '';
+  const playable = P && P.ext === '.mp4' && /h264|avc/i.test(P.vcodec || '');
+  $('#vidErr').innerHTML = playable
+    ? `<div>The preview didn't load. Refresh the page to try again.<br>Clip finding and rendering still work either way.</div>`
+    : `<div>Your browser can't preview this video${what ? ` (${esc(what)})` : ''}.<br>Clip finding and rendering still work. For previews, record in MP4 with H.264, or remux the file to MP4.</div>`;
+  $('#vidErr').classList.add('show');
+});
+
+$('#setStart').onclick = () => { const c = activeClip(); if (!c) return;
+  c.start = Math.max(0, Math.min(vod.currentTime, c.end - 3)); updateRow(c); drawHeat(); };
+$('#setEnd').onclick = () => { const c = activeClip(); if (!c) return;
+  c.end = Math.min(P.duration, Math.max(vod.currentTime, c.start + 3)); stopAt = null; updateRow(c); drawHeat(); };
+$('#addHere').onclick = async () => {
+  if (!P) return;
+  try {
+    const c = await api('/api/add_clip', { pid: P.pid, t: vod.currentTime, length: +$('#length').value });
+    c.on = true; c.manual = true; c.title = ''; c.id = Math.max(0, ...P.clips.map(x => x.id)) + 1;
+    P.clips.push(c); renderClips(); selectClip(c.id, false);
+    document.querySelector(`.clip[data-id="${c.id}"]`)?.scrollIntoView({ block:'nearest', behavior:'smooth' });
+  } catch (e){ alert(e.message); }
+};
+$('#selAll').onclick = () => { P.clips.forEach(c => c.on = true); renderClips(); drawHeat(); };
+$('#selNone').onclick = () => { P.clips.forEach(c => c.on = false); renderClips(); drawHeat(); };
+
+/* keyboard: space plays/pauses, J/L jump 5s (when not typing) */
+document.addEventListener('keydown', e => {
+  if (!P || e.target.closest('input,select,textarea,button')) return;
+  if (e.key === ' '){ e.preventDefault(); vod.paused ? vod.play().catch(()=>{}) : vod.pause(); }
+  if (e.key === 'j' || e.key === 'ArrowLeft'){ vod.currentTime = Math.max(0, vod.currentTime - 5); }
+  if (e.key === 'l' || e.key === 'ArrowRight'){ vod.currentTime = Math.min(P.duration, vod.currentTime + 5); }
+});
+
+/* ---------- hype timeline ---------- */
+const heat = $('#heat');
+function heatColor(x){
+  const stops = [[61,79,176],[242,193,78],[255,93,115]];
+  const t = Math.min(1, Math.max(0, x)) * 2, i = Math.min(1, Math.floor(t)), f = t - i;
+  const a = stops[i], b = stops[i+1];
+  return `rgb(${a.map((v,k)=>Math.round(v+(b[k]-v)*f)).join(',')})`;
+}
+let heatRaf = 0;
+function drawHeat(){ cancelAnimationFrame(heatRaf); heatRaf = requestAnimationFrame(drawHeatNow); }
+function drawHeatNow(){
+  if (!P) return;
+  const dpr = window.devicePixelRatio || 1, W = heat.clientWidth, H = heat.clientHeight;
+  if (heat.width !== W*dpr || heat.height !== H*dpr){ heat.width = W*dpr; heat.height = H*dpr; }
+  const g = heat.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
+  const curve = P.curve, n = curve.length, base = H - 18;
+  const hi = Math.max(3, ...curve);
+  P.clips.forEach(c => {
+    const x0 = c.start/P.duration*W, x1 = Math.max(x0+2, c.end/P.duration*W);
+    g.fillStyle = c.id === active ? 'rgba(242,193,78,.2)' : (c.on ? 'rgba(235,237,248,.07)' : 'rgba(235,237,248,.025)');
+    g.fillRect(x0, 0, x1-x0, base);
+  });
+  const bw = W / n;
+  for (let i = 0; i < n; i++){
+    const v = Math.max(0, curve[i]/hi);
+    const h = Math.max(1, v * (base - 20));
+    g.globalAlpha = 0.35 + 0.65*v;
+    g.fillStyle = heatColor(v);
+    g.fillRect(i*bw, base - h, Math.max(1, bw - (bw > 3 ? 1 : 0)), h);
+  }
+  g.globalAlpha = 1;
+  g.font = '700 12px Archivo, system-ui, sans-serif'; g.textAlign = 'center';
+  const placed = [];
+  P.clips.map((c, i) => ({ c, i, x: (c.start+c.end)/2/P.duration*W }))
+    .sort((a, b) => (b.c.id === active) - (a.c.id === active) || a.i - b.i)
+    .forEach(({ c, i, x }) => {
+    if (placed.some(px => Math.abs(px - x) < 16)) return;
+    placed.push(x);
+    g.fillStyle = c.id === active ? '#f2c14e' : (c.on ? '#ebedf8' : '#555d8c');
+    g.fillText(String(i+1), x, H - 4);
+  });
+  const t = vod.currentTime || 0;
+  g.fillStyle = '#ebedf8'; g.fillRect(Math.round(t/P.duration*W) - 1, 0, 2, base);
+}
+heat.addEventListener('click', e => {
+  if (!P) return;
+  const r = heat.getBoundingClientRect(), t = (e.clientX - r.left)/r.width*P.duration;
+  const hit = P.clips.find(c => t >= c.start && t <= c.end);
+  if (hit && hit.id !== active) selectClip(hit.id, true);
+  else { stopAt = null; $('#playingText').textContent = ''; vod.currentTime = t; vod.play().catch(()=>{}); loadFrame(t); }
+});
+heat.addEventListener('mousemove', e => {
+  if (!P) return;
+  const r = heat.getBoundingClientRect(), tl = heat.parentElement.getBoundingClientRect(), x = e.clientX - r.left, tag = $('#hoverTag');
+  tag.style.display = 'block'; tag.textContent = fmt(x/r.width*P.duration);
+  tag.style.left = Math.min(tl.width - 30, Math.max(30, e.clientX - tl.left)) + 'px';
+});
+heat.addEventListener('mouseleave', () => $('#hoverTag').style.display = 'none');
+new ResizeObserver(drawHeat).observe(heat);
+
+/* ---------- format controls ---------- */
+$('#swatches').innerHTML = SWATCHES.map(c => `<button data-c="${c}" style="background:${c}" aria-label="Highlight ${c}"></button>`).join('') +
+  `<input type="color" id="capColor" aria-label="Custom highlight color">`;
+function syncControls(){
+  document.querySelectorAll('#layoutSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === opts.layout));
+  $('#camBlock').style.display = opts.layout === 'split' ? '' : 'none';
+  $('#camH').value = Math.round(opts.cam_height*100); $('#camHOut').textContent = $('#camH').value + '%';
+  $('#gameX').value = Math.round(opts.game_x*100);
+  $('#gameXOut').textContent = opts.game_x < .45 ? 'left' : opts.game_x > .55 ? 'right' : 'center';
+  $('#zoom').value = Math.round(opts.game_zoom*100); $('#zoomOut').textContent = (+opts.game_zoom.toFixed(2)) + '×';
+  $('#caps').checked = opts.captions; $('#capBlock').style.display = opts.captions ? '' : 'none';
+  $('#capPos').value = opts.caption_pos;
+  document.querySelectorAll('#swatches button').forEach(b => b.classList.toggle('on', b.dataset.c === opts.caption_color.toLowerCase()));
+  $('#capColor').value = opts.caption_color;
+  $('#capSize').value = opts.caption_size; $('#capSizeOut').textContent = opts.caption_size + '%';
+  $('#wpl').value = opts.words_per_line; $('#wplOut').textContent = opts.words_per_line;
+  $('#model').value = opts.whisper_model; $('#lang').value = opts.language; $('#upper').checked = opts.uppercase;
+  $('#hw').checked = opts.hw_encode;
+  placeBox(); drawPhone(); store.set('opts', opts);
+}
+$('#layoutSeg').onclick = e => { const v = e.target.dataset.v; if (v){ opts.layout = v; syncControls(); } };
+$('#camH').oninput = e => { opts.cam_height = e.target.value/100; syncControls(); };
+$('#gameX').oninput = e => { opts.game_x = e.target.value/100; syncControls(); };
+$('#zoom').oninput = e => { opts.game_zoom = e.target.value/100; syncControls(); };
+$('#caps').onchange = e => { opts.captions = e.target.checked; syncControls(); };
+$('#capPos').onchange = e => { opts.caption_pos = e.target.value; syncControls(); };
+$('#swatches').onclick = e => { const c = e.target.dataset.c; if (c){ opts.caption_color = c; syncControls(); } };
+$('#capColor').oninput = e => { opts.caption_color = e.target.value; syncControls(); };
+$('#capSize').oninput = e => { opts.caption_size = +e.target.value; syncControls(); };
+$('#wpl').oninput = e => { opts.words_per_line = +e.target.value; syncControls(); };
+$('#model').onchange = e => { opts.whisper_model = e.target.value; syncControls(); };
+$('#lang').onchange = e => { opts.language = e.target.value; syncControls(); };
+$('#upper').onchange = e => { opts.uppercase = e.target.checked; syncControls(); };
+$('#hw').onchange = e => { opts.hw_encode = e.target.checked; syncControls(); };
+
+/* facecam picker */
+const frame = $('#frame'), box = $('#box'), picker = $('#picker');
+let frameT = -1;
+function loadFrame(t){ if (!P) return; t = Math.round(t); if (t === frameT) return; frameT = t; frame.src = `/api/frame/${P.pid}?t=${t}`; }
+frame.onload = () => { placeBox(); drawPhone(); };
+function placeBox(){
+  const [x,y,w,h] = opts.cam;
+  Object.assign(box.style, { left: x*100+'%', top: y*100+'%', width: w*100+'%', height: h*100+'%' });
+}
+let drag = null;
+const rel = e => { const r = picker.getBoundingClientRect();
+  return [Math.min(1, Math.max(0, (e.clientX-r.left)/r.width)), Math.min(1, Math.max(0, (e.clientY-r.top)/r.height))]; };
+picker.addEventListener('pointerdown', e => { const [x,y] = rel(e); drag = { x, y, prev: opts.cam.slice() }; picker.setPointerCapture(e.pointerId); });
+picker.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const [x,y] = rel(e);
+  opts.cam = [Math.min(drag.x,x), Math.min(drag.y,y), Math.abs(x-drag.x), Math.abs(y-drag.y)];
+  placeBox(); drawPhone();
+});
+picker.addEventListener('pointerup', () => {
+  if (!drag) return;
+  if (opts.cam[2] < 0.03 || opts.cam[3] < 0.03) opts.cam = drag.prev;
+  drag = null; syncControls();
+});
+
+/* live 9:16 preview, mirrors the crop math in engine.build_filter */
+function drawPhone(){
+  const cv = $('#phone'), g = cv.getContext('2d'), W = cv.width, H = cv.height;
+  g.fillStyle = '#000'; g.fillRect(0,0,W,H);
+  if (!frame.complete || !frame.naturalWidth){
+    g.fillStyle = '#666e9e'; g.font = '600 15px Archivo, system-ui'; g.textAlign = 'center'; g.fillText('Preview appears here', W/2, H/2); return; }
+  const sw = frame.naturalWidth, sh = frame.naturalHeight, z = Math.max(1, opts.game_zoom);
+  const gameCrop = (ow, oh) => { const a = ow/oh; const cw = Math.min(sw, sh*a)/z, ch = cw/a;
+    const cx = Math.min(Math.max(0, opts.game_x*sw - cw/2), sw - cw); return [cx, (sh-ch)/2, cw, ch]; };
+  let capY;
+  if (opts.layout === 'split'){
+    const th = Math.round(H*Math.min(.5, Math.max(.2, opts.cam_height)));
+    const x = opts.cam[0]*sw, y = opts.cam[1]*sh, w = Math.max(4, opts.cam[2]*sw), h = Math.max(4, opts.cam[3]*sh);
+    const s = Math.max(W/w, th/h), vw = W/s, vh = th/s;
+    g.drawImage(frame, x + (w-vw)/2, y + (h-vh)/2, vw, vh, 0, 0, W, th);
+    const [gx,gy,gw,gh] = gameCrop(W, H-th); g.drawImage(frame, gx,gy,gw,gh, 0, th, W, H-th);
+    capY = th;
+  } else if (opts.layout === 'full'){
+    const [gx,gy,gw,gh] = gameCrop(W, H); g.drawImage(frame, gx,gy,gw,gh, 0,0,W,H); capY = H*.7;
+  } else {
+    g.filter = 'blur(8px) brightness(.85)';
+    const bs = H/sh, bw = sw*bs; g.drawImage(frame, (W-bw)/2, 0, bw, H); g.filter = 'none';
+    const fh = W*sh/sw;
+    if (z > 1){ const [gx,gy,gw,gh] = gameCrop(W, fh); g.drawImage(frame, gx,gy,gw,gh, 0,(H-fh)/2,W,fh); }
+    else g.drawImage(frame, 0, (H-fh)/2, W, fh);
+    capY = H/2 + fh/2 + H*170/1920;
+  }
+  const k = W / 1080;
+  const c = activeClip();
+  if (c && c.title.trim()){
+    g.font = `900 ${Math.round(64*k)}px "Arial Black", Archivo, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
+    const words = c.title.trim().split(/\s+/), lines = []; let cur = '';
+    for (const w of words){ const t = cur ? cur + ' ' + w : w; if (g.measureText(t).width > W - 2*90*k - 32*k && cur){ lines.push(cur); cur = w; } else cur = t; }
+    if (cur) lines.push(cur);
+    const lh = 76*k, pad = 16*k, bw2 = Math.max(...lines.map(l => g.measureText(l).width)) + 2*pad;
+    g.fillStyle = '#fff'; g.fillRect((W-bw2)/2, 110*k - pad, bw2, lines.length*lh + 2*pad - (lh - 64*k));
+    g.fillStyle = '#141414'; lines.forEach((l, i) => g.fillText(l, W/2, 110*k + i*lh));
+  }
+  if (opts.captions){
+    capY = {top:H*.22, middle:H*.5, bottom:H*.78}[opts.caption_pos] ?? capY;
+    capY = Math.min(Math.max(capY, H*260/1920), H - H*220/1920);
+    const words = opts.uppercase ? ['THIS','IS','INSANE','CHAT','NO','WAY'] : ['this','is','insane','chat','no','way'];
+    const shown = words.slice(0, opts.words_per_line);
+    const chars = shown.join(' ').length, fsBase = 86*opts.caption_size/100;
+    const fs = (chars <= 16 ? fsBase : Math.max(fsBase*.75, fsBase*18/chars)) * k;
+    g.font = `900 ${Math.round(fs)}px "Arial Black", Archivo, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+    const sp = g.measureText(' ').width, widths = shown.map(w => g.measureText(w).width);
+    let x = (W - (widths.reduce((a,b)=>a+b,0) + sp*(shown.length-1)))/2;
+    shown.forEach((w,i) => { g.lineWidth = Math.max(3, fs/6); g.strokeStyle = '#000'; g.lineJoin = 'round'; g.strokeText(w, x, capY);
+      g.fillStyle = i === Math.min(1, shown.length-1) ? opts.caption_color : '#fff'; g.fillText(w, x, capY); x += widths[i] + sp; });
+  }
+}
+
+/* ---------- render ---------- */
+let outFolder = '';
+$('#render').onclick = async () => {
+  if (!P) return;
+  const sel = P.clips.map((c, i) => ({ c, rank: i + 1 })).filter(x => x.c.on)
+    .map(({ c, rank }) => ({ rank, start: c.start, end: c.end, title: c.title || '' }));
+  if (!sel.length) return;
+  $('#render').disabled = true;
+  $('#outBlock').style.display = 'block'; $('#outputs').innerHTML = ''; $('#outSub').textContent = '';
+  let shown = 0;
+  try {
+    const { job } = await api('/api/render', { pid: P.pid, clips: sel, opts });
+    const j = await follow(job, UI_R, j => {
+      if (j.result && j.result.files.length > shown){ shown = j.result.files.length; showOutputs(j.result, sel.length); }
+    });
+    if (j && j.result) showOutputs(j.result, sel.length);
+    if (j && j.status === 'done') $('#rStep').textContent = `Done. ${j.result.files.length} clip${j.result.files.length === 1 ? '' : 's'} saved.`;
+    loadStorage();
+  } catch (e){ $('#rstatus').classList.add('show'); $('#rErr').textContent = e.message; }
+  $('#render').disabled = false;
+};
+function showOutputs(res, total){
+  outFolder = res.folder;
+  $('#outSub').textContent = `${res.files.length} of ${total}`;
+  const have = new Set([...document.querySelectorAll('#outputs figure')].map(f => f.dataset.name));
+  for (const f of res.files){
+    if (have.has(f.name)) continue;
+    $('#outputs').insertAdjacentHTML('beforeend', `<figure data-name="${esc(f.name)}"><video src="${f.url}" controls preload="metadata" playsinline></video><figcaption>${esc(f.name)}</figcaption></figure>`);
+  }
+  if (res.files.length === 1) $('#outBlock').scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+$('#openFolder').onclick = () => api('/api/open_folder', { folder: outFolder }).catch(e => alert(e.message));
+
+loadStatus(); loadRecent(); loadStorage(); syncControls();
+</script>
+</body>
+</html>
