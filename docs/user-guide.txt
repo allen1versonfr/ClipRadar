@@ -245,6 +245,26 @@ POSTING TO TIKTOK
   ("Only me"); that's TikTok's rule for new apps. Drafts work either way.
   VodClipper never posts on its own; every post is a click you make.
 
+STORAGE FOLDERS
+  Settings > Storage lists where each kind of file goes, with the free space
+  on its drive. Change… picks another folder; Default goes back.
+    Projects                 a folder per video: your review, analysis,
+                             transcripts and thumbnails
+    Downloaded videos        downloaded VODs and videos (default: inside each
+                             project folder)
+    Rendered clips           finished clips (default: a "tiktok" folder inside
+                             each project folder)
+    Temporary files          exact previews, framing data and the live
+                             recording buffer. Clear empties it; it never
+                             touches your videos, projects or clips.
+    Logs                     vodclipper.log
+  A folder is checked before it's used (it must exist or be creatable, and be
+  writable). New work goes to the new folder; nothing already saved is moved,
+  and projects in a previous Projects folder still show up. A folder on a
+  drive that isn't plugged in falls back to the default until it's back, and
+  VodClipper says so. Downloads stop before starting if the drive is too full,
+  and a second render at once waits while memory is short.
+
 FREEING UP SPACE
   Downloaded VODs are big (several GB per stream). Settings > Storage shows
   how much space VodClipper is using:

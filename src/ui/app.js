@@ -102,7 +102,7 @@ function setView(v) {
   if (v !== 'exports') { $('#exVideo').pause(); }
   if (v === 'review') { sizePhone(); drawHeat(); dirty = true; }
   if (v === 'exports') { refreshQueue(); if (exSel) renderDetail(true); }
-  if (v === 'settings') { loadTikTok(); loadStorage(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); loadExport(); }
+  if (v === 'settings') { loadTikTok(); loadStorage(); loadLocations(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); loadExport(); }
   if (v === 'home') loadRecent();
   updateCrumb();
 }
@@ -143,9 +143,11 @@ async function loadStatus() {
     } catch {}
   }
   if (view === 'settings') renderTools();
+  const lw = (status.locations_warn || []).join(' ');
+  if (lw && lw !== shownLocWarn) { shownLocWarn = lw; toast(lw, 'err', 10000, { label: 'Storage settings', fn: () => setView('settings') }); }
   syncLiveCard(); updateLivePill();
 }
-let toolsMissing = [];
+let toolsMissing = [], shownLocWarn = '';
 async function runSetup(want) {
   if (!want.length || setupJob) return;
   try {
@@ -2150,11 +2152,42 @@ function renderTools() {
   $('#toolTable tbody').innerHTML = rows.map(([n, ok, d, k]) => `<tr><td><span class="row"><span class="status-dot ${ok ? 'on' : 'warn'}"></span>${n}</span></td>
     <td class="muted">${ok ? d : 'Not installed'}</td><td class="r">${!ok && k && status.can_download_tools ? `<button class="btn sm" data-get="${k}">Download</button>` : ''}</td></tr>`).join('');
   $('#updYtdlp').disabled = !status.can_download_tools;
-  $('#rootPath').textContent = status.workroot || ''; $('#rootPath').title = status.workroot || '';
 }
 $('#toolTable').onclick = e => { const b = e.target.closest('[data-get]'); if (b) runSetup([b.dataset.get]); };
 $('#updYtdlp').onclick = () => runSetup(['ytdlp']);
-$('#openRoot').onclick = () => api('/api/open_folder', { folder: 'root' }).catch(e => toast(e.message, 'err'));
+/* --- Settings › Storage: folders (3.11) --- */
+let locState = null;
+async function loadLocations(v) {
+  try { locState = v || await api('/api/locations'); } catch { return; }
+  const L = locState.locations || [];
+  const warn = L.filter(x => x.problem).map(x => `${x.label}: ${x.problem}`);
+  $('#locWarn').hidden = !warn.length; $('#locWarn').textContent = warn.join(' ');
+  $('#locRows').innerHTML = L.map(x => `<div class="loc-row ${x.ok ? '' : 'bad'}">
+    <div class="loc-main"><b>${esc(x.label)}</b>
+      <code class="ellipsis" title="${esc(x.path || x.where)}">${esc(x.where || x.path)}</code>
+      <small class="${x.low ? 'warn' : 'muted'}">${x.free != null ? fmtBytes(x.free) + ' free' + (x.low ? ' (running low)' : '') : ''}${x.bytes != null ? ` · using ${fmtBytes(x.bytes)}` : ''}</small></div>
+    <span class="loc-acts">${x.path ? `<button class="btn sm ghost" data-loc-open="${x.key}">Open</button>` : ''}<button class="btn sm" data-loc-pick="${x.key}">Change…</button>${x.set ? `<button class="link" data-loc-reset="${x.key}">Default</button>` : ''}
+      ${x.key === 'temp' ? `<button class="btn sm ghost" data-loc-clear="1" title="Previews, framing data and finished live buffers. Never your videos, projects or clips.">Clear</button>` : ''}</span></div>`).join('');
+}
+async function setLocation(key, value) {
+  try {
+    const r = await api('/api/locations', { [key]: value });
+    const err = (r.errors || {})[key];
+    if (err) toast(err, 'err', 7000); else toast(value ? 'Folder changed. New work goes there.' : 'Back to the default folder.', '', 3000);
+    loadLocations(r); loadStatus(); loadStorage();
+  } catch (e) { toast(e.message, 'err', 7000); }
+}
+$('#locRows').onclick = async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const d = b.dataset;
+  if (d.locOpen) api('/api/open_folder', { folder: d.locOpen }).catch(err => toast(err.message, 'err'));
+  else if (d.locPick) { const p = await pick('folder'); if (p) setLocation(d.locPick, p); }
+  else if (d.locReset) setLocation(d.locReset, '');
+  else if (d.locClear) {
+    try { const r = await api('/api/storage/clear_cache', {}); toast(`Cleared ${fmtBytes(r.freed)} of temporary files.`, '', 3000); loadLocations({ locations: r.locations }); }
+    catch (err) { toast(err.message, 'err'); }
+  }
+};
 
 let storage = null;
 async function loadStorage() {
@@ -2541,7 +2574,7 @@ async function saveExport(patch) {
 async function loadPerf() {
   let p; try { p = await api('/api/perf'); } catch { return; }
   const sp = Object.entries(p.speeds || {}).map(([k, v]) => `${k.replace('libx264', 'CPU (x264)')} ${v}× real time`).join(', ');
-  $('#pfInfo').textContent = `This PC: ${p.cpus} processor threads · video encoder: ${p.encoder}` + (sp ? ` · renders so far: ${sp}` : ' · render speed is measured as clips render, for the time estimates');
+  $('#pfInfo').textContent = `This PC: ${p.cpus} processor threads${p.mem_total ? ` · memory ${fmtBytes(p.mem_free)} free of ${fmtBytes(p.mem_total)}` : ''}${p.waiting_for_memory ? ' (extra renders wait until more is free)' : ''} · video encoder: ${p.encoder}` + (sp ? ` · renders so far: ${sp}` : ' · render speed is measured as clips render, for the time estimates');
 }
 const customPatch = kv => saveExport({ custom: Object.assign({}, (exState && exState.prefs.custom) || {}, kv) });
 $('#exPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ preset: v }); };

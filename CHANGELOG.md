@@ -3,6 +3,22 @@
 All notable changes to VodClipper are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.11.0] - 2026-10-14
+
+Storage folders and resource controls.
+
+### Added
+- Settings › Storage › folders: choose where projects, downloaded videos, rendered clips, temporary files and logs go, each with the free space on its drive. Folders are checked before use (must be writable). New work goes to the new folder; nothing already saved is moved, and projects in a previous Projects folder still show up.
+- A folder on a drive that isn't plugged in falls back to the default until it's back, and VodClipper says so.
+- Clear temporary files: exact previews, framing data and finished live buffers. It never touches your videos, projects or clips. Old half-finished downloads are cleared too.
+- Downloads stop before they start when the drive doesn't have room, and say how much is needed.
+- A second render at once waits while memory is short. Settings › Performance shows free memory.
+
+### Changed
+- Upgrading changes nothing: every folder starts where it always was. Exact previews and framing data move to the temporary folder.
+- The live recording buffer is kept with the temporary files and deleted when a stream ends (the moments are already cut out).
+- Running out of memory says so in plain words.
+
 ## [3.10.0] - 2026-10-14
 
 More sources: YouTube and X, several at once.

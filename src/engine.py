@@ -149,6 +149,12 @@ def _slug(s: str) -> str:
     return s[:60] or "vod"
 
 
+def project_video(workdir: str) -> Optional[str]:
+    """A project's downloaded video: in the Downloads location (Settings › Storage) or its own folder."""
+    import locations
+    return _video_in(locations.download_dir(workdir)) or _video_in(workdir)
+
+
 def _video_in(folder: str) -> Optional[str]:
     """A finished download in folder (ignores yt-dlp .part/.ytdl/fragment leftovers)."""
     if not os.path.isdir(folder):
@@ -193,13 +199,18 @@ def _project_dirs(workroot: str) -> list:
 
 
 def _vod_files(pdir: str) -> list:
-    """Downloaded video in a project folder: the VOD (incl. half-finished downloads), or for a live
-    session its recording buffer and the cut-out moments."""
+    """Downloaded video in a project folder (or the Downloads location): the VOD (incl. half-finished
+    downloads), or for a live session its recording buffer and the cut-out moments."""
+    import locations
     out = []
-    for f in os.listdir(pdir):
-        p = os.path.join(pdir, f)
-        if os.path.isfile(p) and (f.startswith("vod.") or f.startswith("chat_raw")):
-            out.append(p)
+    dl = locations.download_dir(pdir)
+    for d in dict.fromkeys([pdir, dl]):
+        if not os.path.isdir(d):
+            continue
+        for f in os.listdir(d):
+            p = os.path.join(d, f)
+            if os.path.isfile(p) and (f.startswith("vod.") or f.startswith("chat_raw")):
+                out.append(p)
     for sub in ("segments", "moments"):
         d = os.path.join(pdir, sub)
         if os.path.isdir(d):
@@ -212,11 +223,14 @@ def _has_vod(pdir: str) -> bool:
 
 
 def _clip_files(pdir: str) -> list:
-    tdir = os.path.join(pdir, "tiktok")
-    if not os.path.isdir(tdir):
-        return []
-    return [os.path.join(tdir, f) for f in os.listdir(tdir)
-            if os.path.isfile(os.path.join(tdir, f)) and f.lower().endswith((".mp4", ".ass", ".wav", ".txt"))]
+    """Rendered clips for a project: its "tiktok" folder and, when set, the Clips location."""
+    import locations
+    out = []
+    for tdir in dict.fromkeys([os.path.join(pdir, "tiktok"), locations.clips_dir(pdir)]):
+        if os.path.isdir(tdir):
+            out += [os.path.join(tdir, f) for f in os.listdir(tdir)
+                    if os.path.isfile(os.path.join(tdir, f)) and f.lower().endswith((".mp4", ".mov", ".webm", ".srt", ".ass", ".wav", ".txt"))]
+    return out
 
 
 def _size(files: list) -> int:
@@ -280,9 +294,13 @@ def _prune(pdir: str):
     if not _has_vod(pdir) and not _clip_files(pdir):
         shutil.rmtree(pdir, ignore_errors=True)
     else:
-        tdir = os.path.join(pdir, "tiktok")
-        if os.path.isdir(tdir) and not os.listdir(tdir):
-            os.rmdir(tdir)
+        import locations
+        for tdir in dict.fromkeys([os.path.join(pdir, "tiktok"), locations.clips_dir(pdir), locations.download_dir(pdir)]):
+            if tdir != pdir and os.path.isdir(tdir) and not os.listdir(tdir):
+                try:
+                    os.rmdir(tdir)
+                except OSError:
+                    pass
 
 
 def delete_vods(workroot: str) -> dict:
@@ -337,7 +355,7 @@ def recent_projects(workroot: str, limit: int = 8) -> list:
             continue
         if not src or (m.get("local") and not os.path.exists(src)):
             continue
-        if not m.get("local") and not _video_in(os.path.join(workroot, d)):
+        if not m.get("local") and not project_video(os.path.join(workroot, d)):
             continue
         out.append({"title": m.get("title", d), "source": src, "updated": m.get("updated", 0),
                     "duration": m.get("duration", 0), "review": m.get("review")})
@@ -416,7 +434,7 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     os.makedirs(workdir, exist_ok=True)
 
     desc: dict = {}
-    if not vod_id and not _video_in(workdir):
+    if not vod_id and not project_video(workdir):
         # YouTube, X and others: find out what it is first (a video, a finished stream, a live one...)
         step("Checking the link")
         meta, err = probe_url(url, cookies_browser, cookie_file)
@@ -428,6 +446,8 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
                                "or wait until it ends and paste the link again.")
         if desc["problem"]:
             raise RuntimeError(desc["problem"])
+        need = float((meta or {}).get("filesize") or (meta or {}).get("filesize_approx") or 0)
+        _check_download_space(workdir, need)
         log(f"{desc['label']}: {desc['title'] or url}" + (f" by {desc['uploader']}" if desc["uploader"] else "")
             + (f", {fmt_ts(desc['duration'])}" if desc["duration"] else ""))
         _save_meta(workdir, platform=c["platform"], kind=desc["kind"], label=desc["label"], uploader=desc["uploader"],
@@ -435,6 +455,8 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     elif vod_id:
         _save_meta(workdir, platform="twitch", kind="vod", label="Twitch past broadcast")
 
+    if vod_id and not project_video(workdir):
+        _check_download_space(workdir, 0)
     step("Downloading the VOD" if c["platform"] == "twitch" else "Downloading the video")
     try:
         video, title = _download_video(url, vod_id, workdir, max_height, cookies_browser,
@@ -466,6 +488,20 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     m = _meta(workdir)
     return Source(video, chat, title, workdir, streamer, start=c["start"],
                   info={k: m.get(k, "") for k in ("platform", "kind", "label", "uploader", "uploaded")})
+
+
+def _check_download_space(workdir: str, need: float):
+    """Stop before a download that can't fit (Settings › Storage › Downloaded videos)."""
+    import locations
+    dl = locations.download_dir(workdir)
+    free = locations.free_space(dl)
+    if free is None:
+        return
+    need = need * 1.1 + 300e6 if need else 2e9          # unknown size: a stream download needs a few GB
+    if free < need:
+        raise RuntimeError(f"Not enough space to download this: {free / 1e9:.1f} GB free on that drive, about "
+                           f"{need / 1e9:.1f} GB needed. Free up space (Settings › Storage) or choose another folder for "
+                           "downloaded videos.")
 
 
 def probe_url(url: str, cookies_browser: str = "", cookie_file: str = "") -> tuple:
@@ -544,7 +580,10 @@ def _youtube_chat(url: str, workdir: str, log: Log, cookies_browser: str = "", c
 def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: int,
                     cookies_browser: str, log: Log, progress: Progress, step: Log, check: Check,
                     cookie_file: str = ""):
-    existing = _video_in(workdir)
+    import locations
+    dl = locations.download_dir(workdir)              # Settings › Storage › Downloaded videos
+    os.makedirs(dl, exist_ok=True)
+    existing = _video_in(dl) or _video_in(workdir)
     meta_p = os.path.join(workdir, "meta.json")
     if existing:
         log("VOD already downloaded, reusing it.")
@@ -566,7 +605,7 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
     exe = which("yt-dlp")
     if exe:
         try:
-            return _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file)
+            return _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file, out_dir=dl)
         except Cancelled:
             raise
         except Exception as e:
@@ -580,7 +619,7 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
         yt_dlp = None
     if yt_dlp:
         try:
-            return _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file)
+            return _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file, out_dir=dl)
         except Cancelled:
             raise
         except Exception as e:
@@ -599,7 +638,7 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
     if tdl and vod_id:
         step("Downloading the VOD (TwitchDownloader)")
         log("Trying TwitchDownloaderCLI instead...")
-        out = os.path.join(workdir, "vod.mp4")
+        out = os.path.join(dl, "vod.mp4")
         cmd = [tdl, "videodownload", "--id", vod_id, "-o", out, "-t", "8"]
         if which("ffmpeg"):
             cmd += ["--ffmpeg-path", ffmpeg()]
@@ -620,7 +659,7 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
                     raise
         finally:
             p.wait()
-        video = _video_in(workdir)
+        video = _video_in(dl)
         if p.returncode == 0 and video:
             title = f"Twitch VOD {vod_id}"
             _save_meta(workdir, title=title)
@@ -668,9 +707,9 @@ class _Stepper:
                 self.log(f"Download {int(frac * 100)}%")
 
 
-def _finish_download(workdir: str, title: str, duration, progress: Progress, log: Log, streamer: str = ""):
+def _finish_download(workdir: str, title: str, duration, progress: Progress, log: Log, streamer: str = "", out_dir: str = ""):
     _save_meta(workdir, title=title, duration=duration or 0, **({"streamer": streamer} if streamer else {}))
-    video = _video_in(workdir)
+    video = _video_in(out_dir or workdir)
     if not video:
         raise RuntimeError("the download finished but no video file was found")
     progress(1.0)
@@ -678,7 +717,8 @@ def _finish_download(workdir: str, title: str, duration, progress: Progress, log
     return video, title
 
 
-def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file=""):
+def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file="", out_dir=""):
+    out_dir = out_dir or workdir
     def num(x):
         try:
             return float(x)
@@ -691,7 +731,7 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
            "download:VCPROG %(progress.downloaded_bytes)s %(progress.total_bytes)s "
            "%(progress.total_bytes_estimate)s %(progress.fragment_index)s "
            "%(progress.fragment_count)s %(progress.speed)s %(progress.eta)s",
-           "-f", fmt, "-o", os.path.join(workdir, "vod.%(ext)s"), "--merge-output-format", "mp4",
+           "-f", fmt, "-o", os.path.join(out_dir, "vod.%(ext)s"), "--merge-output-format", "mp4",
            "-N", "8", "--retries", "10", "--fragment-retries", "20", "--match-filters", "!is_live"]
     ff = which("ffmpeg")
     if ff:
@@ -730,15 +770,16 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
                 raise
     finally:
         p.wait()
-    if p.returncode != 0 or not _video_in(workdir):
+    if p.returncode != 0 or not _video_in(out_dir):
         if info.get("is_live") or any("is_live" in t for t in tail):
             raise RuntimeError("That stream is live. Wait until it ends and use the VOD link.")
         raise RuntimeError(errors[-1] if errors else (tail[-1] if tail else f"yt-dlp exited with code {p.returncode}"))
     return _finish_download(workdir, info.get("title") or "vod", info.get("duration"), progress, log,
-                            str(info.get("uploader_id") or info.get("uploader") or "").lower())
+                            str(info.get("uploader_id") or info.get("uploader") or "").lower(), out_dir)
 
 
-def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file=""):
+def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file="", out_dir=""):
+    out_dir = out_dir or workdir
     st = _Stepper(progress, step, log)
 
     def hook(d):
@@ -749,7 +790,7 @@ def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, ste
 
     opts = {
         "format": fmt,
-        "outtmpl": os.path.join(workdir, "vod.%(ext)s"),
+        "outtmpl": os.path.join(out_dir, "vod.%(ext)s"),
         "merge_output_format": "mp4",
         "concurrent_fragment_downloads": 8,
         "progress_hooks": [hook],
@@ -774,7 +815,7 @@ def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, ste
     if info.get("is_live"):
         raise RuntimeError("That stream is live. Wait until it ends and use the VOD link.")
     return _finish_download(workdir, info.get("title") or "vod", info.get("duration"), progress, log,
-                            str(info.get("uploader_id") or info.get("uploader") or "").lower())
+                            str(info.get("uploader_id") or info.get("uploader") or "").lower(), out_dir)
 
 
 def _clean_ytdlp_error(s: str) -> str:
