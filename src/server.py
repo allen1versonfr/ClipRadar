@@ -60,10 +60,38 @@ import twitchauth
 
 from version import VERSION
 HERE = paths.RES_DIR
-WORKROOT = str(paths.WORKROOT)
+import locations  # noqa: E402
+WORKROOT = locations.path("projects")        # where new projects go (Settings › Storage › Projects)
 PORT = int(os.environ.get("VODCLIPPER_PORT", "7860"))
 paths.ensure_dirs()
 os.makedirs(WORKROOT, exist_ok=True)
+
+
+def _set_workroot():
+    global WORKROOT
+    WORKROOT = locations.path("projects")
+    os.makedirs(WORKROOT, exist_ok=True)
+
+
+def _storage_all() -> dict:
+    """Storage use across every Projects folder (now and before it was moved)."""
+    tot = {"vods": {"count": 0, "bytes": 0}, "clips": {"count": 0, "bytes": 0}, "other_bytes": 0, "workroot": WORKROOT}
+    for root in locations.project_roots() or [WORKROOT]:
+        st = engine.storage_summary(root)
+        for k in ("vods", "clips"):
+            tot[k]["count"] += st[k]["count"]
+            tot[k]["bytes"] += st[k]["bytes"]
+        tot["other_bytes"] += st["other_bytes"]
+    return tot
+
+
+def _allowed_roots() -> list:
+    out = list(locations.project_roots()) + [WORKROOT]
+    for k in ("downloads", "clips", "temp", "logs"):
+        p_ = locations.path(k)
+        if p_:
+            out.append(p_)
+    return [os.path.realpath(x) for x in out if x]
 
 MODE = {"window": False}          # True when shown in VodClipper's own app window
 last_ping = [time.time()]
@@ -171,7 +199,8 @@ def run_job(job, fn):
                 job_logger(job)("Cancelled.")
         except Exception as e:
             job["status"] = "error"
-            job["error"] = str(e) or type(e).__name__
+            job["error"] = ("Your PC ran out of memory. Close some programs (or let other work finish), then try again."
+                            if isinstance(e, MemoryError) or "out of memory" in str(e).lower() else str(e) or type(e).__name__)
             job_logger(job)(f"Error: {job['error'].splitlines()[0]}")
             if not isinstance(e, RuntimeError):
                 traceback.print_exc()
@@ -1038,7 +1067,7 @@ def _framing_for(pr: dict, start: float, end: float, ro, log=None) -> Optional[d
     if engine.effective_layout(ro) != "full" or ro.track != "auto" or not framing.available():
         return None
     try:
-        return framing.track(pr["video"], start, end, pr["info"], ro, cache_dir=os.path.join(pr["workdir"], "framing"),
+        return framing.track(pr["video"], start, end, pr["info"], ro, cache_dir=locations.temp_dir(os.path.basename(pr["workdir"]), "framing"),
                              log=log or (lambda m: print("  " + m, flush=True)))
     except Exception as e:
         print(f"  Framing skipped: {str(e)[:160]}", flush=True)
@@ -1244,7 +1273,7 @@ def _render_item(it: dict):
     ex = it.get("export") or {}
     ro = _ropts(it["opts"], ex)
     subs = ex.get("subtitles", "burn")
-    outdir = os.path.join(pr["workdir"], "tiktok")
+    outdir = locations.clips_dir(pr["workdir"])          # Settings › Storage › Rendered clips
     os.makedirs(outdir, exist_ok=True)
     name = _file_name(it, outdir)
     length = it["end"] - it["start"]
@@ -1352,7 +1381,9 @@ def export_view(sample: Optional[dict] = None) -> dict:
 def perf_view() -> dict:
     sp = exports.all_speeds()
     enc = engine._encoder_cache.get("hw")
-    return {"cpus": os.cpu_count() or 0, "encoder": (enc[0] if enc else "libx264 (CPU)") if "hw" in engine._encoder_cache else "not checked yet",
+    mem = locations.memory()
+    return {"cpus": os.cpu_count() or 0, "mem_free": mem["free"], "mem_total": mem["total"],
+            "waiting_for_memory": _mem_short() and MAX_WORKERS[0] > 1, "encoder": (enc[0] if enc else "libx264 (CPU)") if "hw" in engine._encoder_cache else "not checked yet",
             "speeds": {k: v for k, v in sp.items() if "|" not in k}, "workers": MAX_WORKERS[0],
             "priority": exports.load()["priority"]}
 
@@ -1445,7 +1476,7 @@ def start_preview_render(pid: str, c: dict, opts: dict, at: float) -> dict:
         check = job_check(job)
         ro = _ropts(dict(opts, hw_encode=opts.get("hw_encode", True)))
         ro.crf = 28
-        outdir = os.path.join(pr["workdir"], "preview")
+        outdir = locations.temp_dir(os.path.basename(pr["workdir"]), "preview")
         os.makedirs(outdir, exist_ok=True)
         for f in sorted(glob.glob(os.path.join(outdir, "preview_*.mp4")))[:-2]:   # keep the last few
             try:
@@ -1480,7 +1511,8 @@ def friendly_render_error(e: Exception) -> tuple:
     errno_ = getattr(e, "errno", None) or getattr(e, "winerror", None)
     rules = [
         (errno_ in (28, 112) or "no space left" in low or "not enough space" in low,
-         "Your drive is full. Free up space (Settings › Storage › Delete VODs), then retry."),
+         "Your drive is full. Free up space (Settings › Storage: Clear temporary files, Delete VODs) or choose another "
+         "folder for rendered clips, then retry."),
         (errno_ in (13, 32) or "permission denied" in low or "being used by another process" in low,
          "The clip's file is open in another program, like a video player. Close it, then retry."),
         ("vod for this clip was deleted" in low or "no such file" in low and "input" not in low,
@@ -1597,6 +1629,14 @@ def queue_eta() -> Optional[float]:
     return None if unknown and total == 0 else round(total / max(1, min(MAX_WORKERS[0], len(items))), 1)
 
 
+MEM_RESERVE = 1.0 * 1024 ** 3      # leave this much memory free before starting another render at once
+
+
+def _mem_short() -> bool:
+    m = locations.memory()
+    return m["free"] is not None and m["free"] < MEM_RESERVE
+
+
 def queue_worker(idx: int = 0):
     while True:
         queue_wake.wait(2.0)
@@ -1604,6 +1644,10 @@ def queue_worker(idx: int = 0):
         if idx >= MAX_WORKERS[0]:
             continue                                  # fewer renders at once now: this worker rests
         while True:
+            if idx > 0 and _mem_short():
+                # another render is already running and memory is short: wait rather than run out
+                time.sleep(3)
+                continue
             with queue_lock:
                 it = next((x for x in queue if x["status"] == "queued"), None)
                 if it and it.get("live"):
@@ -1835,7 +1879,7 @@ def start_live_session(src: str, body: dict):
     """Create and start a live session. body holds every setting so 'keep watching' can start the next one."""
     sid = uuid.uuid4().hex[:8]
     sess = live.LiveSession(
-        sid, src, WORKROOT, length=float(body.get("length", 0) or 0), events=bool(body.get("events", True)),
+        sid, src, WORKROOT, temp_root=locations.path("temp"), length=float(body.get("length", 0) or 0), events=bool(body.get("events", True)),
         sensitivity=body.get("frequency") or body.get("sensitivity", "normal"),
         chat_delay=_live_delay(body.get("chat_delay", "auto")), min_quality=int(body.get("min_quality") or 0),
         chat_weight=float(body.get("chat_weight", 60)), max_height=int(body.get("max_height", 1080)),
@@ -2034,6 +2078,7 @@ class Handler(BaseHTTPRequestHandler):
                 "twitchdownloader": ts["twitchdownloader"],
                 "can_download_tools": ts["can_download"],
                 "workroot": WORKROOT,
+                "locations_warn": [x["problem"] for x in locations.problems()],
                 "window": MODE["window"],
                 "frozen": paths.FROZEN,
                 "version": VERSION,
@@ -2052,7 +2097,8 @@ class Handler(BaseHTTPRequestHandler):
             last_ping[0] = time.time()
             return self._json({"ok": True})
         if p == "/api/recent":
-            return self._json(engine.recent_projects(WORKROOT))
+            rec_ = [r_ for root in (locations.project_roots() or [WORKROOT]) for r_ in engine.recent_projects(root)]
+            return self._json(sorted(rec_, key=lambda x: -x["updated"])[:8])
         m = re.fullmatch(r"/api/live/(\w+)", p)
         if m:
             sess = live_sessions.get(m.group(1))
@@ -2086,6 +2132,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(export_view())
         if p == "/api/sources":
             return self._json(sources_view())
+        if p == "/api/locations":
+            return self._json(locations.view())
         m = re.fullmatch(r"/api/framing/(\w+)", p)
         if m:
             # Layout › Auto-frame: what fits this video (a facecam, a person filling the frame, or neither)
@@ -2096,7 +2144,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"layout": "", "reason": "Face finding isn't available in this copy.", "available": False})
             try:
                 res = framing.suggest(pr["video"], float(pr["info"].get("duration") or 0) or 60.0,
-                                      cache_dir=os.path.join(pr["workdir"], "framing"))
+                                      cache_dir=locations.temp_dir(os.path.basename(pr["workdir"]), "framing"))
             except Exception as e:
                 return self._err(f"Couldn't look for faces: {str(e)[:160]}")
             return self._json(dict(res, available=True))
@@ -2128,7 +2176,7 @@ class Handler(BaseHTTPRequestHandler):
                                "listening": bool(lj and lj["status"] == "running"),
                                "step": lj["step"] if lj else ""})
         if p == "/api/storage":
-            st = engine.storage_summary(WORKROOT)
+            st = _storage_all()
             st["uninstaller"] = bool(uninstaller_path())
             return self._json(st)
         m = re.fullmatch(r"/api/job/(\w+)", p)
@@ -2170,6 +2218,8 @@ class Handler(BaseHTTPRequestHandler):
                     workdir = next((x.get("workdir") or "" for x in queue if x.get("pid") == m.group(1)), "")
         if m and workdir:
             base = os.path.realpath(workdir)
+            if m.group(2).startswith("preview/"):          # exact previews live with the temporary files
+                base = os.path.realpath(locations.temp_dir(os.path.basename(workdir)))
             path = os.path.realpath(os.path.join(base, m.group(2)))
             if not path.startswith(base + os.sep):
                 return self._err("forbidden", 403)
@@ -2209,6 +2259,21 @@ class Handler(BaseHTTPRequestHandler):
             job["body"] = dict(body)
             run_job(job, lambda: do_analyze(job, body))
             return self._json({"job": job["id"]})
+
+        if p == "/api/locations":
+            if live_list() or busy():
+                return self._err("Wait for downloads, renders and live clipping to finish, then change folders.", 409)
+            res = locations.save(body or {})
+            _set_workroot()
+            return self._json(dict(locations.view(), errors=res["errors"]))
+
+        if p == "/api/storage/clear_cache":
+            keep = [os.path.dirname(sess.seg_dir) for sess in live_list()]
+            res = locations.clear_temp(keep=tuple(keep))
+            part = locations.stale_partials([locations.path("downloads")] + locations.project_roots())
+            freed2, _ = engine._remove(part)
+            res["freed"] += freed2
+            return self._json(dict(res, locations=locations.view()["locations"]))
 
         if p == "/api/sources/pause":
             job = jobs.get(body.get("job", ""))
@@ -2309,13 +2374,17 @@ class Handler(BaseHTTPRequestHandler):
                                                  for j in jobs.values()):
                 time.sleep(0.1)
             fn = engine.delete_vods if what == "vods" else engine.delete_clips
-            res = fn(WORKROOT)
+            res = {"deleted": 0, "freed": 0, "failed": []}
+            for root in locations.project_roots() or [WORKROOT]:
+                r_ = fn(root)
+                res["deleted"] += r_["deleted"]
+                res["freed"] += r_["freed"]
+                res["failed"] += r_["failed"]
             closed = []
             if what == "vods":
                 # projects whose downloaded VOD is gone can't be previewed or rendered any more
-                root = os.path.realpath(WORKROOT)
                 for pid, pr in list(projects.items()):
-                    if os.path.realpath(pr["video"]).startswith(root + os.sep) and not os.path.exists(pr["video"]):
+                    if not os.path.exists(pr["video"]):
                         projects.pop(pid, None)
                         closed.append(pid)
             with queue_lock:
@@ -2323,7 +2392,7 @@ class Handler(BaseHTTPRequestHandler):
                             and not (it["status"] == "error" and it["pid"] in closed)]
             save_queue_soon()
             res["closed"] = closed
-            res["storage"] = engine.storage_summary(WORKROOT)
+            res["storage"] = _storage_all()
             return self._json(res)
 
         if p == "/api/uninstall":
@@ -2791,10 +2860,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/open_folder":
             folder = body.get("folder", "")
-            root = os.path.realpath(WORKROOT)
             if folder == "root":
                 folder = WORKROOT
-            if folder and os.path.isdir(folder) and os.path.realpath(folder).startswith(root):
+            elif folder in locations.KEYS:
+                folder = locations.path(folder) or WORKROOT
+            if folder and os.path.isdir(folder) and any(os.path.realpath(folder) == r_ or os.path.realpath(folder).startswith(r_ + os.sep)
+                                                        for r_ in _allowed_roots()):
                 try:
                     if sys.platform == "win32":
                         os.startfile(folder)  # type: ignore[attr-defined]
@@ -2872,6 +2943,8 @@ def pick_file(kind: str) -> str:
         root.withdraw()
         try:
             root.attributes("-topmost", True)
+            if kind == "folder":
+                return filedialog.askdirectory(parent=root, title="Choose a folder") or ""
             return filedialog.askopenfilename(parent=root, title="Choose a chat log" if kind == "chat"
                                               else "Choose a video", filetypes=types) or ""
         except Exception:
@@ -2943,7 +3016,10 @@ def load_queue():
 def _clean_leftovers():
     """Temporary files a render leaves behind if VodClipper is closed or crashes mid-render."""
     pats = ("vc_*.part.mp4", "vc_*.ass", "*.mp4.*.tmp", "*.txt.*.tmp")
-    for folder in glob.glob(os.path.join(WORKROOT, "*", "tiktok")):
+    folders = [f for root in (locations.project_roots() or [WORKROOT]) for f in glob.glob(os.path.join(root, "*", "tiktok"))]
+    if locations.path("clips"):
+        folders += glob.glob(os.path.join(locations.path("clips"), "*"))
+    for folder in folders:
         for pat in pats:
             for f in glob.glob(os.path.join(folder, pat)):
                 try:

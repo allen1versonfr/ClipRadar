@@ -21,6 +21,15 @@ import paths
 paths.ensure_dirs()
 paths.register_folders()
 
+try:    # Settings › Storage › Logs (falls back to the default folder when that drive isn't there)
+    import locations as _loc
+    _lp = _loc.resolve("logs")["path"]
+    if _lp:
+        os.makedirs(_lp, exist_ok=True)
+        paths.LOG_FILE = paths.Path(_lp) / "vodclipper.log"
+except Exception:
+    pass
+
 # A windowed .exe has no console: send output to a log file so errors can be reported.
 if sys.stdout is None or sys.stderr is None or paths.FROZEN:
     try:
@@ -65,6 +74,10 @@ def run_window(url: str) -> bool:
         background_color="#141518", text_select=True)
 
     def native_pick(kind: str) -> str:
+        if kind == "folder":
+            fd = getattr(webview, "FileDialog", None)
+            res = window.create_file_dialog(fd.FOLDER if fd else webview.FOLDER_DIALOG)
+            return (res[0] if isinstance(res, (list, tuple)) else str(res)) if res else ""
         types = (("Chat logs (*.json;*.gz)", "All files (*.*)") if kind == "chat" else
                  ("Videos (*.mp4;*.mkv;*.mov;*.flv;*.ts;*.webm;*.m4v;*.avi)", "All files (*.*)"))
         res = window.create_file_dialog(getattr(webview, "FileDialog", webview).OPEN

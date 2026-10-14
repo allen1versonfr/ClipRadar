@@ -518,6 +518,32 @@ def multi_source_checks(a, tmp):
             (pj and pj["status"], rj and (rj["status"], rj.get("error"))))
 
 
+def storage_checks(ctx, tmp):
+    """3.11: folders for each kind of file, checked before use, with temporary files safe to clear."""
+    lv = get("/api/locations")
+    rec("storage lists each folder with free space", [x["key"] for x in lv["locations"]] == ["projects", "downloads", "clips", "temp", "logs"]
+        and all(x["free"] for x in lv["locations"]), [(x["key"], x["where"]) for x in lv["locations"]])
+    bad = post("/api/locations", {"clips": "not/a/full/path"})
+    rec("a folder that can't be used is refused", "clips" in (bad.get("errors") or {}), bad.get("errors"))
+    clips_dir = os.path.join(tmp, "my clips")
+    ok = post("/api/locations", {"clips": clips_dir})
+    rec("rendered clips can go to a folder of your choice", not ok.get("errors") and any(x["key"] == "clips" and x["path"] == clips_dir
+                                                                                        for x in ok["locations"]), ok.get("errors"))
+    clips = get(f"/api/clips/{ctx['pid']}")["clips"]
+    c = next((x for x in clips if not (x.get("check") or {}).get("excluded")), clips[0])
+    it = post("/api/queue/add", {"pid": ctx["pid"], "clip": dict(c, end=c["start"] + 4, title="Elsewhere", words=None),
+                                 "opts": {"layout": "blur", "captions": False, "hw_encode": False}})
+    d = _wait_item(it.get("id"), 240)
+    rec("the clip lands in that folder", d and d["status"] == "done" and os.path.normcase(d["folder"]).startswith(os.path.normcase(clips_dir))
+        and os.path.isfile(os.path.join(d["folder"], d["name"])), d and (d.get("folder"), d.get("error")))
+    st = get("/api/storage")
+    rec("storage counts clips in the new folder", st["clips"]["count"] >= 1, st["clips"])
+    cc = post("/api/storage/clear_cache", {})
+    rec("temporary files can be cleared", "freed" in cc and not cc.get("failed"), cc.get("freed"))
+    back = post("/api/locations", {"clips": ""})
+    rec("back to the default folder", any(x["key"] == "clips" and not x["set"] for x in back["locations"]), back.get("errors"))
+
+
 def framing_checks(a, tmp):
     """3.9: auto-framing, following a face, facecam only, and a facecam found in the corner."""
     irl = _face_video(a, tmp, "irl_face.mp4", "x='200+min(t,20)*55':y=200:enable='not(between(t,28,29.5))'", "480:600")
@@ -707,7 +733,7 @@ def main():
         tw.start()
         ok_rec = wait(lambda: get(f"/api/live/{sid}")["status"] == "recording", 60)
         lv = get(f"/api/live/{sid}")
-        segdir0 = os.path.join(lv["dir"], "segments")
+        segdir0 = lv.get("seg_dir") or os.path.join(lv["dir"], "segments")
         rec("recording", ok_rec, f"status={lv['status']} recorded={lv['recorded']} files={sorted(os.listdir(segdir0))[:6] if os.path.isdir(segdir0) else 'none'}")
         if not ok_rec:
             diag["live log (early)"] = lv.get("log", [])
@@ -791,7 +817,7 @@ def main():
             rendered and "; ".join(f"{i['status']} {i.get('name') or i.get('error')}" for i in rendered))
         sess = get(f"/api/live/{sid}")
         diag["live log"] = sess.get("log", [])
-        segdir = os.path.join(sess["dir"], "segments")
+        segdir = sess.get("seg_dir") or os.path.join(sess["dir"], "segments")
         on_disk = len([f for f in os.listdir(segdir) if f.endswith(".ts")]) if os.path.isdir(segdir) else 0
         rec("rolling buffer limits disk use", sess["recorded"] < 100 or on_disk * 10 < sess["recorded"],
             f"{on_disk} segments on disk for {sess['recorded']:.0f}s recorded")
@@ -810,6 +836,8 @@ def main():
         lens = [c["end"] - c["start"] for c in sess["clips"] if not c.get("manual")]
         rec("live moments get their own length", lens and all(9 <= x <= 95 for x in lens), [round(x, 1) for x in lens])
         rec("not busy after the stream ends", wait(lambda: not get("/api/status")["running"], 60))
+        if ctx:
+            storage_checks(ctx, tmp)
 
         # ------------------------------------------------------------ content check, failures and retry
         sc = post("/api/safety/scan", {"words": [{"start": 0, "end": 0.3, "word": "what"}, {"start": 0.4, "end": 0.8, "word": "the"},

@@ -631,7 +631,9 @@
 
         <section class="panel set">
           <header><svg class="ic"><use href="#i-folder"/></svg><h2>Storage</h2></header>
-          <div class="row"><code class="grow ellipsis" id="rootPath"></code><button class="btn" id="openRoot">Open</button></div>
+          <div class="notice warn" id="locWarn" hidden></div>
+          <div class="loc-rows" id="locRows"></div>
+          <p class="fine">New work goes to a folder you change; nothing already there is moved, and VodClipper still finds older projects.</p>
           <div class="store-rows" id="storeRows"></div>
         </section>
 

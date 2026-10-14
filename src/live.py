@@ -190,7 +190,7 @@ class LiveSession:
     DELAY_EVERY = 120       # re-work-out the chat delay every this many recorded seconds
     LAT_STAGES = ("ingest", "detect", "context", "cut", "title", "render", "total")
 
-    def __init__(self, sid: str, source: str, workroot: str, *, length: float = 0, sensitivity: str = "normal",
+    def __init__(self, sid: str, source: str, workroot: str, *, temp_root: str = "", length: float = 0, sensitivity: str = "normal",
                  chat_delay="auto", chat_weight: float = 60, max_height: int = 1080, cookies: str = "",
                  warmup: float = 90, buffer_minutes: float = 15, wait_for_live: bool = False,
                  events: bool = True, on_moment: Callable = None, log: Callable = None, min_quality: int = 0):
@@ -213,7 +213,9 @@ class LiveSession:
         while os.path.exists(self.dir):           # two sessions in the same minute get their own folders
             self.dir = os.path.join(workroot, f"live_{label}_{stamp} ({n})")
             n += 1
-        self.seg_dir = os.path.join(self.dir, "segments")
+        # the rolling recording buffer is temporary (Settings › Storage › Temporary files); moments stay in the project
+        self.seg_dir = os.path.join(temp_root, os.path.basename(self.dir), "segments") if temp_root else os.path.join(self.dir, "segments")
+        self.temp_buffer = bool(temp_root)
         self.moment_dir = os.path.join(self.dir, "moments")
         os.makedirs(self.seg_dir, exist_ok=True)
         os.makedirs(self.moment_dir, exist_ok=True)
@@ -345,7 +347,7 @@ class LiveSession:
             "chatters": self.scorer.chatters, "chat_ignored": self.scorer.summary()["ignored"],
             "moments": list(self.moments), "length": self.length, "sensitivity": self.sensitivity,
             "frequency": self.frequency, "wait_for_live": self.wait_for_live,
-            "pending_manual": len(self.manual), "log": self.log_lines[-12:], "dir": self.dir,
+            "pending_manual": len(self.manual), "log": self.log_lines[-12:], "dir": self.dir, "seg_dir": self.seg_dir,
             "warming_up": self.recorded < self.warmup, "in_ad": self.in_ad,
             "ads_skipped": round(self.ads_skipped, 1), "ad_breaks": self.ad_breaks, "mode": self.mode,
             "signed_in": self.signed_in, "laughter": self.events is not None,
@@ -605,6 +607,8 @@ class LiveSession:
         self.in_ad = False
         self._ingest_new(final=True)  # pick up the final segment (ffmpeg mode)
         self._safe_detect(final=True)
+        if self.temp_buffer:
+            self.delete_buffer()                 # every moment is cut out by now; the raw buffer was temporary
         self.log("Recording stopped.")
 
     # ---- VodClipper's own HLS reader (skips ads)
@@ -1092,6 +1096,11 @@ class LiveSession:
 
     def delete_buffer(self):
         shutil.rmtree(self.seg_dir, ignore_errors=True)
+        if self.temp_buffer:
+            try:
+                os.rmdir(os.path.dirname(self.seg_dir))
+            except OSError:
+                pass
 
     # ------------------------------------------------------------------ chat
     def _irc_target(self):
