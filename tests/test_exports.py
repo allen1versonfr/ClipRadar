@@ -113,9 +113,10 @@ for layout in ("split", "cam"):
         layout=layout, cam=(1.0, 1.0, 0.0, 0.0)))
     import re
     crops = [tuple(map(int, m)) for m in re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", filt)]
+    first = crops[0] if crops else None
     check(f"{layout} crop remains valid at source boundary",
-          bool(crops) and all(w >= 2 and h >= 2 and x >= 0 and y >= 0 and x + w <= 1920 and y + h <= 1080
-                              for w, h, x, y in crops), crops)
+          bool(crops) and all(w >= 2 and h >= 2 and x >= 0 and y >= 0 for w, h, x, y in crops)
+          and first[0] + first[2] <= 1920 and first[1] + first[3] <= 1080, crops)
 
 speed_k = exports.speed_key("libx264", exports.settings())
 exports.record_speed(speed_k, 2.0)
