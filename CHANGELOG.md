@@ -1,5 +1,20 @@
 # Changelog
 
+## [4.1.5] - 2026-10-20
+
+Reliability fixes for stalled processing and failed clip renders.
+
+### Fixed
+- Clamp facecam crop geometry to valid, even-sized dimensions so tiny or edge-positioned crops cannot create invalid FFmpeg crop filters.
+- Show progress during render preparation instead of remaining at 0% while captions and safety checks are prepared.
+- Clear stale progress, ETA and error state when retrying a failed render while preserving its output name.
+- Prevent the secondary render worker from looping when memory is low and no jobs are queued.
+
+### Changed
+- Add inactivity watchdogs for yt-dlp acquisition and FFmpeg rendering so stalled work fails with an actionable error instead of running forever.
+- Add network socket timeouts and retry bounds to yt-dlp acquisition paths.
+- Add crop-boundary regression coverage.
+
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 

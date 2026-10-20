@@ -732,7 +732,8 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
            "%(progress.total_bytes_estimate)s %(progress.fragment_index)s "
            "%(progress.fragment_count)s %(progress.speed)s %(progress.eta)s",
            "-f", fmt, "-o", os.path.join(out_dir, "vod.%(ext)s"), "--merge-output-format", "mp4",
-           "-N", "8", "--retries", "10", "--fragment-retries", "20", "--match-filters", "!is_live"]
+           "-N", "8", "--socket-timeout", "30", "--retries", "10", "--fragment-retries", "20",
+           "--match-filters", "!is_live"]
     ff = which("ffmpeg")
     if ff:
         cmd += ["--ffmpeg-location", os.path.dirname(ff)]
@@ -747,8 +748,26 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
     errors, tail = [], []
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                          text=True, encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW)
+    last_output = [time.monotonic()]
+    stalled = [False]
+
+    def watch_download():
+        # yt-dlp normally emits progress frequently. Kill a wedged child rather than leave
+        # the UI on "Exploring the VOD" indefinitely with a live worker and no output.
+        while p.poll() is None:
+            if time.monotonic() - last_output[0] > 180:
+                stalled[0] = True
+                try:
+                    p.kill()
+                except OSError:
+                    pass
+                return
+            time.sleep(2)
+
+    threading.Thread(target=watch_download, daemon=True).start()
     try:
         for line in p.stdout:
+            last_output[0] = time.monotonic()
             line = line.strip()
             if line.startswith("VCPROG "):
                 v = [num(x) for x in line.split()[1:8]]
@@ -770,6 +789,8 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
                 raise
     finally:
         p.wait()
+    if stalled[0]:
+        raise RuntimeError("The VOD download stopped producing progress for 3 minutes. Check your connection and retry.")
     if p.returncode != 0 or not _video_in(out_dir):
         if info.get("is_live") or any("is_live" in t for t in tail):
             raise RuntimeError("That stream is live. Wait until it ends and use the VOD link.")
@@ -797,8 +818,11 @@ def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, ste
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
+        "socket_timeout": 30,
         "retries": 10,
+        "extractor_retries": 3,
         "fragment_retries": 20,
+        "file_access_retries": 3,
         "continuedl": True,
         "match_filter": yt_dlp.utils.match_filter_func("!is_live"),
     }
@@ -1865,26 +1889,38 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
     W, H = out_size(o)
     layout = effective_layout(o)
 
+    def safe_cam_crop(rect: tuple) -> tuple:
+        """Clamp user-edited facecam rectangles to a valid, even-sized source crop."""
+        x, y, w, h = [min(max(float(v), 0.0), 1.0) for v in rect]
+        max_w, max_h = max(2, sw - sw % 2), max(2, sh - sh % 2)
+        cx = min(max(0, int(x * sw)), max_w - 2)
+        cy = min(max(0, int(y * sh)), max_h - 2)
+        cx -= cx % 2
+        cy -= cy % 2
+        cw = min(max(2, _even(w * sw)), max_w - cx)
+        ch = min(max(2, _even(h * sh)), max_h - cy)
+        cw -= cw % 2
+        ch -= ch % 2
+        return max(2, cw), max(2, ch), cx, cy
+
     def game_crop(out_w: int, out_h: int, follow: Optional[list] = None) -> str:
         aspect = out_w / out_h
         cwf = min(sw, sh * aspect) / z
         cw = min(_even(cwf), sw - sw % 2)
         ch = min(_even(cwf / aspect), sh - sh % 2)
         cx = int(min(max(0, o.game_x * sw - cw / 2), sw - cw))
+        cx -= cx % 2
         if follow and cw < sw - 2:
             import framing
             cx = framing.x_expr(follow, sw, cw)      # moves with the face, smoothly
         cy = (sh - ch) // 2
+        cy -= cy % 2
         return f"crop={cw}:{ch}:{cx}:{cy},scale={out_w}:{out_h}:flags=lanczos,setsar=1"
 
     if layout == "split":
         top_h = _even(H * min(max(o.cam_height, 0.2), 0.5))
         bot_h = H - top_h
-        x, y, w, h = [min(max(float(v), 0.0), 1.0) for v in o.cam]
-        cx, cy = int(x * sw), int(y * sh)
-        cw, ch = max(16, int(w * sw)), max(16, int(h * sh))
-        cw, ch = min(cw, sw - cx), min(ch, sh - cy)
-        cw, ch = cw - cw % 2, ch - ch % 2
+        cw, ch, cx, cy = safe_cam_crop(o.cam)
         cam = (f"crop={cw}:{ch}:{cx}:{cy},scale={W}:{top_h}:force_original_aspect_ratio=increase:"
                f"flags=lanczos,crop={W}:{top_h},setsar=1")
         f = (f"[0:v]split=2[a][b];[a]{cam}[cam];[b]{game_crop(W, bot_h)}[game];"
@@ -1898,11 +1934,7 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
             cap_y = framing.caption_y(face.get("face_y"), face.get("face_h"), H, cap_y)
     elif layout == "cam":
         # the facecam by itself, filling the frame
-        x, y, w, h = [min(max(float(v), 0.0), 1.0) for v in o.cam]
-        cx, cy = int(x * sw), int(y * sh)
-        cw, ch = max(16, int(w * sw)), max(16, int(h * sh))
-        cw, ch = min(cw, sw - cx), min(ch, sh - cy)
-        cw, ch = cw - cw % 2, ch - ch % 2
+        cw, ch, cx, cy = safe_cam_crop(o.cam)
         f = (f"[0:v]crop={cw}:{ch}:{cx}:{cy},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
              f"crop={W}:{H},setsar=1,fps={o.fps},format=yuv420p[v]")
         cap_y = H * 0.78
@@ -2390,15 +2422,33 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                              creationflags=CREATE_NO_WINDOW | RENDER_PRIORITY[0])
         # read errors on the side: a full stderr pipe would otherwise freeze ffmpeg mid-render
         err_lines: list = []
+        last_output = [time.monotonic()]
+        stalled = [False]
 
         def drain():
             for ln in p.stderr:
                 err_lines.append(ln)
                 del err_lines[:-60]
+
+        def watch_render():
+            # FFmpeg's -progress stream normally updates several times per second.
+            # A long silence indicates a hung filter/encoder or a wedged input.
+            while p.poll() is None:
+                if time.monotonic() - last_output[0] > 120:
+                    stalled[0] = True
+                    try:
+                        p.kill()
+                    except OSError:
+                        pass
+                    return
+                time.sleep(2)
+
         reader = threading.Thread(target=drain, daemon=True)
         reader.start()
+        threading.Thread(target=watch_render, daemon=True).start()
         try:
             for line in p.stdout:
+                last_output[0] = time.monotonic()
                 if line.startswith("out_time_us="):
                     try:
                         t = int(line.split("=")[1]) / 1e6
@@ -2413,6 +2463,8 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         finally:
             p.wait()
             reader.join(timeout=5)
+        if stalled[0]:
+            return p.returncode or -1, "".join(err_lines) + "\nFFmpeg made no progress for 120 seconds and was stopped."
         return p.returncode, "".join(err_lines)
 
     enc_name, enc_args = video_encoder(o)
