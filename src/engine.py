@@ -2464,7 +2464,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             p.wait()
             reader.join(timeout=5)
         if stalled[0]:
-            return p.returncode or -1, "".join(err_lines) + "\\nFFmpeg made no progress for 120 seconds and was stopped."
+            return p.returncode or -1, "".join(err_lines) + "\nFFmpeg made no progress for 120 seconds and was stopped."
         return p.returncode, "".join(err_lines)
 
     enc_name, enc_args = video_encoder(o)
