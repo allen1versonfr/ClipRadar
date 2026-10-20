@@ -112,7 +112,7 @@ for layout in ("split", "cam"):
     filt, _ = engine.build_filter({"width": 1920, "height": 1080}, engine.RenderOpts(
         layout=layout, cam=(1.0, 1.0, 0.0, 0.0)))
     import re
-    crops = [tuple(map(int, m)) for m in re.findall(r"crop=(\\d+):(\\d+):(\\d+):(\\d+)", filt)]
+    crops = [tuple(map(int, m)) for m in re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", filt)]
     check(f"{layout} crop remains valid at source boundary",
           bool(crops) and all(w >= 2 and h >= 2 and x >= 0 and y >= 0 and x + w <= 1920 and y + h <= 1080
                               for w, h, x, y in crops), crops)
