@@ -1312,7 +1312,10 @@ def _render_item(it: dict):
         if fr is not None:
             it["framing"] = {"followed": bool(fr.get("path")), "reason": fr.get("reason", ""), "confidence": fr.get("confidence", 0)}
     it["step"] = "Getting captions ready"
+    # Don't leave the queue at 0% while transcript/safety preparation is running.
+    it["progress"] = 0.05
     words, title, post, spans, mode = _render_inputs(it, pr, ro, check)
+    it["progress"] = 0.25
     srt_words = list(words or []) if ro.captions else []
     if subs == "srt":
         words = []                                  # subtitles as a file only, not burned in
@@ -1644,8 +1647,14 @@ def queue_worker(idx: int = 0):
         if idx >= MAX_WORKERS[0]:
             continue                                  # fewer renders at once now: this worker rests
         while True:
-            if idx > 0 and _mem_short():
-                # another render is already running and memory is short: wait rather than run out
+            with queue_lock:
+                has_queued = any(x["status"] == "queued" for x in queue)
+                has_rendering = any(x["status"] == "rendering" for x in queue)
+            if not has_queued:
+                break
+            if idx > 0 and has_rendering and _mem_short():
+                # Wait only when there is actual competing work; don't pin an idle worker
+                # in a memory loop when the queue is empty.
                 time.sleep(3)
                 continue
             with queue_lock:
@@ -2797,7 +2806,10 @@ class Handler(BaseHTTPRequestHandler):
             with queue_lock:
                 for it in queue:
                     if it["status"] == "error" and (body.get("id") in (it["id"], "all")):
-                        it.update(status="queued", progress=0.0, error="", detail="", step="Waiting", cancel=False)
+                        # Drop stale render state so a retry starts a fresh attempt, not a
+                        # half-finished UI lifecycle. Keep the chosen output name for replacement.
+                        it.update(status="queued", progress=0.0, error="", detail="", step="Waiting",
+                                  cancel=False, eta=None, attempts=it.get("attempts", 0))
                         n += 1
             queue_wake.set()
             save_queue_soon()
