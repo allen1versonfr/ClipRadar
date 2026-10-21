@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -156,6 +157,26 @@ if shutil.which("ffmpeg") and shutil.which("ffprobe"):
             check(f"the watermark works with the {lay} layout", probe(os.path.join(tmp, f"wm_{lay}.mp4"))[:2] == (1080, 1920))
         except Exception as e:
             check(f"the watermark works with the {lay} layout", False, str(e)[-200:])
+
+    # ---- a clip's own volume (Clip tab › Volume), measured
+    def lufs(path):
+        err = subprocess.run(["ffmpeg", "-nostats", "-i", path, "-af", "ebur128", "-f", "null", "-"],
+                             capture_output=True, text=True).stderr
+        m = re.findall(r"I:\s+(-?[\d.]+) LUFS", err)
+        return float(m[-1]) if m else None
+    noisy = os.path.join(tmp, "talk.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:size=640x360:rate=30:duration=6",
+                    "-f", "lavfi", "-i", "anoisesrc=color=pink:amplitude=0.2:duration=6", "-shortest", "-c:v", "libx264",
+                    "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", noisy], check=True)
+    levels = {}
+    for g in (-6, 0, 3):
+        out = os.path.join(tmp, f"gain{g}.mp4")
+        o = R(layout="full", captions=False, hw_encode=False, speed="fast")
+        o.gain_db = g
+        engine.render_clip(noisy, 0.0, 5.0, out, o, title="", log=lambda m: None)
+        levels[g] = lufs(out)
+    check("a clip set quieter comes out quieter, louder louder (Even out volume on)",
+          levels[-6] is not None and levels[-6] < levels[0] - 3 and levels[3] > levels[0] + 1.5, levels)
 else:
     print("[skip] no ffmpeg here: renders not checked")
 

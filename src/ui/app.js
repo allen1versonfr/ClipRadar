@@ -88,8 +88,17 @@ const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, g
   whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16', cap_outline: 100, cap_shadow: 100,
   track: 'auto', track_target: 'auto', focus_y: 0.4 };
 const opts = Object.assign({}, DEFAULTS, store.get('opts', {}));
-const SWATCHES = ['#ffe600', '#ffffff', '#4fd1ff', '#5ee6a8', '#ff6b8b'];
-const PRIVACY = { PUBLIC_TO_EVERYONE: 'Everyone', MUTUAL_FOLLOW_FRIENDS: 'Friends', FOLLOWER_OF_CREATOR: 'Followers', SELF_ONLY: 'Only me' };
+let showGuides = store.get('guides', false);       // Text tab › Show what TikTok covers
+const SWATCHES = ['#ffe600', '#ffd21f', '#ffb800', '#fff27a', '#ffffff', '#4fd1ff', '#5ee6a8', '#ff6b8b'];
+// ready-made caption looks (Text tab › Templates); your own saved styles sit next to them
+const CAP_TEMPLATES = [
+  { name: 'Signature yellow', opts: { caption_style: 'pop', caption_color: '#ffe600', caption_font: 'montserrat', uppercase: true, caption_motion: 'word', words_per_line: 3, caption_emph: false, cap_outline: 120 } },
+  { name: 'Karaoke', opts: { caption_style: 'karaoke', caption_color: '#ffd21f', caption_font: 'poppins', uppercase: true, caption_motion: 'none', words_per_line: 4, caption_emph: false } },
+  { name: 'Boxed', opts: { caption_style: 'box', caption_color: '#ffe600', caption_font: 'inter', uppercase: true, caption_motion: 'pop', words_per_line: 3, caption_emph: false } },
+  { name: 'Bold bounce', opts: { caption_style: 'pop', caption_color: '#ffb800', caption_font: 'luckiest', uppercase: true, caption_motion: 'bounce', words_per_line: 2, caption_emph: true } },
+  { name: 'Clean subtitles', opts: { caption_style: 'clean', caption_color: '#ffffff', caption_font: 'inter', uppercase: false, caption_motion: 'fade', words_per_line: 6, caption_emph: false } },
+  { name: 'Word by word', opts: { caption_style: 'pop', caption_color: '#ffe600', caption_font: 'anton', uppercase: true, caption_motion: 'reveal', words_per_line: 4, caption_emph: false } },
+];
 const VIBE = { funny: 'Funny', hype: 'Hype', shock: 'Surprise', fail: 'Fail', wholesome: 'Wholesome' };
 
 /* =============================================================== shell */
@@ -783,6 +792,7 @@ function fillInspector() {
   $('#cRank').textContent = W.kind === 'live' ? `Moment ${c.moment || rankOf(c)}${c.manual ? ' (clipped by you)' : ''}`
     : isGem(c) ? `Quiet gem #${c.id} · ${gemList.indexOf(c) + 1} of ${gemList.length}` : `Clip #${c.id} · ${hypeList.indexOf(c) + 1} of ${hypeList.length}`;
   $('#cTime').textContent = `${fmtA(absOf(c, c.start))} to ${fmtA(absOf(c, c.end))} (${(c.end - c.start).toFixed(1)}s)`;
+  $('#cGain').value = String(c.gain || 0);
   const sl = W.kind === 'vod' ? sourceLink(c) : '';
   $('#cSrcT').hidden = $('#cSrc').hidden = !sl;
   if (sl) $('#cSrc').innerHTML = `<button class="link" data-copy-link="${esc(sl)}" title="${esc(sl)}">Copy link to this moment</button>`;
@@ -1107,7 +1117,7 @@ async function keep() {
   if (!await checkGate(c)) return;
   const rank = W.kind === 'live' ? (c.moment || rankOf(c)) : c.id;
   const clip = { id: c.id, rank, start: c.start, end: c.end,
-                 title: c.title.trim(), post: $('#postInput').value || postFor(c), thumb: c.thumb };
+                 title: c.title.trim(), post: $('#postInput').value || postFor(c), thumb: c.thumb, gain: c.gain || 0 };
   if (c.wordsEdited) clip.words = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end);
   queueEpoch++;
   try { const it = await api('/api/queue/add', { pid: c.pid, clip, opts: JSON.parse(JSON.stringify(opts)) }); queueItems.push(it); queueEpoch++; }
@@ -1135,7 +1145,8 @@ function feedback(c, action) { api('/api/feedback', { pid: c.pid, clip: c.id, ac
 // everything you do to a clip is saved with the VOD, so it's all there when you open it again
 function clipSnapshot(c) {
   const b = { pid: c.pid, id: c.id, state: c.state, start: c.start, end: c.end, title: c.title || '',
-    userTrim: !!c.userTrim, userTitle: !!c.userTitle, userPost: !!c.userPost, postText: c.postText || '', wordsEdited: !!c.wordsEdited };
+    userTrim: !!c.userTrim, userTitle: !!c.userTitle, userPost: !!c.userPost, postText: c.postText || '', wordsEdited: !!c.wordsEdited,
+    gain: c.gain || 0 };
   if (c.wordsEdited) b.words_edit = c.words.map(w => ({ start: w.start, end: w.end, word: w.word, g: w.g, edited: !!w.edited }));
   return b;
 }
@@ -1145,6 +1156,9 @@ function saveClip(c, soon) {
   const go = () => api('/api/clip_state', clipSnapshot(c)).catch(() => {});
   if (soon) c._saveT = setTimeout(go, 600); else go();
 }
+$('#showGuides').checked = showGuides;
+$('#showGuides').onchange = e => { showGuides = e.target.checked; store.set('guides', showGuides); dirty = true; };
+$('#cGain').onchange = e => { const c = curClip(); if (!c) return; c.gain = +e.target.value; saveClip(c); };
 $('#keepBtn').onclick = keep;
 $('#skipBtn').onclick = skipOrUndo;
 $('#prevBtn').onclick = () => step(-1);
@@ -1507,7 +1521,7 @@ function renderPhone() {
     const capY = layoutDraw(g, src, sw, sh, Wd, Ht);
     const c = curClip();
     if (mode === 'clip' && c) {
-      if (dragState) drawGuides(g, Wd, Ht);
+      if (dragState || showGuides) drawGuides(g, Wd, Ht);
       const tShow = pv && pv.c === c && pv.title != null ? pv.title : c.title;   // previewing "Hide it in the title"
       if (tShow.trim()) drawTitle(g, tShow, Wd, Ht);
       if (opts.captions) {
@@ -1612,16 +1626,16 @@ function drawHeatNow() {
   W.clips.forEach(c => {
     const a = absOf(c, c.start) / D * Wd, b = Math.max(a + 2, absOf(c, c.end) / D * Wd);
     const isCur = keyOf(c) === cur && mode === 'clip';
-    g.fillStyle = isCur ? 'rgba(76,141,255,.20)' : c.state === 'kept' ? 'rgba(62,194,143,.13)' : c.state === 'skipped' ? 'rgba(255,255,255,.025)'
+    g.fillStyle = isCur ? 'rgba(255,210,31,.16)' : c.state === 'kept' ? 'rgba(62,194,143,.13)' : c.state === 'skipped' ? 'rgba(255,255,255,.025)'
       : isGem(c) ? 'rgba(201,167,255,.10)' : 'rgba(255,255,255,.06)';
     g.fillRect(a, 0, b - a, base);
-    if (isCur) { g.fillStyle = '#4c8dff'; g.fillRect(a, 0, b - a, 2); }
+    if (isCur) { g.fillStyle = '#ffd21f'; g.fillRect(a, 0, b - a, 2); }
   });
   // signal: neutral bars, the hottest moments in accent
   const hi = Math.max(3, ...curve), bw = Wd / Math.max(1, n);
   for (let i = 0; i < n; i++) {
     const v = Math.max(0, curve[i] / hi), h = Math.max(1, v * (base - 8));
-    g.fillStyle = v > 0.55 ? '#4c8dff' : v > 0.3 ? '#5a6274' : '#363a44';
+    g.fillStyle = v > 0.55 ? '#ffd21f' : v > 0.3 ? '#5a6274' : '#363a44';
     g.fillRect(i * bw, base - h, Math.max(1, bw - (bw > 3 ? 1 : 0)), h);
   }
   // markers
@@ -2777,9 +2791,20 @@ const CAP_KEYS = ['captions', 'caption_pos', 'caption_color', 'caption_size', 'w
   'caption_anim', 'caption_motion', 'caption_speed', 'caption_emph', 'caption_filler', 'caption_punct',
   'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_x', 'title_y'];
 function renderCapPresets() {
+  $('#capTemplates').innerHTML = CAP_TEMPLATES.map((p, i) => `<button class="chip" data-ct="${i}" title="Use this look (you can change anything after)">${esc(p.name)}</button>`).join('');
   $('#capPresets').innerHTML = capPresets.length ? capPresets.map((p, i) => `<span class="cp"><button class="chip" data-cp="${i}" title="Use this style">${esc(p.name)}</button><button class="cp-x" data-cpx="${i}" title="Delete">×</button></span>`).join('')
     : '<span class="muted small">None yet.</span>';
 }
+$('#capTemplates').onclick = e => {
+  const b = e.target.closest('[data-ct]'); if (!b) return;
+  const t = CAP_TEMPLATES[+b.dataset.ct];
+  Object.assign(opts, t.opts, { caption_anim: t.opts.caption_motion !== 'none' }); syncControls(); toast(`Using "${t.name}".`, '', 1800);
+};
+$('#capResetStyle').onclick = () => {
+  // back to how captions and titles look out of the box (positions and layout aren't touched)
+  for (const k of CAP_KEYS) if (!['cap_x', 'cap_y', 'title_x', 'title_y'].includes(k)) opts[k] = DEFAULTS[k];
+  syncControls(); toast('Caption and title style reset.', '', 1800);
+};
 $('#capPresetSave').onclick = async () => {
   const name = (window.prompt('Name this caption and title style:', '') || '').trim(); if (!name) return;
   const o = Object.fromEntries(CAP_KEYS.map(k => [k, opts[k]]));
@@ -3035,7 +3060,7 @@ function drawEditor() {
     g.stroke();
   }
   if (d && d.chat && d.chat.length) {
-    g.strokeStyle = '#4c8dff'; g.lineWidth = 1.2; g.beginPath();
+    g.strokeStyle = '#ffd21f'; g.lineWidth = 1.2; g.beginPath();
     d.chat.forEach((v, i) => { const x = tToX(d.start + i + 0.5, w), y = ey1 - 2 - clamp(v, 0, 8) / 8 * (ey1 - ey0 - 4); i ? g.lineTo(x, y) : g.moveTo(x, y); });
     g.stroke();
   }
@@ -3053,7 +3078,7 @@ function drawEditor() {
     [c.orig[0], c.orig[1]].forEach(t => { const x = Math.round(tToX(t, w)) + .5; g.beginPath(); g.moveTo(x, 14); g.lineTo(x, h); g.stroke(); });
     g.setLineDash([]);
   }
-  const locked = c.state === 'kept', acc = locked ? '#6d7079' : '#4c8dff';
+  const locked = c.state === 'kept', acc = locked ? '#6d7079' : '#ffd21f';
   g.strokeStyle = acc; g.lineWidth = 1.5; g.strokeRect(xs, 13, xe - xs, h - 14);
   for (const [x, which] of [[xs, 's'], [xe, 'e']]) {
     const hot = ed.hover === which || (ed.drag && ed.drag.which === which);

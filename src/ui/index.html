@@ -261,6 +261,9 @@
                   </div>
                   <div class="trim-foot"><span class="hint" id="tLen"></span><button class="link" id="tRestore" hidden title="Go back to the cut Clip Radar found">Restore original cut</button></div>
                 </div>
+                <label class="fld inline" title="Only this clip. With Even out volume on, this moves this clip's level up or down from the others.">Volume<select class="input" id="cGain">
+                  <option value="-9">Much quieter</option><option value="-6">Quieter</option><option value="-3">A bit quieter</option>
+                  <option value="0" selected>As is</option><option value="3">A bit louder</option><option value="6">Louder</option></select></label>
               </div>
               <div class="insp-actions" id="clipActions">
                 <button class="btn" id="skipBtn">Skip</button>
@@ -311,9 +314,12 @@
                   <label class="fld inline">Words at once<input type="range" id="wpl" min="1" max="6" value="3"><output id="wplOut" class="tnum"></output></label>
                   <label class="fld inline">Outline<input type="range" id="capOutline" min="0" max="250" step="10" value="100"><output id="capOutlineOut" class="tnum"></output></label>
                   <label class="fld inline">Shadow<input type="range" id="capShadow" min="0" max="250" step="10" value="100"><output id="capShadowOut" class="tnum"></output></label>
+                  <div class="fld">Templates
+                    <div class="cap-presets" id="capTemplates"></div>
+                  </div>
                   <div class="fld">Saved styles
                     <div class="cap-presets" id="capPresets"></div>
-                    <button class="btn sm" id="capPresetSave">Save this style…</button>
+                    <span class="row"><button class="btn sm" id="capPresetSave">Save this style…</button><button class="btn sm" id="capResetStyle" title="Captions and title back to how they look out of the box">Reset to default</button></span>
                   </div>
                   <label class="fld inline">Position<select class="input" id="capPos"><option value="auto">Automatic</option><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option><option value="custom">Where you dragged it</option></select></label>
                   <label class="fld inline">Animation<select class="input" id="capMotion">
@@ -330,7 +336,8 @@
                   <span class="hint" id="capWarn"></span>
                 </div>
                 <div class="sep"></div>
-                <div class="row"><button class="btn sm" id="resetPos"><svg class="ic"><use href="#i-refresh"/></svg>Reset positions</button></div>
+                <div class="row"><button class="btn sm" id="resetPos"><svg class="ic"><use href="#i-refresh"/></svg>Reset positions</button>
+                  <label class="switch-label sm" title="Shade the parts TikTok's buttons, caption and top bar cover, so text and watermarks stay clear of them">Show what TikTok covers<span class="switch"><input type="checkbox" id="showGuides"><i></i></span></label></div>
                 <p class="hint">Drag the title or captions on the preview to place them. Style changes apply to clips you keep from now on.</p>
               </div>
             </div>

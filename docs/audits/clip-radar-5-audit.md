@@ -366,3 +366,36 @@ then 5.0 when warranted). §5's migration work is dropped from Milestone 7.
   - The UI preview uses the same timings.
 - **Not done in this milestone:** caption line spacing as its own control (words per line and
   the size controls exist), and caption backgrounds beyond the existing box style.
+
+## 12. Milestone 6 (4.6.0) — editing and the flat UI
+
+What already existed (kept, not duplicated): trimming with frame steps and restore, undo/redo,
+saved caption styles and framings, reset positions, exact preview, aspect and layout presets, face
+tracking, and keep-to-render (keeping a clip queues it, so a batch is just keeping several).
+
+Added:
+- **Caption templates.** Six built-in looks. Each is just a set of caption options, so it
+  reuses the one caption pipeline; your saved styles stay alongside.
+- **Reset to default** for caption and title style. Positions aren't touched; Reset positions
+  already covers those.
+- **Show what TikTok covers.** The existing guide overlay, now switchable and not only shown
+  while dragging.
+- **Per-clip volume.**
+  - **Measured:** raising loudnorm's target came out *quieter* on peaky audio (true-peak bound,
+    single-pass), so the gain is applied after loudnorm and followed by a −1 dB limiter.
+  - **Measured on pink noise:** −9/−6/−3/0/+3/+6 dB gave −22.9/−19.9/−16.9/−13.9/−11.5/−10.6 LUFS,
+    with peaks ≤ −0.5 dBFS. The louder steps are partly held back by the limiter.
+  - Covered in `test_quality.py`.
+- **Flat theme.**
+  - The accent is yellow `#ffd21f`, with `--on-accent` dark text for contrast on buttons, badges
+    and switch knobs.
+  - The blue left in canvas drawing (heat strip, timeline) was replaced.
+  - The swatch gradient is gone. Dialog and toast shadows were reduced to a light separation.
+- **`tests/test_ui.py` (new, in CI).** It opens every view at 1280×720, 1366×768 and 1920×1080
+  and fails on any script error or sideways scrolling. It also checks the accent colour and that
+  the TikTok settings are gone. CI installs Playwright and uses the Edge built into the runner.
+  - It caught a real break while building this milestone: a variable used before its declaration
+    stopped the rest of the script. Nothing else in the suite would have noticed.
+
+Not done: a multitrack editor (outside this architecture's direction) and keyboard-driven caption
+templates.
