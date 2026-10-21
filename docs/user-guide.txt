@@ -155,9 +155,6 @@ USE
     Wait for the stream to start: start before the channel goes live and
     recording begins by itself. Keep watching: after the stream ends,
     Clip Radar waits for the channel's next stream and starts again.
-    Send finished clips to my TikTok drafts (hands-free, optional): each clip
-    is uploaded to your TikTok inbox; you finish the post in the TikTok app.
-    TikTok only allows a few pending drafts a day.
       Ctrl+Alt+C          clip the last 30 seconds from ANY window (a sound
                           confirms it). Turn it off in Settings > Live clipping.
       Clip last 30s (C)   the same, from inside Clip Radar
@@ -239,19 +236,25 @@ CONTENT CHECK (Settings > Content check)
     use (A or B) and whether to add hashtags.
 
 POSTING TO TIKTOK
-  TikTok only lets registered apps post, so you set up your own (free) TikTok
-  developer app once. Settings > TikTok walks you through it:
-    1. Create an app at developers.tiktok.com.
-    2. Add the Login Kit and Content Posting API products; turn on Direct Post.
-    3. In Login Kit, pick the Desktop platform and add the redirect URI shown
-       in Settings (http://127.0.0.1:*/callback/).
-    4. Paste the Client key and Client secret into Settings and press
-       Save and connect. Sign in to TikTok in the browser window that opens.
-  Then, in Exports, select a clip, check the caption, choose who can view it,
-  and press Post (or Send to drafts to finish posting in the TikTok app).
-  Until TikTok reviews your developer app, direct posts can only be private
-  ("Only me"); that's TikTok's rule for new apps. Drafts work either way.
-  Clip Radar never posts on its own; every post is a click you make.
+  You post in TikTok Studio, TikTok's own upload page; nothing to set up.
+  In Exports, select a clip, check the caption, and press Open in TikTok
+  Studio. The caption (with your post hashtags) is copied, the video is
+  selected in File Explorer so you can drag it into the page, and TikTok
+  Studio opens in your browser. Finish uploading and posting there.
+  Clip Radar can't see your browser, so it only says it opened TikTok Studio,
+  never that a clip was posted.
+
+HASHTAGS
+  Settings > Hashtags has two separate lists:
+    In file names: the real tag text, # included, added to each exported
+    file's name, like Chat lost it_#KaiCenat_#Mafia_#TwitchClips.mp4. The
+    streamer's own tag, your tags for that streamer (one per line,
+    "Kai Cenat: #KaiCenat #Mafia"), then your general tags, no repeats, up
+    to the number you set. Long names drop tags from the end first. A retry
+    keeps the same name.
+    In post captions: Clip Radar's tags for each clip (platform, streamer,
+    mood), your tags for every post, for a streamer and for each platform.
+  The preview shows both for any streamer name.
 
 STORAGE FOLDERS
   Settings > Storage lists where each kind of file goes, with the free space

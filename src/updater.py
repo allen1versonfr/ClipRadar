@@ -106,8 +106,8 @@ TOKEN_FILE = paths.DATA_DIR / "github.dat"
 def get_token() -> str:
     """GitHub access token for a private repository (stored encrypted), or ''."""
     try:
-        from tiktok import _unprotect
-        return _unprotect(TOKEN_FILE.read_bytes()).decode("utf-8").strip()
+        from secret import unprotect
+        return unprotect(TOKEN_FILE.read_bytes()).decode("utf-8").strip()
     except Exception:
         return ""
 
@@ -122,9 +122,9 @@ def set_token(tok: str):
         return
     if not re.fullmatch(r"(ghp_|github_pat_|gho_|ghs_)[A-Za-z0-9_]{20,255}", tok):
         raise ValueError("That doesn't look like a GitHub token. They start with github_pat_ or ghp_.")
-    from tiktok import _protect
+    from secret import protect
     TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_FILE.write_bytes(_protect(tok.encode("utf-8")))
+    TOKEN_FILE.write_bytes(protect(tok.encode("utf-8")))
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

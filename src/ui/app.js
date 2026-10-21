@@ -78,7 +78,6 @@ let mode = 'clip';            // clip | free
 let filter = 'todo';
 let queueItems = [];
 let exSel = null;
-let ttStatus = {};
 let safetyCfg = { enabled: true, censor: 'off', censor_categories: [] };
 let vodJob = null, ttJob = null, setupJob = null;
 const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, game_x: 0.5, game_zoom: 1.0,
@@ -102,7 +101,7 @@ function setView(v) {
   if (v !== 'exports') { $('#exVideo').pause(); }
   if (v === 'review') { sizePhone(); drawHeat(); dirty = true; }
   if (v === 'exports') { refreshQueue(); if (exSel) renderDetail(true); }
-  if (v === 'settings') { loadTikTok(); loadStorage(); loadLocations(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); loadExport(); }
+  if (v === 'settings') { loadStorage(); loadCleanup(); loadLocations(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); loadExport(); }
   if (v === 'home') loadRecent();
   updateCrumb();
 }
@@ -194,7 +193,6 @@ function updateStatusBar() {
     const r = queueItems.find(q => q.status === 'rendering');
     parts.push(`<span class="task"><i></i>Rendering ${plural(active.length, 'clip')}${r ? ' · ' + Math.round(r.progress * 100) + '%' : ''} · ${fmtLeft(queueEta)}</span>`);
   }
-  const tj = jobsState.tiktok; if (tj) parts.push(`<span class="task"><i></i>TikTok: ${esc(tj.step)}</span>`);
   $('#sbTasks').innerHTML = parts.length ? parts.join('') : '<span class="muted">Ready</span>';
   const todo = W ? W.clips.filter(c => c.state === 'todo' && !isGem(c)).length : 0;
   if (W && W.kind === 'vod' && W.deep && W.deep.state === 'running') parts.push(`<span class="task"><i></i>Deep scan ${Math.round((W.deep.progress || 0) * 100)}%</span>`);
@@ -276,20 +274,15 @@ function syncLiveCard() {
     + 'Only the last 15 minutes of the stream are kept on disk.';
   $('#liveAdNote').innerHTML = adNote();
   const si = $('#liveAdSignIn'); if (si) si.onclick = e => { e.preventDefault(); setView('settings'); $('#setTwitch').scrollIntoView({ block: 'center' }); };
-  const ttOn = !!(ttStatus && ttStatus.connected);
-  $('#liveDraft').disabled = !ttOn || liveCfg.mode !== 'hands';
-  if (!ttOn) $('#liveDraft').checked = false;
-  $('#liveDraftHint').textContent = !ttOn ? 'Connect TikTok in Settings first. You finish each post in the TikTok app.'
-    : liveCfg.mode !== 'hands' ? 'Available in hands-free mode.' : 'You finish each post in the TikTok app. TikTok allows a few pending drafts a day.';
 }
 $('#liveMode').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { liveCfg.mode = v; store.set('liveMode', v); syncLiveCard(); } };
 $('#liveFreq').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { liveCfg.freq = v; store.set('liveFreq', v); syncLiveCard(); } };
 $('#liveMinQ').value = store.get('liveMinQ', '0'); $('#liveMinQ').onchange = e => store.set('liveMinQ', e.target.value);
-['liveWait', 'liveKeep', 'liveDraft'].forEach(id => {
+['liveWait', 'liveKeep'].forEach(id => {
   $('#' + id).checked = store.get(id, id === 'liveWait');
   $('#' + id).onchange = e => store.set(id, e.target.checked);
 });
-api('/api/tiktok').then(t => { ttStatus = t; syncLiveCard(); }).catch(() => syncLiveCard());
+syncLiveCard();
 $('#src').value = store.get('src', ''); $('#liveSrc').value = store.get('liveSrc', '');
 $('#maxh').value = store.get('maxh', '1080'); $('#maxh').onchange = e => store.set('maxh', e.target.value);
 $('#cookies').value = store.get('cookies', ''); $('#cookies').onchange = e => store.set('cookies', e.target.value);
@@ -397,7 +390,6 @@ $('#goLive').onclick = async () => {
   try {
     const v = await api('/api/live/start', { source, length: +$('#liveLength').value, frequency: liveCfg.freq, events: $('#events').checked,
       hands_free: liveCfg.mode === 'hands', wait_for_live: $('#liveWait').checked, keep_watching: $('#liveKeep').checked,
-      auto_draft: liveCfg.mode === 'hands' && $('#liveDraft').checked,
       opts: JSON.parse(JSON.stringify(opts)), model: opts.whisper_model,
       language: opts.language, max_height: +$('#maxh').value, cookies: $('#cookies').value,
       chat_delay: $('#delay').value === '' ? 'auto' : +$('#delay').value, preset: $('#livePreset').value, emotes: $('#useEmotes').checked,
@@ -1947,7 +1939,7 @@ async function refreshQueue() {
 }
 setInterval(() => {
   if (document.hidden) return;
-  const active = queueItems.some(q => q.status === 'queued' || q.status === 'rendering' || (q.tiktok && q.tiktok.state === 'posting'));
+  const active = queueItems.some(q => q.status === 'queued' || q.status === 'rendering');
   if (active || view === 'exports' || (W && W.kind === 'live' && W.live && W.live.auto_render)) refreshQueue();
 }, 1500);
 
@@ -1965,11 +1957,11 @@ function renderExports() {
     else if (q.status === 'rendering') st = `<span>${esc(q.step || 'Rendering')} ${Math.round(q.progress * 100)}% · ${fmtLeft(q.eta)}</span><span class="meter"><i style="width:${Math.round(q.progress * 100)}%"></i></span>`;
     else if (q.status === 'error') st = `<span class="st-err">${icon('alert')}Failed</span><span class="err-why" title="${esc(q.error)}">${esc(q.error)}</span><button class="btn sm retry" data-retry="${q.id}">${icon('refresh')}Retry</button>`;
     else st = '<span class="st-wait">Waiting</span>' + (q.warning ? `<span class="err-why warn" title="${esc(q.warning)}">${esc(q.warning)}</span>` : '');
-    const t = q.tiktok;
-    const tt = !t ? '<span class="tt-cell">Not posted</span>'
-      : t.state === 'posting' ? `<span class="tt-cell">${t.auto ? 'Sending to drafts…' : 'Uploading…'}</span>`
-      : t.state === 'error' ? '<span class="tt-cell err">Failed</span>'
-      : `<span class="tt-cell ok">${t.mode === 'draft' ? 'In TikTok drafts' : 'Posted'}</span>`;
+    // Clip Radar only knows it opened TikTok Studio, never whether the clip got posted
+    const old = q.tiktok && q.tiktok.state === 'done';
+    const tt = q.handoff ? `<span class="tt-cell" title="Opened TikTok Studio ${esc(new Date(q.handoff.at * 1000).toLocaleString())}">Opened in Studio</span>`
+      : old ? `<span class="tt-cell ok" title="Posted with an older version of Clip Radar">${q.tiktok.mode === 'draft' ? 'Sent to drafts' : 'Posted'}</span>`
+      : '<span class="tt-cell">Not yet</span>';
     return `<tr data-id="${q.id}" class="${q.id === exSel ? 'sel' : ''}">
       <td><span class="vt" style="display:block"><img src="${q.thumb}" alt=""></span></td>
       <td><div class="tt1">${esc(q.title || 'Clip ' + q.rank)}</div><div class="tt2">${esc(q.source_title || '')}</div></td>
@@ -2007,7 +1999,7 @@ function renderDetail(force) {
   const q = queueItems.find(x => x.id === exSel);
   $('#exNone').hidden = !!q; $('#exBody').hidden = !q;
   if (!q) { shownItem = ''; $('#exVideo').removeAttribute('src'); return; }
-  const stateKey = q.status + (q.url || '') + JSON.stringify(q.tiktok || {});
+  const stateKey = q.status + (q.url || '') + JSON.stringify(q.handoff || {});
   if (!force && shownItem === q.id && shownState === stateKey) return;
   const newItem = shownItem !== q.id;
   shownItem = q.id; shownState = stateKey;
@@ -2029,124 +2021,42 @@ function renderDetail(force) {
   else { v.dataset.src = ''; v.removeAttribute('src'); }
   v.controls = q.status === 'done';
   $('#ttPanel').hidden = q.status !== 'done';
-  if (q.status === 'done' && (newItem || force)) prepareTikTok(q);
+  if (q.status === 'done' && (newItem || force)) prepareHandoff(q);
   else if (q.status === 'done') renderTTStatus(q);
 }
 $('#exShow').onclick = () => { const q = queueItems.find(x => x.id === exSel); if (q) api('/api/open_folder', { folder: q.folder }).catch(e => toast(e.message, 'err')); };
 $('#exCopy').onclick = () => { const q = queueItems.find(x => x.id === exSel); if (q) copyText(q.post || q.title || ''); };
 
-let creator = null;
-async function prepareTikTok(q) {
+/* TikTok Studio handoff: the caption is copied, the file shown in File Explorer, Studio's upload page
+   opened. Clip Radar can't see the browser, so it never says a clip was posted. */
+function prepareHandoff(q) {
   $('#ttErr').textContent = '';
-  try { ttStatus = await api('/api/tiktok'); } catch { ttStatus = {}; }
-  const connected = ttStatus.connected;
-  $('#ttConnect').hidden = connected; $('#ttForm').hidden = true; $('#ttLoading').hidden = !connected;
-  $('#ttWho').textContent = connected ? (ttStatus.user.nickname || ttStatus.user.username || '') : '';
-  renderTTStatus(q);
-  if (!connected) return;
-  // TikTok asks apps to fetch the latest creator settings every time the post screen opens
-  try { creator = await api('/api/tiktok/creator', {}); }
-  catch (e) { $('#ttLoading').hidden = true; $('#ttErr').textContent = e.message; $('#ttForm').hidden = false; $('#ttPost').disabled = $('#ttDraft').disabled = true; return; }
-  $('#ttLoading').hidden = true; $('#ttForm').hidden = false;
-  $('#ttWho').textContent = `Posting as ${creator.creator_nickname || creator.creator_username}`;
   $('#ttCaption').value = q.post || q.title || '';
-  const sel = $('#ttPrivacy');
-  sel.innerHTML = '<option value="" disabled selected>Choose…</option>' +
-    (creator.privacy_level_options || []).map(p => `<option value="${p}">${PRIVACY[p] || p}</option>`).join('');
-  [['#ttComment', 'comment_disabled'], ['#ttDuet', 'duet_disabled'], ['#ttStitch', 'stitch_disabled']].forEach(([id, k]) => {
-    $(id).checked = false; $(id).disabled = !!creator[k];
-    $(id).closest('.chk').title = creator[k] ? 'Turned off in your TikTok privacy settings' : '';
-  });
-  $('#ttDisclose').checked = false; $('#ttYourBrand').checked = false; $('#ttBranded').checked = false;
-  syncTT();
+  ttCount(); renderTTStatus(q);
 }
-function syncTT() {
-  const q = queueItems.find(x => x.id === exSel);
-  const disclose = $('#ttDisclose').checked, yours = $('#ttYourBrand').checked, branded = $('#ttBranded').checked;
-  $('#ttDiscloseOpts').hidden = !disclose;
-  // branded content can't be private
-  const priv = [...$('#ttPrivacy').options].find(o => o.value === 'SELF_ONLY');
-  if (priv) { priv.disabled = disclose && branded; priv.title = priv.disabled ? 'Branded content visibility cannot be set to private.' : ''; }
-  if (disclose && branded && $('#ttPrivacy').value === 'SELF_ONLY') { $('#ttPrivacy').value = ''; toast('Branded content can\'t be private, so pick who can view it.', '', 4000); }
-  $('#ttLabelHint').textContent = !disclose ? '' : branded ? 'Your video will be labeled "Paid partnership".' : yours ? 'Your video will be labeled "Promotional content".' : '';
-  const music = '<a href="#" data-url="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en">Music Usage Confirmation</a>';
-  const bc = '<a href="#" data-url="https://www.tiktok.com/legal/page/global/bc-policy/en">Branded Content Policy</a>';
-  $('#ttDeclare').innerHTML = disclose && branded ? `By posting, you agree to TikTok's ${bc} and ${music}.` : `By posting, you agree to TikTok's ${music}.`;
-  const tooLong = q && creator && creator.max_video_post_duration_sec && q.duration > creator.max_video_post_duration_sec;
-  const needChoice = disclose && !yours && !branded;
-  $('#ttPost').disabled = !$('#ttPrivacy').value || needChoice || tooLong || isPosting(q);
-  $('#ttPost').title = needChoice ? 'You need to indicate if your content promotes yourself, a third party, or both.' : !$('#ttPrivacy').value ? 'Choose who can view this video first.' : '';
-  $('#ttDraft').disabled = tooLong || isPosting(q);
-  $('#ttErr').textContent = tooLong ? `This clip is longer than TikTok allows for your account (${fmt(creator.max_video_post_duration_sec)}).` : '';
-  const n = $('#ttCaption').value.length; $('#ttCount').textContent = `${n} / 2200`;
-}
-const isPosting = q => !!(q && q.tiktok && q.tiktok.state === 'posting');
-['#ttPrivacy', '#ttDisclose', '#ttYourBrand', '#ttBranded'].forEach(id => $(id).addEventListener('change', syncTT));
-$('#ttCaption').addEventListener('input', syncTT);
-$('#ttGoSettings').onclick = () => setView('settings');
+function ttCount() { const n = $('#ttCaption').value.length; $('#ttCount').textContent = `${n} / 2200`; }
+$('#ttCaption').addEventListener('input', ttCount);
 function renderTTStatus(q) {
-  const t = q.tiktok, el = $('#ttStatus');
-  if (!t) { el.hidden = true; return; }
-  el.hidden = false;
-  if (t.state === 'posting') el.innerHTML = `<span id="ttProg">Uploading to TikTok…</span><span class="meter"><i id="ttBar"></i></span>`;
-  else if (t.state === 'error') el.innerHTML = `<span class="err">${esc(t.error)}</span>`;
-  else if (t.mode === 'draft') el.innerHTML = `<span class="ok">${icon('check')}Sent to your TikTok inbox.</span><span class="muted">Open TikTok on your phone and tap the notification to finish posting.</span>`;
-  else el.innerHTML = `<span class="ok">${icon('check')}Posted to TikTok.</span><span class="muted">TikTok can take a few minutes to process it before it shows on your profile.</span>` +
-    (t.url ? `<a href="#" data-url="${esc(t.url)}">${icon('link')} Open on TikTok</a>` : '');
+  const el = $('#ttStatus'), h = q.handoff;
+  el.hidden = !h;
+  if (h) el.innerHTML = `<span>${icon('check')}Opened TikTok Studio ${esc(new Date(h.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}.</span>`
+    + '<span class="muted">Finish uploading and posting there. Clip Radar can\'t see your browser, so it doesn\'t know whether the clip was posted.</span>';
 }
-async function postTikTok(modeName) {
+$('#ttCopy').onclick = () => copyText($('#ttCaption').value, 'Caption');
+$('#ttStudio').onclick = async () => {
   const q = queueItems.find(x => x.id === exSel); if (!q) return;
-  const body = { item: q.id, mode: modeName, title: $('#ttCaption').value, privacy: $('#ttPrivacy').value,
-    allow_comment: $('#ttComment').checked, allow_duet: $('#ttDuet').checked, allow_stitch: $('#ttStitch').checked,
-    brand_organic: $('#ttDisclose').checked && $('#ttYourBrand').checked, brand_content: $('#ttDisclose').checked && $('#ttBranded').checked };
   $('#ttErr').textContent = '';
-  let job;
-  try { job = (await api('/api/tiktok/post', body)).job; } catch (e) { $('#ttErr').textContent = e.message; return; }
-  q.tiktok = { state: 'posting' }; renderTTStatus(q); syncTT(); renderExports();
-  const j = await waitJob(job, j => { if ($('#ttProg')) { $('#ttProg').textContent = j.step; $('#ttBar').style.width = Math.round(j.progress * 100) + '%'; } updateStatusBar(); });
-  await refreshQueue();
-  const q2 = queueItems.find(x => x.id === q.id);
-  if (q2) renderTTStatus(q2);
-  if (j && j.status === 'done') toast(modeName === 'draft' ? 'Sent to your TikTok drafts.' : 'Posted to TikTok.');
-  else if (j && j.error) $('#ttErr').textContent = j.error;
-  syncTT(); updateStatusBar();
-}
-$('#ttPost').onclick = () => postTikTok('direct');
-$('#ttDraft').onclick = () => postTikTok('draft');
+  const text = $('#ttCaption').value.trim();
+  if (text) copyText(text, 'Caption');
+  try {
+    await api('/api/handoff', { item: q.id });
+    q.handoff = { at: Date.now() / 1000 };
+    renderTTStatus(q); renderExports();
+    toast('TikTok Studio is opening. The caption is copied and the video is selected in File Explorer.', '', 6000);
+  } catch (e) { $('#ttErr').textContent = e.message; }
+};
 
 /* =============================================================== settings */
-async function loadTikTok() {
-  try { ttStatus = await api('/api/tiktok'); } catch { return; }
-  const s = ttStatus;
-  $('#ttRedirect').textContent = s.redirect_uri;
-  $('#ttDot').className = 'status-dot ' + (s.connected ? 'on' : s.configured ? 'warn' : '');
-  $('#ttState').textContent = s.connected ? 'Connected' : s.configured ? 'Not signed in' : 'Not set up';
-  $('#ttAccount').hidden = !s.connected; $('#ttSetup').hidden = s.connected;
-  if (s.connected) { $('#ttNick').textContent = s.user.nickname || s.user.username || 'your account'; $('#ttUser').textContent = s.user.username ? '@' + s.user.username : ''; }
-  if (s.client_key && !$('#ttKey').value) $('#ttKey').value = s.client_key;
-}
-$('#ttCopyRedirect').onclick = () => copyText($('#ttRedirect').textContent, 'Redirect URI');
-$('#ttConnectBtn').onclick = async () => {
-  const key = $('#ttKey').value.trim(), secret = $('#ttSecret').value.trim();
-  try {
-    if (key && (secret || key !== ttStatus.client_key)) await api('/api/tiktok/config', { client_key: key, client_secret: secret });
-    else if (!ttStatus.configured) throw new Error('Enter your app\'s Client key and Client secret.');
-    await api('/api/tiktok/connect', { open: true });
-    $('#ttConnectMsg').textContent = 'Finish signing in in your browser…';
-    $('#ttSecret').value = '';
-    const end = Date.now() + 5 * 60e3;
-    while (Date.now() < end) {
-      await new Promise(r => setTimeout(r, 2000));
-      const s = await api('/api/tiktok').catch(() => ({}));
-      if (s.connected) { $('#ttConnectMsg').textContent = ''; toast('TikTok connected.'); loadTikTok(); return; }
-    }
-    $('#ttConnectMsg').textContent = 'Sign-in timed out. Try again.';
-  } catch (e) { $('#ttConnectMsg').textContent = ''; toast(e.message, 'err', 7000); }
-};
-$('#ttDisconnect').onclick = async () => {
-  if (!await ask({ title: 'Disconnect TikTok?', body: 'Clip Radar will sign out of your TikTok account. You can connect again any time.', ok: 'Disconnect' })) return;
-  await api('/api/tiktok/disconnect', {}).catch(() => {}); loadTikTok();
-};
 
 function renderTools() {
   const rows = [['FFmpeg', status.ffmpeg, 'Cuts and renders video', 'ffmpeg'], ['yt-dlp', status.ytdlp, 'Downloads Twitch VODs and live streams', 'ytdlp'],
@@ -2193,6 +2103,36 @@ $('#locRows').onclick = async e => {
 };
 
 let storage = null;
+/* Settings › Storage › Clean up automatically */
+function renderCleanup(v) {
+  const c = v.config, l = v.last || {};
+  $('#clTemp').checked = c.temp; $('#clSkipped').checked = c.skipped; $('#clVods').checked = c.vods;
+  $('#clDays').value = String(c.vod_days); $('#clDaysRow').hidden = !c.vods;
+  const bits = [];
+  if (l.at) {
+    bits.push(`Last run ${new Date(l.at * 1000).toLocaleString()}: freed ${fmtBytes(l.freed || 0)}`);
+    if ((l.removed || []).length) bits.push(`removed ${l.removed.length === 1 ? 'the VOD of' : 'the VODs of'} ${l.removed.map(esc).join(', ')}`);
+    if ((l.failed || []).length) bits.push(`couldn't remove ${esc(l.failed.slice(0, 3).join(', '))}${l.failed.length > 3 ? '…' : ''}`);
+  }
+  $('#clLast').innerHTML = bits.join('; ');
+}
+async function loadCleanup() { try { renderCleanup(await api('/api/cleanup')); } catch {} }
+async function saveCleanup(run) {
+  try {
+    renderCleanup(await api('/api/cleanup', { config: { temp: $('#clTemp').checked, skipped: $('#clSkipped').checked,
+      vods: $('#clVods').checked, vod_days: +$('#clDays').value }, run }));
+    if (run) loadStorage();
+  } catch (e) { toast(e.message, 'err'); }
+}
+['#clTemp', '#clSkipped', '#clDays'].forEach(id => { $(id).onchange = () => saveCleanup(false); });
+$('#clVods').onchange = async e => {
+  if (e.target.checked && !await ask({ title: 'Delete finished VODs automatically?',
+    body: 'A downloaded VOD is deleted once every clip is kept or skipped, every kept clip has rendered, nothing failed, and you haven\'t opened it for the time you choose. Rendered clips are never deleted.', ok: 'Turn on' })) {
+    e.target.checked = false; return;
+  }
+  saveCleanup(e.target.checked);
+};
+
 async function loadStorage() {
   try { storage = await api('/api/storage'); } catch { return; }
   const v = storage.vods, c = storage.clips;
@@ -2582,12 +2522,69 @@ function syncTitlePrefs() {
 async function saveTitlePrefs(patch) {
   try { titlePrefs = await api('/api/titles', patch); } catch (e) { toast(e.message, 'err'); }
   syncTitlePrefs();
+  if ('hashtags' in patch && typeof loadHashtags === 'function') loadHashtags();
 }
 $('#tpPick').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveTitlePrefs({ pick: v }); };
 $('#tpTags').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
 $('#tpChat').onchange = e => saveTitlePrefs({ chat_titles: e.target.checked });
 $('#tagsOn').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
 api('/api/titles').then(t => { titlePrefs = t; syncTitlePrefs(); }).catch(() => {});
+
+/* --- Settings › Hashtags: file names and post captions, configured separately --- */
+let htCfg = null, htTimer = 0;
+const htStreamersText = m => Object.entries(m || {}).map(([k, v]) => `${k}: ${v.join(' ')}`).join('\n');
+function htStreamersParse(txt) {
+  const out = {};
+  for (const line of (txt || '').split('\n')) {
+    const i = line.indexOf(':'); if (i < 1) continue;
+    const name = line.slice(0, i).trim(); const tags = line.slice(i + 1).trim();
+    if (name && tags) out[name] = tags.split(/[\s,]+/).filter(Boolean);
+  }
+  return out;
+}
+function renderHashtags(v) {
+  htCfg = v.config;
+  const f = htCfg.file, p = htCfg.post;
+  const busy = el => document.activeElement === el;
+  $('#htFileOn').checked = f.enabled; $('#htFileBody').hidden = !f.enabled;
+  $('#htFileName').checked = f.streamer_tag;
+  if (!busy($('#htFileGeneral'))) $('#htFileGeneral').value = f.general.join(' ');
+  if (!busy($('#htFileStreamers'))) $('#htFileStreamers').value = htStreamersText(f.streamers);
+  $('#htFileMax').value = String(f.max);
+  $('#htPostAuto').checked = p.auto;
+  if (!busy($('#htPostGlobal'))) $('#htPostGlobal').value = p.global.join(' ');
+  if (!busy($('#htPostStreamers'))) $('#htPostStreamers').value = htStreamersText(p.streamers);
+  $$('#setTags [data-plat]').forEach(el => { if (!busy(el)) el.value = (p.platforms[el.dataset.plat] || []).join(' '); });
+  $('#htPostMax').value = String(p.max);
+  const have = new Set(f.general.map(t => t.toLowerCase()));
+  $('#htSuggest').innerHTML = v.suggestions.filter(t => !have.has(t.toLowerCase())).map(t => `<button data-tag="${esc(t)}">+ ${esc(t)}</button>`).join('');
+  $('#htFilePrev').textContent = f.enabled ? v.preview.file : v.preview.file.replace(/_#\S+/g, '') + ' (no tags)';
+  const names = { tiktok: 'TikTok', shorts: 'Shorts', reels: 'Reels', x: 'X' };
+  $('#htPostPrev').innerHTML = v.preview.post_on
+    ? Object.entries(v.preview.post).map(([k, t]) => `${names[k]}: <code>${esc(t.join(' ') || '(none)')}</code>`).join('<br>')
+    : 'Post captions: hashtags are off (Titles and captions › Add hashtags to post captions).';
+}
+async function loadHashtags() {
+  try { renderHashtags(await api('/api/hashtags?streamer=' + encodeURIComponent($('#htStreamer').value || ''))); } catch {}
+}
+function htCollect() {
+  const plat = {}; $$('#setTags [data-plat]').forEach(el => { plat[el.dataset.plat] = el.value.split(/[\s,]+/).filter(Boolean); });
+  return {
+    file: { enabled: $('#htFileOn').checked, streamer_tag: $('#htFileName').checked, general: $('#htFileGeneral').value,
+            streamers: htStreamersParse($('#htFileStreamers').value), max: +$('#htFileMax').value },
+    post: { auto: $('#htPostAuto').checked, global: $('#htPostGlobal').value, streamers: htStreamersParse($('#htPostStreamers').value),
+            platforms: plat, max: +$('#htPostMax').value },
+    streamer: $('#htStreamer').value || '',
+  };
+}
+function saveHashtagsSoon(now) {
+  clearTimeout(htTimer);
+  htTimer = setTimeout(async () => { try { renderHashtags(await api('/api/hashtags', htCollect())); } catch (e) { toast(e.message, 'err'); } }, now ? 0 : 500);
+}
+$('#setTags').addEventListener('input', e => { if (e.target.id === 'htStreamer') { clearTimeout(htTimer); htTimer = setTimeout(loadHashtags, 300); } else saveHashtagsSoon(); });
+$('#setTags').addEventListener('change', e => { if (e.target.matches('input[type=checkbox], select')) saveHashtagsSoon(true); });
+$('#htSuggest').onclick = e => { const b = e.target.closest('[data-tag]'); if (!b) return; $('#htFileGeneral').value = ($('#htFileGeneral').value + ' ' + b.dataset.tag).trim(); saveHashtagsSoon(true); };
+loadHashtags();
 
 /* =============================================================== export format, caption words, performance (3.7) */
 let queueEta = null, exState = null, capPresets = [], framePresets = [];
@@ -2616,6 +2613,7 @@ function renderExportSettings() {
   $('#exAbitrate').value = String(st.abitrate); $('#exContainer').value = st.container;
   $('#exReset').hidden = !Object.keys(pr.custom || {}).length;
   $$('#exSubs button').forEach(b => b.classList.toggle('on', b.dataset.v === pr.subtitles));
+  $('#exSounds').checked = pr.sounds !== false;
   $('#exLoud').value = String(st.loudness || 0); $('#exDenoise').checked = !!pr.denoise; $('#exVoice').checked = !!pr.voice;
   if (document.activeElement !== $('#exTemplate')) $('#exTemplate').value = pr.template;
   $('#exTokens').innerHTML = v.tokens.map(t => `<button class="chip" data-tok="${t}">{${t}}</button>`).join('');
@@ -2648,6 +2646,7 @@ $('#exAbitrate').onchange = e => customPatch({ abitrate: +e.target.value });
 $('#exContainer').onchange = e => customPatch({ container: e.target.value, vcodec: e.target.value === 'webm' ? 'vp9' : ($('#exVcodec').value === 'vp9' ? 'h264' : $('#exVcodec').value) });
 $('#exLoud').onchange = e => customPatch({ loudness: +e.target.value });
 $('#exReset').onclick = () => saveExport({ custom: {} });
+$('#exSounds').onchange = e => saveExport({ sounds: e.target.checked });
 $('#exSubs').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ subtitles: v }); };
 $('#exDenoise').onchange = e => saveExport({ denoise: e.target.checked });
 $('#exVoice').onchange = e => saveExport({ voice: e.target.checked });

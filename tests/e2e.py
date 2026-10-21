@@ -1,9 +1,9 @@
 """
-End-to-end test of a running Clip Radar: live clipping and TikTok posting.
+End-to-end test of a running Clip Radar: VOD and live clipping, rendering, and the TikTok Studio handoff.
 
 It starts the app itself (the built .exe or `python src/app.py`), a simulated
 Twitch stream (ffmpeg writing a live HLS playlist in real time), a fake Twitch
-chat server, and a mock TikTok API, then drives the app over its HTTP API
+chat server, and mock GitHub and Twitch APIs, then drives the app over its HTTP API
 exactly like the UI does.
 
   python tests/e2e.py --app "dist/ClipRadar/ClipRadar.exe" --ffmpeg tools/ffmpeg.exe --out report.json
@@ -36,11 +36,10 @@ for _s in (sys.stdout, sys.stderr):      # Windows consoles default to cp1252; a
         pass
 import fake_irc      # noqa: E402
 import fake_twitch   # noqa: E402
-import mock_tiktok   # noqa: E402
 import mock_github   # noqa: E402
 import mock_twitch_api  # noqa: E402
 
-PORT, IRC_PORT, TT_PORT, HLS_PORT, GH_PORT, TW_PORT = 7870, 9461, 9471, 9481, 9491, 9501
+PORT, IRC_PORT, HLS_PORT, GH_PORT, TW_PORT = 7870, 9461, 9481, 9491, 9501
 B = f"http://127.0.0.1:{PORT}"
 checks: list = []
 diag: dict = {}
@@ -440,6 +439,14 @@ def export_checks(ctx):
         got = _probe_size(os.path.join(d["folder"], d["name"])) if d and d["status"] == "done" else None
         rec("X preset renders at 720x1280", got and got[:2] == (720, 1280), got or (d and d.get("error")))
         rec("file name follows the template", d and d.get("name", "").endswith(f"{int(c['id']):02d} - X size.mp4"), d and d.get("name"))
+        post("/api/hashtags", {"file": {"enabled": True, "general": ["#TwitchClips", "#Gaming"]}})
+        tg = post("/api/queue/add", {"pid": pid, "clip": dict(base, title="Tagged", rank=c["id"] + 1000, words=None,
+                                                             start=base["start"] + 1), "opts": opts})
+        dt = _wait_item(tg.get("id"), 240)
+        tname = (dt or {}).get("name", "")
+        rec("hashtags are in the rendered file's name", dt and dt["status"] == "done" and "_#TwitchClips_#Gaming" in tname
+            and os.path.isfile(os.path.join(dt["folder"], tname)), tname or (dt and dt.get("error")))
+        post("/api/hashtags", {"file": {"enabled": False}})
         srt = os.path.join(d["folder"], os.path.splitext(d["name"])[0] + ".srt") if d and d.get("name") else ""
         txt = open(srt, encoding="utf-8").read() if srt and os.path.isfile(srt) else ""
         rec("captions also saved as .srt", "hello there" in txt.lower() and "-->" in txt and d.get("srt"), txt[:80] or srt)
@@ -651,18 +658,18 @@ def main():
     for d in (work, data, hls):
         os.makedirs(d)
     fake_irc.start_in_thread(IRC_PORT, [72])
-    mock_tiktok.start(TT_PORT)
     mock_github.start(GH_PORT, "v99.0.0")
     mock_twitch_api.start(TW_PORT)
 
     env = dict(os.environ, CLIPRADAR_WORK=work, CLIPRADAR_DATA=data, CLIPRADAR_PORT=str(PORT),
                CLIPRADAR_IRC=f"127.0.0.1:{IRC_PORT}:plain",
-               CLIPRADAR_TIKTOK_API=f"http://127.0.0.1:{TT_PORT}",
-               CLIPRADAR_TIKTOK_AUTH=f"http://127.0.0.1:{TT_PORT}/v2/auth/authorize/",
+               CLIPRADAR_NO_BROWSER="1",
                CLIPRADAR_UPDATE_API=f"http://127.0.0.1:{GH_PORT}/repos/allen1versonfr/vodclipper/releases/latest",
                CLIPRADAR_TWITCH_ID=f"http://127.0.0.1:{TW_PORT}", CLIPRADAR_TWITCH_GQL=f"http://127.0.0.1:{TW_PORT}/gql",
                CLIPRADAR_EMOTE_API=f"http://127.0.0.1:{TW_PORT}",
                CLIPRADAR_TEST="1", CLIPRADAR_WAIT_POLL="3")
+    with open(os.path.join(data, "tiktok.dat"), "wb") as f:     # left by 4.3's TikTok API sign-in
+        f.write(b"plain:e30=")
     cmd = shlex.split(a.app, posix=(os.name != "nt")) + ["--browser"]
 
     def start_app():
@@ -698,6 +705,9 @@ def main():
         rec("app starts", st, f"version {st and st.get('version')}")
         if not st:
             return finish(a.out)
+        # file-name hashtags are on by default; the name checks below are about titles and
+        # templates, so they run without tags (export_checks turns them on for its own check)
+        _try(lambda: post("/api/hashtags", {"file": {"enabled": False}}))
 
         # ------------------------------------------------------------ VOD: chat cleaning, smart cuts, deep scan, learning
         ctx = vod_checks(a, tmp)
@@ -871,61 +881,23 @@ def main():
                 bl and f"{bl['status']} censored={bl.get('censored')} {bl.get('error', '')}")
             post("/api/safety", {"censor": "off"})
 
-        # ------------------------------------------------------------ TikTok
-        rec("TikTok starts disconnected", not get("/api/tiktok")["connected"])
-        post("/api/tiktok/config", {"client_key": "ck_e2e", "client_secret": "cs_e2e"})
-        url = post("/api/tiktok/connect", {"open": False}).get("url", "")
-        rec("TikTok sign-in link", "code_challenge=" in url and "%2Fcallback%2F" in url, url[:120])
-
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, *a_, **k):
-                return None
-        loc = ""
-        try:
-            urllib.request.build_opener(NoRedirect).open(url, timeout=20)
-        except urllib.error.HTTPError as e:
-            loc = e.headers.get("Location", "")
-        page = urllib.request.urlopen(loc, timeout=30).read().decode() if loc else ""
-        rec("TikTok sign-in completes", "TikTok connected" in page, loc[:80])
-        ts = get("/api/tiktok")
-        rec("TikTok account connected", ts["connected"] and ts["user"].get("nickname") == "Mock Creator", ts["user"])
-        store = os.path.join(data, "tiktok.dat")
-        head = open(store, "rb").read(6) if os.path.exists(store) else b""
-        rec("tokens stored encrypted" if os.name == "nt" else "tokens stored", head == b"dpapi:" if os.name == "nt" else head,
-            head.decode(errors="replace"))
-        ci = post("/api/tiktok/creator")
-        rec("creator info", "privacy_level_options" in ci, ci.get("privacy_level_options"))
+        # ------------------------------------------------------------ TikTok Studio handoff
+        rec("the old TikTok API sign-in is removed on upgrade", not os.path.exists(os.path.join(data, "tiktok.dat")))
+        gone = post("/api/tiktok/post", {"item": "x", "mode": "direct"})
+        rec("posting through TikTok's API is gone", gone.get("_status") == 404, gone)
         done_items = [i for i in get("/api/queue")["items"] if i["status"] == "done"]
         if done_items:
-            item = done_items[0]["id"]
-            j = post("/api/tiktok/post", {"item": item, "mode": "direct", "privacy": "SELF_ONLY",
-                                          "title": "e2e test #fyp", "allow_comment": True})
-            r = wait_job(j["job"], 120)
-            rec("direct post publishes", r and r["status"] == "done" and r["result"]["status"] == "PUBLISH_COMPLETE",
-                r and (r.get("error") or r["result"]))
-            q = next(i for i in get("/api/queue")["items"] if i["id"] == item)
-            rec("clip shows as posted", (q.get("tiktok") or {}).get("state") == "done", q.get("tiktok"))
-            j = post("/api/tiktok/post", {"item": item, "mode": "draft"})
-            r = wait_job(j["job"], 120)
-            rec("send to drafts", r and r["status"] == "done" and r["result"]["status"] == "SEND_TO_USER_INBOX",
-                r and (r.get("error") or r["result"]))
-            mock_tiktok.STATE["unaudited"] = True
-            j = post("/api/tiktok/post", {"item": item, "mode": "direct", "privacy": "PUBLIC_TO_EVERYONE"})
-            r = wait_job(j["job"], 60)
-            rec("unaudited public post gives a clear message", r and r["status"] == "error" and "Only me" in r["error"],
-                r and r.get("error"))
-            mock_tiktok.STATE["unaudited"] = False
-            if base:
-                it = post("/api/queue/add", {"pid": base["pid"], "clip": dict(base, rank=92, title="Draft me"),
-                                             "opts": opts, "auto_draft": True})
-                dr = wait(lambda: (lambda q: q if q and (q.get("tiktok") or {}).get("state") in ("done", "error") else None)(
-                    next((i for i in get("/api/queue")["items"] if i["id"] == it.get("id")), None)), 300, 2)
-                rec("hands-free sends finished clips to drafts", dr and dr["tiktok"]["state"] == "done"
-                    and dr["tiktok"]["mode"] == "draft", dr and dr.get("tiktok"))
+            item = done_items[0]
+            h = post("/api/handoff", {"item": item["id"]})
+            rec("TikTok Studio handoff: caption ready and the upload page", h.get("url", "").startswith("https://www.tiktok.com/tiktokstudio")
+                and h.get("caption") and h.get("file", "").endswith(item["name"]), {k: h.get(k) for k in ("url", "caption", "file", "_status")})
+            q = next(i for i in get("/api/queue")["items"] if i["id"] == item["id"])
+            rec("the clip says Studio was opened, never that it was posted", (q.get("handoff") or {}).get("at")
+                and not q.get("tiktok"), {k: q.get(k) for k in ("handoff", "tiktok")})
         else:
-            rec("direct post publishes", False, "no rendered clip to post")
-        post("/api/tiktok/disconnect")
-        rec("TikTok disconnects", not get("/api/tiktok")["connected"])
+            rec("TikTok Studio handoff: caption ready and the upload page", False, "no rendered clip")
+        not_done = post("/api/handoff", {"item": "nope"})
+        rec("handing off a clip that isn't rendered says so", not_done.get("_status") == 400, not_done)
 
         # ------------------------------------------------------------ Twitch sign-in (ad-free live recording)
         tws = get("/api/twitch")

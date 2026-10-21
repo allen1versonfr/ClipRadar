@@ -275,3 +275,45 @@ already existed and empties it. `test_ranking_explain.py` covers this.
 | Number of clips | chosen or automatic | as they happen | live uses sensitivity and a minimum score instead |
 | Deep Scan (quiet gems) | ✓ | ✗ | needs the whole stream's transcript |
 | Ranking against the whole stream | ✓ | partial | live can only compare with what's been recorded so far |
+
+## 10. Milestone 4 (4.4.0) — hashtags, TikTok Studio, cleanup, sounds
+
+Version decision (owner, 2026-10-21): **no "Clip Radar 1.0" rebrand; numbering continues** (4.x,
+then 5.0 when warranted). §5's migration work is dropped from Milestone 7.
+
+- **Hashtags (`src/hashtags.py`).** File names and post captions have separate lists.
+  - **File-name tags:** literal `#Tag` joined with `_`, and only Windows-forbidden characters
+    removed. Duplicates are dropped ignoring case. Names are capped at 150 characters before
+    the extension; tags drop off the end before the title is cut, and the title never goes
+    below 24 characters.
+  - **Kept on retry:** the name is chosen once in `_file_name`, so a retry keeps it, and a clash
+    adds " (2)" after the tags.
+  - **Post tags:** global, per-streamer and per-platform lists, with Clip Radar's own tags
+    optional.
+  - **Tests:** `test_hashtags.py` covers duplicates, Unicode, long names, forbidden characters,
+    retry, clashes, separation of the two lists and persistence. The e2e checks a real render's
+    file name. Only checked on Linux here; `#` is a legal NTFS filename character, and Windows CI
+    runs the same tests.
+- **TikTok Studio handoff (`src/studio.py`).** The caption is copied, the file is selected in
+  Explorer (`explorer /select,`) and the upload page is opened.
+  - The app records only `handoff.at`, never "posted".
+  - **Removed:** `tiktok.py` (OAuth/PKCE, Content Posting API), its settings, hands-free "send to
+    drafts" and `mock_tiktok.py`. The stored `tiktok.dat` (client secret and tokens) is deleted on
+    start.
+  - **Moved:** the DPAPI helpers Twitch sign-in and the updater used went to `src/secret.py`
+    with the same blob format, so saved sign-ins still decrypt.
+  - **Upload URL:** `https://www.tiktok.com/tiktokstudio/upload` (overridable with
+    `CLIPRADAR_STUDIO_URL`). It **could not be loaded from this environment**, because TikTok is
+    blocked by the proxy and no official page in search results states it. Check it on a PC.
+- **Cleanup (`src/cleanup.py`).**
+  - **Temp:** files untouched for 3 days, plus downloads that stopped over a day ago (on).
+  - **Skipped:** the file of a hands-free render you skip (off). Only items marked `auto`.
+  - **VODs (off):** deleted only when every clip is decided, every kept clip rendered, no render
+    is queued, rendering or failed, the VOD isn't open or live, and it hasn't been opened for N days.
+  - **What's removed:** only the video and its analysis; the clip folders are excluded explicitly.
+  - **Failures:** reported in Settings and the log, never raised.
+  - **Tests:** `test_cleanup.py`, 24 cases.
+- **Sounds.** None existed for the queue or finished renders before this; only the hotkey had one.
+  They play from the server at the single place each event happens: queue add (not for duplicates
+  or hands-free adds) and render done. So it's once per event, even while minimised. They're
+  logged for tests (`test_retry.py`).

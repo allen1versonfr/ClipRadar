@@ -202,17 +202,37 @@ def view(sizes: bool = True) -> dict:
     return {"locations": out}
 
 
-def clear_temp(keep: tuple = ()) -> dict:
+def _newest(p: str) -> float:
+    if not os.path.isdir(p):
+        return os.path.getmtime(p)
+    t = os.path.getmtime(p)
+    for r, _, fs in os.walk(p):
+        for f in fs:
+            try:
+                t = max(t, os.path.getmtime(os.path.join(r, f)))
+            except OSError:
+                pass
+    return t
+
+
+def clear_temp(keep: tuple = (), older_than: float = 0) -> dict:
     """Empty the temporary folder (previews, framing data, finished live buffers). Never touches videos
-    you opened, downloads, projects or clips. keep: folders in use (running live sessions)."""
+    you opened, downloads, projects or clips. keep: folders in use (running live sessions).
+    older_than: only what hasn't changed for this many seconds (automatic cleanup keeps recent caches)."""
     root = path("temp")
     freed, failed = 0, 0
     if not os.path.isdir(root):
         return {"freed": 0, "failed": 0}
     keep_n = {os.path.normcase(os.path.abspath(k)) for k in keep}
+    now = time.time()
     for name in os.listdir(root):
         p = os.path.join(root, name)
         if os.path.normcase(os.path.abspath(p)) in keep_n:
+            continue
+        try:
+            if older_than and now - _newest(p) < older_than:
+                continue
+        except OSError:
             continue
         size = _size(p) if os.path.isdir(p) else (os.path.getsize(p) if os.path.exists(p) else 0)
         try:

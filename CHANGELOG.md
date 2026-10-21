@@ -3,6 +3,19 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.4.0] - 2026-10-21
+
+Hashtags, posting through TikTok Studio, automatic cleanup, and sounds.
+
+### Added
+- Hashtags in file names: each exported file's name ends with the real tags, # included, like `Chat lost it_#KaiCenat_#Mafia_#TwitchClips.mp4`. The streamer's own tag, your tags for that streamer (so a streamer's community tags only go on their clips), then your general tags; no repeats; up to the number you set. Long names drop tags from the end before the title is cut. A retry keeps the same name. Settings › Hashtags (on by default; the tags are #TwitchClips plus the streamer's name until you change them).
+- Default hashtags for posts, separate from the file-name ones: your tags for every post, per streamer and per platform (TikTok, Shorts, Reels, X), on top of Clip Radar's own tags for each clip (which you can leave out). A preview shows the file name and each platform's tags.
+- Clean up automatically (Settings › Storage): old temporary files (on), the file of a hands-free clip you then skip (off), and a downloaded VOD once you're finished with it (off): every clip kept or skipped, every kept clip rendered, no render waiting or failed, and not opened for the days you choose. Rendered clips and your review always stay. The last run's result, and anything it couldn't remove, is shown there.
+- A short sound when you add a clip to the render queue and when a clip is ready, once each, also while Clip Radar is minimised. Settings › Export format turns them off.
+
+### Changed
+- Posting to TikTok now goes through TikTok Studio, TikTok's own upload page, with nothing to set up: in Exports, Open in TikTok Studio copies the caption, selects the video in File Explorer and opens the upload page. Clip Radar only says it opened TikTok Studio, never that a clip was posted. Posting through a TikTok developer app, its settings and hands-free "send to drafts" are gone, and the old TikTok sign-in is removed from your PC when you update. Twitch and GitHub sign-ins are kept.
+
 ## [4.3.0] - 2026-10-21
 
 Better picks and titles: F-spam no longer makes clips, titles can come from what chat said, and the number of clips you ask for is the number you get.

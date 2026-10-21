@@ -69,6 +69,8 @@ jobs:
           python tests/test_retry.py
           python tests/test_chattitles.py
           python tests/test_ranking_explain.py
+          python tests/test_hashtags.py
+          python tests/test_cleanup.py
 
       - name: Get ffmpeg, TwitchDownloader and yt-dlp
         env:
@@ -191,7 +193,7 @@ jobs:
           $t = ($times | Sort-Object)[1]; $m = ($mems | Sort-Object)[1]
           Write-Host "::notice title=startup::app server answered after $t ms (median of 3: $($times -join ', ')); $m MB in memory once idle"
 
-      - name: End-to-end test (live clipping + TikTok posting)
+      - name: End-to-end test (VOD, live clipping, rendering, TikTok Studio handoff)
         shell: pwsh
         run: |
           python tests/e2e.py --app "dist/ClipRadar/ClipRadar.exe" --ffmpeg tools/ffmpeg.exe --out "$env:RUNNER_TEMP\e2e.json" --model tiny --speech "$env:RUNNER_TEMP\speech.wav"
@@ -203,7 +205,7 @@ jobs:
           foreach ($c in $r.checks) {
             $d = ($c.detail -replace "`r?`n", " | ")
             if (-not $c.ok) { Write-Host "::error title=FAIL $($c.name)::$d" }
-            elseif ($c.name -match "moment|titles|direct post|drafts|encrypted|auto-render|ad break|deep scan|ranks first|chat cleaning|learn") { Write-Host "::notice title=$($c.name)::$d" }
+            elseif ($c.name -match "moment|titles|Studio|hashtags|encrypted|auto-render|ad break|deep scan|ranks first|chat cleaning|learn") { Write-Host "::notice title=$($c.name)::$d" }
           }
           if ($code -ne 0 -and $r.diag) {
             foreach ($p in $r.diag.PSObject.Properties) {

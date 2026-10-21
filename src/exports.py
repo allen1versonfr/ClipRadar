@@ -54,6 +54,8 @@ DEFAULTS = {
     "renders": 1, "downloads": 1, "priority": "responsive", "lives": 2,
     # saved caption styles (Text tab) and framings (Layout tab)
     "cap_presets": [], "frame_presets": [],
+    # a short sound when you queue a clip and when a render is ready
+    "sounds": True,
 }
 CAP_KEYS = ("captions", "caption_pos", "caption_color", "caption_size", "words_per_line", "uppercase", "caption_style",
             "caption_font", "caption_anim", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
@@ -128,6 +130,7 @@ def clean(d: dict) -> dict:
             o = {k: _frame_val(k, v) for k, v in fp["opts"].items() if k in FRAME_KEYS}
             frames.append({"name": str(fp["name"]).strip()[:40], "opts": {k: v for k, v in o.items() if v is not None}})
     out["frame_presets"] = frames
+    out["sounds"] = bool(d.get("sounds", True))
     return out
 
 

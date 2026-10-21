@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 4.3.0" src="https://img.shields.io/badge/version-4.3.0-4c8dff?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 4.4.0" src="https://img.shields.io/badge/version-4.4.0-4c8dff?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/vodclipper/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/vodclipper/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -15,7 +15,7 @@
   &nbsp;·&nbsp;
   <a href="#features">Features</a>
   &nbsp;·&nbsp;
-  <a href="#posting-to-tiktok">TikTok setup</a>
+  <a href="#posting-to-tiktok">Posting to TikTok</a>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md">Changelog</a>
 </p>
@@ -53,7 +53,8 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
   - Eight bundled fonts, including Montserrat, Anton, Bebas Neue and Bangers.
 - **Layouts and framing:** facecam above gameplay, the whole frame (following the streamer's face), the facecam alone, or a blurred fit. Auto-frame finds a facecam or a person and picks the layout.
 - **Background render queue.** Clips render to 1080×1920 MP4 on your GPU's encoder (NVIDIA, Intel or AMD), falling back to the CPU automatically. If one fails, Clip Radar says why in plain words and gives you a Retry button.
-- **Post to TikTok** through TikTok's official Content Posting API, either directly or to your drafts. Hands-free mode can also send finished clips to your drafts automatically; you finish each post in the TikTok app.
+- **Post on TikTok** through TikTok Studio: the caption is copied, the video selected in File Explorer, and the upload page opened for you to finish.
+- **Hashtags in file names and posts**, set separately: real `#Tag` text in each exported file's name (the streamer's own tag, your tags per streamer, general tags), and default hashtags for post captions per streamer and per platform.
 - **Updates itself.** When a new release is posted on GitHub, Clip Radar offers it in the app. One click downloads it, installs it and reopens the app.
 - **Tidy on disk.** Delete VODs and Delete all clips buttons are built in, and a real uninstaller is included.
 
@@ -100,14 +101,9 @@ Clips are saved to `Videos\Clip Radar`. The full guide ships with the app as `RE
 
 ## Posting to TikTok
 
-TikTok only lets registered apps post, so you set up your own free developer app once. **Settings › TikTok** walks you through it:
+Clip Radar gets each clip ready and you post it in **TikTok Studio**, TikTok's own upload page, so there's no developer app to set up. In Exports, select a clip, check the caption, and press **Open in TikTok Studio**. The caption (with your post hashtags) is copied, the video is selected in File Explorer to drag into the page, and TikTok Studio opens in your browser.
 
-1. Create an app at [developers.tiktok.com](https://developers.tiktok.com/).
-2. Add the **Login Kit** and **Content Posting API** products, and turn on **Direct Post**.
-3. In Login Kit, choose the **Desktop** platform and add the redirect URI shown in Settings (`http://127.0.0.1:<port>/callback/`).
-4. Paste the client key and secret into Settings and press **Save and connect**.
-
-Until TikTok audits your developer app, direct posts can only be private ("Only me"). That's TikTok's rule for new apps. **Send to drafts** works either way. Your sign-in is stored encrypted with Windows DPAPI.
+Clip Radar can't see your browser, so it only ever says it opened TikTok Studio, never that a clip was posted. Earlier versions posted through TikTok's developer API; that sign-in is removed from your PC when you update.
 
 ## Building from source
 
@@ -136,7 +132,10 @@ src/
   gems.py         Deep scan: scores every transcribed line, finds quiet gems
   learning.py     learns per streamer from what you keep, skip and post
   twitchauth.py   Twitch sign-in for ad-free live recording
-  tiktok.py       TikTok OAuth (PKCE) and Content Posting API client
+  studio.py       TikTok Studio handoff (caption, file, upload page)
+  hashtags.py     hashtags for file names and post captions
+  chattitles.py   titles from phrases many chatters typed
+  secret.py       encrypted storage for sign-ins (Windows DPAPI)
   titles.py       auto titles and post captions
   safety.py       content check (TOS scanner) and censoring
   hotkey.py       Ctrl+Alt+C clip hotkey on Windows
@@ -145,7 +144,7 @@ src/
   ui/             HTML/CSS/JS interface, Inter and caption fonts (OFL / Apache)
 scripts/          install, run and build scripts
 installer/        Inno Setup script
-tests/            unit tests, and end-to-end tests with a fake Twitch chat and mock TikTok and GitHub APIs
+tests/            unit tests, and end-to-end tests with a fake Twitch chat and mock Twitch and GitHub APIs
 docs/             user guide and images
 ```
 
@@ -155,7 +154,7 @@ Every push builds the exe on Windows in GitHub Actions, then:
 
 - runs the unit tests: content check (`tests/test_safety.py`), and chat cleaning, Twitch ad markers, smart cuts, learning and the sound detector (`tests/test_signals.py`);
 - runs the app's built-in self-test (`ClipRadar.exe --selftest`): rendering, captions on real Whisper output, auto titles, styled text placement and bleeping;
-- runs `tests/e2e.py` against the built exe: a VOD with a giveaway, a gift bomb, bots and a raid in its chat (the real moment has to win), Deep scan, learning from keeps and skips, hands-free live clipping from a pretend Twitch stream that starts late and has an ad break stitched in (no ad may be downloaded), a fake Twitch IRC chat with bots and sub notices, Twitch sign-in, the clip hotkey, the content check holding a clip back, a failed render being explained and retried, bleeping, automatic TikTok drafts against a mock of TikTok's API, and private-repository updates;
+- runs `tests/e2e.py` against the built exe: a VOD with a giveaway, a gift bomb, bots and a raid in its chat (the real moment has to win), Deep scan, learning from keeps and skips, hands-free live clipping from a pretend Twitch stream that starts late and has an ad break stitched in (no ad may be downloaded), a fake Twitch IRC chat with bots and sub notices, Twitch sign-in, the clip hotkey, the content check holding a clip back, a failed render being explained and retried, bleeping, hashtags in rendered file names, the TikTok Studio handoff, and private-repository updates;
 - installs the app with the real installer, updates it in place through the app's own updater (against a mock GitHub release), then uninstalls it.
 
 Run the end-to-end tests locally against the source:

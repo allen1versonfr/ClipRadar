@@ -39,7 +39,7 @@ import numpy as np
 import engine
 import live
 import paths
-import tiktok
+import studio
 import titles
 import hotkey
 import safety
@@ -48,6 +48,7 @@ import updater
 import audio_events
 import chatsignal
 import chattitles
+import cleanup
 import checkflow
 import detect
 import emotes
@@ -55,6 +56,7 @@ import exports
 import framing
 import sources
 import gems
+import hashtags
 import learning
 import persist
 import twitchauth
@@ -366,7 +368,11 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     d["title_b"] = safety.mask_text(info["title_b"], cfg)
     d["title_b_named"] = info["title_b_named"]
     d["description"] = safety.mask_text(info["description"], cfg)
-    d["hashtags"] = info["hashtags"]
+    # Settings › Hashtags › In post captions: the clip's own tags plus your defaults (all posts, this
+    # streamer, this platform)
+    d["hashtags"] = hashtags.post_tags(info["hashtags"], _streamer_name(pr), exports.load()["preset"])
+    if not d.get("user_title") and not d.get("userTitle"):
+        d["post"] = safety.mask_text(titles.compose(info["description"], d["hashtags"], tp["hashtags"]), cfg)
     d["titles"] = [safety.mask_text(t, cfg) for t in info["titles"]]
     d["vibe"] = info["vibe"]
     d["emoji"] = info["emoji"]
@@ -1018,6 +1024,16 @@ def record_feedback(pid, cid, action: str):
     key = f"{pr.get('live') or pr.get('source', '')}|{int(at)}"
     learning.record(pr.get("streamer", ""), key, d["feat"], action)
     _refresh_live_learning()
+    if action == "skip":
+        # Settings › Storage: a clip that rendered on its own (hands-free) and you then skipped
+        with queue_lock:
+            mine = [x for x in queue if x.get("pid") == pid and x.get("clip_id") == cid and x.get("auto")]
+        for it in mine:
+            if cleanup.skipped_render(it):
+                with queue_lock:
+                    if it in queue:
+                        queue.remove(it)
+                save_queue_soon(0)
 
 
 def _refresh_live_learning():
@@ -1123,7 +1139,25 @@ def queue_public(it: dict) -> dict:
     return d
 
 
-def queue_add(pid: str, c: dict, opts: dict) -> dict:
+SOUND_LOG: list = []         # (event, item id) of every sound played, for the tests
+
+
+def play_sound(event: str, it: dict):
+    """One short Windows sound per event: 'queued' when you add a clip, 'ready' when a render
+    finishes. Called from the one place each event happens, so it can't play twice."""
+    if not exports.load().get("sounds", True):
+        return
+    SOUND_LOG.append((event, it.get("id")))
+    if sys.platform != "win32":
+        return
+    try:
+        import winsound
+        winsound.MessageBeep(winsound.MB_ICONASTERISK if event == "ready" else winsound.MB_OK)
+    except Exception:
+        pass
+
+
+def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
     start_, end_ = float(c["start"]), float(c["end"])
     if end_ - start_ < 1:
         raise RuntimeError("That clip is too short.")
@@ -1148,7 +1182,7 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
           # enough to render it after a restart, when the project isn't open any more
           "video": pr.get("video", ""), "workdir": pr.get("workdir", ""), "live": pr.get("live", ""),
           "opts": dict(opts or {}), "status": "queued", "progress": 0.0, "step": "Waiting",
-          "error": "", "cancel": False, "created": time.time(), "tiktok": None,
+          "error": "", "cancel": False, "created": time.time(),
           "words": _clean_words(c.get("words")),
           # content check: fixes you applied, and flags you chose to leave alone (not censored)
           "fix_spans": checkflow.render_spans(d) if d else [],
@@ -1172,10 +1206,12 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
         # the same clip sent twice (double click, two windows): render it once
         dup = next((x for x in queue if x.get("sig") == it["sig"] and x["status"] in ("queued", "rendering")), None)
         if dup:
-            return dup
+            return dup                         # already queued: no second sound either
         queue.append(it)
     queue_wake.set()
     save_queue_soon()
+    if sound:
+        play_sound("queued", it)
     return it
 
 
@@ -1218,6 +1254,8 @@ def _file_name(it: dict, outdir: str) -> str:
         base = exports.file_name(ex.get("template", exports.DEFAULT_TEMPLATE), dict(it["name_fields"], title=it["title"] or "clip"))
     else:
         base = _safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
+    # Settings › Hashtags › In file names: the real tags, '#' and all, chosen with the name (so a retry keeps them)
+    base = hashtags.with_tags(base, hashtags.file_tags((it.get("name_fields") or {}).get("streamer", "")))
     with queue_lock:
         claimed = {os.path.normcase(x["name"]) for x in queue if x is not it and x.get("name")
                    and os.path.normcase(x.get("folder") or "") == os.path.normcase(outdir)}
@@ -1424,6 +1462,23 @@ def export_view(sample: Optional[dict] = None) -> dict:
             "preview_name": exports.file_name(prefs["template"], fields) + "." + st["container"]}
 
 
+def hashtags_view(streamer: str = "") -> dict:
+    """Settings › Hashtags, with a preview of a file name and each platform's post tags."""
+    cfg = hashtags.load()
+    who = (streamer or "").strip() or "Kai Cenat"
+    prefs = exports.load()
+    st = exports.settings(prefs)
+    fields = exports.fields_for({"title": "Chat could not stop laughing"}, {"title": "Friday stream", "streamer": who,
+                                                                            "source": "https://www.twitch.tv/videos/1"},
+                                st["preset"], number=7)
+    base = exports.file_name(prefs["template"], fields)
+    auto = titles.hashtags("funny", who) if title_prefs()["hashtags"] else []
+    return {"config": cfg, "suggestions": hashtags.GENERAL_SUGGESTIONS, "streamer": who,
+            "preview": {"file": hashtags.with_tags(base, hashtags.file_tags(who, cfg)) + "." + st["container"],
+                        "post": {k: hashtags.post_tags(auto, who, k, cfg) for k in hashtags.PLATFORMS},
+                        "platform": st["preset"], "post_on": title_prefs()["hashtags"]}}
+
+
 def perf_view() -> dict:
     sp = exports.all_speeds()
     enc = engine._encoder_cache.get("hw")
@@ -1588,49 +1643,24 @@ def friendly_render_error(e: Exception) -> tuple:
     return f"Rendering stopped with an error: {first[:200]}", raw[-1500:]
 
 
-def start_tiktok_post(it: dict, mode: str, body: dict) -> dict:
-    """Upload a finished clip to TikTok (direct post or drafts) as a background job."""
-    job = new_job("tiktok")
-    it["tiktok"] = {"state": "posting", "mode": mode, "job": job["id"], "at": time.time(),
-                    "auto": bool(body.get("auto"))}
-    save_queue_soon()
-
-    def go():
-        try:
-            r = tiktok.post_video(
-                it["path"], mode=mode, title=body.get("title", ""), privacy=body.get("privacy", ""),
-                allow_comment=bool(body.get("allow_comment")), allow_duet=bool(body.get("allow_duet")),
-                allow_stitch=bool(body.get("allow_stitch")), brand_organic=bool(body.get("brand_organic")),
-                brand_content=bool(body.get("brand_content")),
-                progress=job_progress(job, 0, 1), step=job_step(job), check=job_check(job))
-        except Exception as e:
-            it["tiktok"] = {"state": "error", "mode": mode, "error": str(e), "at": time.time()}
-            save_queue_soon()
-            raise
-        url = tiktok.post_url(r.get("post_id", ""))
-        it["tiktok"] = {"state": "done", "mode": mode, "status": r["status"], "post_id": r.get("post_id", ""),
-                        "url": url, "at": time.time(), "auto": bool(body.get("auto"))}
-        save_queue_soon()
-        if not body.get("auto"):
-            try:
-                record_feedback(it["pid"], it.get("clip_id"), "post")
-            except Exception:
-                pass
-        return dict(r, url=url)
-    run_job(job, go)
-    return job
-
-
 def _after_render(it: dict):
-    """Hands-free extras once a clip is ready."""
-    if it.get("auto_draft") and not it.get("tiktok"):
-        st = tiktok.status()
-        if st.get("connected"):
-            try:
-                start_tiktok_post(it, "draft", {"title": it.get("post", "") or it.get("title", ""), "auto": True})
-            except Exception as e:
-                it["tiktok"] = {"state": "error", "mode": "draft", "error": str(e), "at": time.time()}
-                save_queue_soon()
+    """Once a clip is ready: a finished VOD may now be cleaned up (Settings › Storage, off by default)."""
+    if cleanup.load()["vods"]:
+        run_cleanup()
+
+
+def run_cleanup(wait: bool = False):
+    """Settings › Storage › Clean up automatically: the rules that are on (cleanup.py has them)."""
+    def go():
+        with queue_lock:
+            items = [dict(x) for x in queue]
+        open_dirs = {pr["workdir"] for pr in list(projects.values()) if pr.get("workdir")}
+        live_dirs = tuple(os.path.dirname(sess.seg_dir) for sess in live_list())
+        cleanup.sweep(locations.project_roots() or [WORKROOT], items, open_dirs, live_dirs, log=_say)
+    if wait:
+        go()
+    else:
+        threading.Thread(target=go, daemon=True).start()
 
 
 MAX_WORKERS = [1]
@@ -1726,6 +1756,7 @@ def queue_worker(idx: int = 0):
                 it["progress"] = 1.0
                 it["step"] = f"Done in {time.time() - t0:.0f}s"
                 save_queue_soon(0)
+                play_sound("ready", it)
             except engine.Cancelled:
                 with queue_lock:
                     if SHUTTING_DOWN[0]:
@@ -1914,8 +1945,8 @@ def live_on_moment(sess, m: dict):
         c = dict(d, rank=m["number"])
         c["post"] = d.get("post", "")
         it = queue_add(mid, c, extra.get("opts") or {})
-        it["auto_draft"] = bool(extra.get("auto_draft"))
         it["prio"] = _live_prio(d)
+        it["auto"] = True                      # rendered on its own (hands-free), not by you
         it["lat"], it["aired"] = dict(d["lat"]), aired
         d["auto_queued"] = True
     start_listening(mid, [d["id"]], extra.get("model") or "small", extra.get("language") or "", on_done=done)
@@ -1961,7 +1992,7 @@ def start_live_session(src: str, body: dict):
     hands_free = bool(body.get("hands_free", body.get("auto_render")))
     sess.extra = {"auto_render": hands_free, "opts": dict(body.get("opts") or {}),
                   "model": body.get("model") or "small", "language": body.get("language") or "",
-                  "auto_draft": bool(body.get("auto_draft")), "keep_watching": bool(body.get("keep_watching")),
+                  "keep_watching": bool(body.get("keep_watching")),
                   "params": dict(body, source=src), "user_stopped": False}
     live_sessions[sid] = sess
     sess.start()
@@ -1977,7 +2008,7 @@ def _watch_for_next(sess):
     if sess.status != "ended" or sess.extra.get("user_stopped") or not sess.extra.get("keep_watching"):
         return
     params = dict(sess.extra["params"])
-    params.update(wait_for_live=True, opts=sess.extra.get("opts"), auto_draft=sess.extra.get("auto_draft"),
+    params.update(wait_for_live=True, opts=sess.extra.get("opts"),
                   hands_free=sess.extra.get("auto_render"), frequency=sess.frequency, min_quality=sess.min_quality,
                   model=sess.extra.get("model"), language=sess.extra.get("language"))
     try:
@@ -1993,7 +2024,6 @@ def live_view(sess) -> dict:
     v["clips"] = [projects[mid]["clips"][0] for mid in sess.moments if mid in projects and projects[mid]["clips"]]
     v["auto_render"] = bool(sess.extra.get("auto_render"))
     v["hands_free"] = v["auto_render"]
-    v["auto_draft"] = bool(sess.extra.get("auto_draft"))
     v["keep_watching"] = bool(sess.extra.get("keep_watching"))
     v["held"] = sum(1 for c in v["clips"] if c.get("held"))
     v["hotkey_clips"] = getattr(sess, "hotkey_clips", 0)
@@ -2002,17 +2032,6 @@ def live_view(sess) -> dict:
                          (jobs.get(projects[mid].get("listen_job", "")) or {"status": "", "kind": ""}
                           for mid in sess.moments if mid in projects))
     return v
-
-
-def _callback_page(ok: bool, msg: str) -> bytes:
-    color = "#3ec28f" if ok else "#f0565a"
-    head = "TikTok connected" if ok else "TikTok sign-in didn't finish"
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Clip Radar</title>
-<style>body{{margin:0;height:100vh;display:grid;place-items:center;background:#111214;color:#ececee;
-font:15px "Segoe UI",system-ui,sans-serif}}div{{max-width:420px;padding:28px;border:1px solid #2a2b31;border-radius:8px;
-background:#17181b}}h1{{font-size:18px;margin:0 0 8px;display:flex;gap:10px;align-items:center}}
-h1 i{{width:10px;height:10px;border-radius:50%;background:{color};display:inline-block}}p{{color:#a4a7b0;margin:0}}</style>
-</head><body><div><h1><i></i>{head}</h1><p>{msg}</p></div></body></html>""".encode("utf-8")
 
 
 # --------------------------------------------------------------------------
@@ -2162,29 +2181,18 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             sess = live_sessions.get(m.group(1))
             return self._json(live_view(sess)) if sess else self._err("That live session is gone.", 404)
-        if p == "/api/tiktok":
-            return self._json(tiktok.status())
         if p == "/api/twitch":
             return self._json(twitchauth.status(refresh="refresh" in q))
         if p == "/api/learning":
             return self._json(learning.summary())
         if p == "/api/titles":
             return self._json(title_prefs())
+        if p == "/api/hashtags":
+            return self._json(hashtags_view((q.get("streamer") or [""])[0]))
+        if p == "/api/cleanup":
+            return self._json({"config": cleanup.load(), "last": cleanup.last})
         if p == "/api/learning/explain":
             return self._json(learning.explain((q.get("streamer") or [""])[0]))
-        if p == "/callback/" or p == "/callback":
-            params = {k: v[0] for k, v in q.items()}
-            try:
-                who = tiktok.handle_callback(params)
-                page = _callback_page(True, f"Signed in{' as ' + who if who else ''}. You can close this tab and go back to Clip Radar.")
-            except tiktok.TikTokError as e:
-                page = _callback_page(False, str(e))
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(page)))
-            self.end_headers()
-            self.wfile.write(page)
-            return
         if p == "/api/queue":
             with queue_lock:
                 items = [queue_public(it) for it in queue]
@@ -2530,7 +2538,7 @@ class Handler(BaseHTTPRequestHandler):
                         sess.min_quality = int(min(max(int(body["min_quality"] or 0), 0), 95))
                     except (TypeError, ValueError):
                         pass
-                for k in ("auto_draft", "keep_watching"):
+                for k in ("keep_watching",):
                     if k in body:
                         sess.extra[k] = bool(body[k])
                 if "hands_free" in body:
@@ -2540,35 +2548,24 @@ class Handler(BaseHTTPRequestHandler):
                         sess.extra[k] = body[k]
             return self._json(live_view(sess))
 
-        if p.startswith("/api/tiktok/"):
-            act = p[len("/api/tiktok/"):]
+        if p == "/api/handoff":
+            # TikTok Studio: copy the caption (in the window), show the file, open the upload page
+            with queue_lock:
+                it = next((x for x in queue if x["id"] == body.get("item")), None)
+            if not it or it["status"] != "done":
+                return self._err("That clip isn't rendered yet.")
             try:
-                if act == "config":
-                    tiktok.configure(body.get("client_key", ""), body.get("client_secret", ""))
-                    return self._json(tiktok.status())
-                if act == "connect":
-                    url = tiktok.auth_url(SERVER_PORT[0])
-                    if body.get("open", True):
-                        threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
-                    return self._json({"url": url})
-                if act == "disconnect":
-                    tiktok.disconnect()
-                    return self._json(tiktok.status())
-                if act == "creator":
-                    return self._json(tiktok.creator_info())
-                if act == "post":
-                    with queue_lock:
-                        it = next((x for x in queue if x["id"] == body.get("item")), None)
-                    if not it or it["status"] != "done" or not os.path.exists(it.get("path", "")):
-                        return self._err("That clip isn't rendered (or its file was deleted).")
-                    if (it.get("tiktok") or {}).get("state") == "posting":
-                        return self._err("This clip is already being posted.")
-                    mode = "draft" if body.get("mode") == "draft" else "direct"
-                    job = start_tiktok_post(it, mode, body)
-                    return self._json({"job": job["id"]})
-            except tiktok.TikTokError as e:
-                return self._err(str(e), 400)
-            return self._err("not found", 404)
+                r = studio.handoff(it.get("path", ""), it.get("title", ""), it.get("post", ""),
+                                   reveal_file=body.get("reveal", True) is not False)
+            except RuntimeError as e:
+                return self._err(str(e))
+            it["handoff"] = {"at": r["opened_at"], "url": r["url"]}
+            save_queue_soon()
+            try:
+                record_feedback(it["pid"], it.get("clip_id"), "post")    # you chose to post it: a strong "keep"
+            except Exception:
+                pass
+            return self._json(r)
 
         if p == "/api/open_url":
             url = str(body.get("url", ""))
@@ -2764,6 +2761,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/titles":
             return self._json(set_title_prefs(body))
+        if p == "/api/cleanup":
+            cfg = cleanup.save(body.get("config") or {})
+            if body.get("run"):
+                run_cleanup(wait=True)
+            return self._json({"config": cfg, "last": cleanup.last})
+        if p == "/api/hashtags":
+            hashtags.save({k: v for k, v in body.items() if k in ("file", "post")})
+            return self._json(hashtags_view(str(body.get("streamer") or "")))
 
         if p == "/api/framing/track":
             # where the crop will be over a clip (Layout › Follow face), for the preview
@@ -2833,8 +2838,7 @@ class Handler(BaseHTTPRequestHandler):
             if pid not in projects:
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
-                it = queue_add(pid, body.get("clip") or {}, body.get("opts") or {})
-                it["auto_draft"] = bool(body.get("auto_draft"))
+                it = queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=True)
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
             except RuntimeError as e:
@@ -3081,8 +3085,10 @@ def start(port: int = PORT):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     if not _worker_started[0]:
         _worker_started[0] = True
+        _forget_tiktok_api()
         _clean_leftovers()
         load_queue()
+        run_cleanup()
         apply_perf()
         updater.start_background(log=_say)
         hotkey.start(on_hotkey)
@@ -3103,6 +3109,18 @@ def load_queue():
         print(f"  Render queue restored: {len(items)} clip(s)" + (f", {left} to render" if left else ""), flush=True)
     if left:
         queue_wake.set()
+
+
+def _forget_tiktok_api():
+    """4.4 moved TikTok posting to TikTok Studio: the old developer-app key, secret and sign-in
+    (tiktok.dat, encrypted) aren't used by anything any more, so they don't stay on the PC."""
+    f = paths.DATA_DIR / "tiktok.dat"
+    try:
+        if f.exists():
+            f.unlink()
+            print("  Removed the old TikTok sign-in (posting now goes through TikTok Studio).", flush=True)
+    except OSError as e:
+        print(f"  Couldn't remove the old TikTok sign-in file ({e}); it isn't used.", flush=True)
 
 
 def _clean_leftovers():

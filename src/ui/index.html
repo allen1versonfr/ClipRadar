@@ -132,7 +132,6 @@
             <div class="checks col live-opts">
               <label class="chk"><input type="checkbox" id="liveWait" checked><span>Wait for the stream to start<small>Start now even if the channel is offline. Recording begins when it goes live.</small></span></label>
               <label class="chk"><input type="checkbox" id="liveKeep"><span>Keep watching after the stream ends<small>Waits for the channel's next stream and starts again.</small></span></label>
-              <label class="chk" id="liveDraftWrap"><input type="checkbox" id="liveDraft"><span>Send finished clips to my TikTok drafts<small id="liveDraftHint">You finish each post in the TikTok app. Connect TikTok in Settings first.</small></span></label>
             </div>
             <p class="fine ad-note" id="liveAdNote"></p>
             <p class="fine" id="liveHotkeyNote">Keeps the last 15 minutes of the stream on disk and cuts each moment out as it happens.</p>
@@ -416,40 +415,13 @@
             </div>
 
             <div class="tt" id="ttPanel">
-              <div class="tt-head"><svg class="ic"><use href="#i-tiktok"/></svg><h3>Post to TikTok</h3><span class="grow"></span><span class="muted small" id="ttWho"></span></div>
-              <div id="ttConnect" hidden>
-                <p class="muted">Connect a TikTok account to post from Clip Radar.</p>
-                <button class="btn" id="ttGoSettings">Set up TikTok</button>
-              </div>
-              <div class="muted" id="ttLoading" hidden>Checking your TikTok account…</div>
-              <div id="ttForm" hidden>
-                <label class="fld">Caption<textarea class="input" id="ttCaption" rows="4" maxlength="2200"></textarea><span class="hint tnum" id="ttCount"></span></label>
-                <label class="fld">Who can view this video
-                  <select class="input" id="ttPrivacy"><option value="" disabled selected>Choose…</option></select>
-                  <span class="hint">Until TikTok approves your developer app, direct posts can only be private (Only me).</span>
-                </label>
-                <div class="fld">Allow users to
-                  <div class="checks">
-                    <label class="chk"><input type="checkbox" id="ttComment"><span>Comment</span></label>
-                    <label class="chk"><input type="checkbox" id="ttDuet"><span>Duet</span></label>
-                    <label class="chk"><input type="checkbox" id="ttStitch"><span>Stitch</span></label>
-                  </div>
-                </div>
-                <div class="fld">
-                  <label class="switch-label">Disclose video content<span class="switch"><input type="checkbox" id="ttDisclose"><i></i></span></label>
-                  <span class="hint">Turn on if this video promotes you, a brand, a product or a service.</span>
-                  <div class="checks col" id="ttDiscloseOpts" hidden>
-                    <label class="chk"><input type="checkbox" id="ttYourBrand"><span>Your brand<small>You're promoting yourself or your own business.</small></span></label>
-                    <label class="chk" id="ttBrandedWrap"><input type="checkbox" id="ttBranded"><span>Branded content<small>You're promoting another brand or a third party.</small></span></label>
-                    <span class="hint" id="ttLabelHint"></span>
-                  </div>
-                </div>
-                <p class="declare" id="ttDeclare"></p>
-                <div class="err" id="ttErr"></div>
-                <div class="row end">
-                  <button class="btn" id="ttDraft" title="Uploads to your TikTok inbox. You finish posting in the TikTok app.">Send to drafts</button>
-                  <button class="btn primary" id="ttPost"><svg class="ic"><use href="#i-upload"/></svg>Post</button>
-                </div>
+              <div class="tt-head"><svg class="ic"><use href="#i-tiktok"/></svg><h3>Post on TikTok</h3></div>
+              <p class="muted small">Clip Radar gets it ready; you post it in TikTok Studio. The caption is copied, the video is selected in File Explorer to drag in, and TikTok Studio's upload page opens in your browser.</p>
+              <label class="fld">Caption<textarea class="input" id="ttCaption" rows="4" maxlength="2200"></textarea><span class="hint tnum" id="ttCount"></span></label>
+              <div class="err" id="ttErr"></div>
+              <div class="row end">
+                <button class="btn" id="ttCopy"><svg class="ic"><use href="#i-copy"/></svg>Copy caption</button>
+                <button class="btn primary" id="ttStudio"><svg class="ic"><use href="#i-upload"/></svg>Open in TikTok Studio</button>
               </div>
               <div class="tt-status" id="ttStatus" hidden></div>
             </div>
@@ -463,30 +435,10 @@
       <div class="settings">
         <h1>Settings</h1>
 
-        <section class="panel set" id="setTikTok">
-          <header><svg class="ic"><use href="#i-tiktok"/></svg><h2>TikTok</h2><span class="grow"></span><span class="status-dot" id="ttDot"></span><span class="muted" id="ttState"></span></header>
-          <div class="row" id="ttAccount" hidden><span>Signed in as <b id="ttNick"></b> <span class="muted" id="ttUser"></span></span><span class="grow"></span><button class="btn" id="ttDisconnect">Disconnect</button></div>
-          <div id="ttSetup">
-            <p class="muted">TikTok only lets registered apps post. Setting one up is free and takes about 10 minutes.</p>
-            <ol class="steps">
-              <li>Go to <a href="#" data-url="https://developers.tiktok.com/apps/">developers.tiktok.com</a>, sign in and create an app.</li>
-              <li>Add the <b>Login Kit</b> and <b>Content Posting API</b> products, and turn on <b>Direct Post</b>.</li>
-              <li>In Login Kit, choose the <b>Desktop</b> platform and add this redirect URI:
-                <span class="row"><code id="ttRedirect"></code><button class="btn sm" id="ttCopyRedirect"><svg class="ic"><use href="#i-copy"/></svg>Copy</button></span></li>
-              <li>Paste the app's Client key and Client secret below, then connect your account.</li>
-            </ol>
-            <div class="form-grid two">
-              <label>Client key<input class="input" id="ttKey" spellcheck="false" autocomplete="off"></label>
-              <label>Client secret<input class="input" id="ttSecret" type="password" spellcheck="false" autocomplete="off"></label>
-            </div>
-            <div class="row"><button class="btn primary" id="ttConnectBtn">Save and connect</button><span class="muted small" id="ttConnectMsg"></span></div>
-          </div>
-          <p class="fine">Until TikTok reviews your app, direct posts are limited to private (Only me). Sending to drafts works either way; you finish the post in the TikTok app. Your sign-in is stored encrypted for your Windows account.</p>
-        </section>
-
         <section class="panel set" id="setExport">
           <header><svg class="ic"><use href="#i-upload"/></svg><h2>Export format</h2></header>
           <p class="muted" id="exDescribe"></p>
+          <label class="fld switch-label sm" title="Once when you add a clip to the render queue, once when it's ready (also while Clip Radar is minimised)">Play a sound when a clip is queued and when it's ready<span class="switch"><input type="checkbox" id="exSounds" checked><i></i></span></label>
           <div class="fld">Made for
             <div class="seg" id="exPreset"></div>
             <span class="hint" id="exPresetNote"></span>
@@ -554,6 +506,43 @@
           <p class="fine">Only when at least three different chatters typed the same phrase. One viewer spamming, emote walls, F's, links, numbers and usernames never count. Shown as <b>Chat: "…"</b> so it's clear who said it. A strong line said on stream still comes first.</p>
           <label class="fld switch-label">Add hashtags to post captions<span class="switch"><input type="checkbox" id="tpTags" checked><i></i></span></label>
           <p class="fine">Up to five tags that fit the clip (the platform, the streamer, the mood). Hashtags don't help every post, so you can leave them off. You can edit every caption before posting.</p>
+        </section>
+
+        <section class="panel set" id="setTags">
+          <header><svg class="ic"><use href="#i-film"/></svg><h2>Hashtags</h2></header>
+          <p class="muted">Two separate lists: tags added to each exported <b>file name</b>, and tags under the <b>post caption</b> you copy. A streamer's community tags go only where you put them.</p>
+          <div class="tag-cols">
+            <div class="tag-card">
+              <label class="fld switch-label"><b>In file names</b><span class="switch"><input type="checkbox" id="htFileOn" checked><i></i></span></label>
+              <div id="htFileBody">
+                <label class="fld switch-label sm">The streamer's name as a tag<span class="switch"><input type="checkbox" id="htFileName" checked><i></i></span></label>
+                <label class="fld">General tags<input class="input" id="htFileGeneral" placeholder="#TwitchClips #Gaming" spellcheck="false"></label>
+                <div class="chips" id="htSuggest"></div>
+                <label class="fld">Per streamer <span class="hint">one per line: name: tags</span><textarea class="input" id="htFileStreamers" rows="3" placeholder="Kai Cenat: #KaiCenat #Mafia" spellcheck="false"></textarea></label>
+                <label class="fld inline">At most<select class="input" id="htFileMax"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label>
+              </div>
+            </div>
+            <div class="tag-card">
+              <div class="fld"><b>In post captions</b><span class="hint">On or off with "Add hashtags to post captions" above.</span></div>
+              <label class="fld switch-label sm" title="The platform, the streamer and the clip's mood">Clip Radar's tags for each clip<span class="switch"><input type="checkbox" id="htPostAuto" checked><i></i></span></label>
+              <label class="fld">On every post<input class="input" id="htPostGlobal" placeholder="#fyp #clips" spellcheck="false"></label>
+              <label class="fld">Per streamer <span class="hint">one per line: name: tags</span><textarea class="input" id="htPostStreamers" rows="3" placeholder="Kai Cenat: #KaiCenatClips" spellcheck="false"></textarea></label>
+              <div class="fld">Per platform
+                <div class="plat-tags">
+                  <label>TikTok<input class="input" data-plat="tiktok" spellcheck="false"></label>
+                  <label>Shorts<input class="input" data-plat="shorts" spellcheck="false"></label>
+                  <label>Reels<input class="input" data-plat="reels" spellcheck="false"></label>
+                  <label>X<input class="input" data-plat="x" spellcheck="false"></label>
+                </div>
+              </div>
+              <label class="fld inline">At most<select class="input" id="htPostMax"><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option><option>10</option><option>12</option><option>15</option></select></label>
+            </div>
+          </div>
+          <div class="tag-preview">
+            <label class="fld inline">Preview for<input class="input" id="htStreamer" placeholder="Kai Cenat" spellcheck="false"></label>
+            <div class="fine">File name: <code id="htFilePrev"></code></div>
+            <div class="fine" id="htPostPrev"></div>
+          </div>
         </section>
 
         <section class="panel set" id="setSafety">
@@ -637,6 +626,15 @@
           <div class="loc-rows" id="locRows"></div>
           <p class="fine">New work goes to a folder you change; nothing already there is moved, and Clip Radar still finds older projects.</p>
           <div class="store-rows" id="storeRows"></div>
+          <div class="clean-auto">
+            <h3>Clean up automatically</h3>
+            <label class="fld switch-label sm" title="Previews, framing data and finished live buffers nobody has used for 3 days, and downloads that stopped over a day ago">Old temporary files<span class="switch"><input type="checkbox" id="clTemp" checked><i></i></span></label>
+            <label class="fld switch-label sm" title="Only clips that rendered on their own in hands-free live clipping. Clips you rendered yourself are never touched.">Delete a hands-free clip's file when you skip it<span class="switch"><input type="checkbox" id="clSkipped"><i></i></span></label>
+            <label class="fld switch-label sm">Delete a VOD when you're finished with it<span class="switch"><input type="checkbox" id="clVods"><i></i></span></label>
+            <label class="fld inline" id="clDaysRow">Not opened for<select class="input" id="clDays"><option value="1">1 day</option><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label>
+            <p class="fine">Finished means: every suggested clip kept or skipped, every kept clip rendered, and no render waiting or failed (a retry needs the video). Only the downloaded video goes; your rendered clips and your review always stay.</p>
+            <p class="fine" id="clLast"></p>
+          </div>
         </section>
 
         <section class="panel set" id="setUpdates">
