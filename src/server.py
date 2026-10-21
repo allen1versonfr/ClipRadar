@@ -55,6 +55,7 @@ import exports
 import framing
 import sources
 import gems
+import hashtags
 import learning
 import persist
 import twitchauth
@@ -366,7 +367,11 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     d["title_b"] = safety.mask_text(info["title_b"], cfg)
     d["title_b_named"] = info["title_b_named"]
     d["description"] = safety.mask_text(info["description"], cfg)
-    d["hashtags"] = info["hashtags"]
+    # Settings › Hashtags › In post captions: the clip's own tags plus your defaults (all posts, this
+    # streamer, this platform)
+    d["hashtags"] = hashtags.post_tags(info["hashtags"], _streamer_name(pr), exports.load()["preset"])
+    if not d.get("user_title") and not d.get("userTitle"):
+        d["post"] = safety.mask_text(titles.compose(info["description"], d["hashtags"], tp["hashtags"]), cfg)
     d["titles"] = [safety.mask_text(t, cfg) for t in info["titles"]]
     d["vibe"] = info["vibe"]
     d["emoji"] = info["emoji"]
@@ -1218,6 +1223,8 @@ def _file_name(it: dict, outdir: str) -> str:
         base = exports.file_name(ex.get("template", exports.DEFAULT_TEMPLATE), dict(it["name_fields"], title=it["title"] or "clip"))
     else:
         base = _safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
+    # Settings › Hashtags › In file names: the real tags, '#' and all, chosen with the name (so a retry keeps them)
+    base = hashtags.with_tags(base, hashtags.file_tags((it.get("name_fields") or {}).get("streamer", "")))
     with queue_lock:
         claimed = {os.path.normcase(x["name"]) for x in queue if x is not it and x.get("name")
                    and os.path.normcase(x.get("folder") or "") == os.path.normcase(outdir)}
@@ -1422,6 +1429,23 @@ def export_view(sample: Optional[dict] = None) -> dict:
             "presets": [{"key": k, "label": v["label"], "note": v["note"]} for k, v in exports.PRESETS.items()],
             "advanced": {k: list(v) for k, v in exports.ADVANCED.items()}, "tokens": list(exports.TOKENS),
             "preview_name": exports.file_name(prefs["template"], fields) + "." + st["container"]}
+
+
+def hashtags_view(streamer: str = "") -> dict:
+    """Settings › Hashtags, with a preview of a file name and each platform's post tags."""
+    cfg = hashtags.load()
+    who = (streamer or "").strip() or "Kai Cenat"
+    prefs = exports.load()
+    st = exports.settings(prefs)
+    fields = exports.fields_for({"title": "Chat could not stop laughing"}, {"title": "Friday stream", "streamer": who,
+                                                                            "source": "https://www.twitch.tv/videos/1"},
+                                st["preset"], number=7)
+    base = exports.file_name(prefs["template"], fields)
+    auto = titles.hashtags("funny", who) if title_prefs()["hashtags"] else []
+    return {"config": cfg, "suggestions": hashtags.GENERAL_SUGGESTIONS, "streamer": who,
+            "preview": {"file": hashtags.with_tags(base, hashtags.file_tags(who, cfg)) + "." + st["container"],
+                        "post": {k: hashtags.post_tags(auto, who, k, cfg) for k in hashtags.PLATFORMS},
+                        "platform": st["preset"], "post_on": title_prefs()["hashtags"]}}
 
 
 def perf_view() -> dict:
@@ -2170,6 +2194,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(learning.summary())
         if p == "/api/titles":
             return self._json(title_prefs())
+        if p == "/api/hashtags":
+            return self._json(hashtags_view((q.get("streamer") or [""])[0]))
         if p == "/api/learning/explain":
             return self._json(learning.explain((q.get("streamer") or [""])[0]))
         if p == "/callback/" or p == "/callback":
@@ -2764,6 +2790,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/titles":
             return self._json(set_title_prefs(body))
+        if p == "/api/hashtags":
+            hashtags.save({k: v for k, v in body.items() if k in ("file", "post")})
+            return self._json(hashtags_view(str(body.get("streamer") or "")))
 
         if p == "/api/framing/track":
             # where the crop will be over a clip (Layout › Follow face), for the preview

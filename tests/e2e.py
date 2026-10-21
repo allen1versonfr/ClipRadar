@@ -440,6 +440,14 @@ def export_checks(ctx):
         got = _probe_size(os.path.join(d["folder"], d["name"])) if d and d["status"] == "done" else None
         rec("X preset renders at 720x1280", got and got[:2] == (720, 1280), got or (d and d.get("error")))
         rec("file name follows the template", d and d.get("name", "").endswith(f"{int(c['id']):02d} - X size.mp4"), d and d.get("name"))
+        post("/api/hashtags", {"file": {"enabled": True, "general": ["#TwitchClips", "#Gaming"]}})
+        tg = post("/api/queue/add", {"pid": pid, "clip": dict(base, title="Tagged", rank=c["id"] + 1000, words=None,
+                                                             start=base["start"] + 1), "opts": opts})
+        dt = _wait_item(tg.get("id"), 240)
+        tname = (dt or {}).get("name", "")
+        rec("hashtags are in the rendered file's name", dt and dt["status"] == "done" and "_#TwitchClips_#Gaming" in tname
+            and os.path.isfile(os.path.join(dt["folder"], tname)), tname or (dt and dt.get("error")))
+        post("/api/hashtags", {"file": {"enabled": False}})
         srt = os.path.join(d["folder"], os.path.splitext(d["name"])[0] + ".srt") if d and d.get("name") else ""
         txt = open(srt, encoding="utf-8").read() if srt and os.path.isfile(srt) else ""
         rec("captions also saved as .srt", "hello there" in txt.lower() and "-->" in txt and d.get("srt"), txt[:80] or srt)
@@ -698,6 +706,9 @@ def main():
         rec("app starts", st, f"version {st and st.get('version')}")
         if not st:
             return finish(a.out)
+        # file-name hashtags are on by default; the name checks below are about titles and
+        # templates, so they run without tags (export_checks turns them on for its own check)
+        _try(lambda: post("/api/hashtags", {"file": {"enabled": False}}))
 
         # ------------------------------------------------------------ VOD: chat cleaning, smart cuts, deep scan, learning
         ctx = vod_checks(a, tmp)

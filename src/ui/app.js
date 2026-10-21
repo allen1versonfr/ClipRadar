@@ -2582,12 +2582,69 @@ function syncTitlePrefs() {
 async function saveTitlePrefs(patch) {
   try { titlePrefs = await api('/api/titles', patch); } catch (e) { toast(e.message, 'err'); }
   syncTitlePrefs();
+  if ('hashtags' in patch && typeof loadHashtags === 'function') loadHashtags();
 }
 $('#tpPick').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveTitlePrefs({ pick: v }); };
 $('#tpTags').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
 $('#tpChat').onchange = e => saveTitlePrefs({ chat_titles: e.target.checked });
 $('#tagsOn').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
 api('/api/titles').then(t => { titlePrefs = t; syncTitlePrefs(); }).catch(() => {});
+
+/* --- Settings › Hashtags: file names and post captions, configured separately --- */
+let htCfg = null, htTimer = 0;
+const htStreamersText = m => Object.entries(m || {}).map(([k, v]) => `${k}: ${v.join(' ')}`).join('\n');
+function htStreamersParse(txt) {
+  const out = {};
+  for (const line of (txt || '').split('\n')) {
+    const i = line.indexOf(':'); if (i < 1) continue;
+    const name = line.slice(0, i).trim(); const tags = line.slice(i + 1).trim();
+    if (name && tags) out[name] = tags.split(/[\s,]+/).filter(Boolean);
+  }
+  return out;
+}
+function renderHashtags(v) {
+  htCfg = v.config;
+  const f = htCfg.file, p = htCfg.post;
+  const busy = el => document.activeElement === el;
+  $('#htFileOn').checked = f.enabled; $('#htFileBody').hidden = !f.enabled;
+  $('#htFileName').checked = f.streamer_tag;
+  if (!busy($('#htFileGeneral'))) $('#htFileGeneral').value = f.general.join(' ');
+  if (!busy($('#htFileStreamers'))) $('#htFileStreamers').value = htStreamersText(f.streamers);
+  $('#htFileMax').value = String(f.max);
+  $('#htPostAuto').checked = p.auto;
+  if (!busy($('#htPostGlobal'))) $('#htPostGlobal').value = p.global.join(' ');
+  if (!busy($('#htPostStreamers'))) $('#htPostStreamers').value = htStreamersText(p.streamers);
+  $$('#setTags [data-plat]').forEach(el => { if (!busy(el)) el.value = (p.platforms[el.dataset.plat] || []).join(' '); });
+  $('#htPostMax').value = String(p.max);
+  const have = new Set(f.general.map(t => t.toLowerCase()));
+  $('#htSuggest').innerHTML = v.suggestions.filter(t => !have.has(t.toLowerCase())).map(t => `<button data-tag="${esc(t)}">+ ${esc(t)}</button>`).join('');
+  $('#htFilePrev').textContent = f.enabled ? v.preview.file : v.preview.file.replace(/_#\S+/g, '') + ' (no tags)';
+  const names = { tiktok: 'TikTok', shorts: 'Shorts', reels: 'Reels', x: 'X' };
+  $('#htPostPrev').innerHTML = v.preview.post_on
+    ? Object.entries(v.preview.post).map(([k, t]) => `${names[k]}: <code>${esc(t.join(' ') || '(none)')}</code>`).join('<br>')
+    : 'Post captions: hashtags are off (Titles and captions › Add hashtags to post captions).';
+}
+async function loadHashtags() {
+  try { renderHashtags(await api('/api/hashtags?streamer=' + encodeURIComponent($('#htStreamer').value || ''))); } catch {}
+}
+function htCollect() {
+  const plat = {}; $$('#setTags [data-plat]').forEach(el => { plat[el.dataset.plat] = el.value.split(/[\s,]+/).filter(Boolean); });
+  return {
+    file: { enabled: $('#htFileOn').checked, streamer_tag: $('#htFileName').checked, general: $('#htFileGeneral').value,
+            streamers: htStreamersParse($('#htFileStreamers').value), max: +$('#htFileMax').value },
+    post: { auto: $('#htPostAuto').checked, global: $('#htPostGlobal').value, streamers: htStreamersParse($('#htPostStreamers').value),
+            platforms: plat, max: +$('#htPostMax').value },
+    streamer: $('#htStreamer').value || '',
+  };
+}
+function saveHashtagsSoon(now) {
+  clearTimeout(htTimer);
+  htTimer = setTimeout(async () => { try { renderHashtags(await api('/api/hashtags', htCollect())); } catch (e) { toast(e.message, 'err'); } }, now ? 0 : 500);
+}
+$('#setTags').addEventListener('input', e => { if (e.target.id === 'htStreamer') { clearTimeout(htTimer); htTimer = setTimeout(loadHashtags, 300); } else saveHashtagsSoon(); });
+$('#setTags').addEventListener('change', e => { if (e.target.matches('input[type=checkbox], select')) saveHashtagsSoon(true); });
+$('#htSuggest').onclick = e => { const b = e.target.closest('[data-tag]'); if (!b) return; $('#htFileGeneral').value = ($('#htFileGeneral').value + ' ' + b.dataset.tag).trim(); saveHashtagsSoon(true); };
+loadHashtags();
 
 /* =============================================================== export format, caption words, performance (3.7) */
 let queueEta = null, exState = null, capPresets = [], framePresets = [];

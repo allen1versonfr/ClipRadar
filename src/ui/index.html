@@ -556,6 +556,43 @@
           <p class="fine">Up to five tags that fit the clip (the platform, the streamer, the mood). Hashtags don't help every post, so you can leave them off. You can edit every caption before posting.</p>
         </section>
 
+        <section class="panel set" id="setTags">
+          <header><svg class="ic"><use href="#i-film"/></svg><h2>Hashtags</h2></header>
+          <p class="muted">Two separate lists: tags added to each exported <b>file name</b>, and tags under the <b>post caption</b> you copy. A streamer's community tags go only where you put them.</p>
+          <div class="tag-cols">
+            <div class="tag-card">
+              <label class="fld switch-label"><b>In file names</b><span class="switch"><input type="checkbox" id="htFileOn" checked><i></i></span></label>
+              <div id="htFileBody">
+                <label class="fld switch-label sm">The streamer's name as a tag<span class="switch"><input type="checkbox" id="htFileName" checked><i></i></span></label>
+                <label class="fld">General tags<input class="input" id="htFileGeneral" placeholder="#TwitchClips #Gaming" spellcheck="false"></label>
+                <div class="chips" id="htSuggest"></div>
+                <label class="fld">Per streamer <span class="hint">one per line: name: tags</span><textarea class="input" id="htFileStreamers" rows="3" placeholder="Kai Cenat: #KaiCenat #Mafia" spellcheck="false"></textarea></label>
+                <label class="fld inline">At most<select class="input" id="htFileMax"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label>
+              </div>
+            </div>
+            <div class="tag-card">
+              <div class="fld"><b>In post captions</b><span class="hint">On or off with "Add hashtags to post captions" above.</span></div>
+              <label class="fld switch-label sm" title="The platform, the streamer and the clip's mood">Clip Radar's tags for each clip<span class="switch"><input type="checkbox" id="htPostAuto" checked><i></i></span></label>
+              <label class="fld">On every post<input class="input" id="htPostGlobal" placeholder="#fyp #clips" spellcheck="false"></label>
+              <label class="fld">Per streamer <span class="hint">one per line: name: tags</span><textarea class="input" id="htPostStreamers" rows="3" placeholder="Kai Cenat: #KaiCenatClips" spellcheck="false"></textarea></label>
+              <div class="fld">Per platform
+                <div class="plat-tags">
+                  <label>TikTok<input class="input" data-plat="tiktok" spellcheck="false"></label>
+                  <label>Shorts<input class="input" data-plat="shorts" spellcheck="false"></label>
+                  <label>Reels<input class="input" data-plat="reels" spellcheck="false"></label>
+                  <label>X<input class="input" data-plat="x" spellcheck="false"></label>
+                </div>
+              </div>
+              <label class="fld inline">At most<select class="input" id="htPostMax"><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option><option>10</option><option>12</option><option>15</option></select></label>
+            </div>
+          </div>
+          <div class="tag-preview">
+            <label class="fld inline">Preview for<input class="input" id="htStreamer" placeholder="Kai Cenat" spellcheck="false"></label>
+            <div class="fine">File name: <code id="htFilePrev"></code></div>
+            <div class="fine" id="htPostPrev"></div>
+          </div>
+        </section>
+
         <section class="panel set" id="setSafety">
           <header><svg class="ic"><use href="#i-alert"/></svg><h2>Content check</h2><span class="grow"></span><label class="switch"><input type="checkbox" id="sfOn" checked><i></i></label></header>
           <p class="muted">Checks what each clip says, its title and its post caption for things that get TikTok videos taken down or held back, before anything is posted.</p>
