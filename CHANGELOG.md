@@ -1,5 +1,20 @@
 # Changelog
 
+All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
+
+## [4.1.6] - 2026-10-21
+
+Faster start, less memory while idle. First checkpoint of the Clip Radar 5 work (audit and measurements).
+
+### Fixed
+- Opening Clip Radar no longer loads the speech recogniser, the downloader and the laughter detector just to show that they're installed. They load when they're first used. On a test machine the app answers about 130 ms sooner after opening and uses about 46 MB less memory while idle (see docs/audits/clip-radar-5-audit.md for how this was measured).
+- The changelog's introduction is back at the top.
+
+### Changed
+- Every build reports its package size (biggest parts) and how long the packaged app takes to answer after starting, with its memory once idle, so later changes can be compared against real numbers.
+- scripts/bench_startup.py measures the same startup numbers when running from source.
+
 ## [4.1.5] - 2026-10-20
 
 Reliability fixes for stalled processing and failed clip renders.
@@ -14,9 +29,6 @@ Reliability fixes for stalled processing and failed clip renders.
 - Add inactivity watchdogs for yt-dlp acquisition and FFmpeg rendering so stalled work fails with an actionable error instead of running forever.
 - Add network socket timeouts and retry bounds to yt-dlp acquisition paths.
 - Add crop-boundary regression coverage.
-
-All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [4.1.0] - 2026-10-14
 

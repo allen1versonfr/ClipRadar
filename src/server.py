@@ -2081,9 +2081,9 @@ class Handler(BaseHTTPRequestHandler):
             ts = tools_setup.status()
             return self._json({
                 "ffmpeg": ts["ffmpeg"],
-                "ytdlp": ts["ytdlp_exe"] or _has("yt_dlp"),
-                "whisper": engine.whisper_available(),
-                "laughter": audio_events.available(),
+                "ytdlp": ts["ytdlp_exe"] or _has("yt_dlp", load=False),
+                "whisper": _has("faster_whisper", load=False),
+                "laughter": _has("onnxruntime", load=False) and audio_events.model_path() is not None,
                 "twitchdownloader": ts["twitchdownloader"],
                 "can_download_tools": ts["can_download"],
                 "workroot": WORKROOT,
@@ -2984,7 +2984,18 @@ def pick_file(kind: str) -> str:
             root.destroy()
 
 
-def _has(mod: str) -> bool:
+def _has(mod: str, load: bool = True) -> bool:
+    """Is a package there? load=False only looks for it: importing faster_whisper, yt_dlp or
+    onnxruntime just to say "installed" costs ~50 MB and a few hundred ms, and the window
+    asks every few seconds from the moment it opens."""
+    if not load:
+        if mod in sys.modules:
+            return True
+        try:
+            import importlib.util
+            return importlib.util.find_spec(mod) is not None
+        except Exception:
+            return False
     try:
         __import__(mod)
         return True
