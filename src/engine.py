@@ -1824,6 +1824,7 @@ class RenderOpts:
     abitrate: int = 192             # kbps
     container: str = "mp4"          # mp4 | mov | webm
     loudness: float = -14.0         # LUFS target; 0 = leave the volume as it is (peaks are still limited)
+    gain_db: float = 0.0            # this clip louder or quieter (Clip tab › Volume), -12..+12 dB
     denoise: bool = False           # reduce steady background noise
     voice: bool = False             # make speech clearer (gentle compression) without burying game audio
     cap_outline: int = 100          # caption outline, percent of normal
@@ -1868,7 +1869,17 @@ def audio_filter(o: "RenderOpts") -> str:
     if getattr(o, "voice", False):
         f.append("highpass=f=80,acompressor=threshold=-20dB:ratio=2.5:attack=10:release=200:makeup=2")
     lufs = float(getattr(o, "loudness", -14.0) or 0)
-    f.append(f"loudnorm=I={lufs:g}:TP=-1.5:LRA=11" if lufs < 0 else "alimiter=limit=0.89:level=false")
+    gain = max(-12.0, min(12.0, float(getattr(o, "gain_db", 0) or 0)))
+    if lufs < 0:
+        f.append(f"loudnorm=I={lufs:g}:TP=-1.5:LRA=11")
+        if gain:
+            # after evening out (which would undo it if it came first), then peaks kept under -1 dB.
+            # Raising loudnorm's own target instead measured *quieter* on peaky audio (true-peak bound).
+            f += [f"volume={gain:g}dB", "alimiter=limit=0.89:level=false"]
+    else:
+        if gain:
+            f.append(f"volume={gain:g}dB")
+        f.append("alimiter=limit=0.89:level=false")
     f.append("aresample=48000")
     return ",".join(f)
 

@@ -3,6 +3,21 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.6.0] - 2026-10-21
+
+A cleaner, flatter look with a yellow accent, and quicker editing.
+
+### Added
+- Caption templates (Text tab): Signature yellow, Karaoke, Boxed, Bold bounce, Clean subtitles and Word by word. Pick one, then change anything; your own saved styles sit next to them.
+- Reset to default (Text tab) puts captions and the title back to how they look out of the box, without moving them.
+- Show what TikTok covers (Text tab): keep the areas under TikTok's buttons, caption and top bar shaded in the preview while you place text and watermarks, not only while dragging.
+- Volume for each clip (Clip tab): from much quieter to louder, on top of Even out volume. Peaks stay under -1 dB, so the loudest steps are held back a little.
+- More yellow highlight colours for captions.
+
+### Changed
+- A flat look: the accent is now a restrained signature yellow (primary buttons, selection, progress, switches) with dark text on it, and decorative gradients and heavy shadows are gone.
+- The leftover TikTok posting settings code is removed.
+
 ## [4.5.0] - 2026-10-21
 
 Better-looking exports: the stream's real frame rate, quality presets, a watermark, animated captions, and blur-fit that works with any video shape.

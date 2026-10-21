@@ -977,6 +977,11 @@ def _apply_clip_state(pr: dict, d: dict, b: dict):
         d["title"] = str(b["title"] or "")[:120]
     if "postText" in b:
         d["postText"] = str(b["postText"] or "")[:2200]
+    if "gain" in b:
+        try:
+            d["gain"] = max(-12.0, min(12.0, float(b["gain"] or 0)))
+        except (TypeError, ValueError):
+            pass
     if "words_edit" in b:
         ws = _clean_words(b["words_edit"])
         if ws is None:
@@ -1193,6 +1198,7 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
     it = {"id": uuid.uuid4().hex[:8], "pid": pid, "clip_id": c.get("id"), "rank": int(c.get("rank") or 0),
           "start": start_, "end": end_, "title": str(c.get("title") or "")[:120],
           "post": str(c.get("post") or "")[:2200], "thumb": c.get("thumb", ""),
+          "gain": max(-12.0, min(12.0, float(c.get("gain") or 0))),
           "source_title": pr.get("title", ""),
           # enough to render it after a restart, when the project isn't open any more
           "video": pr.get("video", ""), "workdir": pr.get("workdir", ""), "live": pr.get("live", ""),
@@ -1368,6 +1374,7 @@ def _render_item(it: dict):
         raise RuntimeError("The VOD for this clip was deleted.")
     ex = it.get("export") or {}
     ro = _ropts(it["opts"], ex)
+    ro.gain_db = max(-12.0, min(12.0, float(it.get("gain") or 0)))       # Clip tab › Volume
     subs = ex.get("subtitles", "burn")
     outdir = locations.clips_dir(pr["workdir"])          # Settings › Storage › Rendered clips
     os.makedirs(outdir, exist_ok=True)
