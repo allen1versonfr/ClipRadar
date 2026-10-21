@@ -3,6 +3,14 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.7.0] - 2026-10-21
+
+Release preparation: updating is tested from the previous Clip Radar, and the guide covers everything new.
+
+### Changed
+- The user guide (README.txt next to the app) covers what changed since 4.1: titles from chat, What it learned, F-spam, clip counts, automatic cleanup, quality and frame rate, the watermark, caption animations and templates, Show what TikTok covers, and each clip's volume.
+- Every build now also installs the previous Clip Radar release, uses it a little, updates it from inside the app and checks that settings, the Exports list and the old clips carry over, the old TikTok sign-in is removed, and the new settings start at their defaults. Updating from VodClipper 3.11 was already tested this way.
+
 ## [4.6.0] - 2026-10-21
 
 A cleaner, flatter look with a yellow accent, and quicker editing.

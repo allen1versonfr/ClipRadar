@@ -315,6 +315,82 @@ jobs:
           if ($passed.Count -ne $results.Count) { exit 1 }
           exit 0
 
+      - name: Test updating from the previous Clip Radar release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # the update most people will do: the last published Clip Radar, used a little, updated in the app
+          $ErrorActionPreference = "Continue"
+          $results = [System.Collections.Generic.List[object]]::new()
+          function Check($name, $ok, $detail = "") { $results.Add([pscustomobject]@{ name = $name; ok = [bool]$ok; detail = "$detail" }) }
+          Remove-Item Env:CLIPRADAR_WORK, Env:VODCLIPPER_WORK -ErrorAction SilentlyContinue
+          $app = "$env:LOCALAPPDATA\Programs\Clip Radar"; $data = "$env:LOCALAPPDATA\ClipRadar"
+          $cur = (Select-String -Path src/version.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          $old = @(gh release list --limit 30 --json tagName --jq '.[].tagName' | Where-Object { $_ -match '^v4\.\d+\.\d+$' -and $_ -ne "v$cur" })[0]
+          Check "found the previous release" $old "$old (building $cur)"
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\prev" | Out-Null
+          gh release download $old -p ClipRadar-Setup.exe -D "$env:RUNNER_TEMP\prev" --clobber
+          Start-Process "$env:RUNNER_TEMP\prev\ClipRadar-Setup.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/TASKS=desktopicon" -Wait
+          Check "previous release installed" (Test-Path "$app\ClipRadar.exe")
+
+          $p = Start-Process "$app\ClipRadar.exe" -ArgumentList "--browser" -PassThru
+          $st = $null
+          foreach ($i in 1..40) { Start-Sleep 2; try { $st = Invoke-RestMethod http://127.0.0.1:7860/api/status; break } catch {} }
+          Check "previous release runs" ($st -and ("v" + $st.version) -eq $old) "$($st.version)"
+          Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/export -Body '{"preset":"shorts","template":"{streamer} - {title}"}' -ContentType 'application/json' | Out-Null
+          $root = $st.workroot
+          Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null
+          Start-Sleep 3; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          # what an older copy may have left: a TikTok developer-app sign-in and a finished export
+          Set-Content "$data\tiktok.dat" "plain:e30="
+          $proj = Join-Path $root "vod_1"
+          New-Item -ItemType Directory -Force "$proj\tiktok" | Out-Null
+          '{"title":"Old project","source":"https://www.twitch.tv/videos/1"}' | Set-Content "$proj\meta.json"
+          Set-Content "$proj\tiktok\Old clip.mp4" "fake clip"
+          $q = @{ v = 1; items = @(@{ id = "prev1234"; pid = "p1"; start = 0; end = 5; title = "Old clip"; status = "done"; path = "$proj\tiktok\Old clip.mp4";
+                  folder = "$proj\tiktok"; name = "Old clip.mp4"; workdir = $proj; video = "$proj\vod.mp4"; opts = @{};
+                  tiktok = @{ state = "done"; mode = "draft"; at = 1 } }) }
+          $q | ConvertTo-Json -Depth 5 | Set-Content "$data\queue.json" -Encoding utf8
+
+          $gh = Start-Process python -ArgumentList "tests/mock_github.py","9492","v99.0.0","$(Resolve-Path dist\ClipRadar-Setup.exe)" -PassThru -WindowStyle Hidden
+          $env:CLIPRADAR_UPDATE_API = "http://127.0.0.1:9492/repos/allen1versonfr/vodclipper/releases/latest"
+          $p = Start-Process "$app\ClipRadar.exe" -ArgumentList "--browser" -PassThru
+          $u = $null
+          foreach ($n in 1..40) { Start-Sleep 2; try { $u = Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/update/check -Body '{}' -ContentType 'application/json'; break } catch {} }
+          Check "the previous release finds the update" ($u -and $u.available -and $u.can_install) ($u | ConvertTo-Json -Compress)
+          try { Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/update/install -Body '{}' -ContentType 'application/json' | Out-Null } catch {}
+          Check "it closes for the update" ($p.WaitForExit(180000))
+          $back = $null
+          foreach ($n in 1..60) { Start-Sleep 3; try { $back = Invoke-RestMethod http://127.0.0.1:7860/api/status; if ($back.version -ne $st.version) { break } } catch {} }
+          Check "the new version opens after updating" ($back -and $back.version -eq $cur) "$($back.version)"
+          Start-Sleep 4
+          $ex = $null; try { $ex = Invoke-RestMethod http://127.0.0.1:7860/api/export } catch {}
+          Check "export settings kept" ($ex -and $ex.prefs.preset -eq "shorts" -and $ex.prefs.template -eq "{streamer} - {title}") "$($ex.prefs.preset) / $($ex.prefs.template)"
+          Check "new settings start at their defaults" ($ex -and $ex.prefs.quality -eq "balanced" -and -not $ex.prefs.watermark.on) "$($ex.prefs.quality)"
+          $qq = $null; try { $qq = Invoke-RestMethod http://127.0.0.1:7860/api/queue } catch {}
+          $it = @($qq.items | Where-Object { $_.id -eq "prev1234" })[0]
+          $served = $false; if ($it -and $it.url) { try { $served = (Invoke-WebRequest "http://127.0.0.1:7860$($it.url)" -UseBasicParsing).StatusCode -eq 200 } catch {} }
+          Check "Exports still has the earlier clip" ($it -and $served) ($it | ConvertTo-Json -Compress)
+          Check "the old TikTok sign-in is removed" (-not (Test-Path "$data\tiktok.dat"))
+          $ht = $null; try { $ht = Invoke-RestMethod http://127.0.0.1:7860/api/hashtags } catch {}
+          Check "hashtag settings work after the update" ($ht -and $ht.config.file.enabled) ($ht.preview.file)
+          try { Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null } catch {}
+          Start-Sleep 4
+          Get-Process ClipRadar -ErrorAction SilentlyContinue | Stop-Process -Force
+          Stop-Process -Id $gh.Id -Force -ErrorAction SilentlyContinue
+          Remove-Item Env:CLIPRADAR_UPDATE_API -ErrorAction SilentlyContinue
+          if (Test-Path "$app\unins000.exe") { Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DELETECLIPS=1" -Wait }
+          foreach ($i in 1..30) { if (-not (Test-Path "$app\ClipRadar.exe")) { break }; Start-Sleep 2 }
+          Start-Sleep 3
+          Check "the updated install uninstalls cleanly" ((-not (Test-Path $app)) -and (-not (Test-Path $data)))
+
+          $passed = @($results | Where-Object { $_.ok })
+          Write-Host "::notice title=Update from $old passed ($($passed.Count) of $($results.Count))::$(($passed | ForEach-Object { $_.name }) -join ', ')"
+          foreach ($r in $results) { if (-not $r.ok) { Write-Host "::error title=FAIL $($r.name)::$($r.detail)" } }
+          if ($passed.Count -ne $results.Count) { exit 1 }
+          exit 0
+
       - name: Test install and uninstall
         shell: pwsh
         run: |

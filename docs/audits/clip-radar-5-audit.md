@@ -399,3 +399,18 @@ Added:
 
 Not done: a multitrack editor (outside this architecture's direction) and keyboard-driven caption
 templates.
+
+## 13. Milestone 7 (4.7.0) — release preparation
+
+- **Version migration:** none needed. The owner kept the existing numbering (see §10), so every
+  installed copy sees 4.7.0 as a normal update and no tag clashes with the VodClipper 1.x archives.
+- **New CI step, "Test updating from the previous Clip Radar release":**
+  - installs the newest published 4.x release, uses it, and plants an old TikTok sign-in and a
+    finished Exports item;
+  - updates in the app through the mock release server;
+  - checks the new version opens, export settings are kept, the new settings start at their
+    defaults, the earlier clip is still served from Exports, the old sign-in is removed, and
+    hashtag settings work;
+  - checks the updated install uninstalls cleanly.
+- **User guide updated** for Milestones 3–6.
+- **Final report:** `docs/clip-radar-5-report.md`.
