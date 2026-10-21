@@ -161,26 +161,33 @@ jobs:
       - name: Smoke test (app server starts)
         shell: pwsh
         run: |
+          # three starts, median reported: one start on a shared runner varies too much to compare builds
           $env:CLIPRADAR_WORK = "$env:RUNNER_TEMP\vc-work"
-          $p = Start-Process dist/ClipRadar/ClipRadar.exe -ArgumentList "--browser" -PassThru
-          $sw = [Diagnostics.Stopwatch]::StartNew()
-          $ok = $false
-          foreach ($i in 1..400) {
-            Start-Sleep -Milliseconds 200
-            try { $r = Invoke-RestMethod http://127.0.0.1:7860/api/status -TimeoutSec 5; if ($r.version) { $ok = $true; break } } catch {}
+          $times = @(); $mems = @(); $ok = $false
+          foreach ($run in 1..3) {
+            $p = Start-Process dist/ClipRadar/ClipRadar.exe -ArgumentList "--browser" -PassThru
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $ok = $false
+            foreach ($i in 1..400) {
+              Start-Sleep -Milliseconds 100
+              try { $r = Invoke-RestMethod http://127.0.0.1:7860/api/status -TimeoutSec 5; if ($r.version) { $ok = $true; break } } catch {}
+            }
+            $times += $sw.ElapsedMilliseconds
+            if ($ok) {
+              Start-Sleep 2
+              $p.Refresh()
+              $mems += [math]::Round($p.WorkingSet64 / 1MB)
+              if ($run -eq 3) {
+                $page = (Invoke-WebRequest http://127.0.0.1:7860/ -UseBasicParsing).Content
+                Write-Host "::notice title=OK app server::status $($r | ConvertTo-Json -Compress); page $($page.Length) bytes"
+              }
+              Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null
+            }
+            Start-Sleep 3; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            if (-not $ok) { Write-Host "::error title=FAIL app server::did not start"; exit 1 }
           }
-          $ready = $sw.ElapsedMilliseconds
-          if ($ok) {
-            Start-Sleep 2
-            $p.Refresh()
-            $mem = [math]::Round($p.WorkingSet64 / 1MB)
-            $page = (Invoke-WebRequest http://127.0.0.1:7860/ -UseBasicParsing).Content
-            Write-Host "::notice title=startup::app server answered after $ready ms; $mem MB in memory once idle"
-            Write-Host "::notice title=OK app server::status $($r | ConvertTo-Json -Compress); page $($page.Length) bytes"
-            Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null
-          }
-          Start-Sleep 3; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-          if (-not $ok) { Write-Host "::error title=FAIL app server::did not start"; exit 1 }
+          $t = ($times | Sort-Object)[1]; $m = ($mems | Sort-Object)[1]
+          Write-Host "::notice title=startup::app server answered after $t ms (median of 3: $($times -join ', ')); $m MB in memory once idle"
 
       - name: End-to-end test (live clipping + TikTok posting)
         shell: pwsh

@@ -8,7 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Lighter and steadier: a smaller download, less memory held between jobs, and Deep Scan that says when something's wrong.
 
 ### Changed
-- Smaller app: the installer no longer carries a second copy of FFmpeg's libraries (PyAV, 64 MB+ unpacked) or Hugging Face's optional download accelerator. Speech recognition gets its audio from the FFmpeg that was already included.
+- Smaller app: the installer is 182 MB instead of 203 MB (494 MB instead of 570 MB once installed). It no longer carries an extra copy of FFmpeg's libraries (PyAV) or Hugging Face's optional download accelerator; speech recognition gets its audio from the FFmpeg that was already included.
 - The speech recogniser (0.3 to 3 GB of memory) is let go after 10 minutes without use, and at most two model sizes are kept loaded. The next transcription loads it again, which takes a few seconds.
 - While the window is minimised, it stops asking the app for updates every second or two; it catches up as soon as you're back. Rendering and clipping carry on as before.
 - Unused code removed.

@@ -196,6 +196,13 @@ Done:
   latter uses FFmpeg's real crop error text).
 - **Probe cache bounded** (live recordings added an entry per probe).
 
+Measured on this PR's Windows CI: **493.6 MB unpacked (was 570), installer 182 MB (was 203)**;
+`av.libs` and `hf_xet` gone; the self-test's Whisper captions passed (model downloaded without
+hf_xet, speech transcribed with the PyAV stand-in), and so did the e2e suite. Idle memory 56 MB
+(same as 4.1.6). Startup read 1093 ms against 330 ms on 4.1.6, but nothing on the startup path
+changed and both were single starts on a shared runner; the smoke test now reports the median of
+three starts so later builds can be compared properly.
+
 Looked at and not done:
 - **Shared FFmpeg build instead of two static exes.** Measured: the BtbN GPL shared build is
   186 MB without ffplay against 201 MB for gyan's two static exes. A 15 MB saving doesn't
