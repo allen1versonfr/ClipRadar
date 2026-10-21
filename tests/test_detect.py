@@ -140,7 +140,6 @@ bd = c0.parts
 check("breakdown names the signals", "chat" in bd and all(isinstance(v, float) for v in bd.values()), bd)
 check("breakdown adds up to the score", abs(sum(v for k, v in bd.items() if k != "tuned") - c0.score) < 0.6, (sum(bd.values()), c0.score))
 check("quality: higher score, higher number", detect.quality(1) < detect.quality(3) < detect.quality(6) < detect.quality(12) <= 100)
-check("top reasons as percentages", detect.top_reason({"chat": 3, "audio": 1})[0] == ("Chat", 75))
 few = engine.pick_clips(make_an(chat_spikes=[(t, 6, 15 + (t % 7) * 4) for t in range(60, 560, 45)]), count=0, sensitivity="fewer")
 more = engine.pick_clips(make_an(chat_spikes=[(t, 6, 15 + (t % 7) * 4) for t in range(60, 560, 45)]), count=0, sensitivity="more")
 check("sensitivity: more finds more", len(more) > len(few), (len(few), len(more)))

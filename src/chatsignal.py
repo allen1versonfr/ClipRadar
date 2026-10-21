@@ -29,14 +29,6 @@ BOTS = {
     "scottybot", "revlobot", "hnlbot", "electricallongboard", "streamlootsbot", "kittiesbot", "timeoutwithbits",
     "playwithviewersbot", "buttsbot", "potatbotat", "supibot", "titlechange_bot", "streamjar", "tipeeebot",
 }
-NOTICE_KINDS = {
-    "sub", "resub", "subgift", "submysterygift", "anonsubgift", "anonsubmysterygift", "giftpaidupgrade",
-    "anongiftpaidupgrade", "primepaidupgrade", "raid", "unraid", "bitsbadgetier", "communitypayforward",
-    "standardpayforward", "charitydonation", "announcement", "viewermilestone", "rewardgift", "ritual",
-    "sharedchatnotice", "onetapgiftredeemed", "bits", "midnightsquid",
-}
-GIFT_KINDS = {"subgift", "submysterygift", "anonsubgift", "anonsubmysterygift", "communitypayforward",
-              "standardpayforward", "giftpaidupgrade", "anongiftpaidupgrade", "rewardgift"}
 _CMD = re.compile(r"^\s*[!$](\w)")
 _SYSTEM = re.compile(
     r"gifted (?:a |an |\d+ )?(?:tier \d )?subs?\b|is gifting \d+|gifting \d+ (?:tier \d )?subs?|"

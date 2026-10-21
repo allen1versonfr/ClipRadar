@@ -40,14 +40,7 @@ FIX_LABEL = {
     "cut_start": "Start the clip after it", "mask_title": "Hide it in the title",
     "mask_post": "Hide it in the post caption",
 }
-FIX_EXPLAIN = {
-    "mute": "The audio goes silent for these words when the clip renders. Captions show them masked.",
-    "bleep": "A bleep plays over these words when the clip renders. Captions show them masked.",
-    "cut_end": "The clip ends just before these words. The video itself isn't changed.",
-    "cut_start": "The clip starts just after these words. The video itself isn't changed.",
-    "mask_title": "The flagged words in the title are replaced with stars.",
-    "mask_post": "The flagged words in the post caption are replaced with stars.",
-}
+
 MIN_KEEP_S = 5.0          # a cut has to leave at least this much clip
 LOG_MAX = 100
 

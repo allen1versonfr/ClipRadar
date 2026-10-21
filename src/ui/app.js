@@ -629,7 +629,7 @@ async function pollLive() {
   if (added || changed) { renderRows(); if (mode === 'clip') fillInspector(); dirty = true; }
   updateLiveHead(); drawHeat(); updateStatusBar();
 }
-setInterval(pollLive, 1500);
+setInterval(() => { if (!document.hidden) pollLive(); }, 1500);
 
 /* --- titles for VOD clips arrive in the background --- */
 async function listen(order) {
@@ -677,7 +677,7 @@ async function startDeep() {
   try { W.deep = await api('/api/deepscan', { pid: W.pid, model: $('#deepModel').value, language: opts.language }); renderDeep(); updateStatusBar(); toast('Deep scan started. Quiet gems show up in the Gems tab as it goes.', '', 5000); }
   catch (e) { toast(e.message, 'err', 7000); }
 }
-setInterval(pollClips, 1200);
+setInterval(() => { if (!document.hidden) pollClips(); }, 1200);
 function updateListen() {
   const busy = W && W.listening && W.clips.some(c => !c.listened);
   $('#listenFoot').hidden = !busy;
@@ -1944,6 +1944,7 @@ async function refreshQueue() {
   renderExports(); updateStatusBar();
 }
 setInterval(() => {
+  if (document.hidden) return;
   const active = queueItems.some(q => q.status === 'queued' || q.status === 'rendering' || (q.tiktok && q.tiktok.state === 'posting'));
   if (active || view === 'exports' || (W && W.kind === 'live' && W.live && W.live.auto_render)) refreshQueue();
 }, 1500);
@@ -2670,8 +2671,13 @@ $('#framePresets').onclick = e => {
 loadExport();
 
 /* =============================================================== boot */
-setInterval(() => { fetch('/api/ping').catch(() => {}); }, 60000);
-setInterval(loadStatus, 5000);
+setInterval(() => { fetch('/api/ping').catch(() => {}); }, 60000);   // keeps running while hidden: browser mode quits without it
+setInterval(() => { if (!document.hidden) loadStatus(); }, 5000);
+// minimised or in a background tab: the pollers above rest (the work itself carries on in the app); catch up on return
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  loadStatus(); refreshQueue(); pollLive(); pollClips();
+});
 loadStatus().then(() => { updateStatusBar(); });
 /* =============================================================== editor (3.4): timeline, trims, undo/redo */
 const MIN_LEN = 1;                       // shortest clip, seconds

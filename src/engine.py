@@ -135,15 +135,6 @@ def fmt_ts(sec: float) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
-def twitch_vod_id(url: str) -> Optional[str]:
-    m = re.search(r"twitch\.tv/(?:videos/|\w+/v/|.*[?&]video=v?)(\d+)", url)
-    if m:
-        return m.group(1)
-    if re.fullmatch(r"v?\d{6,}", url.strip()):
-        return url.strip().lstrip("v")
-    return None
-
-
 def _slug(s: str) -> str:
     s = re.sub(r"[^\w\-]+", "_", s, flags=re.ASCII).strip("_")
     return s[:60] or "vod"
@@ -1101,11 +1092,6 @@ def measure_audio(video: str, duration: float, events: bool = False, progress: P
     return loud, fine, ev
 
 
-def audio_loudness(video: str, duration: float, progress: Progress = _noop, check: Check = _noop) -> np.ndarray:
-    """Per-second loudness in dB (kept for callers that only need that)."""
-    return measure_audio(video, duration, False, progress, check)[0]
-
-
 def _rolling(x: np.ndarray, win: int, fn: str = "mean") -> np.ndarray:
     x = np.asarray(x, dtype=np.float32)
     if win <= 1 or len(x) == 0:
@@ -1180,15 +1166,6 @@ class Analysis:
             base = float(np.median(x)) if len(x) else 0.0
             cache[key] = np.clip(x - base - 0.05, 0, 1).astype(np.float32)
         return cache[key]
-
-    def event_bonus(self) -> np.ndarray:
-        n = len(self.audio_z)
-        out = np.zeros(n, dtype=np.float32)
-        w = self.weights or EVENT_WEIGHTS
-        if self.has_events:
-            for k in EVENT_WEIGHTS:
-                out += float(w.get(k, EVENT_WEIGHTS[k])) * self.event_level(k)
-        return out
 
     def combine(self, chat_weight_pct: float, weights: Optional[dict] = None) -> np.ndarray:
         """Mix chat, loudness, laughter/screams and the extra signals (detect.py) with the stream
@@ -1959,6 +1936,41 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
 
 _whisper_cache: dict = {}
 _whisper_lock = threading.RLock()   # one transcription at a time (titles + renders share the model)
+_whisper_used = [0.0]               # when the model last finished a job
+_whisper_busy = [0]                 # transcriptions running or waiting for the model
+_busy_lock = threading.Lock()
+WHISPER_IDLE = 600                  # seconds unused before models are let go (each holds 0.3-3 GB)
+WHISPER_KEEP = 2                    # models kept loaded at most
+
+
+def release_whisper(idle: float = 0.0) -> bool:
+    """Let go of the loaded Whisper model if it hasn't been used for `idle` seconds.
+    Returns True when one was released. The next transcription loads it again (a few seconds)."""
+    with _whisper_lock:
+        if not _whisper_cache or _whisper_busy[0] or time.time() - _whisper_used[0] < idle:
+            return False
+        _whisper_cache.clear()
+    import gc
+    gc.collect()
+    return True
+
+
+_release_timer = [None]
+
+
+def _release_later():
+    """One timer at a time: it lets the model go once it's been idle long enough, or checks again."""
+    if _release_timer[0] is not None:
+        return
+
+    def tick():
+        _release_timer[0] = None
+        if not release_whisper(WHISPER_IDLE) and _whisper_cache:
+            _release_later()
+    t = threading.Timer(WHISPER_IDLE / 4, tick)
+    t.daemon = True
+    _release_timer[0] = t
+    t.start()
 
 
 def whisper_available() -> bool:
@@ -1971,7 +1983,14 @@ def whisper_available() -> bool:
 
 def _load_whisper(model_size: str, log: Log):
     if model_size in _whisper_cache:
+        _whisper_cache[model_size] = _whisper_cache.pop(model_size)     # most recently used last
         return _whisper_cache[model_size]
+    while len(_whisper_cache) >= WHISPER_KEEP:
+        # Deep Scan and title listening may use two sizes side by side; a third (switching
+        # small -> medium in Settings) pushes out the one used longest ago
+        _whisper_cache.pop(next(iter(_whisper_cache)))
+        import gc
+        gc.collect()
     from faster_whisper import WhisperModel
     silence = np.zeros(16000, dtype=np.float32)
     errors = []
@@ -1999,6 +2018,18 @@ _HALLUCINATION = re.compile(r"thank(s| you) (so much )?for watching|please subsc
 def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = "") -> list:
     """audio: path or 16 kHz mono float32 numpy array. prompt: names and words to expect (the
     streamer, emotes, your own vocabulary), so Whisper spells them right."""
+    with _busy_lock:
+        _whisper_busy[0] += 1
+    try:
+        return _transcribe(audio, model_size, language, log, prompt)
+    finally:
+        with _busy_lock:
+            _whisper_used[0] = time.time()
+            _whisper_busy[0] -= 1
+        _release_later()
+
+
+def _transcribe(audio, model_size: str, language: str, log: Log, prompt: str) -> list:
     with _whisper_lock:
         model = _load_whisper(model_size, log)
         kw = dict(language=language or None, word_timestamps=True, vad_filter=True, beam_size=5,
@@ -2026,10 +2057,15 @@ def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = ""
 
 def extract_audio(video: str, start: float, length: float) -> Optional[np.ndarray]:
     """16 kHz mono float32 samples of a stretch of the video's audio (None if unreadable)."""
-    p = subprocess.run([ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, start):.3f}",
-                        "-t", f"{max(0.1, length):.3f}", "-i", video, "-map", "0:a:0", "-vn", "-ac", "1",
-                        "-ar", "16000", "-f", "f32le", "-"], capture_output=True,
-                       stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
+    try:
+        # a damaged file or a stuck network drive mustn't hold Deep Scan or a render forever
+        p = subprocess.run([ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, start):.3f}",
+                            "-t", f"{max(0.1, length):.3f}", "-i", video, "-map", "0:a:0", "-vn", "-ac", "1",
+                            "-ar", "16000", "-f", "f32le", "-"], capture_output=True,
+                           stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW,
+                           timeout=max(60.0, length * 2))
+    except (subprocess.TimeoutExpired, OSError):
+        return None
     if p.returncode != 0:
         return None
     return np.frombuffer(p.stdout, dtype=np.float32).copy()
@@ -2320,7 +2356,6 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     vf, cap_y = build_filter(info, o, fr.get("path") or None, fr)
     work = os.path.dirname(os.path.abspath(out_path))
     os.makedirs(work, exist_ok=True)
-    stem = Path(out_path).stem
     tag = uuid.uuid4().hex[:8]
     # ASCII names: the subtitles filter can't take quotes or other specials from a clip title
     ass_name = f"vc_{tag}.ass"

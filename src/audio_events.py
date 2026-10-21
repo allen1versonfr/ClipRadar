@@ -125,14 +125,6 @@ def available() -> bool:
     return model_path() is not None
 
 
-def can_download() -> bool:
-    try:
-        import onnxruntime  # noqa: F401
-        return True
-    except Exception:
-        return False
-
-
 def download(log: Log = _noop, folder: Optional[str] = None, progress=_noop) -> Path:
     """Fetch the model into the data folder (only needed when it isn't bundled)."""
     dest = Path(folder or (Path(paths.DATA_DIR) / "models")) / MODEL_NAME
@@ -246,10 +238,6 @@ class Scanner:
             self._run([self.offset / SR], [self.buf.copy()], final_tail=True)
             self.offset += self.buf.size
             self.buf = np.zeros(0, dtype=np.float32)
-
-    @property
-    def seconds_done(self) -> float:
-        return self.times[-1] if self.times else 0.0
 
     def result(self, n: Optional[int] = None) -> dict:
         """Per-second values: the average of the steps centred in that second."""
