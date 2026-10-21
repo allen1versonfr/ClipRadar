@@ -696,3 +696,8 @@ h3.sub{font-size:12.5px;font-weight:600;margin:4px 0 -4px;padding-top:12px;borde
 /* Settings › Storage › Clean up automatically */
 .clean-auto { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
 .clean-auto h3 { font-size: 13px; margin: 0 0 2px; }
+
+/* Settings › Export format › Watermark */
+.wm-card { border: 1px solid var(--line); border-radius: var(--r); padding: 12px; display: flex; flex-direction: column; gap: 10px; margin: 6px 0; }
+.wm-card #wmBody { display: flex; flex-direction: column; gap: 10px; }
+.wm-card input[type=range] { width: 100%; }

@@ -69,7 +69,27 @@ DEFAULTS = {
     "cap_presets": [], "frame_presets": [],
     # a short sound when you queue a clip and when a render is ready
     "sounds": True,
+    # watermark on exports (the source is never changed)
+    "watermark": {"on": False, "text": "", "image": "", "pos": "tl", "size": 100, "opacity": 70, "margin": 40,
+                  "box": False, "start": 0.0, "end": 0.0},
 }
+WM_POS = ("tl", "tr", "bl", "br", "c")
+
+
+def _wm(d) -> dict:
+    d = d if isinstance(d, dict) else {}
+    base = DEFAULTS["watermark"]
+    num = lambda k, lo, hi, typ=int: typ(min(max(typ(d.get(k, base[k]) or 0), lo), hi))  # noqa: E731
+    try:
+        out = {"on": bool(d.get("on", False)), "text": str(d.get("text") or "").strip()[:60],
+               "image": str(d.get("image") or ""), "pos": d.get("pos") if d.get("pos") in WM_POS else "tl",
+               "size": num("size", 40, 250), "opacity": num("opacity", 5, 100), "margin": num("margin", 0, 200),
+               "box": bool(d.get("box")), "start": num("start", 0, 3600, float), "end": num("end", 0, 3600, float)}
+    except (TypeError, ValueError):
+        return dict(base)
+    if out["image"] and not os.path.isfile(out["image"]):
+        out["image"] = ""                      # the copy is gone: fall back to the text (or nothing)
+    return out
 CAP_KEYS = ("captions", "caption_pos", "caption_color", "caption_size", "words_per_line", "uppercase", "caption_style",
             "caption_font", "caption_anim", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
             "title_size", "title_x", "title_y")
@@ -145,6 +165,7 @@ def clean(d: dict) -> dict:
             frames.append({"name": str(fp["name"]).strip()[:40], "opts": {k: v for k, v in o.items() if v is not None}})
     out["frame_presets"] = frames
     out["sounds"] = bool(d.get("sounds", True))
+    out["watermark"] = _wm(d.get("watermark"))
     return out
 
 
@@ -176,7 +197,8 @@ def settings(prefs: Optional[dict] = None) -> dict:
     if s.get("vcodec") == "vp9" and s.get("container") != "webm":
         s["container"] = "webm"
         s["acodec"] = "opus"
-    s.update(preset=p["preset"], subtitles=p["subtitles"], denoise=p["denoise"], voice=p["voice"], template=p["template"])
+    s.update(preset=p["preset"], subtitles=p["subtitles"], denoise=p["denoise"], voice=p["voice"], template=p["template"],
+             watermark=p.get("watermark") or dict(DEFAULTS["watermark"]))
     return s
 
 
@@ -186,7 +208,8 @@ def describe(s: dict) -> str:
     k = float(s.get("scale", 1.0))
     if k < 0.999:
         w, h = engine._even(w * k), engine._even(h * k)
-    q = f"{s['vbitrate'] / 1000:g} Mbps" if s.get("vbitrate") else "quality " + str(s.get("crf", 20))
+    dq = engine.SPEEDS.get(s.get("speed", "balanced"), engine.SPEEDS["balanced"])[1]
+    q = f"{s['vbitrate'] / 1000:g} Mbps" if s.get("vbitrate") else "quality " + str(s.get("crf", 20) + dq)
     loud = f"{s['loudness']:g} LUFS" if s.get("loudness") else "volume as is"
     fps = f"{s['fps']} fps max" if s.get("fps") else "the stream's frame rate"
     ql = QUALITY.get(s.get("quality", "balanced"), QUALITY["balanced"])["label"]

@@ -1823,6 +1823,16 @@ class RenderOpts:
     voice: bool = False             # make speech clearer (gentle compression) without burying game audio
     cap_outline: int = 100          # caption outline, percent of normal
     cap_shadow: int = 100           # caption shadow, percent of normal
+    # 4.5 watermark (export only; the source is never changed)
+    wm_text: str = ""               # text mark, or "" for none
+    wm_image: str = ""              # path to a PNG/JPG mark, or "" (used instead of the text when set)
+    wm_pos: str = "tl"              # tl | tr | bl | br | c
+    wm_size: int = 100              # percent of the normal size
+    wm_opacity: int = 70            # percent
+    wm_margin: int = 40             # pixels from the side at 1080 wide
+    wm_box: bool = False            # a dark box behind a text mark (easier to read on busy footage)
+    wm_start: float = 0.0           # seconds into the clip it appears
+    wm_end: float = 0.0             # seconds it disappears; 0 = until the end
     # 3.9 framing
     track: str = "auto"             # auto: whole-frame crops follow the streamer's face | off
     track_target: str = "auto"      # auto | largest | left | right | point (nearest to game_x, focus_y)
@@ -2196,6 +2206,34 @@ def _chunks(words: list, o: "RenderOpts", clip_len: float) -> list:
     return chunks
 
 
+WM_POSITIONS = ("tl", "tr", "bl", "br", "c")
+WM_TOP, WM_BOTTOM = 0.13, 0.80   # top marks sit below TikTok's top tabs; bottom ones above its caption area
+
+
+def watermark_anchor(o: RenderOpts, W: int, H: int, w: int = 0, h: int = 0) -> tuple:
+    """Top-left corner (x, y) for a mark of size w×h, kept inside the frame. Shared by the text
+    and image marks and by the preview, so all three land in the same place."""
+    pos = o.wm_pos if o.wm_pos in WM_POSITIONS else "tl"
+    m = int(max(0, min(200, o.wm_margin)) * W / 1080)
+    if pos == "c":
+        x, y = (W - w) // 2, (H - h) // 2
+    else:
+        x = m if pos[1] == "l" else W - w - m
+        y = int(H * WM_TOP) if pos[0] == "t" else int(H * WM_BOTTOM) - h
+    return max(0, min(x, W - w)), max(0, min(y, H - h))
+
+
+def watermark_window(o: RenderOpts, clip_len: float) -> tuple:
+    a = max(0.0, min(float(o.wm_start or 0), clip_len))
+    b = float(o.wm_end or 0)
+    b = clip_len if b <= a else min(b, clip_len)
+    return a, b
+
+
+def _wm_alpha(opacity: int) -> str:
+    return f"&H{int(round(255 * (1 - max(5, min(100, opacity)) / 100))):02X}&"
+
+
 def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, title: str = "") -> str:
     W, H = out_size(o)
     hi = _ass_color(o.caption_color)
@@ -2219,6 +2257,15 @@ def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, titl
     else:
         fill, boxc = {"box": (dark, white), "dark": (white, "&H1A141414"), "accent": (dark, hi.rstrip("&"))}[tstyle]
         t_style = f"Style: Title,{tfont},{title_fs},{fill},{fill},{boxc},{boxc},{tbold},0,0,0,100,100,0,0,3,{tpad},0,8,90,90,0,1"
+    wm_fs = int(44 * max(40, min(250, o.wm_size)) / 100)
+    alpha = _wm_alpha(o.wm_opacity)
+    wa = alpha.strip("&H").strip("&")
+    if o.wm_box:
+        mark_style = (f"Style: Mark,{cfont},{wm_fs},&H{wa}FFFFFF,&H{wa}FFFFFF,&H{wa}141414,&H{wa}141414,{cbold},"
+                      f"0,0,0,100,100,0,0,3,{max(6, wm_fs // 4)},0,7,0,0,0,1")
+    else:
+        mark_style = (f"Style: Mark,{cfont},{wm_fs},&H{wa}FFFFFF,&H{wa}FFFFFF,&H{wa}000000,&H{wa}000000,{cbold},"
+                      f"0,0,0,100,100,0,0,1,{max(2, wm_fs // 14)},1,7,0,0,0,1")
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
@@ -2230,11 +2277,21 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 {cap_style}
 {t_style}
+{mark_style}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = []
+    wm = (o.wm_text or "").strip() if not o.wm_image else ""
+    if wm:
+        # a text mark: same anchor as an image mark; its size is estimated for the anchor, and \an
+        # keeps it inside the frame on the side it's anchored to
+        a, b = watermark_window(o, clip_len)
+        an = {"tl": 7, "tr": 9, "bl": 1, "br": 3, "c": 5}.get(o.wm_pos if o.wm_pos in WM_POSITIONS else "tl")
+        # with a zero-size box the anchor is the point the text hangs from (\an picks which corner)
+        x, y = watermark_anchor(o, W, H)
+        lines.append(f"Dialogue: 2,{_ass_time(a)},{_ass_time(b)},Mark,,0,0,0,,{{\\an{an}\\pos({x},{y})}}{_ass_escape(wm[:60])}")
     if title.strip():
         tx = int(min(max(o.title_x, 0.3), 0.7) * W)
         th = min(tx, W - tx) - 90           # wrap the title inside the frame around its own centre
@@ -2438,7 +2495,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     progress(0.3)
     check()
 
-    use_ass = bool(words) or bool(title.strip())
+    use_ass = bool(words) or bool(title.strip()) or bool((o.wm_text or "").strip() and not o.wm_image)
     if use_ass:
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(build_ass(words, o, cap_y, length, title))
@@ -2475,6 +2532,27 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             af = f";[0:a:0]volume=0:enable='{on}',{tail}[a]"
         vf = vf + af
 
+    # an image watermark: overlaid on the finished frame (after captions), scaled with the frame,
+    # at the same anchor as a text mark; the source video isn't changed
+    wm_img = o.wm_image if o.wm_image and os.path.isfile(o.wm_image) else ""
+    if wm_img:
+        W_, H_ = out_size(o)
+        mw = _even(W_ * 0.2 * max(40, min(250, o.wm_size)) / 100)
+        a, b = watermark_window(o, length)
+        op = max(5, min(100, o.wm_opacity)) / 100
+        i = vf.rfind("[v]")
+        # x/y from the anchor for an unknown height: ffmpeg's overlay evaluates W/H/w/h itself, so
+        # pass expressions that keep the mark inside the frame
+        pos = o.wm_pos if o.wm_pos in WM_POSITIONS else "tl"
+        m = int(max(0, min(200, o.wm_margin)) * W_ / 1080)
+        xs = {"l": str(m), "r": f"W-w-{m}"}
+        xe = "(W-w)/2" if pos == "c" else xs[pos[1]]
+        ye = "(H-h)/2" if pos == "c" else (str(int(H_ * WM_TOP)) if pos[0] == "t" else f"{int(H_ * WM_BOTTOM)}-h")
+        vf = (vf[:i] + "[vpre];"
+              f"[1:v]scale={mw}:-2:flags=lanczos,format=rgba,colorchannelmixer=aa={op:.2f}[wm];"
+              f"[vpre][wm]overlay=x='max(0,min({xe},W-w))':y='max(0,min({ye},H-h))':"
+              f"enable='between(t,{a:.3f},{b:.3f})',format=yuv420p[v]" + vf[i + 3:])
+
     # export size below the shape's full size: scale the finished frame (captions included)
     fw, fh = final_size(o)
     if (fw, fh) != out_size(o):
@@ -2490,8 +2568,10 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
 
     def encode(enc_args: list):
         cmd = [ffmpeg(), "-v", "error", "-y", "-nostdin", "-progress", "pipe:1", "-nostats",
-               "-ss", f"{clip_start:.3f}", "-t", f"{length:.3f}", "-i", video,
-               "-filter_complex", vf, "-map", "[v]"]
+               "-ss", f"{clip_start:.3f}", "-t", f"{length:.3f}", "-i", video]
+        if wm_img:
+            cmd += ["-i", wm_img]
+        cmd += ["-filter_complex", vf, "-map", "[v]"]
         if info["has_audio"] and af:
             cmd += ["-map", "[a]", *acodec, "-ar", "48000"]
         elif info["has_audio"]:

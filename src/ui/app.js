@@ -1490,6 +1490,7 @@ function renderPhone() {
         }
         if (!cap && !c.listened && status.whisper && !phoneHover) badge = 'Listening for captions…';
       }
+      drawWatermark(g, Wd, Ht, Math.max(0, vod.currentTime - c.start));
       const sel = dragState ? dragState.what : hoverWhat;
       if (sel) drawSelection(g, hit[sel], !!dragState);
     }
@@ -2609,6 +2610,7 @@ function renderExportSettings() {
   $('#exPresetNote').textContent = (v.presets.find(p => p.key === pr.preset) || {}).note || '';
   $('#exQualityPreset').innerHTML = (v.quality || []).map(q => `<button data-v="${q.key}" class="${q.key === pr.quality ? 'on' : ''}" title="${esc(q.note)}">${esc(q.label)}</button>`).join('');
   $('#exQualityNote').textContent = ((v.quality || []).find(q => q.key === pr.quality) || {}).note || '';
+  renderWatermark(pr.watermark || {});
   $('#exScale').value = String(+st.scale === 1 ? 1 : st.scale); $('#exFps').value = String(st.fps); $('#exVcodec').value = st.vcodec;
   $('#exQuality').value = st.vbitrate ? `b:${st.vbitrate}` : `q:${st.crf}`;
   if (!$('#exQuality').value) $('#exQuality').value = 'q:20';
@@ -2642,6 +2644,71 @@ const customPatch = kv => saveExport({ custom: Object.assign({}, (exState && exS
 $('#exPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ preset: v }); };
 $('#exScale').onchange = e => customPatch({ scale: +e.target.value });
 $('#exFps').onchange = e => customPatch({ fps: +e.target.value });
+/* --- watermark: settings, and the same placement as the render in the clip preview --- */
+const wmImg = new Image(); let wmImgSrc = '';
+function renderWatermark(w) {
+  const busy = el => document.activeElement === el;
+  $('#wmOn').checked = !!w.on; $('#wmBody').hidden = !w.on;
+  if (!busy($('#wmText'))) $('#wmText').value = w.text || '';
+  $$('#wmPos button').forEach(b => b.classList.toggle('on', b.dataset.v === (w.pos || 'tl')));
+  $('#wmSize').value = w.size; $('#wmSizeV').textContent = w.size + '%';
+  $('#wmOp').value = w.opacity; $('#wmOpV').textContent = w.opacity + '%';
+  $('#wmMar').value = w.margin; $('#wmMarV').textContent = w.margin + ' px';
+  $('#wmBox').checked = !!w.box;
+  if (!busy($('#wmStart'))) $('#wmStart').value = w.start || 0;
+  if (!busy($('#wmEnd'))) $('#wmEnd').value = w.end || '';
+  $('#wmClear').hidden = !w.image; $('#wmImgName').textContent = w.image ? 'Image set' : '';
+  const src = w.image ? '/watermark?v=' + encodeURIComponent(w.image) + Date.now() % 1e6 : '';
+  if (w.image && !wmImgSrc) { wmImg.src = src; wmImgSrc = src; } else if (!w.image) wmImgSrc = '';
+}
+let wmTimer = 0;
+function saveWatermark(now) {
+  clearTimeout(wmTimer);
+  wmTimer = setTimeout(() => {
+    const cur = (exState && exState.prefs.watermark) || {};
+    saveExport({ watermark: Object.assign({}, cur, { on: $('#wmOn').checked, text: $('#wmText').value,
+      pos: ($('#wmPos button.on') || {}).dataset?.v || 'tl', size: +$('#wmSize').value, opacity: +$('#wmOp').value,
+      margin: +$('#wmMar').value, box: $('#wmBox').checked, start: +$('#wmStart').value || 0, end: +$('#wmEnd').value || 0 }) });
+  }, now ? 0 : 400);
+}
+['#wmText', '#wmStart', '#wmEnd'].forEach(id => $(id).addEventListener('input', () => saveWatermark()));
+['#wmSize', '#wmOp', '#wmMar'].forEach(id => $(id).addEventListener('input', () => {
+  $('#wmSizeV').textContent = $('#wmSize').value + '%'; $('#wmOpV').textContent = $('#wmOp').value + '%'; $('#wmMarV').textContent = $('#wmMar').value + ' px';
+  if (exState) Object.assign(exState.prefs.watermark, { size: +$('#wmSize').value, opacity: +$('#wmOp').value, margin: +$('#wmMar').value });
+  dirty = true; saveWatermark();
+}));
+['#wmOn', '#wmBox'].forEach(id => $(id).addEventListener('change', () => saveWatermark(true)));
+$('#wmPos').onclick = e => { const b = e.target.closest('button'); if (!b) return; $$('#wmPos button').forEach(x => x.classList.toggle('on', x === b)); saveWatermark(true); };
+$('#wmPick').onclick = async () => {
+  try {
+    const { path } = await api('/api/pick_file', { kind: 'image' }); if (!path) return;
+    exState = await api('/api/watermark/image', { path }); wmImgSrc = ''; renderExportSettings();
+  } catch (e) { toast(e.message, 'err'); }
+};
+$('#wmClear').onclick = async () => { try { exState = await api('/api/watermark/image', { path: '' }); wmImgSrc = ''; renderExportSettings(); } catch (e) { toast(e.message, 'err'); } };
+function drawWatermark(g, Wd, Ht, t) {
+  const w = exState && exState.prefs && exState.prefs.watermark;
+  if (!w || !w.on || !(w.text || w.image)) return;
+  if (t < (w.start || 0) || (w.end && t > w.end)) return;
+  const k = Wd / 1080, m = Math.max(0, Math.min(200, w.margin)) * k, pos = w.pos || 'tl';
+  g.save(); g.globalAlpha = Math.max(.05, Math.min(1, w.opacity / 100));
+  let bw, bh;
+  if (w.image && wmImg.complete && wmImg.naturalWidth) { bw = Wd * .2 * w.size / 100; bh = bw * wmImg.naturalHeight / wmImg.naturalWidth; }
+  else {
+    const fs = 44 * w.size / 100 * k;
+    g.font = `800 ${fs}px Inter, "Segoe UI", sans-serif`; bw = g.measureText(w.text).width; bh = fs * 1.2;
+  }
+  let x = pos === 'c' ? (Wd - bw) / 2 : pos[1] === 'l' ? m : Wd - bw - m;
+  let y = pos === 'c' ? (Ht - bh) / 2 : pos[0] === 't' ? Ht * .13 : Ht * .80 - bh;   // same as engine.watermark_anchor
+  x = Math.max(0, Math.min(x, Wd - bw)); y = Math.max(0, Math.min(y, Ht - bh));
+  if (w.image && wmImg.complete && wmImg.naturalWidth) g.drawImage(wmImg, x, y, bw, bh);
+  else {
+    if (w.box) { g.fillStyle = 'rgba(20,20,20,1)'; const p = bh * .2; g.fillRect(x - p, y - p * .5, bw + 2 * p, bh + p); }
+    g.fillStyle = '#fff'; g.strokeStyle = 'rgba(0,0,0,.9)'; g.lineWidth = Math.max(1, 3 * k); g.textBaseline = 'top';
+    if (!w.box) g.strokeText(w.text, x, y); g.fillText(w.text, x, y);
+  }
+  g.restore();
+}
 $('#exQualityPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ quality: v }); };
 $('#exVcodec').onchange = e => customPatch({ vcodec: e.target.value, container: e.target.value === 'vp9' ? 'webm' : ($('#exContainer').value === 'webm' ? 'mp4' : $('#exContainer').value) });
 $('#exQuality').onchange = e => { const [k, n] = e.target.value.split(':'); customPatch(k === 'b' ? { vbitrate: +n } : { crf: +n, vbitrate: 0 }); };

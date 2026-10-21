@@ -447,6 +447,26 @@
             <div class="seg" id="exQualityPreset"></div>
             <span class="hint" id="exQualityNote"></span>
           </div>
+          <div class="wm-card">
+            <label class="fld switch-label"><b>Watermark</b><span class="switch"><input type="checkbox" id="wmOn"><i></i></span></label>
+            <div id="wmBody">
+              <span class="hint">Added to exported clips only; your videos aren't changed. It shows in the clip preview (Review), so you can see where it lands before you export.</span>
+              <div class="form-grid two">
+                <label>Text<input class="input" id="wmText" maxlength="60" placeholder="@yourchannel" spellcheck="false"></label>
+                <label>Image<span class="row"><button class="btn sm" id="wmPick">Choose image…</button><button class="btn sm" id="wmClear" hidden>Remove</button><span class="muted small" id="wmImgName"></span></span></label>
+              </div>
+              <div class="fld">Where<div class="seg" id="wmPos"><button data-v="tl">Top left</button><button data-v="tr">Top right</button><button data-v="bl">Bottom left</button><button data-v="br">Bottom right</button><button data-v="c">Centre</button></div></div>
+              <div class="form-grid two">
+                <label>Size <span class="tnum" id="wmSizeV"></span><input type="range" id="wmSize" min="40" max="250" step="5"></label>
+                <label>Opacity <span class="tnum" id="wmOpV"></span><input type="range" id="wmOp" min="5" max="100" step="5"></label>
+                <label>Distance from the side <span class="tnum" id="wmMarV"></span><input type="range" id="wmMar" min="0" max="200" step="5"></label>
+                <label class="chk"><input type="checkbox" id="wmBox"><span>Dark box behind the text<small>Easier to read on busy footage</small></span></label>
+                <label>Appears at<span class="unit-input"><input class="input" type="number" id="wmStart" min="0" step="0.5"><i>sec</i></span></label>
+                <label>Disappears at<span class="unit-input"><input class="input" type="number" id="wmEnd" min="0" step="0.5" placeholder="End"><i>sec</i></span></label>
+              </div>
+              <span class="hint">Top positions sit below TikTok's top bar; bottom ones above its caption area. An image is used instead of the text when both are set.</span>
+            </div>
+          </div>
           <details class="adv" id="exAdv">
             <summary>Advanced</summary>
             <div class="form-grid">
