@@ -39,7 +39,7 @@ import numpy as np
 import engine
 import live
 import paths
-import tiktok
+import studio
 import titles
 import hotkey
 import safety
@@ -1153,7 +1153,7 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
           # enough to render it after a restart, when the project isn't open any more
           "video": pr.get("video", ""), "workdir": pr.get("workdir", ""), "live": pr.get("live", ""),
           "opts": dict(opts or {}), "status": "queued", "progress": 0.0, "step": "Waiting",
-          "error": "", "cancel": False, "created": time.time(), "tiktok": None,
+          "error": "", "cancel": False, "created": time.time(),
           "words": _clean_words(c.get("words")),
           # content check: fixes you applied, and flags you chose to leave alone (not censored)
           "fix_spans": checkflow.render_spans(d) if d else [],
@@ -1612,49 +1612,9 @@ def friendly_render_error(e: Exception) -> tuple:
     return f"Rendering stopped with an error: {first[:200]}", raw[-1500:]
 
 
-def start_tiktok_post(it: dict, mode: str, body: dict) -> dict:
-    """Upload a finished clip to TikTok (direct post or drafts) as a background job."""
-    job = new_job("tiktok")
-    it["tiktok"] = {"state": "posting", "mode": mode, "job": job["id"], "at": time.time(),
-                    "auto": bool(body.get("auto"))}
-    save_queue_soon()
-
-    def go():
-        try:
-            r = tiktok.post_video(
-                it["path"], mode=mode, title=body.get("title", ""), privacy=body.get("privacy", ""),
-                allow_comment=bool(body.get("allow_comment")), allow_duet=bool(body.get("allow_duet")),
-                allow_stitch=bool(body.get("allow_stitch")), brand_organic=bool(body.get("brand_organic")),
-                brand_content=bool(body.get("brand_content")),
-                progress=job_progress(job, 0, 1), step=job_step(job), check=job_check(job))
-        except Exception as e:
-            it["tiktok"] = {"state": "error", "mode": mode, "error": str(e), "at": time.time()}
-            save_queue_soon()
-            raise
-        url = tiktok.post_url(r.get("post_id", ""))
-        it["tiktok"] = {"state": "done", "mode": mode, "status": r["status"], "post_id": r.get("post_id", ""),
-                        "url": url, "at": time.time(), "auto": bool(body.get("auto"))}
-        save_queue_soon()
-        if not body.get("auto"):
-            try:
-                record_feedback(it["pid"], it.get("clip_id"), "post")
-            except Exception:
-                pass
-        return dict(r, url=url)
-    run_job(job, go)
-    return job
-
-
 def _after_render(it: dict):
-    """Hands-free extras once a clip is ready."""
-    if it.get("auto_draft") and not it.get("tiktok"):
-        st = tiktok.status()
-        if st.get("connected"):
-            try:
-                start_tiktok_post(it, "draft", {"title": it.get("post", "") or it.get("title", ""), "auto": True})
-            except Exception as e:
-                it["tiktok"] = {"state": "error", "mode": "draft", "error": str(e), "at": time.time()}
-                save_queue_soon()
+    """Hands-free extras once a clip is ready (none since TikTok posting moved to TikTok Studio)."""
+    return
 
 
 MAX_WORKERS = [1]
@@ -1938,7 +1898,6 @@ def live_on_moment(sess, m: dict):
         c = dict(d, rank=m["number"])
         c["post"] = d.get("post", "")
         it = queue_add(mid, c, extra.get("opts") or {})
-        it["auto_draft"] = bool(extra.get("auto_draft"))
         it["prio"] = _live_prio(d)
         it["lat"], it["aired"] = dict(d["lat"]), aired
         d["auto_queued"] = True
@@ -1985,7 +1944,7 @@ def start_live_session(src: str, body: dict):
     hands_free = bool(body.get("hands_free", body.get("auto_render")))
     sess.extra = {"auto_render": hands_free, "opts": dict(body.get("opts") or {}),
                   "model": body.get("model") or "small", "language": body.get("language") or "",
-                  "auto_draft": bool(body.get("auto_draft")), "keep_watching": bool(body.get("keep_watching")),
+                  "keep_watching": bool(body.get("keep_watching")),
                   "params": dict(body, source=src), "user_stopped": False}
     live_sessions[sid] = sess
     sess.start()
@@ -2001,7 +1960,7 @@ def _watch_for_next(sess):
     if sess.status != "ended" or sess.extra.get("user_stopped") or not sess.extra.get("keep_watching"):
         return
     params = dict(sess.extra["params"])
-    params.update(wait_for_live=True, opts=sess.extra.get("opts"), auto_draft=sess.extra.get("auto_draft"),
+    params.update(wait_for_live=True, opts=sess.extra.get("opts"),
                   hands_free=sess.extra.get("auto_render"), frequency=sess.frequency, min_quality=sess.min_quality,
                   model=sess.extra.get("model"), language=sess.extra.get("language"))
     try:
@@ -2017,7 +1976,6 @@ def live_view(sess) -> dict:
     v["clips"] = [projects[mid]["clips"][0] for mid in sess.moments if mid in projects and projects[mid]["clips"]]
     v["auto_render"] = bool(sess.extra.get("auto_render"))
     v["hands_free"] = v["auto_render"]
-    v["auto_draft"] = bool(sess.extra.get("auto_draft"))
     v["keep_watching"] = bool(sess.extra.get("keep_watching"))
     v["held"] = sum(1 for c in v["clips"] if c.get("held"))
     v["hotkey_clips"] = getattr(sess, "hotkey_clips", 0)
@@ -2026,17 +1984,6 @@ def live_view(sess) -> dict:
                          (jobs.get(projects[mid].get("listen_job", "")) or {"status": "", "kind": ""}
                           for mid in sess.moments if mid in projects))
     return v
-
-
-def _callback_page(ok: bool, msg: str) -> bytes:
-    color = "#3ec28f" if ok else "#f0565a"
-    head = "TikTok connected" if ok else "TikTok sign-in didn't finish"
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Clip Radar</title>
-<style>body{{margin:0;height:100vh;display:grid;place-items:center;background:#111214;color:#ececee;
-font:15px "Segoe UI",system-ui,sans-serif}}div{{max-width:420px;padding:28px;border:1px solid #2a2b31;border-radius:8px;
-background:#17181b}}h1{{font-size:18px;margin:0 0 8px;display:flex;gap:10px;align-items:center}}
-h1 i{{width:10px;height:10px;border-radius:50%;background:{color};display:inline-block}}p{{color:#a4a7b0;margin:0}}</style>
-</head><body><div><h1><i></i>{head}</h1><p>{msg}</p></div></body></html>""".encode("utf-8")
 
 
 # --------------------------------------------------------------------------
@@ -2186,8 +2133,6 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             sess = live_sessions.get(m.group(1))
             return self._json(live_view(sess)) if sess else self._err("That live session is gone.", 404)
-        if p == "/api/tiktok":
-            return self._json(tiktok.status())
         if p == "/api/twitch":
             return self._json(twitchauth.status(refresh="refresh" in q))
         if p == "/api/learning":
@@ -2198,19 +2143,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(hashtags_view((q.get("streamer") or [""])[0]))
         if p == "/api/learning/explain":
             return self._json(learning.explain((q.get("streamer") or [""])[0]))
-        if p == "/callback/" or p == "/callback":
-            params = {k: v[0] for k, v in q.items()}
-            try:
-                who = tiktok.handle_callback(params)
-                page = _callback_page(True, f"Signed in{' as ' + who if who else ''}. You can close this tab and go back to Clip Radar.")
-            except tiktok.TikTokError as e:
-                page = _callback_page(False, str(e))
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(page)))
-            self.end_headers()
-            self.wfile.write(page)
-            return
         if p == "/api/queue":
             with queue_lock:
                 items = [queue_public(it) for it in queue]
@@ -2556,7 +2488,7 @@ class Handler(BaseHTTPRequestHandler):
                         sess.min_quality = int(min(max(int(body["min_quality"] or 0), 0), 95))
                     except (TypeError, ValueError):
                         pass
-                for k in ("auto_draft", "keep_watching"):
+                for k in ("keep_watching",):
                     if k in body:
                         sess.extra[k] = bool(body[k])
                 if "hands_free" in body:
@@ -2566,35 +2498,24 @@ class Handler(BaseHTTPRequestHandler):
                         sess.extra[k] = body[k]
             return self._json(live_view(sess))
 
-        if p.startswith("/api/tiktok/"):
-            act = p[len("/api/tiktok/"):]
+        if p == "/api/handoff":
+            # TikTok Studio: copy the caption (in the window), show the file, open the upload page
+            with queue_lock:
+                it = next((x for x in queue if x["id"] == body.get("item")), None)
+            if not it or it["status"] != "done":
+                return self._err("That clip isn't rendered yet.")
             try:
-                if act == "config":
-                    tiktok.configure(body.get("client_key", ""), body.get("client_secret", ""))
-                    return self._json(tiktok.status())
-                if act == "connect":
-                    url = tiktok.auth_url(SERVER_PORT[0])
-                    if body.get("open", True):
-                        threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
-                    return self._json({"url": url})
-                if act == "disconnect":
-                    tiktok.disconnect()
-                    return self._json(tiktok.status())
-                if act == "creator":
-                    return self._json(tiktok.creator_info())
-                if act == "post":
-                    with queue_lock:
-                        it = next((x for x in queue if x["id"] == body.get("item")), None)
-                    if not it or it["status"] != "done" or not os.path.exists(it.get("path", "")):
-                        return self._err("That clip isn't rendered (or its file was deleted).")
-                    if (it.get("tiktok") or {}).get("state") == "posting":
-                        return self._err("This clip is already being posted.")
-                    mode = "draft" if body.get("mode") == "draft" else "direct"
-                    job = start_tiktok_post(it, mode, body)
-                    return self._json({"job": job["id"]})
-            except tiktok.TikTokError as e:
-                return self._err(str(e), 400)
-            return self._err("not found", 404)
+                r = studio.handoff(it.get("path", ""), it.get("title", ""), it.get("post", ""),
+                                   reveal_file=body.get("reveal", True) is not False)
+            except RuntimeError as e:
+                return self._err(str(e))
+            it["handoff"] = {"at": r["opened_at"], "url": r["url"]}
+            save_queue_soon()
+            try:
+                record_feedback(it["pid"], it.get("clip_id"), "post")    # you chose to post it: a strong "keep"
+            except Exception:
+                pass
+            return self._json(r)
 
         if p == "/api/open_url":
             url = str(body.get("url", ""))
@@ -2863,7 +2784,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
                 it = queue_add(pid, body.get("clip") or {}, body.get("opts") or {})
-                it["auto_draft"] = bool(body.get("auto_draft"))
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
             except RuntimeError as e:
@@ -3110,6 +3030,7 @@ def start(port: int = PORT):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     if not _worker_started[0]:
         _worker_started[0] = True
+        _forget_tiktok_api()
         _clean_leftovers()
         load_queue()
         apply_perf()
@@ -3132,6 +3053,18 @@ def load_queue():
         print(f"  Render queue restored: {len(items)} clip(s)" + (f", {left} to render" if left else ""), flush=True)
     if left:
         queue_wake.set()
+
+
+def _forget_tiktok_api():
+    """4.4 moved TikTok posting to TikTok Studio: the old developer-app key, secret and sign-in
+    (tiktok.dat, encrypted) aren't used by anything any more, so they don't stay on the PC."""
+    f = paths.DATA_DIR / "tiktok.dat"
+    try:
+        if f.exists():
+            f.unlink()
+            print("  Removed the old TikTok sign-in (posting now goes through TikTok Studio).", flush=True)
+    except OSError as e:
+        print(f"  Couldn't remove the old TikTok sign-in file ({e}); it isn't used.", flush=True)
 
 
 def _clean_leftovers():

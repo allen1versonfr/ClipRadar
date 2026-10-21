@@ -132,7 +132,6 @@
             <div class="checks col live-opts">
               <label class="chk"><input type="checkbox" id="liveWait" checked><span>Wait for the stream to start<small>Start now even if the channel is offline. Recording begins when it goes live.</small></span></label>
               <label class="chk"><input type="checkbox" id="liveKeep"><span>Keep watching after the stream ends<small>Waits for the channel's next stream and starts again.</small></span></label>
-              <label class="chk" id="liveDraftWrap"><input type="checkbox" id="liveDraft"><span>Send finished clips to my TikTok drafts<small id="liveDraftHint">You finish each post in the TikTok app. Connect TikTok in Settings first.</small></span></label>
             </div>
             <p class="fine ad-note" id="liveAdNote"></p>
             <p class="fine" id="liveHotkeyNote">Keeps the last 15 minutes of the stream on disk and cuts each moment out as it happens.</p>
@@ -416,40 +415,13 @@
             </div>
 
             <div class="tt" id="ttPanel">
-              <div class="tt-head"><svg class="ic"><use href="#i-tiktok"/></svg><h3>Post to TikTok</h3><span class="grow"></span><span class="muted small" id="ttWho"></span></div>
-              <div id="ttConnect" hidden>
-                <p class="muted">Connect a TikTok account to post from Clip Radar.</p>
-                <button class="btn" id="ttGoSettings">Set up TikTok</button>
-              </div>
-              <div class="muted" id="ttLoading" hidden>Checking your TikTok account…</div>
-              <div id="ttForm" hidden>
-                <label class="fld">Caption<textarea class="input" id="ttCaption" rows="4" maxlength="2200"></textarea><span class="hint tnum" id="ttCount"></span></label>
-                <label class="fld">Who can view this video
-                  <select class="input" id="ttPrivacy"><option value="" disabled selected>Choose…</option></select>
-                  <span class="hint">Until TikTok approves your developer app, direct posts can only be private (Only me).</span>
-                </label>
-                <div class="fld">Allow users to
-                  <div class="checks">
-                    <label class="chk"><input type="checkbox" id="ttComment"><span>Comment</span></label>
-                    <label class="chk"><input type="checkbox" id="ttDuet"><span>Duet</span></label>
-                    <label class="chk"><input type="checkbox" id="ttStitch"><span>Stitch</span></label>
-                  </div>
-                </div>
-                <div class="fld">
-                  <label class="switch-label">Disclose video content<span class="switch"><input type="checkbox" id="ttDisclose"><i></i></span></label>
-                  <span class="hint">Turn on if this video promotes you, a brand, a product or a service.</span>
-                  <div class="checks col" id="ttDiscloseOpts" hidden>
-                    <label class="chk"><input type="checkbox" id="ttYourBrand"><span>Your brand<small>You're promoting yourself or your own business.</small></span></label>
-                    <label class="chk" id="ttBrandedWrap"><input type="checkbox" id="ttBranded"><span>Branded content<small>You're promoting another brand or a third party.</small></span></label>
-                    <span class="hint" id="ttLabelHint"></span>
-                  </div>
-                </div>
-                <p class="declare" id="ttDeclare"></p>
-                <div class="err" id="ttErr"></div>
-                <div class="row end">
-                  <button class="btn" id="ttDraft" title="Uploads to your TikTok inbox. You finish posting in the TikTok app.">Send to drafts</button>
-                  <button class="btn primary" id="ttPost"><svg class="ic"><use href="#i-upload"/></svg>Post</button>
-                </div>
+              <div class="tt-head"><svg class="ic"><use href="#i-tiktok"/></svg><h3>Post on TikTok</h3></div>
+              <p class="muted small">Clip Radar gets it ready; you post it in TikTok Studio. The caption is copied, the video is selected in File Explorer to drag in, and TikTok Studio's upload page opens in your browser.</p>
+              <label class="fld">Caption<textarea class="input" id="ttCaption" rows="4" maxlength="2200"></textarea><span class="hint tnum" id="ttCount"></span></label>
+              <div class="err" id="ttErr"></div>
+              <div class="row end">
+                <button class="btn" id="ttCopy"><svg class="ic"><use href="#i-copy"/></svg>Copy caption</button>
+                <button class="btn primary" id="ttStudio"><svg class="ic"><use href="#i-upload"/></svg>Open in TikTok Studio</button>
               </div>
               <div class="tt-status" id="ttStatus" hidden></div>
             </div>
@@ -462,27 +434,6 @@
     <section class="view scroll" id="view-settings" hidden>
       <div class="settings">
         <h1>Settings</h1>
-
-        <section class="panel set" id="setTikTok">
-          <header><svg class="ic"><use href="#i-tiktok"/></svg><h2>TikTok</h2><span class="grow"></span><span class="status-dot" id="ttDot"></span><span class="muted" id="ttState"></span></header>
-          <div class="row" id="ttAccount" hidden><span>Signed in as <b id="ttNick"></b> <span class="muted" id="ttUser"></span></span><span class="grow"></span><button class="btn" id="ttDisconnect">Disconnect</button></div>
-          <div id="ttSetup">
-            <p class="muted">TikTok only lets registered apps post. Setting one up is free and takes about 10 minutes.</p>
-            <ol class="steps">
-              <li>Go to <a href="#" data-url="https://developers.tiktok.com/apps/">developers.tiktok.com</a>, sign in and create an app.</li>
-              <li>Add the <b>Login Kit</b> and <b>Content Posting API</b> products, and turn on <b>Direct Post</b>.</li>
-              <li>In Login Kit, choose the <b>Desktop</b> platform and add this redirect URI:
-                <span class="row"><code id="ttRedirect"></code><button class="btn sm" id="ttCopyRedirect"><svg class="ic"><use href="#i-copy"/></svg>Copy</button></span></li>
-              <li>Paste the app's Client key and Client secret below, then connect your account.</li>
-            </ol>
-            <div class="form-grid two">
-              <label>Client key<input class="input" id="ttKey" spellcheck="false" autocomplete="off"></label>
-              <label>Client secret<input class="input" id="ttSecret" type="password" spellcheck="false" autocomplete="off"></label>
-            </div>
-            <div class="row"><button class="btn primary" id="ttConnectBtn">Save and connect</button><span class="muted small" id="ttConnectMsg"></span></div>
-          </div>
-          <p class="fine">Until TikTok reviews your app, direct posts are limited to private (Only me). Sending to drafts works either way; you finish the post in the TikTok app. Your sign-in is stored encrypted for your Windows account.</p>
-        </section>
 
         <section class="panel set" id="setExport">
           <header><svg class="ic"><use href="#i-upload"/></svg><h2>Export format</h2></header>

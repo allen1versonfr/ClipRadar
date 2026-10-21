@@ -27,7 +27,7 @@ import urllib.request
 from typing import Optional
 
 import paths
-import tiktok
+import secret
 
 STORE = paths.DATA_DIR / "twitch.dat"
 ID_API = os.environ.get("CLIPRADAR_TWITCH_ID", "https://id.twitch.tv").rstrip("/")
@@ -39,7 +39,7 @@ _state: dict = {"checked": 0.0}
 
 def _load() -> dict:
     try:
-        return json.loads(tiktok._unprotect(STORE.read_bytes()).decode("utf-8"))
+        return json.loads(secret.unprotect(STORE.read_bytes()).decode("utf-8"))
     except Exception:
         return {}
 
@@ -47,7 +47,7 @@ def _load() -> dict:
 def _save(d: dict):
     STORE.parent.mkdir(parents=True, exist_ok=True)
     tmp = STORE.with_suffix(".tmp")
-    tmp.write_bytes(tiktok._protect(json.dumps(d).encode("utf-8")))
+    tmp.write_bytes(secret.protect(json.dumps(d).encode("utf-8")))
     os.replace(tmp, STORE)
 
 
@@ -74,7 +74,7 @@ def _req(url: str, token_: str, body: Optional[bytes] = None, client_id: bool = 
         h["Client-ID"] = WEB_CLIENT_ID
         h["Content-Type"] = "text/plain;charset=UTF-8"
     req = urllib.request.Request(url, data=body, headers=h, method="POST" if body is not None else "GET")
-    with urllib.request.urlopen(req, timeout=20, context=tiktok._ctx()) as r:
+    with urllib.request.urlopen(req, timeout=20, context=secret.ssl_context()) as r:
         return json.loads(r.read() or b"{}")
 
 
