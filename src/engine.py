@@ -1796,7 +1796,12 @@ class RenderOpts:
     uppercase: bool = True
     caption_style: str = "pop"      # pop | box | karaoke | glow | clean
     caption_font: str = "classic"   # key of FONTS
-    caption_anim: bool = True       # words pop in
+    caption_anim: bool = True       # words pop in (kept for saved styles; caption_motion says how)
+    caption_motion: str = ""        # none | pop | word | bounce | fade | slide | reveal ("" = pop if caption_anim)
+    caption_speed: int = 100        # animation speed, percent (higher = quicker)
+    caption_emph: bool = False      # strong words ("no way", "insane", shouting) in the highlight colour
+    caption_filler: bool = True     # keep "um", "uh" in captions
+    caption_punct: bool = True      # keep punctuation in captions
     cap_x: float = 0.5              # custom caption centre, fractions of the frame
     cap_y: float = 0.7
     title_style: str = "box"        # box | dark | accent | outline
@@ -2184,6 +2189,40 @@ def fonts_for(o: "RenderOpts") -> list:
     return out
 
 
+CAPTION_MOTIONS = ("none", "pop", "word", "bounce", "fade", "slide", "reveal")
+FILLER_WORDS = {"um", "uh", "uhh", "umm", "erm", "hmm", "mm", "uhm"}
+EMPH_WORDS = {"no", "way", "what", "insane", "crazy", "wait", "yes", "never", "impossible", "clutch", "holy",
+              "omg", "wtf", "bro", "stop", "run", "dead", "help", "why", "how"}
+
+
+def caption_words(words: list, o: "RenderOpts") -> list:
+    """The words captions show: filler words and punctuation dropped when you asked (timing unchanged)."""
+    out = []
+    for w in words:
+        core = re.sub(r"[^\w']", "", w["word"]).lower()
+        if not o.caption_filler and core in FILLER_WORDS:
+            continue
+        if not o.caption_punct:
+            txt = re.sub(r"[.,!?;:…\"“”]+", "", w["word"]).strip()
+            if not txt:
+                continue
+            w = dict(w, word=txt)
+        out.append(w)
+    return out
+
+
+def motion_of(o: "RenderOpts") -> str:
+    m = getattr(o, "caption_motion", "") or ""
+    if m in CAPTION_MOTIONS:
+        return m
+    return "pop" if o.caption_anim else "none"
+
+
+def _emphasised(word: str) -> bool:
+    core = re.sub(r"[^\w']", "", word)
+    return core.lower() in EMPH_WORDS or word.endswith("!") or (len(core) > 2 and core.isupper())
+
+
 def _chunks(words: list, o: "RenderOpts", clip_len: float) -> list:
     chunks: list = []
     cur: list = []
@@ -2303,9 +2342,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     half = min(x, W - x) - 70               # wrap captions inside the frame around their own centre
     ml, mr = x - half, W - x - half
     y = int(center_y)
-    chunks = _chunks(words, o, clip_len)
+    motion = motion_of(o)
+    if style == "clean" and motion == "pop":
+        motion = "none"                    # clean captions never popped
+    dur = int(120 * 100 / max(50, min(200, getattr(o, "caption_speed", 100))))    # ms
+    chunks = _chunks(caption_words(words, o), o, clip_len)
     for ci, ch in enumerate(chunks):
         texts = [_ass_escape(w["word"].upper() if o.uppercase else w["word"]) for w in ch]
+        emph = [o.caption_emph and _emphasised(w["word"]) for w in ch]
         chars = sum(len(t) for t in texts) + len(texts) - 1
         # shrink long chunks so they stay on one or two lines
         fs = base_fs if chars <= 16 else max(int(base_fs * 0.75), int(base_fs * 18 / chars))
@@ -2322,6 +2366,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 en = st + 0.08
             parts = []
             for k, t in enumerate(texts):
+                if emph[k] and k != wi and style in ("pop", "glow", "box", "clean"):
+                    t = f"{{\\c{hi}}}{t}{{\\c{white}&}}"          # a strong word stays in the highlight colour
+                if motion == "reveal" and k > wi:
+                    parts.append(f"{{\\alpha&HFF&}}{t}{{\\alpha&H00&}}")   # not said yet: room kept, nothing shown
+                    continue
+                if k == wi and motion in ("word", "bounce"):
+                    end_sc = 112 if style == "glow" else 100
+                    if motion == "word":
+                        grow = f"\\fscx132\\fscy132\\t(0,{dur},\\fscx{end_sc}\\fscy{end_sc})"
+                    else:
+                        grow = (f"\\fscx70\\fscy70\\t(0,{dur // 2},\\fscx122\\fscy122)"
+                                f"\\t({dur // 2},{dur},\\fscx{end_sc}\\fscy{end_sc})")
+                    inner = t
+                    if style == "pop":
+                        inner = f"{{\\c{hi}}}{t}{{\\c{white}&}}"
+                    elif style == "karaoke":
+                        inner = f"{{\\c{hi}}}{t}{{\\c{white}&}}"
+                    elif style == "box":
+                        inner = (f"{{\\3c{hi}\\bord{max(8, int(fs * 0.22))}\\c{dark}&}}{t}"
+                                 f"{{\\3c{black}&\\bord{ob(max(4, fs // 12))}\\c{white}&}}")
+                    parts.append(f"{{{grow}}}{inner}{{\\fscx100\\fscy100}}")
+                    continue
                 if style == "pop":
                     parts.append(f"{{\\c{hi}}}{t}{{\\c{white}&}}" if k == wi else t)
                 elif style == "glow":
@@ -2338,9 +2404,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 lead = f"\\3c{hi}\\bord{ob(max(4, fs // 12))}\\blur{max(5, fs // 8)}"
             if style == "box":
                 lead = f"\\bord{ob(max(4, fs // 12))}"
-            pop = r"{\fscx114\fscy114\t(0,100,\fscx100\fscy100)}" if (wi == 0 and o.caption_anim and style != "clean") else ""
+            pop = ""
+            place = f"\\pos({x},{y})"
+            if wi == 0:                    # how the chunk comes in
+                if motion == "pop":
+                    pop = f"{{\\fscx114\\fscy114\\t(0,{dur},\\fscx100\\fscy100)}}"
+                elif motion == "fade":
+                    lead += f"\\fad({dur * 2},0)"
+                elif motion == "slide":
+                    place = f"\\move({x},{y + int(fs * 0.6)},{x},{y},0,{dur * 2})"
+                    lead += f"\\fad({dur * 2},0)"
             lines.append(f"Dialogue: 0,{_ass_time(st)},{_ass_time(en)},Cap,,{ml},{mr},0,,"
-                         f"{{\\an5\\pos({x},{y})\\fs{fs}{lead}}}{pop}{' '.join(parts)}")
+                         f"{{\\an5{place}\\fs{fs}{lead}}}{pop}{' '.join(parts)}")
     return header + "\n".join(lines) + "\n"
 
 
@@ -2423,7 +2498,7 @@ def write_srt(words: list, o: "RenderOpts", path: str, clip_len: float):
         h, m, sec = int(t // 3600), int(t % 3600 // 60), t % 60
         return f"{h:02d}:{m:02d}:{int(sec):02d},{int(round((sec - int(sec)) * 1000)) % 1000:03d}"
     lines = []
-    chunks = _chunks(words, o, clip_len)
+    chunks = _chunks(caption_words(words, o), o, clip_len)
     for i, ch in enumerate(chunks, 1):
         end = min(clip_len, chunks[i][0]["start"] if i < len(chunks) else ch[-1]["end"] + 0.4)
         text = " ".join(w["word"] for w in ch)

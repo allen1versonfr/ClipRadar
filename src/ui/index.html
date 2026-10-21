@@ -316,7 +316,14 @@
                     <button class="btn sm" id="capPresetSave">Save this style…</button>
                   </div>
                   <label class="fld inline">Position<select class="input" id="capPos"><option value="auto">Automatic</option><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option><option value="custom">Where you dragged it</option></select></label>
-                  <label class="fld switch-label">Pop-in animation<span class="switch"><input type="checkbox" id="capAnim" checked><i></i></span></label>
+                  <label class="fld inline">Animation<select class="input" id="capMotion">
+                    <option value="pop">Pop in (each line)</option><option value="word">Word pop (each word)</option>
+                    <option value="bounce">Bounce</option><option value="fade">Fade in</option><option value="slide">Slide up</option>
+                    <option value="reveal">Word by word</option><option value="none">None</option></select></label>
+                  <label class="fld inline" id="capSpeedRow">Speed<input type="range" id="capSpeed" min="50" max="200" step="10" value="100"><output id="capSpeedOut" class="tnum"></output></label>
+                  <label class="fld switch-label" title="Words like &quot;no way&quot;, &quot;insane&quot; and shouted words stay in the highlight colour">Highlight strong words<span class="switch"><input type="checkbox" id="capEmph"><i></i></span></label>
+                  <label class="fld switch-label">Keep "um" and "uh"<span class="switch"><input type="checkbox" id="capFiller" checked><i></i></span></label>
+                  <label class="fld switch-label">Keep punctuation<span class="switch"><input type="checkbox" id="capPunct" checked><i></i></span></label>
                   <label class="fld switch-label">Capital letters<span class="switch"><input type="checkbox" id="upper" checked><i></i></span></label>
                   <label class="fld inline">Accuracy<select class="input" id="model"><option value="base">Fast</option><option value="small">Balanced</option><option value="medium">Accurate (slow)</option><option value="large-v3">Best (GPU)</option></select></label>
                   <label class="fld inline">Language<select class="input" id="lang"><option value="">Automatic</option><option value="en">English</option><option value="es">Spanish</option><option value="pt">Portuguese</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="ar">Arabic</option><option value="tr">Turkish</option><option value="ru">Russian</option><option value="pl">Polish</option><option value="ja">Japanese</option><option value="ko">Korean</option></select></label>

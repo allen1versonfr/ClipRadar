@@ -91,7 +91,8 @@ def _wm(d) -> dict:
         out["image"] = ""                      # the copy is gone: fall back to the text (or nothing)
     return out
 CAP_KEYS = ("captions", "caption_pos", "caption_color", "caption_size", "words_per_line", "uppercase", "caption_style",
-            "caption_font", "caption_anim", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
+            "caption_font", "caption_anim", "caption_motion", "caption_speed", "caption_emph", "caption_filler",
+            "caption_punct", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
             "title_size", "title_x", "title_y")
 FRAME_KEYS = ("layout", "cam", "cam_height", "game_zoom", "game_x", "track", "track_target", "focus_y", "aspect")
 
