@@ -63,6 +63,7 @@ jobs:
           python tests/test_locations.py
           python tests/test_rename.py
           python tests/test_versions.py
+          python tests/test_startup.py
 
       - name: Get ffmpeg, TwitchDownloader and yt-dlp
         env:
@@ -88,6 +89,19 @@ jobs:
         run: |
           Copy-Item tools dist/ClipRadar/tools -Recurse -Force
           Copy-Item docs/user-guide.txt dist/ClipRadar/README.txt
+
+      - name: Report package size (biggest parts)
+        shell: pwsh
+        run: |
+          function MB($b) { [math]::Round($b / 1MB, 1) }
+          $root = "dist/ClipRadar"
+          $total = (Get-ChildItem $root -Recurse -File | Measure-Object Length -Sum).Sum
+          $parts = @(Get-ChildItem "$root/_internal", "$root/tools" | ForEach-Object {
+            $sz = if ($_.PSIsContainer) { (Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum } else { $_.Length }
+            [pscustomobject]@{ name = ($_.FullName.Substring((Resolve-Path $root).Path.Length + 1)); mb = MB $sz }
+          } | Sort-Object mb -Descending | Select-Object -First 15)
+          $parts | Format-Table -AutoSize | Out-String | Write-Host
+          Write-Host "::notice title=package::$(MB $total) MB unpacked; biggest: $(($parts | Select-Object -First 8 | ForEach-Object { "$($_.name) $($_.mb)" }) -join ', ')"
 
       - name: Make a test stream (video + spoken words)
         shell: pwsh
@@ -137,13 +151,19 @@ jobs:
         run: |
           $env:CLIPRADAR_WORK = "$env:RUNNER_TEMP\vc-work"
           $p = Start-Process dist/ClipRadar/ClipRadar.exe -ArgumentList "--browser" -PassThru
+          $sw = [Diagnostics.Stopwatch]::StartNew()
           $ok = $false
-          foreach ($i in 1..40) {
-            Start-Sleep 2
-            try { $r = Invoke-RestMethod http://127.0.0.1:7860/api/status; if ($r.version) { $ok = $true; break } } catch {}
+          foreach ($i in 1..400) {
+            Start-Sleep -Milliseconds 200
+            try { $r = Invoke-RestMethod http://127.0.0.1:7860/api/status -TimeoutSec 5; if ($r.version) { $ok = $true; break } } catch {}
           }
+          $ready = $sw.ElapsedMilliseconds
           if ($ok) {
+            Start-Sleep 2
+            $p.Refresh()
+            $mem = [math]::Round($p.WorkingSet64 / 1MB)
             $page = (Invoke-WebRequest http://127.0.0.1:7860/ -UseBasicParsing).Content
+            Write-Host "::notice title=startup::app server answered after $ready ms; $mem MB in memory once idle"
             Write-Host "::notice title=OK app server::status $($r | ConvertTo-Json -Compress); page $($page.Length) bytes"
             Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null
           }
