@@ -1808,7 +1808,8 @@ class RenderOpts:
     language: str = ""              # "" = auto-detect
     hw_encode: bool = True
     crf: int = 20
-    fps: int = 30
+    fps: int = 0                    # 0 = the source's own frame rate (up to 60); never raised above the source
+    speed: str = "balanced"         # fast | balanced | high: encoder effort (quality_args)
     aspect: str = "9:16"            # 9:16 vertical | 1:1 square | 16:9 wide
     # 3.7 export settings (presets in exports.py)
     scale: float = 1.0              # output size relative to the shape's full size (0.6667 = 720p)
@@ -1866,6 +1867,28 @@ def _even(x: float) -> int:
     return max(2, int(round(x / 2)) * 2)
 
 
+MAX_FPS = 60
+
+
+def output_fps(info: dict, o: RenderOpts) -> float:
+    """The frame rate a clip renders at: the source's own (o.fps 0), or the one chosen, but never
+    above the source's. Turning 30 FPS into 60 only repeats frames; it can't add motion that wasn't
+    recorded, so Clip Radar doesn't do it."""
+    src = float(info.get("fps") or 0)
+    if not (1 <= src <= 240):
+        src = 30.0
+    want = float(getattr(o, "fps", 0) or 0)
+    out = min(src, MAX_FPS) if want <= 0 else min(want, src)
+    return round(out, 3)
+
+
+SPEEDS = {   # x264 preset, quality offset (lower crf = better), NVENC preset
+    "fast": ("veryfast", 2, "p3"),
+    "balanced": ("medium", 0, "p5"),
+    "high": ("slow", -2, "p7"),
+}
+
+
 def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: Optional[dict] = None) -> tuple:
     """Return (filter_complex producing [v] in yuv420p, caption_center_y).
     path: [(t, centre x)] for a whole-frame crop that follows a face (3.9 framing).
@@ -1874,6 +1897,7 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
     z = max(1.0, o.game_zoom)
     W, H = out_size(o)
     layout = effective_layout(o)
+    fr = output_fps(info, o)
 
     def safe_cam_crop(rect: tuple) -> tuple:
         """Clamp user-edited facecam rectangles to a valid, even-sized source crop."""
@@ -1910,10 +1934,10 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         cam = (f"crop={cw}:{ch}:{cx}:{cy},scale={W}:{top_h}:force_original_aspect_ratio=increase:"
                f"flags=lanczos,crop={W}:{top_h},setsar=1")
         f = (f"[0:v]split=2[a][b];[a]{cam}[cam];[b]{game_crop(W, bot_h)}[game];"
-             f"[cam][game]vstack=inputs=2,fps={o.fps},format=yuv420p[v]")
+             f"[cam][game]vstack=inputs=2,fps={fr},format=yuv420p[v]")
         cap_y = top_h  # right on the seam reads best
     elif layout == "full":
-        f = f"[0:v]{game_crop(W, H, path)},fps={o.fps},format=yuv420p[v]"
+        f = f"[0:v]{game_crop(W, H, path)},fps={fr},format=yuv420p[v]"
         cap_y = H * 0.70
         if face and path:
             import framing
@@ -1922,15 +1946,20 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         # the facecam by itself, filling the frame
         cw, ch, cx, cy = safe_cam_crop(o.cam)
         f = (f"[0:v]crop={cw}:{ch}:{cx}:{cy},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
-             f"crop={W}:{H},setsar=1,fps={o.fps},format=yuv420p[v]")
+             f"crop={W}:{H},setsar=1,fps={fr},format=yuv420p[v]")
         cap_y = H * 0.78
     elif layout == "blur":
-        fg_h = _even(W * sh / sw)
-        fg = game_crop(W, fg_h) if z > 1 else f"scale={W}:{fg_h}:flags=lanczos,setsar=1"
+        # the whole picture, fitted inside the frame (never cropped or stretched), on a blurred,
+        # darkened copy of itself that fills the rest. Works for wide, square and tall sources.
+        fg_w, fg_h = W, _even(W * sh / sw)
+        if fg_h > H:                                   # a tall source: fit the height instead
+            fg_w, fg_h = min(W, _even(H * sw / sh)), H
+        fg = game_crop(fg_w, fg_h) if z > 1 else f"scale={fg_w}:{fg_h}:flags=lanczos,setsar=1"
+        bw, bh = max(2, _even(W / 4)), max(2, _even(H / 4))
         f = (f"[0:v]split=2[a][b];"
-             f"[a]scale=-2:{H // 4},crop={W // 4}:{H // 4},boxblur=12:2,eq=brightness=-0.12,"
-             f"scale={W}:{H},setsar=1[bg];"
-             f"[b]{fg}[fg];[bg][fg]overlay=0:(H-h)/2,fps={o.fps},format=yuv420p[v]")
+             f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=12:2,"
+             f"eq=brightness=-0.12,scale={W}:{H},setsar=1[bg];"
+             f"[b]{fg}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
         cap_y = min(H / 2 + fg_h / 2 + 170, H * 0.8)
     else:
         raise ValueError(f"unknown layout {o.layout}")
@@ -2287,10 +2316,13 @@ def video_encoder(o: RenderOpts) -> tuple:
         q = ["-b:v", f"{kb}k"] if kb else ["-crf", str(min(63, o.crf + 12)), "-b:v", "0"]
         return "libvpx-vp9", ["-c:v", "libvpx-vp9", "-deadline", "good", "-cpu-used", "4", "-row-mt", "1", *q]
     if vc == "hevc":
-        q = _rate_args(o) or ["-crf", str(o.crf + 4)]
-        return "libx265", ["-c:v", "libx265", "-preset", "medium", *q, "-tag:v", "hvc1"]
+        x_pre, dq, _nv = SPEEDS.get(getattr(o, "speed", "balanced"), SPEEDS["balanced"])
+        q = _rate_args(o) or ["-crf", str(o.crf + 4 + dq)]
+        return "libx265", ["-c:v", "libx265", "-preset", x_pre, *q, "-tag:v", "hvc1"]
     rate = _rate_args(o)
-    x264 = ("libx264", ["-c:v", "libx264", "-preset", "medium", *(rate or ["-crf", str(o.crf)]),
+    x_pre, dq, _nv = SPEEDS.get(getattr(o, "speed", "balanced"), SPEEDS["balanced"])
+    crf = min(max(o.crf + dq, 12), 36)
+    x264 = ("libx264", ["-c:v", "libx264", "-preset", x_pre, *(rate or ["-crf", str(crf)]),
                         "-profile:v", "high"])
     if not o.hw_encode:
         return x264
@@ -2322,6 +2354,8 @@ def video_encoder(o: RenderOpts) -> tuple:
             keep.append(args[i])
             i += 1
         return name, keep + rate
+    if hw and hw[0] == "h264_nvenc":       # the effort setting picks NVENC's preset too (p3 / p5 / p7)
+        return hw[0], [_nv if a == "p5" else a for a in hw[1]]
     return hw or x264
 
 
@@ -2462,7 +2496,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             cmd += ["-map", "[a]", *acodec, "-ar", "48000"]
         elif info["has_audio"]:
             cmd += ["-map", "0:a:0", *acodec, "-af", audio_filter(o), "-ar", "48000"]
-        cmd += [*enc_args, "-pix_fmt", "yuv420p", "-r", str(o.fps)]
+        cmd += [*enc_args, "-pix_fmt", "yuv420p", "-r", str(output_fps(info, o))]
         if cont != "webm":
             cmd += ["-movflags", "+faststart"]
         cmd += [*RENDER_THREADS, tmp_name]

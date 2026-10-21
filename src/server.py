@@ -1085,7 +1085,8 @@ def _clean_words(ws) -> Optional[list]:
 def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
     ex = ex or {}
     return engine.RenderOpts(
-        fps=int(ex.get("fps", 30)), crf=int(ex.get("crf", 20)), scale=float(ex.get("scale", 1.0)),
+        fps=int(ex.get("fps", 0)), speed=str(ex.get("speed", "balanced")), crf=int(ex.get("crf", 20)),
+        scale=float(ex.get("scale", 1.0)),
         vcodec=str(ex.get("vcodec", "h264")), vbitrate=int(ex.get("vbitrate", 0)), acodec=str(ex.get("acodec", "aac")),
         abitrate=int(ex.get("abitrate", 192)), container=str(ex.get("container", "mp4")),
         loudness=float(ex.get("loudness", -14.0)), denoise=bool(ex.get("denoise")), voice=bool(ex.get("voice")),
@@ -1459,6 +1460,7 @@ def export_view(sample: Optional[dict] = None) -> dict:
     return {"prefs": prefs, "settings": st, "describe": exports.describe(st),
             "presets": [{"key": k, "label": v["label"], "note": v["note"]} for k, v in exports.PRESETS.items()],
             "advanced": {k: list(v) for k, v in exports.ADVANCED.items()}, "tokens": list(exports.TOKENS),
+            "quality": [{"key": k, "label": v["label"], "note": v["note"]} for k, v in exports.QUALITY.items()],
             "preview_name": exports.file_name(prefs["template"], fields) + "." + st["container"]}
 
 

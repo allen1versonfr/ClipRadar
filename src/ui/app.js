@@ -2607,6 +2607,8 @@ function renderExportSettings() {
   $('#exDescribe').textContent = v.describe;
   $('#exPreset').innerHTML = v.presets.map(p => `<button data-v="${p.key}" class="${p.key === pr.preset ? 'on' : ''}">${esc(p.label)}</button>`).join('');
   $('#exPresetNote').textContent = (v.presets.find(p => p.key === pr.preset) || {}).note || '';
+  $('#exQualityPreset').innerHTML = (v.quality || []).map(q => `<button data-v="${q.key}" class="${q.key === pr.quality ? 'on' : ''}" title="${esc(q.note)}">${esc(q.label)}</button>`).join('');
+  $('#exQualityNote').textContent = ((v.quality || []).find(q => q.key === pr.quality) || {}).note || '';
   $('#exScale').value = String(+st.scale === 1 ? 1 : st.scale); $('#exFps').value = String(st.fps); $('#exVcodec').value = st.vcodec;
   $('#exQuality').value = st.vbitrate ? `b:${st.vbitrate}` : `q:${st.crf}`;
   if (!$('#exQuality').value) $('#exQuality').value = 'q:20';
@@ -2640,6 +2642,7 @@ const customPatch = kv => saveExport({ custom: Object.assign({}, (exState && exS
 $('#exPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ preset: v }); };
 $('#exScale').onchange = e => customPatch({ scale: +e.target.value });
 $('#exFps').onchange = e => customPatch({ fps: +e.target.value });
+$('#exQualityPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ quality: v }); };
 $('#exVcodec').onchange = e => customPatch({ vcodec: e.target.value, container: e.target.value === 'vp9' ? 'webm' : ($('#exContainer').value === 'webm' ? 'mp4' : $('#exContainer').value) });
 $('#exQuality').onchange = e => { const [k, n] = e.target.value.split(':'); customPatch(k === 'b' ? { vbitrate: +n } : { crf: +n, vbitrate: 0 }); };
 $('#exAbitrate').onchange = e => customPatch({ abitrate: +e.target.value });

@@ -443,11 +443,15 @@
             <div class="seg" id="exPreset"></div>
             <span class="hint" id="exPresetNote"></span>
           </div>
+          <div class="fld">Quality
+            <div class="seg" id="exQualityPreset"></div>
+            <span class="hint" id="exQualityNote"></span>
+          </div>
           <details class="adv" id="exAdv">
             <summary>Advanced</summary>
             <div class="form-grid">
               <label>Resolution<select class="input" id="exScale"><option value="1">Full (1080 wide)</option><option value="0.6667">720</option><option value="0.5">540</option></select></label>
-              <label>Frame rate<select class="input" id="exFps"><option>24</option><option>25</option><option>30</option><option>50</option><option>60</option></select></label>
+              <label>Frame rate<select class="input" id="exFps" title="Never higher than the stream's own: extra frames would only be copies"><option value="0">Same as the stream</option><option>24</option><option>25</option><option>30</option><option>50</option><option>60</option></select></label>
               <label>Video codec<select class="input" id="exVcodec"><option value="h264">H.264 (works everywhere)</option><option value="hevc">H.265 (smaller files)</option><option value="vp9">VP9 (.webm)</option></select></label>
               <label>Quality<select class="input" id="exQuality"><option value="q:16">Highest</option><option value="q:18">High</option><option value="q:20">Good</option><option value="q:23">Smaller file</option><option value="b:6000">6 Mbps</option><option value="b:12000">12 Mbps</option><option value="b:20000">20 Mbps</option></select></label>
               <label>Audio<select class="input" id="exAbitrate"><option value="96">96 kbps</option><option value="128">128 kbps</option><option value="160">160 kbps</option><option value="192">192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></label>

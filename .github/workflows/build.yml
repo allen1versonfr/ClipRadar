@@ -71,6 +71,7 @@ jobs:
           python tests/test_ranking_explain.py
           python tests/test_hashtags.py
           python tests/test_cleanup.py
+          python tests/test_quality.py
 
       - name: Get ffmpeg, TwitchDownloader and yt-dlp
         env:
