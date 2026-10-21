@@ -11,6 +11,9 @@ Release preparation: updating is tested from the previous Clip Radar, and the gu
 - The user guide (README.txt next to the app) covers what changed since 4.1: titles from chat, What it learned, F-spam, clip counts, automatic cleanup, quality and frame rate, the watermark, caption animations and templates, Show what TikTok covers, and each clip's volume.
 - Every build now also installs the previous Clip Radar release, uses it a little, updates it from inside the app and checks that settings, the Exports list and the old clips carry over, the old TikTok sign-in is removed, and the new settings start at their defaults. Updating from VodClipper 3.11 was already tested this way.
 
+### Fixed
+- Delete VODs (Settings › Storage) gives a file Windows still has open, such as a live moment that just finished, a few more seconds before reporting it couldn't be deleted. It used to try only once more.
+
 ## [4.6.0] - 2026-10-21
 
 A cleaner, flatter look with a yellow accent, and quicker editing.

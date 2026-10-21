@@ -2498,21 +2498,23 @@ class Handler(BaseHTTPRequestHandler):
                 time.sleep(0.1)
             fn = engine.delete_vods if what == "vods" else engine.delete_clips
             res = {"deleted": 0, "freed": 0, "failed": []}
-            for attempt in (1, 2):
+            tries = 4
+            for attempt in range(1, tries + 1):
+                failed = []
                 for root in locations.project_roots() or [WORKROOT]:
                     r_ = fn(root)
                     if attempt == 1:
                         res["deleted"] += r_["deleted"]
                     res["freed"] += r_["freed"]
-                    if attempt == 2:
-                        res["failed"] += r_["failed"]
-                if attempt == 1:
-                    left = engine.storage_summary(WORKROOT)["vods" if what == "vods" else "clips"]["bytes"]
-                    if not left:
-                        break
-                    # Windows can keep a file open for a moment after it was read (a preview, a scan): try once more
-                    print(f"  Some files were busy ({left // 1_000_000} MB); trying again", flush=True)
-                    time.sleep(2.5)
+                    failed += r_["failed"]
+                left = engine.storage_summary(WORKROOT)["vods" if what == "vods" else "clips"]["bytes"]
+                if not left or attempt == tries:
+                    res["failed"] = failed if left else []
+                    break
+                # Windows can keep a file open for a moment after it was read (a preview, a scan,
+                # a just-finished render): wait a little longer each time and try again
+                print(f"  Some files were busy ({left // 1_000_000} MB); trying again", flush=True)
+                time.sleep(2.5 * attempt)
             closed = []
             if what == "vods":
                 # projects whose downloaded VOD is gone can't be previewed or rendered any more
