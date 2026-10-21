@@ -55,9 +55,6 @@ SENSITIVITY = {
     "normal": {"label": "Normal", "floor": 1.5, "count": 1.0},
     "more": {"label": "More", "floor": 1.0, "count": 1.6},
 }
-PART_LABEL = {"chat": "Chat", "audio": "Volume", "laugh": "Laughter", "scream": "Screams", "cheer": "Cheering",
-              "emotes": "Emotes", "surge": "Chat surge", "react": "Sudden reaction", "noise": "Isolated noise",
-              "tuned": "Your picks"}
 MIN_LEN_LIMIT, MAX_LEN_LIMIT = 3.0, 180.0
 
 
@@ -345,10 +342,3 @@ def breakdown(an, peak: float, tuned: float = 0.0) -> dict:
     if abs(tuned) > 0.01:
         out["tuned"] = round(float(tuned), 2)
     return {k: v for k, v in out.items() if abs(v) >= 0.05}
-
-
-def top_reason(bd: dict) -> list:
-    """The two or three signals that matter most for a clip, biggest first, as (label, percent)."""
-    pos = {k: v for k, v in bd.items() if v > 0}
-    tot = sum(pos.values()) or 1.0
-    return [(PART_LABEL.get(k, k), round(100 * v / tot)) for k, v in sorted(pos.items(), key=lambda kv: -kv[1])][:3]

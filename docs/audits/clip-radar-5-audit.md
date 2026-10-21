@@ -165,3 +165,47 @@ Options, for the owner to choose before Milestone 7:
 
 - Windows installer, upgrade and uninstall: covered by CI on this branch, not by hand.
 - Real Twitch/YouTube VODs, slow PCs, GPUs: not available in this environment.
+
+## 8. Milestone 2 (4.2.0) — what changed and what was measured
+
+Windows baseline from the 4.1.6 CI run (first build with the new reporting): **570 MB unpacked,
+installer 203 MB; the packaged app answered after 330 ms and held 56 MB once idle.** Biggest parts:
+ffmpeg.exe 100.5, ffprobe.exe 100.3, TwitchDownloaderCLI 65.8, PyAV's FFmpeg libraries
+(`av.libs`) 64.1, ctranslate2 59.4, onnxruntime 41.6, laughter model 19.9, yt-dlp.exe 17.0,
+hf_xet 8.9, tokenizers 7.5 MB.
+
+Done:
+- **PyAV left out of the build** (a third copy of FFmpeg). faster-whisper imports it but only uses
+  it to read files; every Clip Radar call passes samples decoded by the bundled FFmpeg, and
+  `engine.transcribe` now decodes a path with FFmpeg too. `src/stubs/av` stands in for it in
+  the build only; running from source is unchanged. The build fails if `av.libs` sneaks back.
+  Checked with a local PyInstaller build: the frozen self-test imports faster-whisper with the
+  stand-in and renders a clip. Captions through Whisper could not be checked locally (Hugging
+  Face downloads are blocked here); the Windows CI self-test and e2e check them.
+- **hf_xet excluded** (optional accelerator; huggingface_hub falls back to plain HTTP). The CI
+  self-test downloads the Whisper model, which checks this.
+- **Whisper memory:** at most two model sizes (Deep Scan and title listening can use two at
+  once; one slot would reload on every alternation), released after 10 minutes idle, never
+  mid-transcription. Covered by `tests/test_memory.py` with a stand-in model.
+- **UI pollers rest while hidden** (verified in headless Chromium: 3 status calls in 11 s
+  visible, 0 hidden, one immediately on return). The browser-mode keep-alive ping still runs.
+- **Dead code:** the helpers listed in §2 removed after checking UI, tests and workflows.
+- **Reliability:** Deep Scan reports unreadable audio as an error, survives a zero-length
+  video (it crashed with `'gems'`), and `extract_audio`/`probe` have timeouts; crop/filter
+  failures get a plain-words message. `tests/test_deepscan.py` and `tests/test_retry.py` (the
+  latter uses FFmpeg's real crop error text).
+- **Probe cache bounded** (live recordings added an entry per probe).
+
+Measured on this PR's Windows CI: **493.6 MB unpacked (was 570), installer 182 MB (was 203)**;
+`av.libs` and `hf_xet` gone; the self-test's Whisper captions passed (model downloaded without
+hf_xet, speech transcribed with the PyAV stand-in), and so did the e2e suite. Idle memory 56 MB
+(same as 4.1.6). Startup read 1093 ms against 330 ms on 4.1.6, but nothing on the startup path
+changed and both were single starts on a shared runner; the smoke test now reports the median of
+three starts so later builds can be compared properly.
+
+Looked at and not done:
+- **Shared FFmpeg build instead of two static exes.** Measured: the BtbN GPL shared build is
+  186 MB without ffplay against 201 MB for gyan's two static exes. A 15 MB saving doesn't
+  justify changing the FFmpeg build every render depends on.
+- **One yt-dlp.** The exe is required (YouTube chat replay only works through it) and the
+  Python package is under 5 MB in the build (not in the top 15). Kept as the fallback.

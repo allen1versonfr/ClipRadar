@@ -372,8 +372,3 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
         "emoji": emoji,
         "quote": quote,
     }
-
-
-def post_for(title: str, vibe: str, streamer: str = "", with_tags: bool = True) -> str:
-    emoji = VIBES[vibe]["emoji"] if vibe in VIBES else "👀"
-    return compose(describe(vibe if vibe in VIBES else None, "", streamer, emoji), hashtags(vibe, streamer), with_tags)

@@ -309,10 +309,6 @@ class LiveSession:
     def recorded(self) -> float:
         return float(len(self.loud))
 
-    @property
-    def t0_wall(self):                     # kept for older callers: "has recording started"
-        return self._anchor[0] if self._anchor else None
-
     def live_edge(self) -> float:
         """Media time of 'now' (what viewers are seeing right now). Ads are left out of the media
         timeline, so this pauses during an ad break."""

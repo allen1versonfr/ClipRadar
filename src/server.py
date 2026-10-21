@@ -704,6 +704,8 @@ def start_deep_scan(pid: str, model: str, lang: str):
         log(f"Deep scan with Whisper '{model}': transcribing the whole stream.")
         step_s = 60.0
         a, last_gems, t0 = 0.0, 0.0, time.time()
+        stats, bad_run, bad_from = {}, 0, 0.0
+        job["step"] = "Deep scan: getting Whisper ready"
         while a < dur:
             check()
             # titles for the suggested clips come first: let a running listening job finish
@@ -711,7 +713,17 @@ def start_deep_scan(pid: str, model: str, lang: str):
                 check()
                 time.sleep(0.5)
             b = min(dur, a + step_s)
-            ensure_words(pr, a, b, model, lang, check)
+            before = stats.get("unreadable", 0)
+            ensure_words(pr, a, b, model, lang, check, stats)
+            if stats.get("unreadable", 0) > before:
+                bad_from = a if not bad_run else bad_from
+                bad_run += 1
+            else:
+                bad_run = 0
+            if bad_run >= 3:
+                # not "done, no gems": say the sound couldn't be read, so Retry means something
+                raise RuntimeError(f"Couldn't read the video's sound from {engine.fmt_ts(bad_from)}. "
+                                   "The file may be damaged or still downloading.")
             job["progress"] = round(b / dur, 4)
             took = time.time() - t0
             left = took / max(b, 1) * (dur - b)
@@ -722,8 +734,11 @@ def start_deep_scan(pid: str, model: str, lang: str):
             a = b
         pr["deep_done"] = True
         _save_transcripts(pr)
-        log(f"Deep scan done: {len(pr['gems'])} quiet gems.")
-        return {"gems": len(pr["gems"])}
+        if stats.get("unreadable"):
+            log(f"Couldn't read the sound in {stats['unreadable']} short stretch(es); they were skipped.")
+        n = len(pr.get("gems", []))
+        log(f"Deep scan done: {n} quiet gems.")
+        return {"gems": n}
     run_job(job, go)
     return job
 
@@ -781,8 +796,11 @@ def _vocab(pr: dict) -> str:
     return exports.prompt(_streamer_name(pr), list(es.by_name) if es else None, exports.load().get("vocab"))
 
 
-def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lambda: None) -> list:
-    """Transcript words (absolute times) for [a, b] of the VOD, transcribing any missing parts."""
+def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lambda: None,
+                 stats: Optional[dict] = None) -> list:
+    """Transcript words (absolute times) for [a, b] of the VOD, transcribing any missing parts.
+    A stretch whose sound can't be read isn't marked as done (so it's tried again later) and is
+    counted in stats["unreadable"]."""
     dur = pr["analysis"].duration if "analysis" in pr else pr.get("duration") or b
     a, b = max(0.0, a), min(dur, b)
     with pr["tx_lock"]:
@@ -804,8 +822,12 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
             check()
             pad_a, pad_b = max(0.0, ga - 1.0), gb + 1.0   # a little overlap so edge words aren't cut
             audio = engine.extract_audio(pr["video"], pad_a, pad_b - pad_a)
+            if audio is None:
+                if stats is not None:
+                    stats["unreadable"] = stats.get("unreadable", 0) + 1
+                continue
             new = []
-            if audio is not None and audio.size >= 1600:
+            if audio.size >= 1600:
                 for w in engine.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr)):
                     st, en = w["start"] + pad_a, w["end"] + pad_a
                     mid = (st + en) / 2
@@ -1526,6 +1548,10 @@ def friendly_render_error(e: Exception) -> tuple:
          "The captions couldn't be drawn. Try the Classic font in the Text tab, then retry."),
         ("error while opening encoder" in low or "nvenc" in low or "qsv" in low or "amf" in low,
          "The video encoder failed. Turn off \"Use the GPU to encode\" in the Layout tab, then retry."),
+        ("failed to configure input pad" in low or "error reinitializing filters" in low
+         or "error initializing complex filter" in low or "invalid too big or non positive size" in low,
+         "The clip's layout couldn't be built from this video (a crop or the framing lands outside the picture). "
+         "Press Reset in the Layout tab or choose another layout, then retry."),
         ("came out broken" in low,
          "The finished file came out broken twice. Retry; if it keeps happening, turn off "
          "\"Use the GPU to encode\" in the Layout tab."),

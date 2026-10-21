@@ -70,13 +70,17 @@ rem ---------- PyInstaller ----------
 echo   [3/4] Packaging (this is the slow part)...
 set "PKG=--onedir"
 if "%MODE%"=="onefile" set "PKG=--onefile"
+rem src\stubs\av stands in for PyAV (Clip Radar decodes audio with FFmpeg; see that file)
+set "PYTHONPATH=src\stubs"
 "%VPY%" -m PyInstaller --noconfirm --clean --log-level WARN %PKG% --windowed ^
-  --name ClipRadar --icon "src\ui\icon.ico" --add-data "src\ui;ui" --add-data "src\models;models" --paths src ^
+  --name ClipRadar --icon "src\ui\icon.ico" --add-data "src\ui;ui" --add-data "src\models;models" ^
+  --paths src --paths src\stubs --exclude-module hf_xet ^
   --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime ^
-  --collect-all av --collect-all webview --collect-submodules yt_dlp --collect-data certifi ^
-  --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog ^
+  --collect-all webview --collect-submodules yt_dlp --collect-data certifi ^
+  --hidden-import av --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog ^
   src\app.py
 if errorlevel 1 ( echo. & echo   Packaging failed. Scroll up for the error. & pause & exit /b 1 )
+set "PYTHONPATH="
 
 if "%MODE%"=="onefile" (
   set "OUT=dist"

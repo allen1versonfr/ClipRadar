@@ -65,11 +65,6 @@ def _save(data: dict):
         pass
 
 
-def enabled() -> bool:
-    with _lock:
-        return bool(_load().get("enabled", True))
-
-
 def set_enabled(on: bool):
     with _lock:
         d = _load()

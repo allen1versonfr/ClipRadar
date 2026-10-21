@@ -17,8 +17,6 @@ from typing import Optional
 PROJECT_V = 1
 _write_lock = threading.Lock()
 
-# what you did to a clip in the app; a clip with any of these is yours and never drops out of the list
-USER_KEYS = ("state", "userTrim", "userTitle", "userPost", "postText", "wordsEdited", "words_edit")
 # kept out of project.json: rebuilt when the project opens
 _VOLATILE = ("vod", "pid", "isNew")
 
