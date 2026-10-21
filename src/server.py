@@ -47,6 +47,7 @@ import tools_setup
 import updater
 import audio_events
 import chatsignal
+import chattitles
 import checkflow
 import detect
 import emotes
@@ -305,7 +306,18 @@ TX_MARGIN = 8.0   # seconds transcribed around each clip: trims keep captions, a
 def _chat_window(pr: dict, start: float, end: float) -> list:
     d = pr.get("chat_delay", 6.0)
     lo, hi = start + d - 2, end + d + 8
-    return [m[1] for m in chatsignal.human(pr["chat"]) if lo <= m[0] <= hi]
+    return [m[1] for m in chatsignal.human(pr["chat"]) if lo <= m[0] <= hi and isinstance(m[1], str)]
+
+
+def _chat_title(pr: dict, start: float, end: float) -> str:
+    """Settings › Titles: a title from a phrase many chatters typed around the clip ('' if none)."""
+    d = pr.get("chat_delay", 6.0)
+    lo, hi = start + d - 2, end + d + 8
+    msgs = [(m[1], m[2] if len(m) > 2 else "") for m in chatsignal.human(pr.get("chat") or [])
+            if lo <= m[0] <= hi and isinstance(m[1], str)]
+    es = getattr(pr.get("analysis"), "_emotes", None)
+    names = set(getattr(es, "lower", None) or {}) if es else set()
+    return chattitles.find(msgs, names | set(engine.HYPE), _streamer_name(pr))["title"]
 
 
 TITLE_PREFS = str(paths.DATA_DIR / "titles.json")
@@ -314,7 +326,8 @@ TITLE_PREFS = str(paths.DATA_DIR / "titles.json")
 def title_prefs() -> dict:
     """Settings › Titles and captions: which title goes on new clips, and hashtags on or off."""
     d = persist.read_json(TITLE_PREFS, {}) or {}
-    return {"pick": d.get("pick") if d.get("pick") in ("a", "b") else "a", "hashtags": bool(d.get("hashtags", True))}
+    return {"pick": d.get("pick") if d.get("pick") in ("a", "b") else "a", "hashtags": bool(d.get("hashtags", True)),
+            "chat_titles": bool(d.get("chat_titles", True))}
 
 
 def set_title_prefs(body: dict) -> dict:
@@ -323,6 +336,8 @@ def set_title_prefs(body: dict) -> dict:
         cur["pick"] = body["pick"]
     if "hashtags" in body:
         cur["hashtags"] = bool(body["hashtags"])
+    if "chat_titles" in body:
+        cur["chat_titles"] = bool(body["chat_titles"])
     try:
         persist.write_json(TITLE_PREFS, cur)
     except OSError:
@@ -338,9 +353,10 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     rel = [{"start": w["start"] - d["start"], "end": w["end"] - d["start"], "word": w["word"]}
            for w in words_abs if d["start"] - 0.2 <= w["start"] <= d["end"]]
     tp = title_prefs()
+    ct = _chat_title(pr, d["start"], d["end"]) if tp["chat_titles"] else ""
     info = titles.generate(rel, _chat_window(pr, d["start"], d["end"]),
                            peak_rel=d.get("peak", d["start"]) - d["start"], used=used,
-                           streamer=_streamer_name(pr), with_tags=tp["hashtags"], pick=tp["pick"])
+                           streamer=_streamer_name(pr), with_tags=tp["hashtags"], pick=tp["pick"], chat_title=ct)
     cfg = safety.load_config()
     if not d.get("user_title") and not d.get("userTitle"):
         d["title"] = safety.mask_text(info["title"], cfg)
@@ -429,6 +445,7 @@ def project_view(pid: str) -> dict:
         "settings": {"count": pr.get("count", 0), "length": pr.get("length", 0),
                      "chat_weight": an.chat_weight_pct},
         "restored": bool(pr.get("restored")),
+        "pick_note": pr.get("pick_note", ""),
         "review": persist.summary(pr["clips"]),
         "detect": pr.get("detect") or detect.settings({}),
         "detect_text": detect.describe(pr.get("detect") or {}, an.chat_delay if getattr(an, "delay_sure", False) else None,
@@ -446,10 +463,14 @@ def _pick(pr: dict, count: int, length: float, det: Optional[dict] = None) -> li
     pr["count"] = count
     det = det or pr.get("detect") or detect.settings({})
     tr = learning.trim_offsets(pr.get("streamer", ""))
-    return engine.pick_clips(an, count=count, length=length, chat=pr["chat"], chat_delay=pr["chat_delay"],
-                             adjust=learning.adjuster(pr.get("streamer", "")),
-                             min_len=det["min_len"], max_len=det["max_len"], sensitivity=det["sensitivity"],
-                             back=detect.preset(det["preset"])["back"], offsets=(tr["start"], tr["end"]))
+    clips = engine.pick_clips(an, count=count, length=length, chat=pr["chat"], chat_delay=pr["chat_delay"],
+                              adjust=learning.adjuster(pr.get("streamer", "")),
+                              min_len=det["min_len"], max_len=det["max_len"], sensitivity=det["sensitivity"],
+                              back=detect.preset(det["preset"])["back"], offsets=(tr["start"], tr["end"]))
+    # a number you chose is never cut short quietly
+    pr["pick_note"] = (f"Found {len(clips)} of the {count} clips you asked for: that's every separate moment "
+                       "in this video that stands out at all." if 0 < len(clips) < count else "")
+    return clips
 
 
 def _number(pr: dict, clips: list, kind: str = "hype", taken: Optional[set] = None):
@@ -1935,6 +1956,7 @@ def start_live_session(src: str, body: dict):
             es = emotes.for_channel(login=se.channel, log=se.log)
             if es:
                 se.scorer.hype = detect.weigher(es)
+                se.emote_set = es
         threading.Thread(target=load_emotes, daemon=True).start()
     hands_free = bool(body.get("hands_free", body.get("auto_render")))
     sess.extra = {"auto_render": hands_free, "opts": dict(body.get("opts") or {}),
@@ -2148,6 +2170,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(learning.summary())
         if p == "/api/titles":
             return self._json(title_prefs())
+        if p == "/api/learning/explain":
+            return self._json(learning.explain((q.get("streamer") or [""])[0]))
         if p == "/callback/" or p == "/callback":
             params = {k: v[0] for k, v in q.items()}
             try:

@@ -252,6 +252,89 @@ def summary() -> dict:
                 "min_decisions": MIN_DECISIONS}
 
 
+LABELS = {"chat": "Chat reaction", "audio": "Loudness", "laugh": "Laughter", "scream": "Screaming",
+          "cheer": "Cheering", "speech": "Talking", "length": "Clip length", "clipreq": '"Clip it" in chat',
+          "pos": "How far into the stream", "emotes": "Emote reactions"}
+# what every clip is scored on before anything is learned (engine.score_signals, detect.py)
+RULES = [
+    "Chat reacting harder than usual for this stream (bots, commands, sub notices, raids, one person "
+    "spamming, copypasta and F-spam count little or nothing)",
+    "The stream getting louder than the last few minutes",
+    "Laughter, screaming and cheering, when the sound detector is installed",
+    "Chat speeding up suddenly, emote waves, and \"clip it\" requests",
+    "A sudden reaction right after a quiet stretch counts a bit more; a lone loud noise nobody reacted to counts less",
+    "The stream type you choose (Gaming, Just chatting, ...) sets how much each of these counts",
+]
+
+
+def explain(streamer: str) -> dict:
+    """Settings › Clip ranking › What it learned: the stored decisions (facts), how kept and skipped
+    clips differed (facts), what the fitted model shifts (learned), and the fixed rules (built in)."""
+    with _lock:
+        d = _load()
+        on = bool(d.get("enabled", True))
+        name = _name(streamer)
+        p = d["profiles"].get(name) or {}
+        samples = list(p.get("samples", []))
+        st = dict(p.get("stats") or {})
+        m, prof = _model(streamer) if on else (None, "")
+    kept = [x for x in samples if x["y"] > 0]
+    skipped = [x for x in samples if x["y"] <= 0]
+    facts = {"decisions": len(samples), "kept": len(kept), "skipped": len(skipped),
+             "posted": sum(1 for x in kept if x.get("w", 1) > 1), "added": int(st.get("added", 0)),
+             "reasons": [{"label": REASONS.get(k, k), "n": v}
+                         for k, v in sorted((st.get("reasons") or {}).items(), key=lambda kv: -kv[1])],
+             "trim": trim_offsets(streamer),
+             "first": min((x.get("t", 0) for x in samples), default=0), "updated": p.get("updated", 0)}
+    compare = []
+    if kept and skipped:
+        for k in FEATURES:
+            a = float(np.mean([x["f"].get(k, 0.0) for x in kept]))
+            b = float(np.mean([x["f"].get(k, 0.0) for x in skipped]))
+            spread = float(np.std([x["f"].get(k, 0.0) for x in samples])) or 1.0
+            diff = (a - b) / spread
+            compare.append({"key": k, "label": LABELS[k], "kept": round(a, 2), "skipped": round(b, 2),
+                            "says": "higher in clips you kept" if diff > 0.3 else
+                                    "lower in clips you kept" if diff < -0.3 else "about the same"})
+    learned = []
+    trust = 0.0
+    if m:
+        trust = min(1.0, m["n"] / FULL_TRUST) * (1.0 if prof != ALL else 0.6)
+        top = max((abs(w) for w in m["w"]), default=0.0) or 1.0
+        for k, w in sorted(zip(FEATURES, m["w"]), key=lambda kw: -abs(kw[1])):
+            rel = abs(w) / top
+            if rel < 0.15:
+                continue
+            learned.append({"key": k, "label": LABELS[k], "direction": "up" if w > 0 else "down",
+                            "strength": "strongly" if rel > 0.66 else "clearly" if rel > 0.33 else "slightly"})
+    need_keep = max(0, 2 - len(kept))
+    need_skip = max(0, 2 - len(skipped))
+    need = max(0, MIN_DECISIONS - len(samples))
+    if not on:
+        status, text = "off", "Learning is switched off. Clips are ranked by the fixed rules only."
+    elif m and prof != ALL:
+        status, text = "tuned", (f"Ranking for {name} is adjusted from {m['n']} of your decisions "
+                                 f"({round(trust * 100)}% of the full effect; full at {FULL_TRUST}).")
+    elif m:
+        status, text = "using_all", ("Not enough decisions for this streamer yet, so ranking uses what you picked "
+                                     f"across all streamers, at reduced strength ({round(trust * 100)}%).")
+    else:
+        bits = []
+        if need:
+            bits.append(f"{need} more decision{'s' if need != 1 else ''}")
+        if need_keep:
+            bits.append(f"{need_keep} more kept clip{'s' if need_keep != 1 else ''}")
+        if need_skip:
+            bits.append(f"{need_skip} more skipped clip{'s' if need_skip != 1 else ''}")
+        status, text = "not_enough", ("Not enough data yet: ranking isn't changed. Needs "
+                                      + (", ".join(bits) or "a mix of keeps and skips") + ".")
+    return {"streamer": name if streamer else "", "status": status, "status_text": text, "facts": facts,
+            "compare": compare, "learned": learned, "trust": round(trust, 2), "rules": RULES,
+            "method": ("A small statistical model (logistic regression) worked out on this PC from your keeps "
+                       "and skips. It isn't an AI and nothing is sent anywhere. It can only move a clip up or down "
+                       f"by up to {MAX_SHIFT:g} points; it never adds or removes moments.")}
+
+
 def forget(streamer: str = ""):
     """Forget one streamer (or everything when streamer is empty)."""
     with _lock:

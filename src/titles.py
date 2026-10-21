@@ -59,7 +59,7 @@ VIBES = {
     "fail": {
         "emoji": "💀",
         "tags": ["#fail"],
-        "chat": {"l", "rip", "f", "sadge", "unlucky", "throw", "throwing", "bozo", "copium", "classic"},
+        "chat": {"l", "rip", "sadge", "unlucky", "throw", "throwing", "bozo", "copium", "classic"},
         "said": {"no", "why", "nooo", "unlucky", "rip", "dead", "died", "lost", "terrible", "throw"},
         "templates": ["This did not go as planned", "It was all going so well...", "Chat felt this one"],
         "named": ["It was all going so well for {n}...", "This did not go as planned for {n}", "{n}'s chat felt this one"],
@@ -302,7 +302,7 @@ def compose(description: str, tags: list, with_tags: bool = True) -> str:
 
 def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
              used: Optional[set] = None, streamer: str = "", with_tags: bool = True,
-             pick: str = "a", game: str = "") -> dict:
+             pick: str = "a", game: str = "", chat_title: str = "") -> dict:
     """
     words      transcript words with times relative to the clip start: [{start,end,word}]
     chat_msgs  chat message texts from the moments right after the clip
@@ -311,6 +311,7 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
     streamer   the streamer's name for title B and the description ('' when unknown)
     with_tags  add hashtags to the post text
     pick       which title goes on the video by default: 'a' or 'b'
+    chat_title a title from a phrase many chatters typed (chattitles.find), or ''
     """
     used = used or set()
     name = _name(streamer)
@@ -331,7 +332,9 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
     templates += NEUTRAL
 
     seen, ordered = set(), []
-    for t in good_quotes[:2] + templates:
+    # what chat agreed on names the moment better than a template; a strong line said on stream still comes first
+    lead = good_quotes[:1] + ([chat_title] if chat_title else []) + good_quotes[1:2]
+    for t in lead + templates:
         t = polish(t)
         if t and t.lower() not in seen:
             seen.add(t.lower())
@@ -371,4 +374,5 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
         "vibe": vibe or "",
         "emoji": emoji,
         "quote": quote,
+        "chat_title": chat_title if chat_title and chat_title in alts else "",
     }

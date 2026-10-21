@@ -3,6 +3,21 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.3.0] - 2026-10-21
+
+Better picks and titles: F-spam no longer makes clips, titles can come from what chat said, and the number of clips you ask for is the number you get.
+
+### Added
+- Titles from what chat said: when at least three different chatters type the same short phrase about a moment, it's offered as a title, shown as Chat: "…". One viewer spamming, emote walls, F's, links, numbers and usernames never count. A strong line said on stream still comes first. Settings › Titles and captions › Titles from what chat said (on by default).
+- Settings › Clip ranking › What it learned, for each streamer: the decisions stored, how the clips you kept differed from the ones you skipped, what ranking moves up or down because of it, and the rules every clip is scored on. It says when there isn't enough data yet and what's missing, and that it's a small statistical model worked out on your PC, not an AI.
+- Clips to suggest goes from 5 to 60 in steps of 5, then 70, 80, 90 and 100.
+- Live clipping counts waves of the channel's 7TV, BTTV and FFZ emotes, like videos already did.
+
+### Fixed
+- A wave of "F" (or o7, or poll votes like "1" and "2") in chat no longer makes a moment on its own, for videos and live. Before, 60 chatters typing F scored almost as high as 60 chatters laughing. It no longer decides a clip's mood ("fail") for titles either.
+- Choosing a number of clips could quietly return fewer: on a quiet stream, asking for 20 gave 4. Now you get the number you asked for, and when a video really doesn't have that many separate moments, Clip Radar says so.
+- A chat message with no text could stop titles being written for a clip.
+
 ## [4.2.0] - 2026-10-21
 
 Lighter and steadier: a smaller download, less memory held between jobs, and Deep Scan that says when something's wrong.

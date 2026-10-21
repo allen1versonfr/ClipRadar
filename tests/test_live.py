@@ -157,5 +157,39 @@ check("under load: your clip first, then the strongest", order == ["yours", "str
 check("chat delay setting: number or auto", server._live_delay("") == "auto" and server._live_delay("8") == 8.0
       and server._live_delay("x") == "auto" and server._live_delay(99) == 30.0)
 
+# ---- live and VOD treat chat the same way
+import detect  # noqa: E402
+import emotes as emotes_mod  # noqa: E402
+es = emotes_mod.EmoteSet({"7tv": ["catJAM", "Pepega"]})
+loud8, chat8 = stream(seed=8)
+for t in range(30, N, 25):                       # the channel's emotes in everyday use
+    chat8.append((t + 0.3, "Pepega", f"p{t}"))
+for k in range(60):                              # a wave of a channel emote nobody's built-in list knows
+    chat8.append((1700 + DELAY + k * 0.1, "catJAM catJAM", f"e{k}"))
+s8 = lr.replay(loud8, chat=sorted(chat8), emote_set=es)
+s8.chat_usable = lambda: True              # the replay has ended, so chat reads as gone quiet; look at it as it was
+an8 = s8._analysis(len(s8.loud))
+check("live counts channel emote waves, like VODs", an8.emote_z is not None and float(an8.emote_z[1690:1715].max()) > 1,
+      None if an8.emote_z is None else float(an8.emote_z[1690:1715].max()))
+vod_rate, _ = detect.emote_rate([(m[0], m[1], m[2], "") for m in sorted(chat8)], N, s8.chat_delay, es)
+live_rate = an8.emote_rate
+vod_z = detect.emote_signal(vod_rate)
+check("and the emote wave stands out just as it does for a VOD", an8.emote_z is not None
+      and abs(float(vod_z[1690:1715].max()) - float(an8.emote_z[1690:1715].max())) <= 0.5,
+      (float(vod_z[1690:1715].max()), None if an8.emote_z is None else float(an8.emote_z[1690:1715].max())))
+check("with the same per-second emote count as a VOD", live_rate is not None
+      and abs(float(vod_rate[1690:1720].sum()) - float(live_rate[1690:1720].sum())) <= 2,
+      (float(vod_rate[1690:1720].sum()), None if live_rate is None else float(live_rate[1690:1720].sum())))
+s8b = lr.replay(loud8, chat=sorted(chat8))
+s8b.chat_usable = lambda: True
+check("before the emotes load, live works as before", s8b._analysis(len(s8b.loud)).emote_z is None)
+
+loud9 = (-30 + np.random.default_rng(9).normal(0, 1.5, N)).astype(np.float32)
+chat9 = [(t + 0.5, "hello chat", f"u{t % 300}") for t in range(0, N, 1)]
+chat9 += [(900 + k * 0.1, "F", f"f{k}") for k in range(80)]          # an F wave, nothing on stream
+s9 = lr.replay(loud9, chat=sorted(chat9))
+check("an F wave alone doesn't make a live moment either", not any(880 <= f["peak"] <= 930 for f in s9.found),
+      [f["peak"] for f in s9.found])
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)
