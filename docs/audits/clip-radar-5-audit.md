@@ -317,3 +317,52 @@ then 5.0 when warranted). §5's migration work is dropped from Milestone 7.
   They play from the server at the single place each event happens: queue add (not for duplicates
   or hands-free adds) and render done. So it's once per event, even while minimised. They're
   logged for tests (`test_retry.py`).
+
+## 11. Milestone 5 (4.5.0) — frame rate, quality, blur-fit, watermark, caption animation
+
+- **Frame rate.** Every render was forced to `fps=30` (filter graph and `-r`), so 60 FPS streams
+  were halved. Picking 60 for a 30 FPS source duplicated frames.
+  - `engine.output_fps` now uses the source rate (up to 60) and never goes above it.
+  - Platform presets default to 0 ("same as the stream"); Advanced still offers 24–60.
+  - Test: a 30 FPS source asked for 60 renders at 30; 60/30/25 FPS sources keep their rates.
+- **Quality presets.** Fast / Balanced / High / High frame rate map to the x264/x265 preset
+  (veryfast/medium/slow), a crf offset (+2/0/−2) and the NVENC preset (p3/p5/p7).
+  - The frame rate comes from the preset unless Advanced overrides it.
+  - The settings summary shows the effective quality value.
+  - The GPU encoder and the software fallback are unchanged.
+- **Blur-fit (bugs found and fixed).**
+  1. The background crop `crop=W/4:H/4` came after `scale=-2:H/4`, so for sources narrower than
+     9:16 the crop was wider than its input and FFmpeg wrote nothing. Confirmed on 4.4 with a
+     360×800 source: "Nothing was written into output file".
+  2. Tall sources were scaled to the full width, so they overflowed the frame and were cut off
+     top and bottom.
+  3. The foreground was always placed at x=0.
+  - Now the background covers the frame (`force_original_aspect_ratio=increase`), and the
+    foreground fits inside it, centred.
+  - Rendered and probed for 1280×720@60, 720×720@30, 540×960@30 and 360×800@25.
+- **Watermark.** Text marks are one more line on the existing ASS track; image marks are one
+  `overlay` with `colorchannelmixer` alpha, applied before the final scale.
+  - The anchor maths is shared by the text mark, the image mark and the preview
+    (`watermark_anchor`). The safe zones are below TikTok's top bar (13%) and above its caption
+    area (80%). Marks are clamped inside the frame, and there's a time window.
+  - **Tests** (frame pixels on a black source):
+    - the text mark lands in the chosen corner and not the opposite one;
+    - an image at 50% opacity reads as mid grey;
+    - the mark is absent before its start time;
+    - a large mark with a large margin still renders;
+    - split, blur and cam layouts all work;
+    - the source file's hash is unchanged.
+  - A real bug was caught by the test: bottom- and top-right text marks were placed on the left.
+- **Caption animation.** `caption_motion` (none, pop, word, bounce, fade, slide, reveal) sits on
+  the existing per-word ASS events, with shared `caption_speed`, `caption_emph`,
+  `caption_filler` and `caption_punct`.
+  - Saved styles that only have `caption_anim` still pop in.
+  - **Tests:**
+    - for every preset: one event per word, no overlaps, and each event starts at its word's
+      time;
+    - the specific tags each preset emits;
+    - reveal keeps the layout stable (alpha, not removal);
+    - all 7 presets × 5 styles render through FFmpeg/libass (35 renders).
+  - The UI preview uses the same timings.
+- **Not done in this milestone:** caption line spacing as its own control (words per line and
+  the size controls exist), and caption backgrounds beyond the existing box style.
