@@ -2613,6 +2613,7 @@ function renderExportSettings() {
   $('#exAbitrate').value = String(st.abitrate); $('#exContainer').value = st.container;
   $('#exReset').hidden = !Object.keys(pr.custom || {}).length;
   $$('#exSubs button').forEach(b => b.classList.toggle('on', b.dataset.v === pr.subtitles));
+  $('#exSounds').checked = pr.sounds !== false;
   $('#exLoud').value = String(st.loudness || 0); $('#exDenoise').checked = !!pr.denoise; $('#exVoice').checked = !!pr.voice;
   if (document.activeElement !== $('#exTemplate')) $('#exTemplate').value = pr.template;
   $('#exTokens').innerHTML = v.tokens.map(t => `<button class="chip" data-tok="${t}">{${t}}</button>`).join('');
@@ -2645,6 +2646,7 @@ $('#exAbitrate').onchange = e => customPatch({ abitrate: +e.target.value });
 $('#exContainer').onchange = e => customPatch({ container: e.target.value, vcodec: e.target.value === 'webm' ? 'vp9' : ($('#exVcodec').value === 'vp9' ? 'h264' : $('#exVcodec').value) });
 $('#exLoud').onchange = e => customPatch({ loudness: +e.target.value });
 $('#exReset').onclick = () => saveExport({ custom: {} });
+$('#exSounds').onchange = e => saveExport({ sounds: e.target.checked });
 $('#exSubs').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ subtitles: v }); };
 $('#exDenoise').onchange = e => saveExport({ denoise: e.target.checked });
 $('#exVoice').onchange = e => saveExport({ voice: e.target.checked });

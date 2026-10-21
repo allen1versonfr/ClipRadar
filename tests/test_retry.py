@@ -56,6 +56,7 @@ enc, _ = server.friendly_render_error(RuntimeError("Error while opening encoder 
 check("encoder failures keep their own advice", "GPU" in enc, enc)
 
 attempts = []
+OUT = tempfile.mkdtemp(prefix="vc_out_")
 
 
 def fake_render(it):
@@ -63,6 +64,8 @@ def fake_render(it):
     it["progress"] = 0.4
     if len(attempts) == 1:
         raise RuntimeError("ffmpeg failed:\n" + crop_err)
+    it.setdefault("folder", OUT)
+    it.setdefault("name", f"{it['title']}.mp4")
     os.makedirs(it["folder"], exist_ok=True)
     with open(os.path.join(it["folder"], it["name"]), "wb") as f:
         f.write(b"ok")
@@ -115,6 +118,28 @@ check("rendered exactly twice (once failed, once on retry)", attempts == ["r1", 
 check("still one item in Exports", sum(1 for x in api("/api/queue")["items"] if x["id"] == "r1") == 1)
 r = api("/api/queue/retry", {"id": "r1"})
 check("retrying a finished clip does nothing", r.get("status") == 404, r)
+check("the ready sound played exactly once (not for the failed attempt)", server.SOUND_LOG.count(("ready", "r1")) == 1, server.SOUND_LOG)
+
+# sounds: once when you queue a clip, never for the same clip sent twice
+server.projects["p2"] = {"title": "s", "video": "", "workdir": folder, "live": "", "clips": []}
+clip = {"start": 10.0, "end": 20.0, "title": "Queued once"}
+server.MAX_WORKERS[0] = 0                     # hold renders while queuing, like a busy queue
+a1 = server.queue_add("p2", dict(clip), {}, sound=True)
+a2 = server.queue_add("p2", dict(clip), {}, sound=True)
+server.MAX_WORKERS[0] = 1
+server.queue_wake.set()
+check("the same clip sent twice is one item", a1 is a2)
+check("and makes one queued sound", server.SOUND_LOG.count(("queued", a1["id"])) == 1, server.SOUND_LOG)
+it = wait_status(a1["id"], ("done",))
+check("and one ready sound when it renders", it and server.SOUND_LOG.count(("ready", a1["id"])) == 1, server.SOUND_LOG)
+server.queue_add("p2", dict(clip, start=30.0, end=40.0, title="Hands-free"), {})
+check("clips queued on their own (hands-free) don't make a queued sound", sum(1 for e, _ in server.SOUND_LOG if e == "queued") == 1)
+import exports  # noqa: E402
+exports.save({"sounds": False})
+n = len(server.SOUND_LOG)
+server.queue_add("p2", dict(clip, start=50.0, end=60.0, title="Quiet"), {}, sound=True)
+check("sounds switched off: none", len(server.SOUND_LOG) == n)
+exports.save({"sounds": True})
 
 server.SHUTTING_DOWN[0] = True
 srv.shutdown()

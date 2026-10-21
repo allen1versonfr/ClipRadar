@@ -1139,7 +1139,25 @@ def queue_public(it: dict) -> dict:
     return d
 
 
-def queue_add(pid: str, c: dict, opts: dict) -> dict:
+SOUND_LOG: list = []         # (event, item id) of every sound played, for the tests
+
+
+def play_sound(event: str, it: dict):
+    """One short Windows sound per event: 'queued' when you add a clip, 'ready' when a render
+    finishes. Called from the one place each event happens, so it can't play twice."""
+    if not exports.load().get("sounds", True):
+        return
+    SOUND_LOG.append((event, it.get("id")))
+    if sys.platform != "win32":
+        return
+    try:
+        import winsound
+        winsound.MessageBeep(winsound.MB_ICONASTERISK if event == "ready" else winsound.MB_OK)
+    except Exception:
+        pass
+
+
+def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
     start_, end_ = float(c["start"]), float(c["end"])
     if end_ - start_ < 1:
         raise RuntimeError("That clip is too short.")
@@ -1188,10 +1206,12 @@ def queue_add(pid: str, c: dict, opts: dict) -> dict:
         # the same clip sent twice (double click, two windows): render it once
         dup = next((x for x in queue if x.get("sig") == it["sig"] and x["status"] in ("queued", "rendering")), None)
         if dup:
-            return dup
+            return dup                         # already queued: no second sound either
         queue.append(it)
     queue_wake.set()
     save_queue_soon()
+    if sound:
+        play_sound("queued", it)
     return it
 
 
@@ -1736,6 +1756,7 @@ def queue_worker(idx: int = 0):
                 it["progress"] = 1.0
                 it["step"] = f"Done in {time.time() - t0:.0f}s"
                 save_queue_soon(0)
+                play_sound("ready", it)
             except engine.Cancelled:
                 with queue_lock:
                     if SHUTTING_DOWN[0]:
@@ -2817,7 +2838,7 @@ class Handler(BaseHTTPRequestHandler):
             if pid not in projects:
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
-                it = queue_add(pid, body.get("clip") or {}, body.get("opts") or {})
+                it = queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=True)
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
             except RuntimeError as e:
