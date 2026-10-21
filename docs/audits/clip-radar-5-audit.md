@@ -209,3 +209,69 @@ Looked at and not done:
   justify changing the FFmpeg build every render depends on.
 - **One yt-dlp.** The exe is required (YouTube chat replay only works through it) and the
   Python package is under 5 MB in the build (not in the top 15). Kept as the fallback.
+
+## 9. Milestone 3 (4.3.0) — ranking, chat titles, clip counts, live/VOD parity
+
+### F-spam (measured)
+`ChatScorer` is shared by VODs and live, so the fix sits there: "F" (any number of F's), "o7", a
+lone digit (poll votes) and a lone "+", "-", "." or "^" now count for nothing, like bot posts.
+"W", "L", "?" and "!" still count. The emote signal and the titles' mood ignore them too.
+- VOD test (30 min, calm chat, 60 chatters typing F vs 60 laughing): the F wave scored
+  **8.96 against 10.0** before (a top clip); **1.73** after.
+- Live test: with weight 0.15 and then 0.05 an F wave in a calm chat was still cut as a live
+  moment ("chat explodes", quality 62–86); at 0 it isn't. Hence 0.
+- Covered in `test_signals.py` and `test_live.py`.
+
+### Clips to suggest
+- The menu goes 5 to 60 in steps of 5, then 70, 80, 90, 100.
+- **Silent cap found and fixed:** with a number chosen, `pick_clips` still dropped
+  every moment under `max(1.0, 15% of the top score)`. On a quiet 2-hour stream with three clear
+  moments, asking for 20 returned **4**, without a word. Now a chosen number fills down to
+  anything above the stream's normal level and returns 20. When a video really has fewer separate
+  moments (60 asked of a 10-minute video), the app says "Found N of the 60…" instead of cutting
+  the list short quietly. Automatic is unchanged.
+
+### Titles from chat (`src/chattitles.py`)
+Plain counting, no model or network:
+- **Support is distinct chatters.** A phrase needs at least 3 of them and 12% of everyone who
+  chatted in the window, so one viewer can't make a title however often they type.
+- **Phrases are 2–5 words.** A longer phrase wins when nearly as many people typed it.
+- **Never counted:** bots, commands, notices, F-spam, links, @mentions, numbers and chatters'
+  usernames. Emote-only or filler-only phrases and everyday reactions ("let's go", "no way") are
+  skipped as well.
+- **The title says whose words they are:** `Chat: "…"`.
+- **Where it ranks:** a strong line said on stream stays title A; chat's phrase comes next, ahead
+  of the templates.
+- **Settings:** Settings › Titles › "Titles from what chat said" (on by default). Titles stay
+  editable as before.
+- **Failure:** any error returns no chat title, and the normal titles are used.
+
+### Clip ranking › What it learned
+The ranking adjuster is a logistic regression (a small statistical model) fitted on the PC
+from keep/skip decisions. The new view says that in so many words and never calls it AI. It
+separates:
+- **facts:** stored decisions, posts, clips added by hand, skip reasons, trims, and how kept and
+  skipped clips differed on each signal;
+- **learned:** what the fitted model moves up or down, and how strongly;
+- **built in:** the fixed scoring rules.
+
+It says exactly what's missing when there isn't enough data ("Needs 5 more decisions, 2 more
+skipped clips"), when another streamer's picks are borrowed, and when learning is off. Forget
+already existed and empties it. `test_ranking_explain.py` covers this.
+
+### Live and VOD: what's shared, what isn't
+
+| Part | VOD | Live | Notes |
+|---|---|---|---|
+| Chat cleaning (bots, raids, spam, F-spam) | ✓ | ✓ | same `ChatScorer` |
+| Loudness, laughter/screams, chat surge, sudden-reaction, lone-noise | ✓ | ✓ | same `score_signals` and `detect` code |
+| Channel emote waves | ✓ | ✓ **new** | live counted none before; now shares `detect.emote_in` (test: same per-second count as a VOD) |
+| Chat delay worked out | ✓ | ✓ | live re-estimates as the stream goes |
+| Clip start/end (`smart_bounds`) | ✓ | ✓ | live waits until the reaction has died down |
+| Learned ranking from keeps/skips | ✓ | ✓ | same adjuster; refreshed when you decide |
+| Learned trim shifts | ✓ | ✗ | a later end would make every live clip wait longer; left out on purpose |
+| Titles (speech, chat reaction, **chat phrase**) | ✓ | ✓ | same `_title_clip` |
+| Content check, captions, layout, framing, export presets, render queue | ✓ | ✓ | same render path |
+| Number of clips | chosen or automatic | as they happen | live uses sensitivity and a minimum score instead |
+| Deep Scan (quiet gems) | ✓ | ✗ | needs the whole stream's transcript |
+| Ranking against the whole stream | ✓ | partial | live can only compare with what's been recorded so far |

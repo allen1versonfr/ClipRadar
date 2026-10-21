@@ -67,6 +67,8 @@ jobs:
           python tests/test_memory.py
           python tests/test_deepscan.py
           python tests/test_retry.py
+          python tests/test_chattitles.py
+          python tests/test_ranking_explain.py
 
       - name: Get ffmpeg, TwitchDownloader and yt-dlp
         env:

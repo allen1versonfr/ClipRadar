@@ -9,6 +9,8 @@ stream did something clip-worthy. So each message gets a weight:
   bots, !commands, sub/gift/raid notices      0
   someone who already chatted in the last 8 s  a quarter (counts chatters, not messages)
   the third+ copy of a long copypasta          0.15
+  low-information messages ("F", "o7", poll    0
+  votes "1"/"2", a lone "+")
   anything during a raid or gift-bomb flood    damped for a minute or so
 
 Chat messages are tuples (seconds, text, user, kind). user may be "" and kind is
@@ -40,12 +42,24 @@ _SYSTEM = re.compile(
     r"(?:enter|join) (?:the )?giveaway|giveaway (?:is )?(?:open|started|live|ending)|type ![\w-]+ to (?:enter|join|win)|"
     r"\bjust followed\b|thanks for following",
     re.I)
+# One-key replies that say nothing about *what* happened: an F wave or a salute after a death, a poll
+# vote, an agreeing "+". A wave of them alone must not make a moment. Even a small weight (0.05) let an
+# F wave in a calm chat read as "chat explodes" in live mode, so they count for nothing, like bot posts;
+# the moment itself is still found from the stream's sound and the rest of chat. "?", "!" and "W"/"L"
+# are left alone: they carry a reaction.
+LOW_INFO = re.compile(r"^\s*(?:(?:f+\s*)+|o7|07|[0-9]|[+\-.^]+)\s*$", re.I)
+LOW_INFO_WEIGHT = 0.0
 _NORM = re.compile(r"[^\w\s]")
 _SP = re.compile(r"\s+")
 
 
 def _norm(text: str) -> str:
     return _SP.sub(" ", _NORM.sub("", text.lower())).strip()
+
+
+def low_info(text: str) -> bool:
+    """'F', 'o7', '1', '+' and the like: a reply, not a reaction to what's on stream."""
+    return bool(LOW_INFO.match(text or ""))
 
 
 def is_bot(user: str) -> bool:
@@ -81,7 +95,7 @@ class ChatScorer:
         self.first_t = None
         self.last_raid = -1e18
         self.stats = {"messages": 0, "bots": 0, "commands": 0, "notices": 0, "repeats": 0, "copypasta": 0,
-                      "raids": 0, "floods": 0}
+                      "raids": 0, "floods": 0, "low_info": 0}
         self._n = 0
 
     # ---- floods: raids and gift bombs make chat explode about something that isn't on stream
@@ -138,6 +152,9 @@ class ChatScorer:
                 self._event(t, "subgift")
             return 0.0
         w = float(self.hype(text))
+        if LOW_INFO.match(text):
+            st["low_info"] += 1
+            w *= LOW_INFO_WEIGHT
         # copypasta: the same long message pasted over and over
         norm = _norm(text)
         if len(norm) >= 24 or norm.count(" ") >= 5:

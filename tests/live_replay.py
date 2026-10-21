@@ -59,7 +59,7 @@ class ReplaySession(live.LiveSession):
 
 
 def replay(loud, fine=None, chat=None, step: float = 2.0, chat_on: bool = True, chat_lost_at: float = None,
-           clock_rate: float = 1.0, **session):
+           clock_rate: float = 1.0, emote_set=None, **session):
     """Feed a stream second by second, running detection every `step` seconds like the live reader.
     chat: [(seconds into the stream it was sent, text, user)]. chat_lost_at: chat stops from then on
     (dropped or very delayed). Returns the session (moments in .found)."""
@@ -69,6 +69,7 @@ def replay(loud, fine=None, chat=None, step: float = 2.0, chat_on: bool = True, 
     try:
         work = tempfile.mkdtemp(prefix="vc_replay_")
         s = ReplaySession(work, chat=chat_on, **session)
+        s.emote_set = emote_set                # as server.load_emotes does once the channel's emotes arrive
         loud = np.asarray(loud, dtype=np.float32)
         if fine is None:
             fine = np.repeat(loud, engine.FINE_HZ)

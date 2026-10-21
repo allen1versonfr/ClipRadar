@@ -116,6 +116,19 @@ def surge_signal(rate: np.ndarray) -> np.ndarray:
 _TOK = re.compile(r"[\w:]+")
 
 
+def emote_in(text: str, user: str, kind: str, es):
+    """The channel emote a chat message reacts with, or None (noise and F-spam never count).
+    Shared by VODs (emote_rate) and live clipping (live.Session.add_chat)."""
+    import chatsignal
+    if not es or chatsignal.is_noise(text, user, kind) or chatsignal.low_info(text):
+        return None
+    for tok in _TOK.findall(text or ""):
+        e = es.find(tok)
+        if e:
+            return e
+    return None
+
+
 def emote_rate(chat: list, n: int, delay: float, es) -> tuple:
     """(emote use per second by distinct chatters, {second: (top emote, count)}). Bots, commands and
     notices don't count, and each chatter counts once per 8 s."""
@@ -123,21 +136,13 @@ def emote_rate(chat: list, n: int, delay: float, es) -> tuple:
     top: dict = {}
     if not es or not chat:
         return rate, top
-    import chatsignal
     last: dict = {}
     per: dict = {}
     for m in chat:
         t, text = m[0], m[1]
         user = m[2] if len(m) > 2 else ""
         kind = m[3] if len(m) > 3 else ""
-        if chatsignal.is_noise(text, user, kind):
-            continue
-        found = None
-        for tok in _TOK.findall(text or ""):
-            e = es.find(tok)
-            if e:
-                found = e
-                break
+        found = emote_in(text, user, kind, es)
         if not found:
             continue
         if user:

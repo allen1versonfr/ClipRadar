@@ -472,6 +472,7 @@ function openVod(p) {
     $('#cw').value = p.settings.chat_weight; store.set('cw', $('#cw').value);
   }
   startWorkspace();
+  if (p.pick_note && !p.restored) toast(p.pick_note, '', 6000);
   listen();
   const og = p.origin || {};
   if (og.start > 0 && !p.restored && og.start < p.duration) {
@@ -1180,6 +1181,7 @@ async function repick(det) {
     W.clips = p.clips.map(s => { const o = old.get(keyOf(s)); if (o) { mergeClip(o, s); return o; } return prepClip(s); })
       .concat(W.clips.filter(isGem));
     W.curve = p.curve; W.meta.estimate = p.estimate; W.meta.learning = p.learning; buildHead();
+    if (p.pick_note) toast(p.pick_note, '', 6000);
     if (!curClip()) { const f = W.clips.find(c => c.state === 'todo' && !isGem(c)); if (f) select(keyOf(f), !vod.paused); else { cur = null; showInspector(); } }
     renderRows(); drawHeat(); fillInspector(); listen(); refreshQueue();
   } catch (e) { toast(e.message, 'err'); }
@@ -2431,13 +2433,42 @@ function renderLearning() {
       <div class="lr-sub">${[r.added ? `${plural(r.added, 'clip')} you added by hand (moments it missed)` : '',
         r.reasons && r.reasons.length ? 'skipped for: ' + r.reasons.map(x => `${x.label.toLowerCase()} ${x.n}`).join(', ') : '',
         r.trim && r.trim.n >= 5 && (r.trim.start || r.trim.end) ? trimNote(r.trim, true) : ''].filter(Boolean).join(' · ')}</div></td>
-    <td class="r"><button class="btn sm" data-forget="${esc(r.streamer)}">Forget</button></td></tr>`).join('')
+    <td class="r nowrap"><button class="btn sm" data-explain="${esc(r.streamer)}">What it learned</button> <button class="btn sm" data-forget="${esc(r.streamer)}">Forget</button></td></tr>
+    <tr class="lr-explain" data-for="${esc(r.streamer)}" hidden><td colspan="3"></td></tr>`).join('')
     : '<tr><td class="muted">Nothing learned yet. Keep and skip a few suggested clips.</td></tr>';
   $('#lrForgetAll').hidden = !rows.length;
   $('#lrTotal').textContent = L.total ? `${plural(L.total, 'decision')} in total` : '';
 }
 $('#lrOn').onchange = async e => { try { lrState = await api('/api/learning', { enabled: e.target.checked }); renderLearning(); } catch (err) { toast(err.message, 'err'); } };
+function renderExplain(x) {
+  const f = x.facts, pct = n => `${n}`;
+  const facts = [`${plural(f.decisions, 'decision')} stored: ${f.kept} kept${f.posted ? ` (${f.posted} posted)` : ''}, ${f.skipped} skipped`,
+    f.added ? `${plural(f.added, 'clip')} you made by hand (moments the finder missed)` : '',
+    f.reasons.length ? 'Skipped for: ' + f.reasons.map(r => `${r.label.toLowerCase()} (${r.n})`).join(', ') : '',
+    f.trim && f.trim.n >= 5 && (f.trim.start || f.trim.end) ? trimNote(f.trim, true)
+      : f.trim && f.trim.n ? `${plural(f.trim.n, 'trim')} recorded (start and end shift after 5)` : ''].filter(Boolean);
+  const cmp = x.compare.filter(c => c.says !== 'about the same');
+  return `<div class="explain">
+    <p class="ex-status ${esc(x.status)}">${esc(x.status_text)}</p>
+    <h4>What's stored <span class="tag">facts</span></h4><ul>${facts.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
+    ${x.compare.length ? `<h4>How kept and skipped clips differed <span class="tag">facts</span></h4>
+      ${cmp.length ? `<ul>${cmp.map(c => `<li>${esc(c.label)}: ${esc(c.says)} (${pct(c.kept)} kept vs ${pct(c.skipped)} skipped)</li>`).join('')}</ul>`
+        : '<p class="muted small">No clear difference yet.</p>'}` : ''}
+    ${x.learned.length ? `<h4>What ranking does with it <span class="tag">learned</span></h4>
+      <ul>${x.learned.map(l => `<li>${esc(l.label)} moves clips ${l.direction === 'up' ? 'up' : 'down'} ${esc(l.strength)}</li>`).join('')}</ul>` : ''}
+    <h4>Rules every clip is scored on <span class="tag">built in</span></h4><ul>${x.rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+    <p class="fine">${esc(x.method)}</p></div>`;
+}
 $('#lrTable').onclick = async e => {
+  const ex = e.target.closest('[data-explain]');
+  if (ex) {
+    const row = [...$$('#lrTable .lr-explain')].find(r => r.dataset.for === ex.dataset.explain);
+    if (!row) return;
+    if (!row.hidden) { row.hidden = true; return; }
+    try { row.firstElementChild.innerHTML = renderExplain(await api('/api/learning/explain?streamer=' + encodeURIComponent(ex.dataset.explain))); row.hidden = false; }
+    catch (err) { toast(err.message, 'err'); }
+    return;
+  }
   const b = e.target.closest('[data-forget]'); if (!b) return;
   try { lrState = await api('/api/learning/forget', { streamer: b.dataset.forget }); renderLearning(); toast(`Forgot what Clip Radar learned for ${b.dataset.forget}.`, '', 3000); } catch (err) { toast(err.message, 'err'); }
 };
@@ -2545,6 +2576,7 @@ async function setStreamerName() {
 function syncTitlePrefs() {
   $$('#tpPick button').forEach(b => b.classList.toggle('on', b.dataset.v === titlePrefs.pick));
   $('#tpTags').checked = $('#tagsOn').checked = !!titlePrefs.hashtags;
+  $('#tpChat').checked = titlePrefs.chat_titles !== false;
   const c = curClip(); if (c && mode === 'clip' && !c.userPost && document.activeElement !== $('#postInput')) $('#postInput').value = postFor(c);
 }
 async function saveTitlePrefs(patch) {
@@ -2553,6 +2585,7 @@ async function saveTitlePrefs(patch) {
 }
 $('#tpPick').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveTitlePrefs({ pick: v }); };
 $('#tpTags').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
+$('#tpChat').onchange = e => saveTitlePrefs({ chat_titles: e.target.checked });
 $('#tagsOn').onchange = e => saveTitlePrefs({ hashtags: e.target.checked });
 api('/api/titles').then(t => { titlePrefs = t; syncTitlePrefs(); }).catch(() => {});
 

@@ -251,6 +251,9 @@ class LiveSession:
         import chatsignal
         self.scorer = chatsignal.ChatScorer(engine.chat_weight)
         self._raw: list = []                   # chat reaction per media second it arrived (weighed, not shifted)
+        self.emote_set = None                  # the channel's 7TV/BTTV/FFZ emotes, once loaded (server.load_emotes)
+        self._emote_raw: list = []             # chatters reacting with an emote, per media second (like VODs)
+        self._emote_last: dict = {}            # user -> media time their emote last counted (once per 8 s)
         self._last_chat: Optional[float] = None   # wall clock of the last chat message
         self._busy_chat = False                # chat has been active this session
         self._arrive: list = []                # (media end, wall clock, seconds spent measuring) per piece
@@ -870,6 +873,7 @@ class LiveSession:
         ev = self.events.result(n) if self.events is not None else None
         with self.chat_lock:
             raw = np.asarray(self._raw[: n + 20], dtype=np.float32)
+            emo = np.asarray(self._emote_raw[: n + 20], dtype=np.float32) if self.emote_set is not None else None
         if self.delay_auto and n >= 300 and n - self._delay_at >= self.DELAY_EVERY:
             # how late chat reacts, worked out again as the stream goes on
             self._delay_at = n
@@ -888,6 +892,10 @@ class LiveSession:
                                   cw, rate=rate, stats=self.scorer.summary(), events=ev,
                                   fine=np.asarray(self.fine[: n * engine.FINE_HZ], dtype=np.float32))
         an.surge = detect.surge_signal(rate) if an.has_chat else None
+        if emo is not None and use_chat:
+            # emote waves count for live the same way they do for VODs
+            an.emote_rate = engine._fit(detect.shift(engine._fit(emo, n + 20), self.chat_delay)[:n], n)
+            an.emote_z = detect.emote_signal(an.emote_rate)
         an.react = detect.react_signal(an)
         an.noise = detect.noise_mult(an)
         an.combine(cw, getattr(self, "weights", None) or detect.preset("any"))
@@ -1148,6 +1156,17 @@ class LiveSession:
                     if s >= len(self._raw):
                         self._raw.extend([0.0] * (s + 1 - len(self._raw)))
                     self._raw[s] += w
+            if self.emote_set is not None and t >= 0:
+                import detect
+                if detect.emote_in(text, user, kind, self.emote_set):
+                    lt = self._emote_last.get(user) if user else None
+                    if lt is None or t - lt >= 8:
+                        if user:
+                            self._emote_last[user] = t
+                        s = int(t)
+                        if s >= len(self._emote_raw):
+                            self._emote_raw.extend([0.0] * (s + 1 - len(self._emote_raw)))
+                        self._emote_raw[s] += 1.0
 
     def _chat_loop(self):
         host, port, use_tls = self._irc_target()

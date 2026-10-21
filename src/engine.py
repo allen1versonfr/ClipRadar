@@ -1661,9 +1661,11 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
         count = estimate(an, sensitivity)["suggest"]
     order = np.argsort(-s, kind="stable")
     top = float(s[order[0]])
-    # automatic: only moments that really stand out; a number you chose gets filled with weaker ones too
+    # automatic: only moments that really stand out; a number you chose gets filled with weaker ones
+    # too, down to anything above the stream's normal level (fewer only when there aren't that many
+    # separate moments; the caller says so)
     sens = detect.SENSITIVITY.get(sensitivity, detect.SENSITIVITY["normal"])
-    floor = max(sens["floor"] if auto else 1.0, 0.15 * top)
+    floor = max(sens["floor"], 0.15 * top) if auto else 0.0
     skip_edge = min(60, int(n * 0.03))  # ignore "starting soon"/outro edges a bit
     chat_t = chat_times(chat) if chat else []
     # candidate peaks, a little apart from each other

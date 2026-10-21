@@ -196,5 +196,36 @@ learning.record_added("streamy")
 prof = next(p for p in learning.summary()["profiles"] if p["streamer"] == "streamy")
 check("skip reasons and clips added by hand are counted", prof["reasons"][0]["key"] == "noise" and prof["added"] == 1, prof)
 
+# ---------------------------------------------------------------- the number of clips you choose
+big = make_an(n=3 * 3600, chat_spikes=[(t, 6, 25) for t in range(400, 10400, 900)])     # 11 clear moments in 3 h
+for want in (5, 15, 25, 30):
+    got = engine.pick_clips(big, count=want)
+    check(f"asking for {want} clips gives {want}", len(got) == want, len(got))
+# a quiet stream with three clear moments: asking for 20 used to return 4 without a word
+qn = 7200
+q_loud = np.full(qn, -30.0, dtype=np.float32) + rng.normal(0, 0.3, qn).astype(np.float32)
+q_rate = np.full(qn, 3.0, dtype=np.float32)
+for t0 in (1000, 3000, 5000):
+    q_rate[t0:t0 + 6] += 40
+    q_loud[t0:t0 + 3] = -8
+quiet_an = engine.score_signals(q_loud, [], qn, float(qn), 6.0, 60, rate=q_rate, stats={})
+detect.enrich(quiet_an, [], 6.0, None, rate=q_rate)
+quiet_an.combine(60, detect.preset("any"))
+got = engine.pick_clips(quiet_an, count=20)
+check("a quiet stream still gives the 20 clips you asked for", len(got) == 20, len(got))
+check("with its clear moments first", sorted(int(c.peak) // 100 for c in got[:3]) == [10, 30, 50], [c.peak for c in got[:3]])
+auto = engine.pick_clips(big, count=0)
+check("automatic still follows its own estimate", 0 < len(auto) <= engine.estimate(big)["suggest"], (len(auto), engine.estimate(big)))
+short = make_an(n=600)
+few = engine.pick_clips(short, count=60)
+check("a 10-minute video can't hold 60 clips, and doesn't pretend to", 0 < len(few) < 60, len(few))
+sys.path.insert(0, os.path.join(HERE, "..", "src"))
+import server  # noqa: E402
+pr = {"analysis": short, "chat": [], "chat_delay": 6.0, "streamer": ""}
+server._pick(pr, 60, 0)
+check("and says so instead of cutting the list short quietly", pr["pick_note"].startswith(f"Found {len(few)} of the 60"), pr["pick_note"])
+server._pick(pr, 5, 0)
+check("no note when the number is met", pr["pick_note"] == "")
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

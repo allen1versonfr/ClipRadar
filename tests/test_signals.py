@@ -51,6 +51,30 @@ before = sc2.weight(100, "LETSGO", "x1")
 sc2.weight(101, "", "raider", "raid")
 after = sc2.weight(105, "LETSGO", "x2")
 check("a raid damps chat for a while", after < before * 0.3 and sc2.summary()["raids"] == 1, f"{before:.2f} -> {after:.2f}")
+# F-spam (and salutes, poll votes) can't make a moment on its own
+sc3 = chatsignal.ChatScorer()
+w_f = sc3.weight(10, "F", "u1")
+w_o7 = sc3.weight(11, "o7", "u2")
+w_vote = sc3.weight(12, "2", "u3")
+w_laugh = sc3.weight(13, "KEKW", "u4")
+w_l = sc3.weight(14, "L", "u5")
+check("an F, a salute or a poll vote counts for nothing", max(w_f, w_o7, w_vote) == 0 and w_laugh >= 2, [w_f, w_o7, w_vote, w_laugh])
+check("and is counted in the chat summary", sc3.summary()["low_info"] == 3, sc3.summary())
+check("'L' still counts as a reaction", w_l >= 1.0, w_l)
+
+n_s = 1800
+spam = [(300 + i * 0.15, "F", f"f{i}", "") for i in range(60)]                  # 60 chatters type F
+laughs = [(1200 + i * 0.15, "KEKW", f"k{i}", "") for i in range(60)]           # 60 chatters laugh
+calm = [(float(t), "hi", f"c{t % 40}", "") for t in range(0, n_s, 6)]          # a quiet, steady chat
+chat_fl = sorted(spam + laughs + calm)
+an_fl = engine.score_signals(None, chat_fl, n_s, float(n_s), 6.0, 60)
+picks = engine.pick_clips(an_fl, count=3, chat=chat_fl, chat_delay=6.0)
+peaks = [c.peak for c in picks]
+check("an F wave alone doesn't outrank a real reaction", picks and 1180 <= peaks[0] <= 1240, peaks)
+f_score = float(an_fl.score[290:320].max())
+k_score = float(an_fl.score[1190:1220].max())
+check("and scores far lower than the same number of laughs", f_score < 0.5 * k_score, f"F {f_score:.2f} vs laughs {k_score:.2f}")
+
 check("human() drops the noise", len(chatsignal.human([(1, "hi", "a", ""), (2, "!points", "b", ""), (3, "x", "nightbot", ""),
                                                         (4, "", "c", "sub")])) == 1)
 
