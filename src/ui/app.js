@@ -101,7 +101,7 @@ function setView(v) {
   if (v !== 'exports') { $('#exVideo').pause(); }
   if (v === 'review') { sizePhone(); drawHeat(); dirty = true; }
   if (v === 'exports') { refreshQueue(); if (exSel) renderDetail(true); }
-  if (v === 'settings') { loadStorage(); loadLocations(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); loadExport(); }
+  if (v === 'settings') { loadStorage(); loadCleanup(); loadLocations(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); loadExport(); }
   if (v === 'home') loadRecent();
   updateCrumb();
 }
@@ -2103,6 +2103,36 @@ $('#locRows').onclick = async e => {
 };
 
 let storage = null;
+/* Settings › Storage › Clean up automatically */
+function renderCleanup(v) {
+  const c = v.config, l = v.last || {};
+  $('#clTemp').checked = c.temp; $('#clSkipped').checked = c.skipped; $('#clVods').checked = c.vods;
+  $('#clDays').value = String(c.vod_days); $('#clDaysRow').hidden = !c.vods;
+  const bits = [];
+  if (l.at) {
+    bits.push(`Last run ${new Date(l.at * 1000).toLocaleString()}: freed ${fmtBytes(l.freed || 0)}`);
+    if ((l.removed || []).length) bits.push(`removed ${l.removed.length === 1 ? 'the VOD of' : 'the VODs of'} ${l.removed.map(esc).join(', ')}`);
+    if ((l.failed || []).length) bits.push(`couldn't remove ${esc(l.failed.slice(0, 3).join(', '))}${l.failed.length > 3 ? '…' : ''}`);
+  }
+  $('#clLast').innerHTML = bits.join('; ');
+}
+async function loadCleanup() { try { renderCleanup(await api('/api/cleanup')); } catch {} }
+async function saveCleanup(run) {
+  try {
+    renderCleanup(await api('/api/cleanup', { config: { temp: $('#clTemp').checked, skipped: $('#clSkipped').checked,
+      vods: $('#clVods').checked, vod_days: +$('#clDays').value }, run }));
+    if (run) loadStorage();
+  } catch (e) { toast(e.message, 'err'); }
+}
+['#clTemp', '#clSkipped', '#clDays'].forEach(id => { $(id).onchange = () => saveCleanup(false); });
+$('#clVods').onchange = async e => {
+  if (e.target.checked && !await ask({ title: 'Delete finished VODs automatically?',
+    body: 'A downloaded VOD is deleted once every clip is kept or skipped, every kept clip has rendered, nothing failed, and you haven\'t opened it for the time you choose. Rendered clips are never deleted.', ok: 'Turn on' })) {
+    e.target.checked = false; return;
+  }
+  saveCleanup(e.target.checked);
+};
+
 async function loadStorage() {
   try { storage = await api('/api/storage'); } catch { return; }
   const v = storage.vods, c = storage.clips;

@@ -48,6 +48,7 @@ import updater
 import audio_events
 import chatsignal
 import chattitles
+import cleanup
 import checkflow
 import detect
 import emotes
@@ -1023,6 +1024,16 @@ def record_feedback(pid, cid, action: str):
     key = f"{pr.get('live') or pr.get('source', '')}|{int(at)}"
     learning.record(pr.get("streamer", ""), key, d["feat"], action)
     _refresh_live_learning()
+    if action == "skip":
+        # Settings › Storage: a clip that rendered on its own (hands-free) and you then skipped
+        with queue_lock:
+            mine = [x for x in queue if x.get("pid") == pid and x.get("clip_id") == cid and x.get("auto")]
+        for it in mine:
+            if cleanup.skipped_render(it):
+                with queue_lock:
+                    if it in queue:
+                        queue.remove(it)
+                save_queue_soon(0)
 
 
 def _refresh_live_learning():
@@ -1613,8 +1624,23 @@ def friendly_render_error(e: Exception) -> tuple:
 
 
 def _after_render(it: dict):
-    """Hands-free extras once a clip is ready (none since TikTok posting moved to TikTok Studio)."""
-    return
+    """Once a clip is ready: a finished VOD may now be cleaned up (Settings › Storage, off by default)."""
+    if cleanup.load()["vods"]:
+        run_cleanup()
+
+
+def run_cleanup(wait: bool = False):
+    """Settings › Storage › Clean up automatically: the rules that are on (cleanup.py has them)."""
+    def go():
+        with queue_lock:
+            items = [dict(x) for x in queue]
+        open_dirs = {pr["workdir"] for pr in list(projects.values()) if pr.get("workdir")}
+        live_dirs = tuple(os.path.dirname(sess.seg_dir) for sess in live_list())
+        cleanup.sweep(locations.project_roots() or [WORKROOT], items, open_dirs, live_dirs, log=_say)
+    if wait:
+        go()
+    else:
+        threading.Thread(target=go, daemon=True).start()
 
 
 MAX_WORKERS = [1]
@@ -1899,6 +1925,7 @@ def live_on_moment(sess, m: dict):
         c["post"] = d.get("post", "")
         it = queue_add(mid, c, extra.get("opts") or {})
         it["prio"] = _live_prio(d)
+        it["auto"] = True                      # rendered on its own (hands-free), not by you
         it["lat"], it["aired"] = dict(d["lat"]), aired
         d["auto_queued"] = True
     start_listening(mid, [d["id"]], extra.get("model") or "small", extra.get("language") or "", on_done=done)
@@ -2141,6 +2168,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(title_prefs())
         if p == "/api/hashtags":
             return self._json(hashtags_view((q.get("streamer") or [""])[0]))
+        if p == "/api/cleanup":
+            return self._json({"config": cleanup.load(), "last": cleanup.last})
         if p == "/api/learning/explain":
             return self._json(learning.explain((q.get("streamer") or [""])[0]))
         if p == "/api/queue":
@@ -2711,6 +2740,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/titles":
             return self._json(set_title_prefs(body))
+        if p == "/api/cleanup":
+            cfg = cleanup.save(body.get("config") or {})
+            if body.get("run"):
+                run_cleanup(wait=True)
+            return self._json({"config": cfg, "last": cleanup.last})
         if p == "/api/hashtags":
             hashtags.save({k: v for k, v in body.items() if k in ("file", "post")})
             return self._json(hashtags_view(str(body.get("streamer") or "")))
@@ -3033,6 +3067,7 @@ def start(port: int = PORT):
         _forget_tiktok_api()
         _clean_leftovers()
         load_queue()
+        run_cleanup()
         apply_perf()
         updater.start_background(log=_say)
         hotkey.start(on_hotkey)
