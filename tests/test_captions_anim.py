@@ -1,0 +1,115 @@
+"""
+Unit tests for animated captions: every animation preset builds valid captions that stay in sync
+with the words (no overlapping lines, each word highlighted when it's said), reveal hides words
+not said yet without moving the others, emphasis colours strong words, filler and punctuation
+can be dropped, and each preset renders through FFmpeg/libass with every caption style.
+
+  python tests/test_captions_anim.py
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
+sys.path.insert(0, os.path.join(HERE, "..", "src"))
+
+import engine  # noqa: E402
+
+failures = []
+
+
+def check(name, ok, detail=""):
+    print(f"[{'ok' if ok else 'FAIL'}] {name}" + (f": {detail}" if detail and not ok else ""), flush=True)
+    if not ok:
+        failures.append(name)
+
+
+R = engine.RenderOpts
+WORDS = [{"start": 0.2 + i * 0.35, "end": 0.5 + i * 0.35, "word": w}
+         for i, w in enumerate("um no way he actually hit that, insane! uh".split())]
+
+
+def dialogues(ass):
+    out = []
+    for line in ass.splitlines():
+        m = re.match(r"Dialogue: (\d+),(\d+):(\d+):([\d.]+),(\d+):(\d+):([\d.]+),Cap,", line)
+        if m:
+            t = lambda h, mi, se: int(h) * 3600 + int(mi) * 60 + float(se)  # noqa: E731
+            out.append((t(*m.group(2, 3, 4)), t(*m.group(5, 6, 7)), line))
+    return out
+
+
+def ts(t):
+    return f"{int(t // 3600)}:{int(t % 3600 // 60):02d}:{t % 60:05.2f}"
+
+
+for motion in engine.CAPTION_MOTIONS:
+    ass = engine.build_ass(WORDS, R(caption_motion=motion), 1300, 5.0)
+    ds = dialogues(ass)
+    check(f"{motion}: one caption line per word", len(ds) == len(WORDS), len(ds))
+    check(f"{motion}: lines never overlap", all(a[1] <= b[0] + 1e-6 for a, b in zip(ds, ds[1:])))
+    check(f"{motion}: each word's line starts when it's said", all(abs(d[0] - round(w["start"], 2)) < 0.011 for d, w in zip(ds, WORDS)))
+
+word = engine.build_ass(WORDS, R(caption_motion="word"), 1300, 5.0)
+check("word pop scales the word being said, then settles", "\\fscx132\\fscy132\\t(0,120,\\fscx100\\fscy100)" in word)
+bounce = engine.build_ass(WORDS, R(caption_motion="bounce", caption_speed=200), 1300, 5.0)
+check("bounce overshoots and settles, quicker at a higher speed", "\\t(0,30,\\fscx122\\fscy122)\\t(30,60,\\fscx100\\fscy100)" in bounce)
+fade = dialogues(engine.build_ass(WORDS, R(caption_motion="fade", words_per_line=3), 1300, 5.0))
+check("fade: each group fades in once, on its first word only", sum("\\fad(" in d[2] for d in fade) == 4, sum("\\fad(" in d[2] for d in fade))
+slide = engine.build_ass(WORDS, R(caption_motion="slide"), 1300, 5.0)
+check("slide: comes up into place", "\\move(540,1351,540,1300,0,240)" in slide, re.findall(r"\\move\([^)]*\)", slide)[:1])
+rev = dialogues(engine.build_ass(WORDS[:3], R(caption_motion="reveal", words_per_line=3), 1300, 5.0))
+check("reveal: words not said yet are invisible but keep their place", rev[0][2].count("\\alpha&HFF&") == 2 and rev[2][2].count("\\alpha&HFF&") == 0)
+none = engine.build_ass(WORDS, R(caption_motion="none"), 1300, 5.0)
+check("none: no animation tags", "\\t(" not in none and "\\fad" not in none and "\\move" not in none)
+old = engine.build_ass(WORDS, R(caption_anim=True), 1300, 5.0)
+check("saved styles from before still pop in (caption_anim)", "\\fscx114\\fscy114\\t(0,120" in old)
+check("clean captions still don't pop", "\\t(" not in engine.build_ass(WORDS, R(caption_style="clean"), 1300, 5.0))
+em = engine.build_ass(WORDS, R(caption_motion="none", caption_emph=True, caption_style="pop"), 1300, 5.0)
+first = dialogues(em)[1][2]                                    # "NO" is being said; INSANE! isn't in this group
+check("emphasis colours strong words even when they aren't being said", first.count("\\c&H0000E6FF&") >= 2, first)
+check("no emphasis unless asked", dialogues(engine.build_ass(WORDS, R(caption_motion="none"), 1300, 5.0))[1][2].count("\\c&H0000E6FF&") == 1)
+
+shown = [w["word"] for w in engine.caption_words(WORDS, R(caption_filler=False, caption_punct=False))]
+check("filler words can be dropped", "um" not in shown and "uh" not in shown, shown)
+check("punctuation can be dropped", "that" in shown and "insane" in shown, shown)
+check("both kept by default", len(engine.caption_words(WORDS, R())) == len(WORDS))
+kept = engine.caption_words(WORDS, R(caption_filler=False))
+check("dropping words keeps the others' timing", all(w in WORDS for w in kept))
+
+if shutil.which("ffmpeg"):
+    tmp = tempfile.mkdtemp(prefix="vc_cap_")
+    src = os.path.join(tmp, "s.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=5",
+                    "-f", "lavfi", "-i", "sine=frequency=300:duration=5", "-shortest", "-c:v", "libx264",
+                    "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", src], check=True)
+    bad = []
+    for motion in engine.CAPTION_MOTIONS:
+        for style in engine.CAPTION_STYLES:
+            out = os.path.join(tmp, f"{motion}_{style}.mp4")
+            try:
+                engine.render_clip(src, 0.0, 3.0, out, R(layout="blur", hw_encode=False, speed="fast", caption_style=style,
+                                                         caption_motion=motion, caption_emph=True),
+                                   words=WORDS, title="Test", log=lambda m: None)
+                if not os.path.getsize(out):
+                    bad.append(f"{motion}/{style}: empty")
+            except Exception as e:
+                bad.append(f"{motion}/{style}: {str(e)[-120:]}")
+    check(f"every preset renders with every caption style ({len(engine.CAPTION_MOTIONS) * len(engine.CAPTION_STYLES)} renders)", not bad, bad[:3])
+else:
+    print("[skip] no ffmpeg here: renders not checked")
+
+print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
+sys.exit(1 if failures else 0)

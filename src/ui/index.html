@@ -316,7 +316,14 @@
                     <button class="btn sm" id="capPresetSave">Save this style…</button>
                   </div>
                   <label class="fld inline">Position<select class="input" id="capPos"><option value="auto">Automatic</option><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option><option value="custom">Where you dragged it</option></select></label>
-                  <label class="fld switch-label">Pop-in animation<span class="switch"><input type="checkbox" id="capAnim" checked><i></i></span></label>
+                  <label class="fld inline">Animation<select class="input" id="capMotion">
+                    <option value="pop">Pop in (each line)</option><option value="word">Word pop (each word)</option>
+                    <option value="bounce">Bounce</option><option value="fade">Fade in</option><option value="slide">Slide up</option>
+                    <option value="reveal">Word by word</option><option value="none">None</option></select></label>
+                  <label class="fld inline" id="capSpeedRow">Speed<input type="range" id="capSpeed" min="50" max="200" step="10" value="100"><output id="capSpeedOut" class="tnum"></output></label>
+                  <label class="fld switch-label" title="Words like &quot;no way&quot;, &quot;insane&quot; and shouted words stay in the highlight colour">Highlight strong words<span class="switch"><input type="checkbox" id="capEmph"><i></i></span></label>
+                  <label class="fld switch-label">Keep "um" and "uh"<span class="switch"><input type="checkbox" id="capFiller" checked><i></i></span></label>
+                  <label class="fld switch-label">Keep punctuation<span class="switch"><input type="checkbox" id="capPunct" checked><i></i></span></label>
                   <label class="fld switch-label">Capital letters<span class="switch"><input type="checkbox" id="upper" checked><i></i></span></label>
                   <label class="fld inline">Accuracy<select class="input" id="model"><option value="base">Fast</option><option value="small">Balanced</option><option value="medium">Accurate (slow)</option><option value="large-v3">Best (GPU)</option></select></label>
                   <label class="fld inline">Language<select class="input" id="lang"><option value="">Automatic</option><option value="en">English</option><option value="es">Spanish</option><option value="pt">Portuguese</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="ar">Arabic</option><option value="tr">Turkish</option><option value="ru">Russian</option><option value="pl">Polish</option><option value="ja">Japanese</option><option value="ko">Korean</option></select></label>
@@ -443,11 +450,35 @@
             <div class="seg" id="exPreset"></div>
             <span class="hint" id="exPresetNote"></span>
           </div>
+          <div class="fld">Quality
+            <div class="seg" id="exQualityPreset"></div>
+            <span class="hint" id="exQualityNote"></span>
+          </div>
+          <div class="wm-card">
+            <label class="fld switch-label"><b>Watermark</b><span class="switch"><input type="checkbox" id="wmOn"><i></i></span></label>
+            <div id="wmBody">
+              <span class="hint">Added to exported clips only; your videos aren't changed. It shows in the clip preview (Review), so you can see where it lands before you export.</span>
+              <div class="form-grid two">
+                <label>Text<input class="input" id="wmText" maxlength="60" placeholder="@yourchannel" spellcheck="false"></label>
+                <label>Image<span class="row"><button class="btn sm" id="wmPick">Choose image…</button><button class="btn sm" id="wmClear" hidden>Remove</button><span class="muted small" id="wmImgName"></span></span></label>
+              </div>
+              <div class="fld">Where<div class="seg" id="wmPos"><button data-v="tl">Top left</button><button data-v="tr">Top right</button><button data-v="bl">Bottom left</button><button data-v="br">Bottom right</button><button data-v="c">Centre</button></div></div>
+              <div class="form-grid two">
+                <label>Size <span class="tnum" id="wmSizeV"></span><input type="range" id="wmSize" min="40" max="250" step="5"></label>
+                <label>Opacity <span class="tnum" id="wmOpV"></span><input type="range" id="wmOp" min="5" max="100" step="5"></label>
+                <label>Distance from the side <span class="tnum" id="wmMarV"></span><input type="range" id="wmMar" min="0" max="200" step="5"></label>
+                <label class="chk"><input type="checkbox" id="wmBox"><span>Dark box behind the text<small>Easier to read on busy footage</small></span></label>
+                <label>Appears at<span class="unit-input"><input class="input" type="number" id="wmStart" min="0" step="0.5"><i>sec</i></span></label>
+                <label>Disappears at<span class="unit-input"><input class="input" type="number" id="wmEnd" min="0" step="0.5" placeholder="End"><i>sec</i></span></label>
+              </div>
+              <span class="hint">Top positions sit below TikTok's top bar; bottom ones above its caption area. An image is used instead of the text when both are set.</span>
+            </div>
+          </div>
           <details class="adv" id="exAdv">
             <summary>Advanced</summary>
             <div class="form-grid">
               <label>Resolution<select class="input" id="exScale"><option value="1">Full (1080 wide)</option><option value="0.6667">720</option><option value="0.5">540</option></select></label>
-              <label>Frame rate<select class="input" id="exFps"><option>24</option><option>25</option><option>30</option><option>50</option><option>60</option></select></label>
+              <label>Frame rate<select class="input" id="exFps" title="Never higher than the stream's own: extra frames would only be copies"><option value="0">Same as the stream</option><option>24</option><option>25</option><option>30</option><option>50</option><option>60</option></select></label>
               <label>Video codec<select class="input" id="exVcodec"><option value="h264">H.264 (works everywhere)</option><option value="hevc">H.265 (smaller files)</option><option value="vp9">VP9 (.webm)</option></select></label>
               <label>Quality<select class="input" id="exQuality"><option value="q:16">Highest</option><option value="q:18">High</option><option value="q:20">Good</option><option value="q:23">Smaller file</option><option value="b:6000">6 Mbps</option><option value="b:12000">12 Mbps</option><option value="b:20000">20 Mbps</option></select></label>
               <label>Audio<select class="input" id="exAbitrate"><option value="96">96 kbps</option><option value="128">128 kbps</option><option value="160">160 kbps</option><option value="192">192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></label>

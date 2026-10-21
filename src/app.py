@@ -85,6 +85,7 @@ def run_window(url: str) -> bool:
             res = window.create_file_dialog(fd.FOLDER if fd else webview.FOLDER_DIALOG)
             return (res[0] if isinstance(res, (list, tuple)) else str(res)) if res else ""
         types = (("Chat logs (*.json;*.gz)", "All files (*.*)") if kind == "chat" else
+                 ("Images (*.png;*.jpg;*.jpeg;*.webp)", "All files (*.*)") if kind == "image" else
                  ("Videos (*.mp4;*.mkv;*.mov;*.flv;*.ts;*.webm;*.m4v;*.avi)", "All files (*.*)"))
         res = window.create_file_dialog(getattr(webview, "FileDialog", webview).OPEN
                                         if hasattr(webview, "FileDialog") else webview.OPEN_DIALOG,

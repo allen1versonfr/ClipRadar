@@ -1796,7 +1796,12 @@ class RenderOpts:
     uppercase: bool = True
     caption_style: str = "pop"      # pop | box | karaoke | glow | clean
     caption_font: str = "classic"   # key of FONTS
-    caption_anim: bool = True       # words pop in
+    caption_anim: bool = True       # words pop in (kept for saved styles; caption_motion says how)
+    caption_motion: str = ""        # none | pop | word | bounce | fade | slide | reveal ("" = pop if caption_anim)
+    caption_speed: int = 100        # animation speed, percent (higher = quicker)
+    caption_emph: bool = False      # strong words ("no way", "insane", shouting) in the highlight colour
+    caption_filler: bool = True     # keep "um", "uh" in captions
+    caption_punct: bool = True      # keep punctuation in captions
     cap_x: float = 0.5              # custom caption centre, fractions of the frame
     cap_y: float = 0.7
     title_style: str = "box"        # box | dark | accent | outline
@@ -1808,7 +1813,8 @@ class RenderOpts:
     language: str = ""              # "" = auto-detect
     hw_encode: bool = True
     crf: int = 20
-    fps: int = 30
+    fps: int = 0                    # 0 = the source's own frame rate (up to 60); never raised above the source
+    speed: str = "balanced"         # fast | balanced | high: encoder effort (quality_args)
     aspect: str = "9:16"            # 9:16 vertical | 1:1 square | 16:9 wide
     # 3.7 export settings (presets in exports.py)
     scale: float = 1.0              # output size relative to the shape's full size (0.6667 = 720p)
@@ -1822,6 +1828,16 @@ class RenderOpts:
     voice: bool = False             # make speech clearer (gentle compression) without burying game audio
     cap_outline: int = 100          # caption outline, percent of normal
     cap_shadow: int = 100           # caption shadow, percent of normal
+    # 4.5 watermark (export only; the source is never changed)
+    wm_text: str = ""               # text mark, or "" for none
+    wm_image: str = ""              # path to a PNG/JPG mark, or "" (used instead of the text when set)
+    wm_pos: str = "tl"              # tl | tr | bl | br | c
+    wm_size: int = 100              # percent of the normal size
+    wm_opacity: int = 70            # percent
+    wm_margin: int = 40             # pixels from the side at 1080 wide
+    wm_box: bool = False            # a dark box behind a text mark (easier to read on busy footage)
+    wm_start: float = 0.0           # seconds into the clip it appears
+    wm_end: float = 0.0             # seconds it disappears; 0 = until the end
     # 3.9 framing
     track: str = "auto"             # auto: whole-frame crops follow the streamer's face | off
     track_target: str = "auto"      # auto | largest | left | right | point (nearest to game_x, focus_y)
@@ -1866,6 +1882,28 @@ def _even(x: float) -> int:
     return max(2, int(round(x / 2)) * 2)
 
 
+MAX_FPS = 60
+
+
+def output_fps(info: dict, o: RenderOpts) -> float:
+    """The frame rate a clip renders at: the source's own (o.fps 0), or the one chosen, but never
+    above the source's. Turning 30 FPS into 60 only repeats frames; it can't add motion that wasn't
+    recorded, so Clip Radar doesn't do it."""
+    src = float(info.get("fps") or 0)
+    if not (1 <= src <= 240):
+        src = 30.0
+    want = float(getattr(o, "fps", 0) or 0)
+    out = min(src, MAX_FPS) if want <= 0 else min(want, src)
+    return round(out, 3)
+
+
+SPEEDS = {   # x264 preset, quality offset (lower crf = better), NVENC preset
+    "fast": ("veryfast", 2, "p3"),
+    "balanced": ("medium", 0, "p5"),
+    "high": ("slow", -2, "p7"),
+}
+
+
 def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: Optional[dict] = None) -> tuple:
     """Return (filter_complex producing [v] in yuv420p, caption_center_y).
     path: [(t, centre x)] for a whole-frame crop that follows a face (3.9 framing).
@@ -1874,6 +1912,7 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
     z = max(1.0, o.game_zoom)
     W, H = out_size(o)
     layout = effective_layout(o)
+    fr = output_fps(info, o)
 
     def safe_cam_crop(rect: tuple) -> tuple:
         """Clamp user-edited facecam rectangles to a valid, even-sized source crop."""
@@ -1910,10 +1949,10 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         cam = (f"crop={cw}:{ch}:{cx}:{cy},scale={W}:{top_h}:force_original_aspect_ratio=increase:"
                f"flags=lanczos,crop={W}:{top_h},setsar=1")
         f = (f"[0:v]split=2[a][b];[a]{cam}[cam];[b]{game_crop(W, bot_h)}[game];"
-             f"[cam][game]vstack=inputs=2,fps={o.fps},format=yuv420p[v]")
+             f"[cam][game]vstack=inputs=2,fps={fr},format=yuv420p[v]")
         cap_y = top_h  # right on the seam reads best
     elif layout == "full":
-        f = f"[0:v]{game_crop(W, H, path)},fps={o.fps},format=yuv420p[v]"
+        f = f"[0:v]{game_crop(W, H, path)},fps={fr},format=yuv420p[v]"
         cap_y = H * 0.70
         if face and path:
             import framing
@@ -1922,15 +1961,20 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         # the facecam by itself, filling the frame
         cw, ch, cx, cy = safe_cam_crop(o.cam)
         f = (f"[0:v]crop={cw}:{ch}:{cx}:{cy},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
-             f"crop={W}:{H},setsar=1,fps={o.fps},format=yuv420p[v]")
+             f"crop={W}:{H},setsar=1,fps={fr},format=yuv420p[v]")
         cap_y = H * 0.78
     elif layout == "blur":
-        fg_h = _even(W * sh / sw)
-        fg = game_crop(W, fg_h) if z > 1 else f"scale={W}:{fg_h}:flags=lanczos,setsar=1"
+        # the whole picture, fitted inside the frame (never cropped or stretched), on a blurred,
+        # darkened copy of itself that fills the rest. Works for wide, square and tall sources.
+        fg_w, fg_h = W, _even(W * sh / sw)
+        if fg_h > H:                                   # a tall source: fit the height instead
+            fg_w, fg_h = min(W, _even(H * sw / sh)), H
+        fg = game_crop(fg_w, fg_h) if z > 1 else f"scale={fg_w}:{fg_h}:flags=lanczos,setsar=1"
+        bw, bh = max(2, _even(W / 4)), max(2, _even(H / 4))
         f = (f"[0:v]split=2[a][b];"
-             f"[a]scale=-2:{H // 4},crop={W // 4}:{H // 4},boxblur=12:2,eq=brightness=-0.12,"
-             f"scale={W}:{H},setsar=1[bg];"
-             f"[b]{fg}[fg];[bg][fg]overlay=0:(H-h)/2,fps={o.fps},format=yuv420p[v]")
+             f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=12:2,"
+             f"eq=brightness=-0.12,scale={W}:{H},setsar=1[bg];"
+             f"[b]{fg}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
         cap_y = min(H / 2 + fg_h / 2 + 170, H * 0.8)
     else:
         raise ValueError(f"unknown layout {o.layout}")
@@ -2145,6 +2189,40 @@ def fonts_for(o: "RenderOpts") -> list:
     return out
 
 
+CAPTION_MOTIONS = ("none", "pop", "word", "bounce", "fade", "slide", "reveal")
+FILLER_WORDS = {"um", "uh", "uhh", "umm", "erm", "hmm", "mm", "uhm"}
+EMPH_WORDS = {"no", "way", "what", "insane", "crazy", "wait", "yes", "never", "impossible", "clutch", "holy",
+              "omg", "wtf", "bro", "stop", "run", "dead", "help", "why", "how"}
+
+
+def caption_words(words: list, o: "RenderOpts") -> list:
+    """The words captions show: filler words and punctuation dropped when you asked (timing unchanged)."""
+    out = []
+    for w in words:
+        core = re.sub(r"[^\w']", "", w["word"]).lower()
+        if not o.caption_filler and core in FILLER_WORDS:
+            continue
+        if not o.caption_punct:
+            txt = re.sub(r"[.,!?;:…\"“”]+", "", w["word"]).strip()
+            if not txt:
+                continue
+            w = dict(w, word=txt)
+        out.append(w)
+    return out
+
+
+def motion_of(o: "RenderOpts") -> str:
+    m = getattr(o, "caption_motion", "") or ""
+    if m in CAPTION_MOTIONS:
+        return m
+    return "pop" if o.caption_anim else "none"
+
+
+def _emphasised(word: str) -> bool:
+    core = re.sub(r"[^\w']", "", word)
+    return core.lower() in EMPH_WORDS or word.endswith("!") or (len(core) > 2 and core.isupper())
+
+
 def _chunks(words: list, o: "RenderOpts", clip_len: float) -> list:
     chunks: list = []
     cur: list = []
@@ -2165,6 +2243,34 @@ def _chunks(words: list, o: "RenderOpts", clip_len: float) -> list:
     if cur:
         chunks.append(cur)
     return chunks
+
+
+WM_POSITIONS = ("tl", "tr", "bl", "br", "c")
+WM_TOP, WM_BOTTOM = 0.13, 0.80   # top marks sit below TikTok's top tabs; bottom ones above its caption area
+
+
+def watermark_anchor(o: RenderOpts, W: int, H: int, w: int = 0, h: int = 0) -> tuple:
+    """Top-left corner (x, y) for a mark of size w×h, kept inside the frame. Shared by the text
+    and image marks and by the preview, so all three land in the same place."""
+    pos = o.wm_pos if o.wm_pos in WM_POSITIONS else "tl"
+    m = int(max(0, min(200, o.wm_margin)) * W / 1080)
+    if pos == "c":
+        x, y = (W - w) // 2, (H - h) // 2
+    else:
+        x = m if pos[1] == "l" else W - w - m
+        y = int(H * WM_TOP) if pos[0] == "t" else int(H * WM_BOTTOM) - h
+    return max(0, min(x, W - w)), max(0, min(y, H - h))
+
+
+def watermark_window(o: RenderOpts, clip_len: float) -> tuple:
+    a = max(0.0, min(float(o.wm_start or 0), clip_len))
+    b = float(o.wm_end or 0)
+    b = clip_len if b <= a else min(b, clip_len)
+    return a, b
+
+
+def _wm_alpha(opacity: int) -> str:
+    return f"&H{int(round(255 * (1 - max(5, min(100, opacity)) / 100))):02X}&"
 
 
 def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, title: str = "") -> str:
@@ -2190,6 +2296,15 @@ def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, titl
     else:
         fill, boxc = {"box": (dark, white), "dark": (white, "&H1A141414"), "accent": (dark, hi.rstrip("&"))}[tstyle]
         t_style = f"Style: Title,{tfont},{title_fs},{fill},{fill},{boxc},{boxc},{tbold},0,0,0,100,100,0,0,3,{tpad},0,8,90,90,0,1"
+    wm_fs = int(44 * max(40, min(250, o.wm_size)) / 100)
+    alpha = _wm_alpha(o.wm_opacity)
+    wa = alpha.strip("&H").strip("&")
+    if o.wm_box:
+        mark_style = (f"Style: Mark,{cfont},{wm_fs},&H{wa}FFFFFF,&H{wa}FFFFFF,&H{wa}141414,&H{wa}141414,{cbold},"
+                      f"0,0,0,100,100,0,0,3,{max(6, wm_fs // 4)},0,7,0,0,0,1")
+    else:
+        mark_style = (f"Style: Mark,{cfont},{wm_fs},&H{wa}FFFFFF,&H{wa}FFFFFF,&H{wa}000000,&H{wa}000000,{cbold},"
+                      f"0,0,0,100,100,0,0,1,{max(2, wm_fs // 14)},1,7,0,0,0,1")
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
@@ -2201,11 +2316,21 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 {cap_style}
 {t_style}
+{mark_style}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = []
+    wm = (o.wm_text or "").strip() if not o.wm_image else ""
+    if wm:
+        # a text mark: same anchor as an image mark; its size is estimated for the anchor, and \an
+        # keeps it inside the frame on the side it's anchored to
+        a, b = watermark_window(o, clip_len)
+        an = {"tl": 7, "tr": 9, "bl": 1, "br": 3, "c": 5}.get(o.wm_pos if o.wm_pos in WM_POSITIONS else "tl")
+        # with a zero-size box the anchor is the point the text hangs from (\an picks which corner)
+        x, y = watermark_anchor(o, W, H)
+        lines.append(f"Dialogue: 2,{_ass_time(a)},{_ass_time(b)},Mark,,0,0,0,,{{\\an{an}\\pos({x},{y})}}{_ass_escape(wm[:60])}")
     if title.strip():
         tx = int(min(max(o.title_x, 0.3), 0.7) * W)
         th = min(tx, W - tx) - 90           # wrap the title inside the frame around its own centre
@@ -2217,9 +2342,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     half = min(x, W - x) - 70               # wrap captions inside the frame around their own centre
     ml, mr = x - half, W - x - half
     y = int(center_y)
-    chunks = _chunks(words, o, clip_len)
+    motion = motion_of(o)
+    if style == "clean" and motion == "pop":
+        motion = "none"                    # clean captions never popped
+    dur = int(120 * 100 / max(50, min(200, getattr(o, "caption_speed", 100))))    # ms
+    chunks = _chunks(caption_words(words, o), o, clip_len)
     for ci, ch in enumerate(chunks):
         texts = [_ass_escape(w["word"].upper() if o.uppercase else w["word"]) for w in ch]
+        emph = [o.caption_emph and _emphasised(w["word"]) for w in ch]
         chars = sum(len(t) for t in texts) + len(texts) - 1
         # shrink long chunks so they stay on one or two lines
         fs = base_fs if chars <= 16 else max(int(base_fs * 0.75), int(base_fs * 18 / chars))
@@ -2236,6 +2366,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 en = st + 0.08
             parts = []
             for k, t in enumerate(texts):
+                if emph[k] and k != wi and style in ("pop", "glow", "box", "clean"):
+                    t = f"{{\\c{hi}}}{t}{{\\c{white}&}}"          # a strong word stays in the highlight colour
+                if motion == "reveal" and k > wi:
+                    parts.append(f"{{\\alpha&HFF&}}{t}{{\\alpha&H00&}}")   # not said yet: room kept, nothing shown
+                    continue
+                if k == wi and motion in ("word", "bounce"):
+                    end_sc = 112 if style == "glow" else 100
+                    if motion == "word":
+                        grow = f"\\fscx132\\fscy132\\t(0,{dur},\\fscx{end_sc}\\fscy{end_sc})"
+                    else:
+                        grow = (f"\\fscx70\\fscy70\\t(0,{dur // 2},\\fscx122\\fscy122)"
+                                f"\\t({dur // 2},{dur},\\fscx{end_sc}\\fscy{end_sc})")
+                    inner = t
+                    if style == "pop":
+                        inner = f"{{\\c{hi}}}{t}{{\\c{white}&}}"
+                    elif style == "karaoke":
+                        inner = f"{{\\c{hi}}}{t}{{\\c{white}&}}"
+                    elif style == "box":
+                        inner = (f"{{\\3c{hi}\\bord{max(8, int(fs * 0.22))}\\c{dark}&}}{t}"
+                                 f"{{\\3c{black}&\\bord{ob(max(4, fs // 12))}\\c{white}&}}")
+                    parts.append(f"{{{grow}}}{inner}{{\\fscx100\\fscy100}}")
+                    continue
                 if style == "pop":
                     parts.append(f"{{\\c{hi}}}{t}{{\\c{white}&}}" if k == wi else t)
                 elif style == "glow":
@@ -2252,9 +2404,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 lead = f"\\3c{hi}\\bord{ob(max(4, fs // 12))}\\blur{max(5, fs // 8)}"
             if style == "box":
                 lead = f"\\bord{ob(max(4, fs // 12))}"
-            pop = r"{\fscx114\fscy114\t(0,100,\fscx100\fscy100)}" if (wi == 0 and o.caption_anim and style != "clean") else ""
+            pop = ""
+            place = f"\\pos({x},{y})"
+            if wi == 0:                    # how the chunk comes in
+                if motion == "pop":
+                    pop = f"{{\\fscx114\\fscy114\\t(0,{dur},\\fscx100\\fscy100)}}"
+                elif motion == "fade":
+                    lead += f"\\fad({dur * 2},0)"
+                elif motion == "slide":
+                    place = f"\\move({x},{y + int(fs * 0.6)},{x},{y},0,{dur * 2})"
+                    lead += f"\\fad({dur * 2},0)"
             lines.append(f"Dialogue: 0,{_ass_time(st)},{_ass_time(en)},Cap,,{ml},{mr},0,,"
-                         f"{{\\an5\\pos({x},{y})\\fs{fs}{lead}}}{pop}{' '.join(parts)}")
+                         f"{{\\an5{place}\\fs{fs}{lead}}}{pop}{' '.join(parts)}")
     return header + "\n".join(lines) + "\n"
 
 
@@ -2287,10 +2448,13 @@ def video_encoder(o: RenderOpts) -> tuple:
         q = ["-b:v", f"{kb}k"] if kb else ["-crf", str(min(63, o.crf + 12)), "-b:v", "0"]
         return "libvpx-vp9", ["-c:v", "libvpx-vp9", "-deadline", "good", "-cpu-used", "4", "-row-mt", "1", *q]
     if vc == "hevc":
-        q = _rate_args(o) or ["-crf", str(o.crf + 4)]
-        return "libx265", ["-c:v", "libx265", "-preset", "medium", *q, "-tag:v", "hvc1"]
+        x_pre, dq, _nv = SPEEDS.get(getattr(o, "speed", "balanced"), SPEEDS["balanced"])
+        q = _rate_args(o) or ["-crf", str(o.crf + 4 + dq)]
+        return "libx265", ["-c:v", "libx265", "-preset", x_pre, *q, "-tag:v", "hvc1"]
     rate = _rate_args(o)
-    x264 = ("libx264", ["-c:v", "libx264", "-preset", "medium", *(rate or ["-crf", str(o.crf)]),
+    x_pre, dq, _nv = SPEEDS.get(getattr(o, "speed", "balanced"), SPEEDS["balanced"])
+    crf = min(max(o.crf + dq, 12), 36)
+    x264 = ("libx264", ["-c:v", "libx264", "-preset", x_pre, *(rate or ["-crf", str(crf)]),
                         "-profile:v", "high"])
     if not o.hw_encode:
         return x264
@@ -2322,6 +2486,8 @@ def video_encoder(o: RenderOpts) -> tuple:
             keep.append(args[i])
             i += 1
         return name, keep + rate
+    if hw and hw[0] == "h264_nvenc":       # the effort setting picks NVENC's preset too (p3 / p5 / p7)
+        return hw[0], [_nv if a == "p5" else a for a in hw[1]]
     return hw or x264
 
 
@@ -2332,7 +2498,7 @@ def write_srt(words: list, o: "RenderOpts", path: str, clip_len: float):
         h, m, sec = int(t // 3600), int(t % 3600 // 60), t % 60
         return f"{h:02d}:{m:02d}:{int(sec):02d},{int(round((sec - int(sec)) * 1000)) % 1000:03d}"
     lines = []
-    chunks = _chunks(words, o, clip_len)
+    chunks = _chunks(caption_words(words, o), o, clip_len)
     for i, ch in enumerate(chunks, 1):
         end = min(clip_len, chunks[i][0]["start"] if i < len(chunks) else ch[-1]["end"] + 0.4)
         text = " ".join(w["word"] for w in ch)
@@ -2404,7 +2570,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     progress(0.3)
     check()
 
-    use_ass = bool(words) or bool(title.strip())
+    use_ass = bool(words) or bool(title.strip()) or bool((o.wm_text or "").strip() and not o.wm_image)
     if use_ass:
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(build_ass(words, o, cap_y, length, title))
@@ -2441,6 +2607,27 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             af = f";[0:a:0]volume=0:enable='{on}',{tail}[a]"
         vf = vf + af
 
+    # an image watermark: overlaid on the finished frame (after captions), scaled with the frame,
+    # at the same anchor as a text mark; the source video isn't changed
+    wm_img = o.wm_image if o.wm_image and os.path.isfile(o.wm_image) else ""
+    if wm_img:
+        W_, H_ = out_size(o)
+        mw = _even(W_ * 0.2 * max(40, min(250, o.wm_size)) / 100)
+        a, b = watermark_window(o, length)
+        op = max(5, min(100, o.wm_opacity)) / 100
+        i = vf.rfind("[v]")
+        # x/y from the anchor for an unknown height: ffmpeg's overlay evaluates W/H/w/h itself, so
+        # pass expressions that keep the mark inside the frame
+        pos = o.wm_pos if o.wm_pos in WM_POSITIONS else "tl"
+        m = int(max(0, min(200, o.wm_margin)) * W_ / 1080)
+        xs = {"l": str(m), "r": f"W-w-{m}"}
+        xe = "(W-w)/2" if pos == "c" else xs[pos[1]]
+        ye = "(H-h)/2" if pos == "c" else (str(int(H_ * WM_TOP)) if pos[0] == "t" else f"{int(H_ * WM_BOTTOM)}-h")
+        vf = (vf[:i] + "[vpre];"
+              f"[1:v]scale={mw}:-2:flags=lanczos,format=rgba,colorchannelmixer=aa={op:.2f}[wm];"
+              f"[vpre][wm]overlay=x='max(0,min({xe},W-w))':y='max(0,min({ye},H-h))':"
+              f"enable='between(t,{a:.3f},{b:.3f})',format=yuv420p[v]" + vf[i + 3:])
+
     # export size below the shape's full size: scale the finished frame (captions included)
     fw, fh = final_size(o)
     if (fw, fh) != out_size(o):
@@ -2456,13 +2643,15 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
 
     def encode(enc_args: list):
         cmd = [ffmpeg(), "-v", "error", "-y", "-nostdin", "-progress", "pipe:1", "-nostats",
-               "-ss", f"{clip_start:.3f}", "-t", f"{length:.3f}", "-i", video,
-               "-filter_complex", vf, "-map", "[v]"]
+               "-ss", f"{clip_start:.3f}", "-t", f"{length:.3f}", "-i", video]
+        if wm_img:
+            cmd += ["-i", wm_img]
+        cmd += ["-filter_complex", vf, "-map", "[v]"]
         if info["has_audio"] and af:
             cmd += ["-map", "[a]", *acodec, "-ar", "48000"]
         elif info["has_audio"]:
             cmd += ["-map", "0:a:0", *acodec, "-af", audio_filter(o), "-ar", "48000"]
-        cmd += [*enc_args, "-pix_fmt", "yuv420p", "-r", str(o.fps)]
+        cmd += [*enc_args, "-pix_fmt", "yuv420p", "-r", str(output_fps(info, o))]
         if cont != "webm":
             cmd += ["-movflags", "+faststart"]
         cmd += [*RENDER_THREADS, tmp_name]

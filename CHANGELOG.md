@@ -3,6 +3,21 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.5.0] - 2026-10-21
+
+Better-looking exports: the stream's real frame rate, quality presets, a watermark, animated captions, and blur-fit that works with any video shape.
+
+### Added
+- Quality (Settings › Export format): Fast export, Balanced (recommended), High quality and High frame rate, each with a note on what it trades. High quality renders take about twice as long.
+- Watermark (Settings › Export format): text or an image, in a corner or the centre, with size, opacity, distance from the side, an optional dark box behind text, and when it appears and disappears. It's added to exports only, never to your videos, and shows in the clip preview. Top positions sit below TikTok's top bar and bottom ones above its caption area, so it doesn't land under TikTok's own buttons.
+- Caption animations (Text tab): pop in, word pop, bounce, fade in, slide up and word by word, with a speed setting, plus Highlight strong words ("no way", "insane", shouted words) in your highlight colour, and options to leave out "um"/"uh" and punctuation. They work with every caption style and layout, and the preview shows them.
+
+### Changed
+- Clips render at the stream's own frame rate (up to 60) instead of always 30, so 60 FPS streams stay smooth. A higher frame rate than the stream had is never used: turning 30 FPS into 60 only repeats frames, it can't add motion. Advanced › Frame rate has "Same as the stream" and still lets you pick a lower one.
+
+### Fixed
+- Blur-fit with a tall or narrow video (phone recordings, vertical streams): the picture was cut off at the top and bottom, and very narrow videos failed to render. It's now fitted inside the frame, centred, on its blurred background.
+
 ## [4.4.0] - 2026-10-21
 
 Hashtags, posting through TikTok Studio, automatic cleanup, and sounds.

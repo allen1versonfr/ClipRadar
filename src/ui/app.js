@@ -82,7 +82,8 @@ let safetyCfg = { enabled: true, censor: 'off', censor_categories: [] };
 let vodJob = null, ttJob = null, setupJob = null;
 const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, game_x: 0.5, game_zoom: 1.0,
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
-  caption_style: 'pop', caption_font: 'classic', caption_anim: true, cap_x: 0.5, cap_y: 0.7,
+  caption_style: 'pop', caption_font: 'classic', caption_anim: true, caption_motion: 'pop', caption_speed: 100,
+  caption_emph: false, caption_filler: true, caption_punct: true, cap_x: 0.5, cap_y: 0.7,
   title_style: 'box', title_font: 'classic', title_size: 100, title_x: 0.5, title_y: 0.05,
   whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16', cap_outline: 100, cap_shadow: 100,
   track: 'auto', track_target: 'auto', focus_y: 0.4 };
@@ -1353,8 +1354,23 @@ function drawTitle(g, text, Wd, Ht) {
   g.fillStyle = fill; lines.forEach((l, i) => g.fillText(l, x, top + pad + i * lh));
   hit.title = { x: x - bw / 2, y: top, w: bw, h: bh };
 }
+const FILLER = new Set(['um', 'uh', 'uhh', 'umm', 'erm', 'hmm', 'mm', 'uhm']);
+const EMPH = new Set(['no', 'way', 'what', 'insane', 'crazy', 'wait', 'yes', 'never', 'impossible', 'clutch', 'holy',
+  'omg', 'wtf', 'bro', 'stop', 'run', 'dead', 'help', 'why', 'how']);
+// same as engine.caption_words / engine._emphasised, so the preview shows what renders
+function captionWords(ws) {
+  const out = [];
+  for (let w of ws) {
+    const core = w.word.replace(/[^\w']/g, '').toLowerCase();
+    if (opts.caption_filler === false && FILLER.has(core)) continue;
+    if (opts.caption_punct === false) { const t = w.word.replace(/[.,!?;:…"“”]+/g, '').trim(); if (!t) continue; w = Object.assign({}, w, { word: t }); }
+    out.push(w);
+  }
+  return out;
+}
+const emphasised = w => { const core = w.replace(/[^\w']/g, ''); return EMPH.has(core.toLowerCase()) || w.endsWith('!') || (core.length > 2 && core === core.toUpperCase() && /[A-Z]/.test(core)); };
 function chunksFor(c) {
-  const ws = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end);
+  const ws = captionWords(c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end));
   const chunks = []; let ch = [];
   for (const w of ws) {
     const prev = ch[ch.length - 1];
@@ -1375,7 +1391,8 @@ function captionAt(c, t) {
   for (const ch of chunksFor(c)) {
     if (t >= ch.start && t < ch.end) {
       let hi = 0; ch.words.forEach((w, j) => { if (w.start <= t) hi = j; });
-      return { texts: ch.words.map(w => { const t = replaceWord(censorWord(c, w)); return opts.uppercase ? t.toUpperCase() : t; }), hi, t0: ch.start, wt: ch.words[hi].start };
+      return { texts: ch.words.map(w => { const t = replaceWord(censorWord(c, w)); return opts.uppercase ? t.toUpperCase() : t; }), hi, t0: ch.start, wt: ch.words[hi].start,
+               emph: ch.words.map(w => !!opts.caption_emph && emphasised(w.word)) };
     }
   }
   return null;
@@ -1407,9 +1424,19 @@ function drawCaption(g, cap, capY, Wd, Ht, t) {
   cap.texts.forEach((w, i) => { if (lw && lw + sp + widths[i] > maxW) { lines.push([]); lw = 0; } lines[lines.length - 1].push(i); lw += (lw ? sp : 0) + widths[i]; });
   const lh = fs * 1.15, y0 = cy - (lines.length - 1) * lh / 2;
   const bord = Math.max(4, Math.floor(fs1080 / 12)) * k * clamp(opts.cap_outline ?? 100, 0, 250) / 100;
-  // pop-in: the chunk scales from 114% to 100% over its first 0.1 s (same as the render)
-  const age = t - cap.t0, sc = opts.caption_anim && st !== 'clean' && age >= 0 && age < .1 ? 1.14 - .14 * age / .1 : 1;
-  g.save(); g.translate(cx, cy); g.scale(sc, sc); g.translate(-cx, -cy);
+  // the same animations as the render (engine.build_ass): how a group comes in, and how the word being said moves
+  let motion = opts.caption_motion || (opts.caption_anim ? 'pop' : 'none'); if (st === 'clean' && motion === 'pop') motion = 'none';
+  const dur = .12 * 100 / clamp(opts.caption_speed || 100, 50, 200), age = t - cap.t0, wage = t - (cap.wt ?? cap.t0);
+  const sc = motion === 'pop' && age >= 0 && age < dur ? 1.14 - .14 * age / dur : 1;
+  const inP = clamp(age / (2 * dur), 0, 1);
+  const alpha = motion === 'fade' || motion === 'slide' ? inP : 1, dy = motion === 'slide' ? fs * .6 * (1 - inP) : 0;
+  const wordScale = () => {
+    if (wage < 0 || wage >= dur) return 1;
+    if (motion === 'word') return 1.32 - .32 * wage / dur;
+    if (motion === 'bounce') return wage < dur / 2 ? .7 + .52 * wage / (dur / 2) : 1.22 - .22 * (wage - dur / 2) / (dur / 2);
+    return 1;
+  };
+  g.save(); g.globalAlpha *= alpha; g.translate(0, dy); g.translate(cx, cy); g.scale(sc, sc); g.translate(-cx, -cy);
   let minX = Infinity, maxX = -Infinity;
   lines.forEach((idx, li) => {
     const lwid = idx.reduce((a, i) => a + widths[i], 0) + sp * (idx.length - 1);
@@ -1417,12 +1444,16 @@ function drawCaption(g, cap, capY, Wd, Ht, t) {
     const y = y0 + li * lh;
     idx.forEach(i => {
       const on = i === cap.hi, word = cap.texts[i];
+      if (motion === 'reveal' && i > cap.hi) { x += widths[i] + sp; return; }      // not said yet: its place is kept
+      const ws = on && (motion === 'word' || motion === 'bounce') ? wordScale() : 1;
+      g.save(); if (ws !== 1) { g.translate(x + widths[i] / 2, y); g.scale(ws, ws); g.translate(-(x + widths[i] / 2), -y); }
+      const strong = cap.emph && cap.emph[i] && !on;
       g.lineJoin = 'round';
       g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetX = g.shadowOffsetY = 0;
       if (st === 'clean') {
         const sh = clamp(opts.cap_shadow ?? 100, 0, 250) / 100;
         g.shadowColor = sh ? 'rgba(0,0,0,.6)' : 'transparent'; g.shadowBlur = 6 * k * sh; g.shadowOffsetX = g.shadowOffsetY = 4 * k * sh;
-        g.fillStyle = '#fff'; g.fillText(word, x, y);
+        g.fillStyle = strong ? hi : '#fff'; g.fillText(word, x, y);
       } else if (st === 'glow') {
         const s2 = on ? 1.12 : 1;
         g.save(); g.translate(x + widths[i] / 2, y); g.scale(s2, s2); g.translate(-(x + widths[i] / 2), -y);
@@ -1435,9 +1466,10 @@ function drawCaption(g, cap, capY, Wd, Ht, t) {
         g.fillStyle = '#141414'; g.fillText(word, x, y);
       } else {
         g.lineWidth = bord * 2; g.strokeStyle = '#000'; g.strokeText(word, x, y);
-        g.fillStyle = (st === 'pop' && on) || (st === 'karaoke' && i <= cap.hi) ? hi : '#fff';
+        g.fillStyle = (st === 'pop' && on) || (st === 'karaoke' && i <= cap.hi) || (strong && st !== 'karaoke') ? hi : '#fff';
         g.fillText(word, x, y);
       }
+      g.restore();
       x += widths[i] + sp;
     });
   });
@@ -1490,6 +1522,7 @@ function renderPhone() {
         }
         if (!cap && !c.listened && status.whisper && !phoneHover) badge = 'Listening for captions…';
       }
+      drawWatermark(g, Wd, Ht, Math.max(0, vod.currentTime - c.start));
       const sel = dragState ? dragState.what : hoverWhat;
       if (sel) drawSelection(g, hit[sel], !!dragState);
     }
@@ -1664,7 +1697,10 @@ function syncControls() {
   $('#capShadow').value = opts.cap_shadow ?? 100; $('#capShadowOut').textContent = (opts.cap_shadow ?? 100) + '%';
   $('#model').value = opts.whisper_model; $('#lang').value = opts.language; $('#upper').checked = opts.uppercase;
   $('#hw').checked = opts.hw_encode;
-  $('#capAnim').checked = opts.caption_anim;
+  $('#capMotion').value = opts.caption_motion || (opts.caption_anim ? 'pop' : 'none');
+  $('#capSpeed').value = opts.caption_speed || 100; $('#capSpeedOut').textContent = (opts.caption_speed || 100) + '%';
+  $('#capSpeedRow').hidden = $('#capMotion').value === 'none';
+  $('#capEmph').checked = !!opts.caption_emph; $('#capFiller').checked = opts.caption_filler !== false; $('#capPunct').checked = opts.caption_punct !== false;
   $('#titleSize').value = opts.title_size; $('#titleSizeOut').textContent = opts.title_size + '%';
   $$('#titleStyles .tile').forEach(b => b.classList.toggle('on', b.dataset.v === opts.title_style));
   $$('#capStyles .tile').forEach(b => b.classList.toggle('on', b.dataset.v === opts.caption_style));
@@ -1775,7 +1811,11 @@ $('#capStyles').onclick = e => { const b = e.target.closest('.tile'); if (b) { o
 $('#titleFont').onclick = e => { const b = e.target.closest('button'); if (b) { opts.title_font = b.dataset.v; syncControls(); } };
 $('#capFont').onclick = e => { const b = e.target.closest('button'); if (b) { opts.caption_font = b.dataset.v; syncControls(); } };
 $('#titleSize').oninput = e => { opts.title_size = +e.target.value; syncControls(); };
-$('#capAnim').onchange = e => { opts.caption_anim = e.target.checked; syncControls(); };
+$('#capMotion').onchange = e => { opts.caption_motion = e.target.value; opts.caption_anim = e.target.value !== 'none'; syncControls(); };
+$('#capSpeed').oninput = e => { opts.caption_speed = +e.target.value; syncControls(); };
+$('#capEmph').onchange = e => { opts.caption_emph = e.target.checked; syncControls(); };
+$('#capFiller').onchange = e => { opts.caption_filler = e.target.checked; syncControls(); };
+$('#capPunct').onchange = e => { opts.caption_punct = e.target.checked; syncControls(); };
 $('#resetPos').onclick = () => { Object.assign(opts, { title_x: DEFAULTS.title_x, title_y: DEFAULTS.title_y, cap_x: .5, cap_y: .7, caption_pos: 'auto' }); syncControls(); toast('Title and captions are back in their usual places.', '', 2500); };
 
 /* --- Captions tab: fix what Whisper heard --- */
@@ -2607,6 +2647,9 @@ function renderExportSettings() {
   $('#exDescribe').textContent = v.describe;
   $('#exPreset').innerHTML = v.presets.map(p => `<button data-v="${p.key}" class="${p.key === pr.preset ? 'on' : ''}">${esc(p.label)}</button>`).join('');
   $('#exPresetNote').textContent = (v.presets.find(p => p.key === pr.preset) || {}).note || '';
+  $('#exQualityPreset').innerHTML = (v.quality || []).map(q => `<button data-v="${q.key}" class="${q.key === pr.quality ? 'on' : ''}" title="${esc(q.note)}">${esc(q.label)}</button>`).join('');
+  $('#exQualityNote').textContent = ((v.quality || []).find(q => q.key === pr.quality) || {}).note || '';
+  renderWatermark(pr.watermark || {});
   $('#exScale').value = String(+st.scale === 1 ? 1 : st.scale); $('#exFps').value = String(st.fps); $('#exVcodec').value = st.vcodec;
   $('#exQuality').value = st.vbitrate ? `b:${st.vbitrate}` : `q:${st.crf}`;
   if (!$('#exQuality').value) $('#exQuality').value = 'q:20';
@@ -2640,6 +2683,72 @@ const customPatch = kv => saveExport({ custom: Object.assign({}, (exState && exS
 $('#exPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ preset: v }); };
 $('#exScale').onchange = e => customPatch({ scale: +e.target.value });
 $('#exFps').onchange = e => customPatch({ fps: +e.target.value });
+/* --- watermark: settings, and the same placement as the render in the clip preview --- */
+const wmImg = new Image(); let wmImgSrc = '';
+function renderWatermark(w) {
+  const busy = el => document.activeElement === el;
+  $('#wmOn').checked = !!w.on; $('#wmBody').hidden = !w.on;
+  if (!busy($('#wmText'))) $('#wmText').value = w.text || '';
+  $$('#wmPos button').forEach(b => b.classList.toggle('on', b.dataset.v === (w.pos || 'tl')));
+  $('#wmSize').value = w.size; $('#wmSizeV').textContent = w.size + '%';
+  $('#wmOp').value = w.opacity; $('#wmOpV').textContent = w.opacity + '%';
+  $('#wmMar').value = w.margin; $('#wmMarV').textContent = w.margin + ' px';
+  $('#wmBox').checked = !!w.box;
+  if (!busy($('#wmStart'))) $('#wmStart').value = w.start || 0;
+  if (!busy($('#wmEnd'))) $('#wmEnd').value = w.end || '';
+  $('#wmClear').hidden = !w.image; $('#wmImgName').textContent = w.image ? 'Image set' : '';
+  const src = w.image ? '/watermark?v=' + encodeURIComponent(w.image) + Date.now() % 1e6 : '';
+  if (w.image && !wmImgSrc) { wmImg.src = src; wmImgSrc = src; } else if (!w.image) wmImgSrc = '';
+}
+let wmTimer = 0;
+function saveWatermark(now) {
+  clearTimeout(wmTimer);
+  wmTimer = setTimeout(() => {
+    const cur = (exState && exState.prefs.watermark) || {};
+    saveExport({ watermark: Object.assign({}, cur, { on: $('#wmOn').checked, text: $('#wmText').value,
+      pos: ($('#wmPos button.on') || {}).dataset?.v || 'tl', size: +$('#wmSize').value, opacity: +$('#wmOp').value,
+      margin: +$('#wmMar').value, box: $('#wmBox').checked, start: +$('#wmStart').value || 0, end: +$('#wmEnd').value || 0 }) });
+  }, now ? 0 : 400);
+}
+['#wmText', '#wmStart', '#wmEnd'].forEach(id => $(id).addEventListener('input', () => saveWatermark()));
+['#wmSize', '#wmOp', '#wmMar'].forEach(id => $(id).addEventListener('input', () => {
+  $('#wmSizeV').textContent = $('#wmSize').value + '%'; $('#wmOpV').textContent = $('#wmOp').value + '%'; $('#wmMarV').textContent = $('#wmMar').value + ' px';
+  if (exState) Object.assign(exState.prefs.watermark, { size: +$('#wmSize').value, opacity: +$('#wmOp').value, margin: +$('#wmMar').value });
+  dirty = true; saveWatermark();
+}));
+['#wmOn', '#wmBox'].forEach(id => $(id).addEventListener('change', () => saveWatermark(true)));
+$('#wmPos').onclick = e => { const b = e.target.closest('button'); if (!b) return; $$('#wmPos button').forEach(x => x.classList.toggle('on', x === b)); saveWatermark(true); };
+$('#wmPick').onclick = async () => {
+  try {
+    const { path } = await api('/api/pick_file', { kind: 'image' }); if (!path) return;
+    exState = await api('/api/watermark/image', { path }); wmImgSrc = ''; renderExportSettings();
+  } catch (e) { toast(e.message, 'err'); }
+};
+$('#wmClear').onclick = async () => { try { exState = await api('/api/watermark/image', { path: '' }); wmImgSrc = ''; renderExportSettings(); } catch (e) { toast(e.message, 'err'); } };
+function drawWatermark(g, Wd, Ht, t) {
+  const w = exState && exState.prefs && exState.prefs.watermark;
+  if (!w || !w.on || !(w.text || w.image)) return;
+  if (t < (w.start || 0) || (w.end && t > w.end)) return;
+  const k = Wd / 1080, m = Math.max(0, Math.min(200, w.margin)) * k, pos = w.pos || 'tl';
+  g.save(); g.globalAlpha = Math.max(.05, Math.min(1, w.opacity / 100));
+  let bw, bh;
+  if (w.image && wmImg.complete && wmImg.naturalWidth) { bw = Wd * .2 * w.size / 100; bh = bw * wmImg.naturalHeight / wmImg.naturalWidth; }
+  else {
+    const fs = 44 * w.size / 100 * k;
+    g.font = `800 ${fs}px Inter, "Segoe UI", sans-serif`; bw = g.measureText(w.text).width; bh = fs * 1.2;
+  }
+  let x = pos === 'c' ? (Wd - bw) / 2 : pos[1] === 'l' ? m : Wd - bw - m;
+  let y = pos === 'c' ? (Ht - bh) / 2 : pos[0] === 't' ? Ht * .13 : Ht * .80 - bh;   // same as engine.watermark_anchor
+  x = Math.max(0, Math.min(x, Wd - bw)); y = Math.max(0, Math.min(y, Ht - bh));
+  if (w.image && wmImg.complete && wmImg.naturalWidth) g.drawImage(wmImg, x, y, bw, bh);
+  else {
+    if (w.box) { g.fillStyle = 'rgba(20,20,20,1)'; const p = bh * .2; g.fillRect(x - p, y - p * .5, bw + 2 * p, bh + p); }
+    g.fillStyle = '#fff'; g.strokeStyle = 'rgba(0,0,0,.9)'; g.lineWidth = Math.max(1, 3 * k); g.textBaseline = 'top';
+    if (!w.box) g.strokeText(w.text, x, y); g.fillText(w.text, x, y);
+  }
+  g.restore();
+}
+$('#exQualityPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ quality: v }); };
 $('#exVcodec').onchange = e => customPatch({ vcodec: e.target.value, container: e.target.value === 'vp9' ? 'webm' : ($('#exContainer').value === 'webm' ? 'mp4' : $('#exContainer').value) });
 $('#exQuality').onchange = e => { const [k, n] = e.target.value.split(':'); customPatch(k === 'b' ? { vbitrate: +n } : { crf: +n, vbitrate: 0 }); };
 $('#exAbitrate').onchange = e => customPatch({ abitrate: +e.target.value });
@@ -2665,7 +2774,8 @@ $('#pfLives').onchange = e => saveExport({ lives: +e.target.value });
 $('#pfPriority').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ priority: v }); };
 // saved caption styles
 const CAP_KEYS = ['captions', 'caption_pos', 'caption_color', 'caption_size', 'words_per_line', 'uppercase', 'caption_style', 'caption_font',
-  'caption_anim', 'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_x', 'title_y'];
+  'caption_anim', 'caption_motion', 'caption_speed', 'caption_emph', 'caption_filler', 'caption_punct',
+  'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_x', 'title_y'];
 function renderCapPresets() {
   $('#capPresets').innerHTML = capPresets.length ? capPresets.map((p, i) => `<span class="cp"><button class="chip" data-cp="${i}" title="Use this style">${esc(p.name)}</button><button class="cp-x" data-cpx="${i}" title="Delete">×</button></span>`).join('')
     : '<span class="muted small">None yet.</span>';

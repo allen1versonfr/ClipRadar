@@ -18,25 +18,38 @@ import paths
 import persist
 
 PRESETS = {
-    "tiktok": {"label": "TikTok", "aspect": "9:16", "scale": 1.0, "fps": 30, "vcodec": "h264", "crf": 20, "vbitrate": 0,
+    "tiktok": {"label": "TikTok", "aspect": "9:16", "scale": 1.0, "fps": 0, "vcodec": "h264", "crf": 20, "vbitrate": 0,
                "acodec": "aac", "abitrate": 192, "container": "mp4", "loudness": -14.0, "max_len": 600,
                "note": "1080 × 1920, up to 10 minutes."},
-    "shorts": {"label": "YouTube Shorts", "aspect": "9:16", "scale": 1.0, "fps": 30, "vcodec": "h264", "crf": 18, "vbitrate": 12000,
+    "shorts": {"label": "YouTube Shorts", "aspect": "9:16", "scale": 1.0, "fps": 0, "vcodec": "h264", "crf": 18, "vbitrate": 12000,
                "acodec": "aac", "abitrate": 192, "container": "mp4", "loudness": -14.0, "max_len": 180,
                "note": "1080 × 1920 at about 12 Mbps, up to 3 minutes."},
-    "reels": {"label": "Instagram Reels", "aspect": "9:16", "scale": 1.0, "fps": 30, "vcodec": "h264", "crf": 20, "vbitrate": 0,
+    "reels": {"label": "Instagram Reels", "aspect": "9:16", "scale": 1.0, "fps": 0, "vcodec": "h264", "crf": 20, "vbitrate": 0,
               "acodec": "aac", "abitrate": 128, "container": "mp4", "loudness": -14.0, "max_len": 180,
               "note": "1080 × 1920, up to 3 minutes."},
-    "x": {"label": "X", "aspect": "9:16", "scale": 0.6667, "fps": 30, "vcodec": "h264", "crf": 21, "vbitrate": 0,
+    "x": {"label": "X", "aspect": "9:16", "scale": 0.6667, "fps": 0, "vcodec": "h264", "crf": 21, "vbitrate": 0,
           "acodec": "aac", "abitrate": 128, "container": "mp4", "loudness": -14.0, "max_len": 140,
           "note": "720 × 1280 (X's portrait size), up to 2:20 for most accounts."},
 }
 ADVANCED = {   # what Advanced can change, and the values allowed
-    "scale": (1.0, 0.6667, 0.5), "fps": (24, 25, 30, 50, 60), "vcodec": ("h264", "hevc", "vp9"),
+    "scale": (1.0, 0.6667, 0.5), "fps": (0, 24, 25, 30, 50, 60), "vcodec": ("h264", "hevc", "vp9"),
     "acodec": ("aac", "opus"), "abitrate": (96, 128, 160, 192, 256, 320), "container": ("mp4", "mov", "webm"),
     "loudness": (0.0, -14.0, -16.0, -18.0, -23.0),
 }
 SUBTITLES = ("burn", "burn_srt", "srt")
+# Export quality (Settings › Export format): how hard the encoder works, and whether to keep a
+# high frame rate. "smooth" keeps up to 60 FPS when the stream has it; it never invents frames.
+QUALITY = {
+    "fast": {"label": "Fast export", "speed": "fast", "fps": 30,
+             "note": "Quickest renders and smallest files, at up to 30 FPS. Fine for previews and drafts."},
+    "balanced": {"label": "Balanced", "speed": "balanced", "fps": 0,
+                 "note": "Recommended. The stream's own frame rate (up to 60) at good quality."},
+    "high": {"label": "High quality", "speed": "high", "fps": 0,
+             "note": "Sharper detail in fast motion and dark scenes; renders take about twice as long."},
+    "smooth": {"label": "High frame rate", "speed": "balanced", "fps": 60,
+               "note": "Keeps 50 or 60 FPS when the stream was recorded that way. A 30 FPS stream stays 30: "
+                       "doubling frames would only repeat them, not add motion."},
+}
 TOKENS = ("title", "streamer", "platform", "source", "number", "date", "hashtags", "project", "preset")
 DEFAULT_TEMPLATE = "{title}"
 MAX_NAME = 120
@@ -46,7 +59,7 @@ _FILE = lambda: os.path.join(str(paths.DATA_DIR), "export.json")  # noqa: E731
 _PERF = lambda: os.path.join(str(paths.DATA_DIR), "perf.json")  # noqa: E731
 
 DEFAULTS = {
-    "preset": "tiktok", "custom": {}, "template": DEFAULT_TEMPLATE, "subtitles": "burn",
+    "preset": "tiktok", "custom": {}, "template": DEFAULT_TEMPLATE, "subtitles": "burn", "quality": "balanced",
     "denoise": False, "voice": False,
     # captions: words to swap in captions, and words Whisper should expect
     "replace": [], "vocab": [],
@@ -56,9 +69,30 @@ DEFAULTS = {
     "cap_presets": [], "frame_presets": [],
     # a short sound when you queue a clip and when a render is ready
     "sounds": True,
+    # watermark on exports (the source is never changed)
+    "watermark": {"on": False, "text": "", "image": "", "pos": "tl", "size": 100, "opacity": 70, "margin": 40,
+                  "box": False, "start": 0.0, "end": 0.0},
 }
+WM_POS = ("tl", "tr", "bl", "br", "c")
+
+
+def _wm(d) -> dict:
+    d = d if isinstance(d, dict) else {}
+    base = DEFAULTS["watermark"]
+    num = lambda k, lo, hi, typ=int: typ(min(max(typ(d.get(k, base[k]) or 0), lo), hi))  # noqa: E731
+    try:
+        out = {"on": bool(d.get("on", False)), "text": str(d.get("text") or "").strip()[:60],
+               "image": str(d.get("image") or ""), "pos": d.get("pos") if d.get("pos") in WM_POS else "tl",
+               "size": num("size", 40, 250), "opacity": num("opacity", 5, 100), "margin": num("margin", 0, 200),
+               "box": bool(d.get("box")), "start": num("start", 0, 3600, float), "end": num("end", 0, 3600, float)}
+    except (TypeError, ValueError):
+        return dict(base)
+    if out["image"] and not os.path.isfile(out["image"]):
+        out["image"] = ""                      # the copy is gone: fall back to the text (or nothing)
+    return out
 CAP_KEYS = ("captions", "caption_pos", "caption_color", "caption_size", "words_per_line", "uppercase", "caption_style",
-            "caption_font", "caption_anim", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
+            "caption_font", "caption_anim", "caption_motion", "caption_speed", "caption_emph", "caption_filler",
+            "caption_punct", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
             "title_size", "title_x", "title_y")
 FRAME_KEYS = ("layout", "cam", "cam_height", "game_zoom", "game_x", "track", "track_target", "focus_y", "aspect")
 
@@ -107,6 +141,7 @@ def clean(d: dict) -> dict:
     t = str(d.get("template") or DEFAULT_TEMPLATE).strip()[:200]
     out["template"] = t if "{" in t else DEFAULT_TEMPLATE
     out["subtitles"] = d.get("subtitles") if d.get("subtitles") in SUBTITLES else "burn"
+    out["quality"] = d.get("quality") if d.get("quality") in QUALITY else "balanced"
     out["denoise"], out["voice"] = bool(d.get("denoise")), bool(d.get("voice"))
     rep = []
     for pair in (d.get("replace") or [])[:200]:
@@ -131,6 +166,7 @@ def clean(d: dict) -> dict:
             frames.append({"name": str(fp["name"]).strip()[:40], "opts": {k: v for k, v in o.items() if v is not None}})
     out["frame_presets"] = frames
     out["sounds"] = bool(d.get("sounds", True))
+    out["watermark"] = _wm(d.get("watermark"))
     return out
 
 
@@ -152,7 +188,9 @@ def settings(prefs: Optional[dict] = None) -> dict:
     """The export settings in effect: the preset with any Advanced changes on top."""
     p = prefs or load()
     s = dict(PRESETS[p["preset"]])
-    s.update(p.get("custom") or {})
+    q = QUALITY[p.get("quality", "balanced")]
+    s.update(fps=q["fps"], speed=q["speed"], quality=p.get("quality", "balanced"))
+    s.update(p.get("custom") or {})                # a frame rate picked under Advanced wins
     if s.get("container") == "webm":
         s["vcodec"], s["acodec"] = "vp9", "opus"
     elif s.get("acodec") == "opus":
@@ -160,7 +198,8 @@ def settings(prefs: Optional[dict] = None) -> dict:
     if s.get("vcodec") == "vp9" and s.get("container") != "webm":
         s["container"] = "webm"
         s["acodec"] = "opus"
-    s.update(preset=p["preset"], subtitles=p["subtitles"], denoise=p["denoise"], voice=p["voice"], template=p["template"])
+    s.update(preset=p["preset"], subtitles=p["subtitles"], denoise=p["denoise"], voice=p["voice"], template=p["template"],
+             watermark=p.get("watermark") or dict(DEFAULTS["watermark"]))
     return s
 
 
@@ -170,9 +209,12 @@ def describe(s: dict) -> str:
     k = float(s.get("scale", 1.0))
     if k < 0.999:
         w, h = engine._even(w * k), engine._even(h * k)
-    q = f"{s['vbitrate'] / 1000:g} Mbps" if s.get("vbitrate") else "quality " + str(s.get("crf", 20))
+    dq = engine.SPEEDS.get(s.get("speed", "balanced"), engine.SPEEDS["balanced"])[1]
+    q = f"{s['vbitrate'] / 1000:g} Mbps" if s.get("vbitrate") else "quality " + str(s.get("crf", 20) + dq)
     loud = f"{s['loudness']:g} LUFS" if s.get("loudness") else "volume as is"
-    return f"{PRESETS[s['preset']]['label']}{' (changed)' if s.get('custom_changed') else ''} · {w}×{h} · {s.get('fps', 30)} fps · " \
+    fps = f"{s['fps']} fps max" if s.get("fps") else "the stream's frame rate"
+    ql = QUALITY.get(s.get("quality", "balanced"), QUALITY["balanced"])["label"]
+    return f"{PRESETS[s['preset']]['label']}{' (changed)' if s.get('custom_changed') else ''} · {w}×{h} · {fps} · {ql} · " \
            f"{s.get('vcodec', 'h264').upper()} {q} · {s.get('container', 'mp4').upper()} · {loud}"
 
 
@@ -218,7 +260,7 @@ def fields_for(clip: dict, project: dict, preset: str, number: Optional[int] = N
 # ---------------------------------------------------------------- render speed (for time estimates)
 
 def speed_key(encoder: str, s: dict) -> str:
-    return f"{encoder}|{s.get('vcodec', 'h264')}|{s.get('fps', 30)}|{float(s.get('scale', 1.0)):.2f}"
+    return f"{encoder}|{s.get('vcodec', 'h264')}|{s.get('fps', 0)}|{float(s.get('scale', 1.0)):.2f}|{s.get('speed', 'balanced')}"
 
 
 def speed(key: str) -> Optional[float]:

@@ -1082,10 +1082,22 @@ def _clean_words(ws) -> Optional[list]:
     return sorted(out, key=lambda w: w["start"])
 
 
+def _wm_opts(w: dict) -> dict:
+    """Settings › Export format › Watermark as render options (nothing when it's off)."""
+    if not w.get("on") or not (w.get("text") or w.get("image")):
+        return {}
+    return {"wm_text": str(w.get("text") or "")[:60], "wm_image": str(w.get("image") or ""),
+            "wm_pos": w.get("pos", "tl"), "wm_size": int(w.get("size", 100)), "wm_opacity": int(w.get("opacity", 70)),
+            "wm_margin": int(w.get("margin", 40)), "wm_box": bool(w.get("box")),
+            "wm_start": float(w.get("start", 0)), "wm_end": float(w.get("end", 0))}
+
+
 def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
     ex = ex or {}
     return engine.RenderOpts(
-        fps=int(ex.get("fps", 30)), crf=int(ex.get("crf", 20)), scale=float(ex.get("scale", 1.0)),
+        **_wm_opts(ex.get("watermark") or {}),
+        fps=int(ex.get("fps", 0)), speed=str(ex.get("speed", "balanced")), crf=int(ex.get("crf", 20)),
+        scale=float(ex.get("scale", 1.0)),
         vcodec=str(ex.get("vcodec", "h264")), vbitrate=int(ex.get("vbitrate", 0)), acodec=str(ex.get("acodec", "aac")),
         abitrate=int(ex.get("abitrate", 192)), container=str(ex.get("container", "mp4")),
         loudness=float(ex.get("loudness", -14.0)), denoise=bool(ex.get("denoise")), voice=bool(ex.get("voice")),
@@ -1104,6 +1116,9 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         caption_style=str(o.get("caption_style", "pop")),
         caption_font=str(o.get("caption_font", "classic")),
         caption_anim=bool(o.get("caption_anim", True)),
+        caption_motion=str(o.get("caption_motion") or ""), caption_speed=int(o.get("caption_speed", 100) or 100),
+        caption_emph=bool(o.get("caption_emph", False)), caption_filler=bool(o.get("caption_filler", True)),
+        caption_punct=bool(o.get("caption_punct", True)),
         cap_x=_frac(o.get("cap_x"), 0.5),
         cap_y=_frac(o.get("cap_y"), 0.7),
         title_style=str(o.get("title_style", "box")),
@@ -1459,6 +1474,7 @@ def export_view(sample: Optional[dict] = None) -> dict:
     return {"prefs": prefs, "settings": st, "describe": exports.describe(st),
             "presets": [{"key": k, "label": v["label"], "note": v["note"]} for k, v in exports.PRESETS.items()],
             "advanced": {k: list(v) for k, v in exports.ADVANCED.items()}, "tokens": list(exports.TOKENS),
+            "quality": [{"key": k, "label": v["label"], "note": v["note"]} for k, v in exports.QUALITY.items()],
             "preview_name": exports.file_name(prefs["template"], fields) + "." + st["container"]}
 
 
@@ -2144,6 +2160,11 @@ class Handler(BaseHTTPRequestHandler):
                 ctype = "font/woff" if path.endswith(".woff") else None
                 return self._send_file(path, ctype, cache=path.endswith((".svg", ".ico", ".png", ".woff")))
             return self._err("forbidden", 403)
+        if p == "/watermark":
+            img = exports.load()["watermark"].get("image") or ""
+            if img and os.path.isfile(img):
+                return self._send_file(img)
+            return self._err("no watermark image", 404)
         if p == "/api/status":
             ts = tools_setup.status()
             return self._json({
@@ -2387,6 +2408,25 @@ class Handler(BaseHTTPRequestHandler):
                 return res
             run_job(job, go)
             return self._json({"job": job["id"]})
+
+        if p == "/api/watermark/image":
+            # Settings › Export format › Watermark: a copy is kept, so moving the original doesn't break exports
+            src = str(body.get("path") or "")
+            if not src:
+                exports.save({"watermark": dict(exports.load()["watermark"], image="")})
+                return self._json(export_view())
+            ext = os.path.splitext(src)[1].lower()
+            if ext not in (".png", ".jpg", ".jpeg", ".webp") or not os.path.isfile(src):
+                return self._err("Choose a PNG, JPG or WebP image.")
+            if os.path.getsize(src) > 20_000_000:
+                return self._err("That image is over 20 MB. Use a smaller one.")
+            dst = str(paths.DATA_DIR / f"watermark{ext}")
+            try:
+                shutil.copy2(src, dst)
+            except OSError as e:
+                return self._err(f"Couldn't copy the image: {e}")
+            exports.save({"watermark": dict(exports.load()["watermark"], image=dst)})
+            return self._json(export_view())
 
         if p == "/api/pick_file":
             kind = body.get("kind", "video")
@@ -3020,6 +3060,7 @@ def pick_file(kind: str) -> str:
         except Exception:
             return ""
         types = ([("Chat logs", "*.json *.json.gz"), ("All files", "*.*")] if kind == "chat" else
+                 [("Images", "*.png *.jpg *.jpeg *.webp"), ("All files", "*.*")] if kind == "image" else
                  [("Videos", "*.mp4 *.mkv *.mov *.flv *.ts *.webm *.m4v *.avi"), ("All files", "*.*")])
         try:
             root = tk.Tk()
@@ -3030,8 +3071,8 @@ def pick_file(kind: str) -> str:
             root.attributes("-topmost", True)
             if kind == "folder":
                 return filedialog.askdirectory(parent=root, title="Choose a folder") or ""
-            return filedialog.askopenfilename(parent=root, title="Choose a chat log" if kind == "chat"
-                                              else "Choose a video", filetypes=types) or ""
+            return filedialog.askopenfilename(parent=root, title={"chat": "Choose a chat log", "image": "Choose an image"}
+                                              .get(kind, "Choose a video"), filetypes=types) or ""
         except Exception:
             return ""
         finally:
