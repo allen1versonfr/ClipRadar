@@ -78,9 +78,13 @@ def ffprobe() -> str:
 
 
 def run(cmd: list, cwd: Optional[str] = None, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-                       stdin=subprocess.DEVNULL,
-                       encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW)
+    try:
+        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout,
+                           stdin=subprocess.DEVNULL,
+                           encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{Path(cmd[0]).stem} timed out after {timeout:.0f}s (the file may be on a slow "
+                           "or disconnected drive).")
     if p.returncode != 0:
         tail = "\n".join((p.stderr or p.stdout).strip().splitlines()[-12:])
         raise RuntimeError(f"{Path(cmd[0]).stem} failed:\n{tail}")
@@ -95,7 +99,7 @@ def probe(path: str) -> dict:
     if key in _probe_cache:
         return _probe_cache[key]
     p = run([ffprobe(), "-v", "error", "-print_format", "json",
-             "-show_format", "-show_streams", path])
+             "-show_format", "-show_streams", path], timeout=120)
     info = json.loads(p.stdout)
     v = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), None)
     a = next((s for s in info.get("streams", []) if s.get("codec_type") == "audio"), None)
@@ -111,6 +115,9 @@ def probe(path: str) -> dict:
         w, h = h, w
     out = {"duration": dur, "width": w, "height": h, "has_audio": a is not None,
            "vcodec": v.get("codec_name", ""), "fps": _fps(v)}
+    if len(_probe_cache) >= 64:
+        # a live recording changes with every probe; don't let those pile up over a long stream
+        _probe_cache.pop(next(iter(_probe_cache)))
     _probe_cache[key] = out
     return out
 
@@ -2018,6 +2025,11 @@ _HALLUCINATION = re.compile(r"thank(s| you) (so much )?for watching|please subsc
 def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = "") -> list:
     """audio: path or 16 kHz mono float32 numpy array. prompt: names and words to expect (the
     streamer, emotes, your own vocabulary), so Whisper spells them right."""
+    if isinstance(audio, (str, os.PathLike)):
+        # decode with the bundled FFmpeg: the packaged app has no PyAV (stubs/av)
+        audio = extract_audio(str(audio), 0.0, probe(str(audio))["duration"] or 0.1)
+        if audio is None:
+            raise RuntimeError("Couldn't read the sound in this file.")
     with _busy_lock:
         _whisper_busy[0] += 1
     try:

@@ -78,14 +78,23 @@ jobs:
             if (-not (Test-Path "tools\$t")) { Write-Host "::error title=FAIL tool download::$t missing"; exit 1 }
           }
 
+      # PyAV is left out: faster-whisper only uses it to read audio files, and Clip Radar always hands
+      # Whisper samples decoded by the bundled FFmpeg. src/stubs/av stands in for it (saves a second
+      # 64 MB+ copy of FFmpeg). hf_xet is an optional download accelerator; downloads work without it.
       - name: Build exe
-        run: >
-          python -m PyInstaller --noconfirm --clean --log-level WARN --onedir --windowed
-          --name ClipRadar --icon src/ui/icon.ico --add-data "src/ui;ui" --add-data "src/models;models" --paths src
-          --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime
-          --collect-all av --collect-all webview --collect-submodules yt_dlp --collect-data certifi
-          --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog
-          src/app.py
+        shell: pwsh
+        run: |
+          python -m pip uninstall -y av hf_xet
+          $env:PYTHONPATH = "src/stubs"
+          python -m PyInstaller --noconfirm --clean --log-level WARN --onedir --windowed `
+            --name ClipRadar --icon src/ui/icon.ico --add-data "src/ui;ui" --add-data "src/models;models" `
+            --paths src --paths src/stubs --exclude-module hf_xet `
+            --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime `
+            --collect-all webview --collect-submodules yt_dlp --collect-data certifi `
+            --hidden-import av --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog `
+            src/app.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Test-Path dist/ClipRadar/_internal/av.libs) { Write-Host "::error title=PyAV::the real PyAV got bundled"; exit 1 }
 
       - name: Add tools and readme
         shell: pwsh

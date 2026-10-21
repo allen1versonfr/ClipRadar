@@ -3,6 +3,23 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.2.0] - 2026-10-21
+
+Lighter and steadier: a smaller download, less memory held between jobs, and Deep Scan that says when something's wrong.
+
+### Changed
+- Smaller app: the installer no longer carries a second copy of FFmpeg's libraries (PyAV, 64 MB+ unpacked) or Hugging Face's optional download accelerator. Speech recognition gets its audio from the FFmpeg that was already included.
+- The speech recogniser (0.3 to 3 GB of memory) is let go after 10 minutes without use, and at most two model sizes are kept loaded. The next transcription loads it again, which takes a few seconds.
+- While the window is minimised, it stops asking the app for updates every second or two; it catches up as soon as you're back. Rendering and clipping carry on as before.
+- Unused code removed.
+
+### Fixed
+- Deep Scan no longer finishes with "no quiet gems" when it couldn't read the video's sound: it stops with an error that says so, so Retry means something. A short unreadable stretch is skipped and mentioned in the log.
+- Deep Scan on a video of zero length failed with the message 'gems'.
+- Reading a clip's sound, and reading a video's details, can no longer wait forever on a damaged file or a disconnected drive.
+- A render that fails because the layout's crop doesn't fit the video now says so in plain words (and what to do), instead of FFmpeg's error.
+- A long live stream no longer keeps piling up cached file details.
+
 ## [4.1.6] - 2026-10-21
 
 Faster start, less memory while idle. First checkpoint of the Clip Radar 5 work (audit and measurements).

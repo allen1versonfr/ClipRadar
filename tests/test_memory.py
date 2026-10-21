@@ -106,5 +106,19 @@ while engine._whisper_cache and time.time() < deadline:
     time.sleep(0.05)
 check("the timer lets an idle model go by itself", not engine._whisper_cache)
 
+# a file path is decoded by the bundled FFmpeg, never by PyAV (the packaged app has none: src/stubs/av)
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+    got = []
+    FakeModel.transcribe = lambda self, audio, **kw: (got.append(type(audio).__name__), (iter([]), None))[1]
+    wav = os.path.join(tempfile.mkdtemp(), "speech.mkv")
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=5:duration=2", "-f", "lavfi",
+                    "-i", "sine=frequency=440:duration=2", "-shortest", "-c:v", "mpeg4", "-c:a", "pcm_s16le", wav], check=True)
+    engine.transcribe(wav, "tiny", "en", log)
+    check("a file is decoded to samples before Whisper sees it", got and set(got) == {"ndarray"}, got)
+else:
+    print("[skip] no ffmpeg here: file decoding not checked")
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)
