@@ -447,7 +447,10 @@ def export_checks(ctx):
         tname = (dt or {}).get("name", "")
         rec("hashtags are in the rendered file's name", dt and dt["status"] == "done" and "_#TwitchClips" in tname
             and "Tagged é 名前" in tname and tname.count("#Gaming") == 1 and not any(ch in tname for ch in ':?')
-            and os.path.isfile(os.path.join(dt["folder"], tname)), tname or (dt and dt.get("error")))
+            and os.path.isfile(os.path.join(dt["folder"], tname)),
+            {"name": ascii(tname), "status": (dt or {}).get("status"), "error": (dt or {}).get("error"),
+             "on disk": [ascii(f) for f in (os.listdir(dt["folder"]) if dt and os.path.isdir(dt.get("folder", "")) else [])
+                         if "Tagged" in f]})
         post("/api/hashtags", {"file": {"enabled": False}})
         srt = os.path.join(d["folder"], os.path.splitext(d["name"])[0] + ".srt") if d and d.get("name") else ""
         txt = open(srt, encoding="utf-8").read() if srt and os.path.isfile(srt) else ""
