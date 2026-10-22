@@ -247,17 +247,31 @@ def clear_temp(keep: tuple = (), older_than: float = 0) -> dict:
 
 
 def stale_partials(roots: list, older_than: float = 24 * 3600) -> list:
-    """Leftovers of downloads that stopped long ago (yt-dlp .part/.ytdl files)."""
+    """Leftovers of downloads that stopped long ago (yt-dlp .part/.ytdl files). Only Clip Radar's own:
+    a projects folder can be a whole drive (D:\\), so a folder must be a project (meta.json) or sit in
+    the Downloads location, and the file must be one of its downloads (vod.*). Unreadable folders
+    (System Volume Information) are skipped."""
     out, now = [], time.time()
+    dl = path("downloads")
+    dl = os.path.normcase(os.path.abspath(dl)) if dl else ""
     for r in roots:
         if not r or not os.path.isdir(r):
             continue
-        for d in os.listdir(r):
+        in_downloads = bool(dl) and os.path.normcase(os.path.abspath(r)) == dl
+        try:
+            names = os.listdir(r)
+        except OSError:
+            continue
+        for d in names:
             pd = os.path.join(r, d)
-            if not os.path.isdir(pd):
+            if not os.path.isdir(pd) or not (in_downloads or os.path.isfile(os.path.join(pd, "meta.json"))):
                 continue
-            for f in os.listdir(pd):
-                if f.endswith((".part", ".ytdl")) or ".part-Frag" in f:
+            try:
+                files = os.listdir(pd)
+            except OSError:
+                continue
+            for f in files:
+                if f.startswith("vod.") and (f.endswith((".part", ".ytdl")) or ".part-Frag" in f):
                     fp = os.path.join(pd, f)
                     try:
                         if now - os.path.getmtime(fp) > older_than:

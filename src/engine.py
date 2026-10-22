@@ -661,7 +661,7 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
                 try:
                     check()
                 except Cancelled:
-                    p.kill()
+                    kill_tree(p)               # TwitchDownloaderCLI runs ffmpeg: stop that too
                     raise
         finally:
             p.wait()
@@ -809,7 +809,7 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
                 raise
     finally:
         p.wait()
-    if stalled[0]:
+    if stalled[0] and not (p.returncode == 0 and _video_in(out_dir)):
         raise RuntimeError(f"The VOD download stopped for {DOWNLOAD_STALL_S // 60} minutes with nothing written. "
                            "Check your connection and retry.")
     if p.returncode != 0 or not _video_in(out_dir):
@@ -2100,6 +2100,10 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         cap_y = min(H / 2 + fg_h / 2 + 170, H * 0.8)
     else:
         raise ValueError(f"unknown layout {o.layout}")
+    # every frame at the size the layout was worked out for: a source that changes resolution part-way
+    # (a live recording crossing a Twitch ad break) would otherwise fail the crop and lose the whole render.
+    # Frames already that size pass straight through.
+    f = f.replace("[0:v]", f"[0:v]scale={sw}:{sh},", 1)
 
     if o.caption_pos == "custom":
         return f, min(max(o.cap_y * H, 120), H - 120)

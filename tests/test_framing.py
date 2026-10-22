@@ -153,7 +153,13 @@ o = engine.RenderOpts(layout="full")
 f, _ = engine.build_filter({"width": 1920, "height": 1080}, o, [(0, 0.3), (1, 0.4)])
 check("the render crops along the path", "crop=608:1080:'gte(t,0)" in f, f[:80])
 f, _ = engine.build_filter({"width": 1920, "height": 1080}, engine.RenderOpts(layout="cam", cam=(0.8, 0.0, 0.2, 0.35)))
-check("facecam only fills the frame with the camera", f.startswith("[0:v]crop=384:378:1536:0,scale=1080:1920"), f[:60])
+check("facecam only fills the frame with the camera", f.startswith("[0:v]scale=1920:1080,crop=384:378:1536:0,scale=1080:1920"), f[:60])
+# a live recording that crosses a Twitch ad break changes resolution part-way: every layout first brings
+# frames back to the size its crops were worked out for, or the render fails ("Error reinitializing filters")
+lay = {k: engine.build_filter({"width": 1920, "height": 1080}, engine.RenderOpts(layout=k), [(0, 0.3), (1, 0.4)] if k == "full" else None)[0]
+       for k in ("split", "full", "cam", "blur")}
+check("every layout scales frames to the probed size first", all(v.startswith("[0:v]scale=1920:1080,") and v.count("[0:v]") == 1
+                                                                 for v in lay.values()), {k: v[:40] for k, v in lay.items()})
 check("crop width for the shape", abs(framing.crop_frac({"width": 1920, "height": 1080}, o) - 0.3164) < 0.001)
 
 # ---------------------------------------------------------------- facecam and captions

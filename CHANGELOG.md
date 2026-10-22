@@ -20,6 +20,10 @@ Fixes from the first real-world test: a 6-hour Twitch VOD (89,208 chat messages)
 - A stalled or cancelled download is stopped with everything it started. Before, only yt-dlp's launcher was stopped and the real download carried on in the background.
 - Chat delay on long streams: a 6-hour stream whose chat clearly followed it 4 s behind read as "couldn't tell how late chat reacts". The check now allows for a reaction spread over several seconds and for how little a long stream shows by chance. Random data is still never "sure" of a delay.
 - Clips that are mostly very dark or blurry get a warning in Exports. They still render.
+- A live recording that changes resolution part-way (crossing a Twitch ad break) no longer fails its clips' renders: every layout first brings frames back to the size it was worked out for.
+- Live clipping: a moment passed on (too weak, a repeat, only one or two chatters) is logged and counted once, not again on every rescan of the last minute.
+- Automatic cleanup of stalled downloads only touches Clip Radar's own download files in its own project folders, even when the projects folder is a whole drive, and skips folders it can't read (System Volume Information) instead of stopping.
+- A download the watchdog stopped right as it finished is no longer reported as failed, and Cancel also stops TwitchDownloader's FFmpeg.
 
 ## [4.9.0] - 2026-10-22
 

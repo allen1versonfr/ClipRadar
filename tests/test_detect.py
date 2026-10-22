@@ -90,6 +90,19 @@ lag, sure = detect.estimate_delay(rate0, audio, None)
 check("works out how late chat reacts", sure and lag == 7, (lag, sure))
 lag2, sure2 = detect.estimate_delay(rng.poisson(2, N).astype(np.float32), rng.normal(0, 1, N).astype(np.float32), None)
 check("no clear answer: keeps 6 s", lag2 == 6.0 and not sure2, (lag2, sure2))
+# a 6-hour stream: chat follows the stream only loosely (busy chat, small reactions), yet over hours the
+# lag is clear; chance alone still isn't taken for one
+LONG = 6 * 3600
+la = rng.normal(0, 1, LONG).astype(np.float32)
+lr0 = rng.poisson(4, LONG).astype(np.float32)
+for t in rng.choice(np.arange(60, LONG - 60), 900, replace=False):
+    la[t:t + 2] += 1.5
+    lr0[t + 3:t + 6] += rng.poisson(2, 3)          # chat reacts 3 s later, a little
+lag3, sure3 = detect.estimate_delay(lr0, la, None)
+check("a long stream with faint but steady reactions: works out the lag", sure3 and lag3 == 3, (lag3, sure3))
+noise_runs = [detect.estimate_delay(rng.poisson(4, LONG).astype(np.float32), rng.normal(0, 1, LONG).astype(np.float32), None)
+              for _ in range(5)]
+check("a long stream of pure chance: still no answer", all(not s for _, s in noise_runs), noise_runs)
 check("shifting chat by the delay", list(detect.shift(np.arange(10, dtype=np.float32), 3)[:3]) == [3, 4, 5])
 
 
