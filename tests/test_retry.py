@@ -177,5 +177,43 @@ except RuntimeError as e:
 safety.save_config({"censor": "off"})
 server.ensure_words, engine.whisper_available = real_ew, real_wa
 
+# a layout whose crop FFmpeg can't build still gives a clip: the whole picture, with a warning
+long_err = "\n".join(["[Parsed_crop_1 @ 0x1] Invalid too big or non positive size for width '4000' or height '4000'",
+                      "[Parsed_crop_1 @ 0x1] Failed to configure input pad on Parsed_crop_1"]
+                     + [f"[vost#0:0/libx264 @ 0x2] encoder line {i}" for i in range(10)])
+why = engine._ffmpeg_reason(long_err)
+check("the render error keeps FFmpeg's reason, not just its last lines", "Invalid too big" in why and "encoder line 9" in why, why)
+if shutil.which("ffmpeg"):
+    tmp = tempfile.mkdtemp(prefix="vc_fb_")
+    src = os.path.join(tmp, "src.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=2",
+                    "-f", "lavfi", "-i", "sine=frequency=300:duration=2", "-shortest", "-c:v", "libx264",
+                    "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", src], check=True)
+    real_bf = engine.build_filter
+
+    def too_big(info, o, path=None, face=None):
+        f, cy = real_bf(info, o, path, face)
+        return (f.replace(",crop=", ",crop=4000:4000:0:0,crop=", 1) if o.layout == "full" else f), cy
+
+    engine.build_filter = too_big
+    warned, logged = [], []
+    out = os.path.join(tmp, "out.mp4")
+    try:
+        engine.render_clip(src, 0.0, 1.5, out, engine.RenderOpts(layout="full", captions=False, hw_encode=False, speed="fast"),
+                           title="Fallback", log=logged.append, warn=warned.append)
+        check("a crop that can't be built still renders the clip", os.path.getsize(out) > 1000)
+    except Exception as e:
+        check("a crop that can't be built still renders the clip", False, str(e)[-300:])
+    check("and says the layout fell back, with what to do", warned and "Reset" in warned[0], warned)
+    engine.build_filter = lambda info, o, path=None, face=None: (
+        "[0:v]crop=4000:4000:0:0,scale=1080:1920,format=yuv420p[v]", 960.0)
+    try:
+        engine.render_clip(src, 0.0, 1.5, os.path.join(tmp, "out2.mp4"),
+                           engine.RenderOpts(layout="full", captions=False, hw_encode=False, speed="fast"), title="", log=lambda m: None)
+        check("when the fallback can't be built either, the render fails", False)
+    except RuntimeError as e:
+        check("when the fallback can't be built either, the render fails with FFmpeg's reason", "Parsed_crop" in str(e), str(e))
+    engine.build_filter = real_bf
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

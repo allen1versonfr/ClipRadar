@@ -22,7 +22,7 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -2711,18 +2711,33 @@ def audio_peak(path: str) -> Optional[float]:
         return None
 
 
+def _crop_failed(err: str) -> bool:
+    """FFmpeg couldn't set up a crop of the source (it doesn't fit the frames that arrived)."""
+    low = err.lower()
+    return "parsed_crop" in low and ("failed to configure input pad" in low or "invalid too big" in low)
+
+
+def _ffmpeg_reason(err: str) -> str:
+    """The end of FFmpeg's errors, plus the filter lines that say why (they come before the
+    generic 'Error reinitializing filters' and encoder lines, so the last few alone lose them)."""
+    lines = err.strip().splitlines()
+    why = [ln for ln in lines[:-10] if "[Parsed_" in ln][:3]
+    return "\n".join(why + lines[-10:])
+
+
 def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o: RenderOpts,
                 title: str = "", log: Log = _noop, progress: Progress = _noop,
                 check: Check = _noop, words: Optional[list] = None,
-                censor: Optional[list] = None, censor_mode: str = "off", framing: Optional[dict] = None) -> str:
+                censor: Optional[list] = None, censor_mode: str = "off", framing: Optional[dict] = None,
+                warn: Log = _noop) -> str:
     """words: transcript (times relative to clip_start) to caption with; transcribed here if None.
-    censor: [(start, end)] spans (relative) to mute ("mute") or bleep ("bleep")."""
+    censor: [(start, end)] spans (relative) to mute ("mute") or bleep ("bleep").
+    warn: told when the clip came out differently from what was asked (a layout that had to fall back)."""
     info = probe(video)
     clip_start = max(0.0, clip_start)
     clip_end = min(info["duration"] or clip_end, clip_end)
     length = max(1.0, clip_end - clip_start)
     fr = framing or {}
-    vf, cap_y = build_filter(info, o, fr.get("path") or None, fr)
     work = os.path.dirname(os.path.abspath(out_path))
     os.makedirs(work, exist_ok=True)
     tag = uuid.uuid4().hex[:8]
@@ -2762,9 +2777,8 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     check()
 
     use_ass = bool(words) or bool(title.strip()) or bool((o.wm_text or "").strip() and not o.wm_image)
+    sub = ""
     if use_ass:
-        with open(ass_path, "w", encoding="utf-8") as f:
-            f.write(build_ass(words, o, cap_y, length, title))
         # bare filenames + cwd=work sidestep Windows drive-letter escaping in the subtitles filter
         sub = f"subtitles=filename={ass_name}"
         need = fonts_for(o)
@@ -2773,7 +2787,6 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             for fp in need:
                 shutil.copy2(fp, font_dir)
             sub += f":fontsdir={font_dir_name}"
-        vf = vf.replace("format=yuv420p[v]", f"format=yuv420p,{sub}[v]")
 
     # censoring: silence flagged words, and for "bleep" lay a 1 kHz tone over them
     # spans are (start, end) using censor_mode, or (start, end, mode) for a fix made on one clip
@@ -2796,34 +2809,44 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                   f"[am][bp]amix=inputs=2:duration=first:normalize=0,{tail}[a]")
         else:
             af = f";[0:a:0]volume=0:enable='{on}',{tail}[a]"
-        vf = vf + af
 
-    # an image watermark: overlaid on the finished frame (after captions), scaled with the frame,
-    # at the same anchor as a text mark; the source video isn't changed
     wm_img = o.wm_image if o.wm_image and os.path.isfile(o.wm_image) else ""
-    if wm_img:
-        W_, H_ = out_size(o)
-        mw = _even(W_ * 0.2 * max(40, min(250, o.wm_size)) / 100)
-        a, b = watermark_window(o, length)
-        op = max(5, min(100, o.wm_opacity)) / 100
-        i = vf.rfind("[v]")
-        # x/y from the anchor for an unknown height: ffmpeg's overlay evaluates W/H/w/h itself, so
-        # pass expressions that keep the mark inside the frame
-        pos = o.wm_pos if o.wm_pos in WM_POSITIONS else "tl"
-        m = int(max(0, min(200, o.wm_margin)) * W_ / 1080)
-        xs = {"l": str(m), "r": f"W-w-{m}"}
-        xe = "(W-w)/2" if pos == "c" else xs[pos[1]]
-        ye = "(H-h)/2" if pos == "c" else (str(int(H_ * WM_TOP)) if pos[0] == "t" else f"{int(H_ * WM_BOTTOM)}-h")
-        vf = (vf[:i] + "[vpre];"
-              f"[1:v]scale={mw}:-2:flags=lanczos,format=rgba,colorchannelmixer=aa={op:.2f}[wm];"
-              f"[vpre][wm]overlay=x='max(0,min({xe},W-w))':y='max(0,min({ye},H-h))':"
-              f"enable='between(t,{a:.3f},{b:.3f})',format=yuv420p[v]" + vf[i + 3:])
 
-    # export size below the shape's full size: scale the finished frame (captions included)
-    fw, fh = final_size(o)
-    if (fw, fh) != out_size(o):
-        i = vf.rfind("[v]")
-        vf = vf[:i] + f",scale={fw}:{fh}:flags=lanczos[v]" + vf[i + 3:]
+    def filters(lo: RenderOpts, path: Optional[list]) -> str:
+        """The whole filter_complex for layout lo (captions, censoring, watermark, export size)."""
+        vf, cap_y = build_filter(info, lo, path, fr)
+        if use_ass:
+            with open(ass_path, "w", encoding="utf-8") as f:
+                f.write(build_ass(words, o, cap_y, length, title))
+            vf = vf.replace("format=yuv420p[v]", f"format=yuv420p,{sub}[v]")
+        vf = vf + af
+        if wm_img:
+            # an image watermark: overlaid on the finished frame (after captions), scaled with the frame,
+            # at the same anchor as a text mark; the source video isn't changed
+            W_, H_ = out_size(o)
+            mw = _even(W_ * 0.2 * max(40, min(250, o.wm_size)) / 100)
+            a, b = watermark_window(o, length)
+            op = max(5, min(100, o.wm_opacity)) / 100
+            i = vf.rfind("[v]")
+            # x/y from the anchor for an unknown height: ffmpeg's overlay evaluates W/H/w/h itself, so
+            # pass expressions that keep the mark inside the frame
+            pos = o.wm_pos if o.wm_pos in WM_POSITIONS else "tl"
+            m = int(max(0, min(200, o.wm_margin)) * W_ / 1080)
+            xs = {"l": str(m), "r": f"W-w-{m}"}
+            xe = "(W-w)/2" if pos == "c" else xs[pos[1]]
+            ye = "(H-h)/2" if pos == "c" else (str(int(H_ * WM_TOP)) if pos[0] == "t" else f"{int(H_ * WM_BOTTOM)}-h")
+            vf = (vf[:i] + "[vpre];"
+                  f"[1:v]scale={mw}:-2:flags=lanczos,format=rgba,colorchannelmixer=aa={op:.2f}[wm];"
+                  f"[vpre][wm]overlay=x='max(0,min({xe},W-w))':y='max(0,min({ye},H-h))':"
+                  f"enable='between(t,{a:.3f},{b:.3f})',format=yuv420p[v]" + vf[i + 3:])
+        # export size below the shape's full size: scale the finished frame (captions included)
+        fw, fh = final_size(o)
+        if (fw, fh) != out_size(o):
+            i = vf.rfind("[v]")
+            vf = vf[:i] + f",scale={fw}:{fh}:flags=lanczos[v]" + vf[i + 3:]
+        return vf
+
+    vf = filters(o, fr.get("path") or None)
     cont = getattr(o, "container", "mp4") if getattr(o, "container", "mp4") in ("mp4", "mov", "webm") else "mp4"
     if cont == "webm":
         acodec = ["-c:a", "libopus", "-b:a", f"{int(getattr(o, 'abitrate', 128))}k"]
@@ -2902,9 +2925,19 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         if code != 0 and enc_name != "libx264":
             log(f"GPU encoder ({enc_name}) failed, re-encoding on CPU.")
             _encoder_cache["hw"] = None
-            code, err = encode(video_encoder(RenderOpts(hw_encode=False, crf=o.crf, vbitrate=getattr(o, "vbitrate", 0)))[1])
+            enc_args = video_encoder(RenderOpts(hw_encode=False, crf=o.crf, vbitrate=getattr(o, "vbitrate", 0)))[1]
+            code, err = encode(enc_args)
+        if code != 0 and _crop_failed(err) and (effective_layout(o) != "blur" or o.game_zoom > 1):
+            # the layout's crop couldn't be built from this video: the whole picture on a blurred
+            # background has no crop of the source, so the clip still comes out
+            log("The layout couldn't be built from this video; rendering the whole picture instead.")
+            vf = filters(replace(o, layout="blur", game_zoom=1.0), None)
+            code, err = encode(enc_args)
+            if code == 0:
+                warn("This clip's layout couldn't be built from the video, so it shows the whole picture "
+                     "on a blurred background. Press Reset in the Layout tab and Retry for the chosen layout.")
         if code != 0:
-            raise RuntimeError("ffmpeg render failed:\n" + "\n".join(err.strip().splitlines()[-10:]))
+            raise RuntimeError("ffmpeg render failed:\n" + _ffmpeg_reason(err))
         os.replace(tmp_path, out_path)
     finally:
         shutil.rmtree(font_dir, ignore_errors=True)
