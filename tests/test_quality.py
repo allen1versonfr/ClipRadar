@@ -174,6 +174,39 @@ if shutil.which("ffmpeg") and shutil.which("ffprobe"):
         except Exception as e:
             check(f"the watermark works with the {lay} layout", False, str(e)[-200:])
 
+    # ---- watermark layers: anywhere on the frame, several at once, turned, coloured
+    import watermarks
+    logo_c = watermarks.store_file(logo)
+    out = wm_render("wm_free.mp4", wm_marks=[{"kind": "text", "text": "@mychannel", "pos": "free", "x": 0.5, "y": 0.5,
+                                              "opacity": 100, "size": 150}])
+    img = frame(out)
+    check("a text layer dragged to the middle lands in the middle", bright(img, 340, 900, 740, 1020) > 3
+          and bright(img, 0, 200, 540, 400) < 1, (bright(img, 340, 900, 740, 1020), bright(img, 0, 200, 540, 400)))
+    out = wm_render("wm_edge.mp4", wm_marks=[{"kind": "text", "text": "@mychannel", "pos": "free", "x": 1.0, "y": 1.0, "size": 200}])
+    img = frame(out)
+    check("one dragged past the corner stays inside the frame", bright(img, 540, 1700, 1080, 1920) > 2, bright(img, 540, 1700, 1080, 1920))
+    out = wm_render("wm_layers.mp4", wm_marks=[
+        {"kind": "image", "image": logo_c, "pos": "free", "x": 0.2, "y": 0.5, "opacity": 100},
+        {"kind": "image", "image": logo_c, "pos": "free", "x": 0.8, "y": 0.5, "opacity": 100, "rotation": 90},
+        {"kind": "text", "text": "@mychannel", "pos": "bl", "opacity": 100, "color": "#FF0000", "font": "anton"}])
+    img = frame(out)
+    left, right = img[900:1020, 120:310], img[860:1060, 830:900]
+    check("several image layers render, each where it was put", float(left.mean()) > 200 and float(right.mean()) > 200,
+          (float(left.mean()), float(right.mean())))
+    check("a turned layer is turned (a wide logo stands upright)", float(img[865:895, 840:890].mean()) > 200
+          and float(img[950:970, 760:790].mean()) < 5, (float(img[865:895, 840:890].mean()), float(img[950:970, 760:790].mean())))
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", "1", "-i", out, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                         capture_output=True).stdout
+    rgb = np.frombuffer(raw, dtype=np.uint8).reshape(1920, 1080, 3)[1400:1536, 40:500].reshape(-1, 3)
+    lit = rgb[rgb.max(axis=1) > 120]
+    check("a text layer has the colour chosen", len(lit) > 50 and lit[:, 0].mean() > 2 * lit[:, 2].mean() + 40,
+          str(lit.mean(axis=0)) if len(lit) else "nothing drawn")
+    ass = engine.build_ass([], R(wm_marks=[{"kind": "text", "text": "@me", "rotation": 30, "font": "anton", "box": True}]), 1300, 5.0)
+    check("rotation, font and box go into the subtitle file", "\\frz-30" in ass and "\\fnAnton" in ass and ",MarkBox," in ass,
+          [ln for ln in ass.splitlines() if "@me" in ln])
+    check("and the font file goes with it", any(f.endswith("Anton-Regular.ttf")
+                                                for f in engine.fonts_for(R(wm_marks=[{"kind": "text", "text": "@me", "font": "anton"}]))))
+
     # ---- a clip's own volume (Clip tab › Volume), measured
     def lufs(path):
         err = subprocess.run(["ffmpeg", "-nostats", "-i", path, "-af", "ebur128", "-f", "null", "-"],
@@ -196,15 +229,16 @@ if shutil.which("ffmpeg") and shutil.which("ffprobe"):
 else:
     print("[skip] no ffmpeg here: renders not checked")
 
-# ---- watermark settings
+# ---- watermark settings (layers, sharing and campaigns: tests/test_campaigns.py)
 w = exports.clean(dict(exports.load(), watermark={"on": True, "text": "x" * 100, "pos": "zz", "opacity": 500, "size": 1}))["watermark"]
-check("watermark settings are kept within range", len(w["text"]) == 60 and w["pos"] == "tl" and w["opacity"] == 100 and w["size"] == 40, w)
+m = w["marks"][0]
+check("watermark settings are kept within range", len(m["text"]) == 60 and m["pos"] == "tl" and m["opacity"] == 100 and m["size"] == 20, w)
 check("off by default", exports.load()["watermark"]["on"] is False)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 os.environ.setdefault("CLIPRADAR_WORK", tempfile.mkdtemp())
 import server  # noqa: E402
-check("off: no watermark in the render options", server._wm_opts({"on": False, "text": "hi"}) == {})
-check("on: the render gets it", server._wm_opts({"on": True, "text": "hi", "pos": "br"})["wm_pos"] == "br")
+check("off: no watermark in the render options", server._wm_opts({"on": False, "marks": [{"kind": "text", "text": "hi"}]}) == {})
+check("on: the render gets it", server._wm_opts({"on": True, "marks": [{"kind": "text", "text": "hi", "pos": "br"}]})["wm_marks"][0]["pos"] == "br")
 
 # ---- picture check: clips mostly too dark or too blurry to watch get a warning (from the real-world
 # test: a motion-blurred, nearly black IRL clip was suggested without a word)

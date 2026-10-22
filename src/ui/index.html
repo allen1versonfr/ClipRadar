@@ -168,6 +168,13 @@
               <select class="input sm" id="batchN" aria-label="How many clips to keep"><option>3</option><option selected>5</option><option>10</option><option>15</option><option>20</option><option value="0">all</option></select>
               <span class="grow"></span>
               <button class="btn xs primary" id="batchKeep" title="Keep and render the top clips in this list, in this order">Keep and render</button>
+              <span class="bar-break"></span>
+              <span class="muted" title="Skip many clips at once">Skip</span>
+              <select class="input sm" id="skipScore" aria-label="Which clips to skip" title="Skip every clip in this list, or only those scored under a number (the score on each clip, out of 100)">
+                <option value="0">All clips</option><option value="40">Scored under 40</option><option value="50">Scored under 50</option><option value="60">Scored under 60</option><option value="75">Scored under 75</option>
+              </select>
+              <span class="grow"></span>
+              <button class="btn xs" id="batchSkip" title="Skip these clips at once. Clips you made yourself aren't skipped.">Skip clips</button>
             </div>
             <div class="flag-bar" id="flagBar" hidden>
               <select class="input sm" id="flagFilter" aria-label="Show flagged clips by status">
@@ -403,6 +410,7 @@
             <h1>Exports</h1>
             <span class="muted tnum" id="exSum"></span>
             <span class="grow"></span>
+            <button class="chip camp-chip" id="exCamp" hidden title="Clips you keep now follow this campaign's rules. Change it in Settings › Campaigns."></button>
             <button class="btn" id="exRetryAll" hidden><svg class="ic"><use href="#i-refresh"/></svg><span>Retry failed</span></button>
             <button class="btn" id="exFolder"><svg class="ic"><use href="#i-folder"/></svg>Open folder</button>
           </div>
@@ -447,6 +455,18 @@
               </div>
               <div class="tt-status" id="ttStatus" hidden></div>
             </div>
+
+            <div class="tt" id="subPanel" hidden>
+              <div class="tt-head"><svg class="ic"><use href="#i-link"/></svg><h3>Submit to <span id="subCamp"></span></h3></div>
+              <p class="muted small" id="subRules"></p>
+              <label class="fld">Link to your post<input class="input" id="subUrl" maxlength="300" placeholder="https://www.tiktok.com/@you/video/…" spellcheck="false"><span class="hint">Paste it once you've posted: campaigns count views from the post.</span></label>
+              <div class="err" id="subErr"></div>
+              <div class="row end">
+                <button class="btn" id="subCopy"><svg class="ic"><use href="#i-copy"/></svg>Copy submission</button>
+                <button class="btn primary" id="subSend"><svg class="ic"><use href="#i-upload"/></svg>Send to Discord</button>
+              </div>
+              <div class="tt-status" id="subStatus" hidden></div>
+            </div>
           </div>
         </aside>
       </div>
@@ -471,22 +491,50 @@
           </div>
           <div class="wm-card">
             <label class="fld switch-label"><b>Watermark</b><span class="switch"><input type="checkbox" id="wmOn"><i></i></span></label>
+            <div class="notice" id="wmCampNote" hidden><span>The <b id="wmCampName"></b> campaign has its own watermark, so that's the one shown and changed here.</span><button class="btn sm" id="wmUseMine">Use mine instead</button></div>
             <div id="wmBody">
-              <span class="hint">Added to exported clips only; your videos aren't changed. It shows in the clip preview (Review), so you can see where it lands before you export.</span>
-              <div class="form-grid two">
-                <label>Text<input class="input" id="wmText" maxlength="60" placeholder="@yourchannel" spellcheck="false"></label>
-                <label>Image<span class="row"><button class="btn sm" id="wmPick">Choose image…</button><button class="btn sm" id="wmClear" hidden>Remove</button><span class="muted small" id="wmImgName"></span></span></label>
+              <span class="hint">Added to exported clips only; your videos aren't changed. It shows in the clip preview (Review): drag a layer there to put it anywhere.</span>
+              <div class="row wrap wm-presets">
+                <select class="input" id="wmPreset" title="Saved watermarks: one per campaign or channel"></select>
+                <button class="btn sm" id="wmPresetSave" title="Keep these layers under a name">Save as…</button>
+                <button class="btn sm ghost" id="wmPresetDel" hidden>Delete</button>
+                <span class="grow"></span>
+                <button class="btn sm" id="wmImport" title="A watermark or campaign file someone shared, or a logo image">Import…</button>
+                <button class="btn sm" id="wmImportUrl" title="Paste the link of a file shared in Discord">From link…</button>
+                <button class="btn sm" id="wmShare" title="One file with the layers and their images, to share in Discord">Share…</button>
               </div>
-              <div class="fld">Where<div class="seg" id="wmPos"><button data-v="tl">Top left</button><button data-v="tr">Top right</button><button data-v="bl">Bottom left</button><button data-v="br">Bottom right</button><button data-v="c">Centre</button></div></div>
-              <div class="form-grid two">
-                <label>Size <span class="tnum" id="wmSizeV"></span><input type="range" id="wmSize" min="40" max="250" step="5"></label>
-                <label>Opacity <span class="tnum" id="wmOpV"></span><input type="range" id="wmOp" min="5" max="100" step="5"></label>
-                <label>Distance from the side <span class="tnum" id="wmMarV"></span><input type="range" id="wmMar" min="0" max="200" step="5"></label>
-                <label class="chk"><input type="checkbox" id="wmBox"><span>Dark box behind the text<small>Easier to read on busy footage</small></span></label>
-                <label>Appears at<span class="unit-input"><input class="input" type="number" id="wmStart" min="0" step="0.5"><i>sec</i></span></label>
-                <label>Disappears at<span class="unit-input"><input class="input" type="number" id="wmEnd" min="0" step="0.5" placeholder="End"><i>sec</i></span></label>
+              <div class="wm-layers" id="wmLayers"></div>
+              <div class="row wrap">
+                <button class="btn sm" id="wmAddText"><svg class="ic"><use href="#i-plus"/></svg>Text layer</button>
+                <button class="btn sm" id="wmAddImage"><svg class="ic"><use href="#i-plus"/></svg>Image layer</button>
               </div>
-              <span class="hint">Top positions sit below TikTok's top bar; bottom ones above its caption area. An image is used instead of the text when both are set.</span>
+              <div class="wm-edit" id="wmEdit" hidden>
+                <div class="form-grid two">
+                  <label id="wmTextRow">Text<input class="input" id="wmText" maxlength="60" placeholder="@yourchannel" spellcheck="false"></label>
+                  <label id="wmImgRow">Image<span class="row"><button class="btn sm" id="wmPick">Change image…</button></span></label>
+                </div>
+                <div class="fld">Where<div class="seg" id="wmPos"><button data-v="tl">Top left</button><button data-v="tr">Top right</button><button data-v="bl">Bottom left</button><button data-v="br">Bottom right</button><button data-v="c">Centre</button><button data-v="free" title="Drag it on the clip preview in Review">Anywhere</button></div></div>
+                <div class="form-grid two">
+                  <label>Size <span class="tnum" id="wmSizeV"></span><input type="range" id="wmSize" min="20" max="400" step="5"></label>
+                  <label>Opacity <span class="tnum" id="wmOpV"></span><input type="range" id="wmOp" min="5" max="100" step="5"></label>
+                  <label>Rotation <span class="tnum" id="wmRotV"></span><input type="range" id="wmRot" min="-180" max="180" step="1"></label>
+                  <label id="wmMarRow">Distance from the side <span class="tnum" id="wmMarV"></span><input type="range" id="wmMar" min="0" max="200" step="5"></label>
+                  <label id="wmXRow">Across <span class="tnum" id="wmXV"></span><input type="range" id="wmX" min="0" max="100" step="0.5"></label>
+                  <label id="wmYRow">Down <span class="tnum" id="wmYV"></span><input type="range" id="wmY" min="0" max="100" step="0.5"></label>
+                </div>
+                <div class="form-grid two" id="wmTextStyle">
+                  <label>Font<select class="input" id="wmFont"></select></label>
+                  <label>Colour<input type="color" id="wmColor"></label>
+                  <label class="chk"><input type="checkbox" id="wmOutline"><span>Outline<small>A dark edge around the text</small></span></label>
+                  <label class="chk"><input type="checkbox" id="wmBox"><span>Box behind the text<small>Easier to read on busy footage</small></span></label>
+                  <label id="wmBoxColorRow">Box colour<input type="color" id="wmBoxColor"></label>
+                </div>
+                <div class="form-grid two">
+                  <label>Appears at<span class="unit-input"><input class="input" type="number" id="wmStart" min="0" step="0.5"><i>sec</i></span></label>
+                  <label>Disappears at<span class="unit-input"><input class="input" type="number" id="wmEnd" min="0" step="0.5" placeholder="End"><i>sec</i></span></label>
+                </div>
+              </div>
+              <span class="hint">Corners sit below TikTok's top bar or above its caption area. Up to 6 layers; the last one is on top.</span>
             </div>
           </div>
           <details class="adv" id="exAdv">
@@ -516,6 +564,60 @@
             <span class="tokens" id="exTokens"></span>
             <span class="hint">Example: <b id="exPreview"></b></span>
           </label>
+        </section>
+
+        <section class="panel set" id="setCampaigns">
+          <header><svg class="ic"><use href="#i-link"/></svg><h2>Campaigns</h2></header>
+          <p class="muted">For clipping campaigns and clipping Discords. A campaign keeps one organisation's rules together: the text and hashtags every post needs, how long clips must be, its watermark, and the Discord channel finished clips go to. Clips you keep while it's active follow its rules.</p>
+          <div class="row wrap">
+            <label class="fld inline">Active campaign<select class="input" id="cpActive"></select></label>
+            <span class="grow"></span>
+            <button class="btn sm" id="cpNew"><svg class="ic"><use href="#i-plus"/></svg>New</button>
+            <button class="btn sm" id="cpImport" title="A campaign file someone shared">Import…</button>
+            <button class="btn sm" id="cpImportUrl" title="Paste the link of a campaign file shared in Discord">From link…</button>
+          </div>
+          <div class="cp-list" id="cpList"></div>
+          <div class="cp-edit" id="cpEdit" hidden>
+            <div class="form-grid two">
+              <label>Name<input class="input" id="cpName" maxlength="60" placeholder="Kai Cenat clipping" spellcheck="false"></label>
+              <label>Organisation or server<input class="input" id="cpOrg" maxlength="60" placeholder="Clipping Discord" spellcheck="false"></label>
+              <label>Rules link<input class="input" id="cpLink" maxlength="300" placeholder="https://discord.gg/…" spellcheck="false"></label>
+              <label>Notes<textarea class="input" id="cpNotes" rows="2" maxlength="2000" placeholder="Pay per 1,000 views, only TikTok, no reposts…"></textarea></label>
+            </div>
+            <div class="fld"><b>Post caption</b>
+              <div class="form-grid two">
+                <label>Text every post must have<textarea class="input" id="cpCaption" rows="2" maxlength="500" placeholder="@brand · Use code KAI" spellcheck="false"></textarea></label>
+                <label>Hashtags every post must have<input class="input" id="cpTags" placeholder="#ad #KaiCenatClips" spellcheck="false"><span class="hint">Added on top of your own and never left out.</span></label>
+              </div>
+              <div class="seg" id="cpWhere"><button data-v="end">At the end</button><button data-v="start">At the start</button></div>
+            </div>
+            <div class="fld"><b>Clip length</b>
+              <div class="form-grid two">
+                <label>At least<span class="unit-input"><input class="input" type="number" id="cpMin" min="0" max="600" step="1" placeholder="Any"><i>sec</i></span></label>
+                <label>At most<span class="unit-input"><input class="input" type="number" id="cpMax" min="0" max="600" step="1" placeholder="Any"><i>sec</i></span></label>
+              </div>
+              <span class="hint">Clips outside these get a warning in Exports.</span>
+            </div>
+            <div class="fld"><b>Watermark</b>
+              <label class="fld switch-label sm">Its own watermark (instead of yours)<span class="switch"><input type="checkbox" id="cpWmUse"><i></i></span></label>
+              <span class="row wrap"><button class="btn sm" id="cpWmCopy">Copy my current watermark</button><span class="muted small" id="cpWmInfo"></span></span>
+              <span class="hint">While this campaign is active, Export format › Watermark edits its watermark, and you can drag its layers in Review.</span>
+            </div>
+            <div class="fld"><b>Discord</b>
+              <label>Webhook link<span class="row"><input class="input grow" id="cpHook" type="password" maxlength="300" placeholder="https://discord.com/api/webhooks/…" spellcheck="false" autocomplete="off"><button class="btn sm" id="cpHookShow">Show</button><button class="btn sm" id="cpHookTest">Test</button></span>
+                <span class="hint">In Discord: channel settings › Integrations › Webhooks › Copy webhook URL. It can only post in that one channel.</span></label>
+              <label class="fld switch-label sm">Send each clip as soon as it renders<span class="switch"><input type="checkbox" id="cpAuto"><i></i></span></label>
+              <label class="fld switch-label sm" id="cpFileRow">Attach the video (when there's no post link yet)<span class="switch"><input type="checkbox" id="cpFile"><i></i></span></label>
+              <label>Message<textarea class="input" id="cpMsg" rows="2" maxlength="1500" spellcheck="false"></textarea><span class="tokens" id="cpTokens"></span></label>
+            </div>
+            <div class="row wrap end">
+              <button class="btn ghost sm" id="cpDelete">Delete</button>
+              <span class="grow"></span>
+              <label class="chk inline" title="Anyone with the webhook can post in that channel: share it only with your team"><input type="checkbox" id="cpShareHook"><span>Include the webhook</span></label>
+              <button class="btn sm" id="cpShare" title="One file with the rules and watermark, to drop into Discord">Share…</button>
+              <button class="btn primary sm" id="cpSave">Save</button>
+            </div>
+          </div>
         </section>
 
         <section class="panel set" id="setCaptionWords">

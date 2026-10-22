@@ -46,12 +46,14 @@ import safety
 import tools_setup
 import updater
 import audio_events
+import campaigns
 import chatsignal
 import chattitles
 import ytextra
 import cleanup
 import checkflow
 import detect
+import discordhook
 import emotes
 import exports
 import framing
@@ -61,6 +63,7 @@ import hashtags
 import learning
 import persist
 import twitchauth
+import watermarks
 
 from version import VERSION
 HERE = paths.RES_DIR
@@ -1111,13 +1114,12 @@ def _clean_words(ws) -> Optional[list]:
 
 
 def _wm_opts(w: dict) -> dict:
-    """Settings › Export format › Watermark as render options (nothing when it's off)."""
-    if not w.get("on") or not (w.get("text") or w.get("image")):
+    """Settings › Export format › Watermark (or a campaign's own) as render options: nothing when
+    it's off. Clips queued by older versions carry the single-mark settings; those still work."""
+    w = watermarks.clean(w)
+    if not w["on"] or not w["marks"]:
         return {}
-    return {"wm_text": str(w.get("text") or "")[:60], "wm_image": str(w.get("image") or ""),
-            "wm_pos": w.get("pos", "tl"), "wm_size": int(w.get("size", 100)), "wm_opacity": int(w.get("opacity", 70)),
-            "wm_margin": int(w.get("margin", 40)), "wm_box": bool(w.get("box")),
-            "wm_start": float(w.get("start", 0)), "wm_end": float(w.get("end", 0))}
+    return {"wm_marks": w["marks"]}
 
 
 def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
@@ -1259,6 +1261,11 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
         it["link"] = ""
     prefs = exports.load()
     ex = exports.settings(prefs)
+    camp = campaigns.active()
+    if camp:
+        # Settings › Campaigns: the active campaign's watermark and post rules go with the clip
+        ex["watermark"] = campaigns.watermark_for(camp, ex["watermark"])
+        it["campaign"] = {k: camp[k] for k in ("id", "name", "caption", "caption_where", "tags")}
     it["export"] = ex
     it["name_fields"] = exports.fields_for(dict(d or {}, title=it["title"]), pr, ex["preset"], number=it["clip_id"])
     it["sig"] = json.dumps([pid, it["clip_id"], round(start_, 2), round(end_, 2), it["title"], it["opts"], ex], sort_keys=True,
@@ -1267,6 +1274,9 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
     if mx and end_ - start_ > mx:
         it["warning"] = (f"{exports.PRESETS[ex['preset']]['label']} allows up to {engine.fmt_ts(mx)}; "
                          f"this clip is {engine.fmt_ts(end_ - start_)}. Trim it, or pick another preset.")
+    cw = campaigns.length_warning(camp, end_ - start_)
+    if cw:
+        it["warning"] = (it.get("warning", "") + " " + cw).strip()
     with queue_lock:
         # the same clip sent twice (double click, two windows): render it once
         dup = next((x for x in queue if x.get("sig") == it["sig"] and x["status"] in ("queued", "rendering")), None)
@@ -1518,6 +1528,8 @@ def _render_item(it: dict):
         except OSError:
             pass
     it["eta"] = 0
+    # the campaign's required text and hashtags, added after the content check so they're never masked
+    post = campaigns.apply_post(post, it.get("campaign"), title)
     # caption to paste when posting, saved next to the video
     if post:
         it["post"] = post
@@ -1527,6 +1539,61 @@ def _render_item(it: dict):
             pass
     it["path"] = path
     it["url"] = f"/export/{it['id']}?v={int(time.time() * 1000)}"
+
+
+def campaigns_view() -> dict:
+    d = campaigns.load()
+    return dict(d, default_message=campaigns.DEFAULT_MESSAGE, upload_mb=discordhook.UPLOAD_LIMIT // (1024 * 1024),
+                tokens=["title", "caption", "post_url", "campaign", "source", "file"])
+
+
+def _share_file(pack: dict, name: str) -> dict:
+    """Save a shareable file in the projects folder's Shared folder and show it in File Explorer."""
+    folder = os.path.join(WORKROOT, "Shared")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, name)
+    persist.write_json(path, pack)
+    studio.reveal(path)
+    return {"path": path, "name": name}
+
+
+def send_to_discord(it: dict, with_file=None) -> dict:
+    """Send one rendered clip to its campaign's Discord channel: the campaign's message, and the
+    video attached (when the campaign says so, there's no post link yet, and it's small enough)."""
+    camp = campaigns.get((it.get("campaign") or {}).get("id", ""))
+    hook = ((camp or {}).get("discord") or {}).get("webhook", "")
+    if not hook:
+        raise RuntimeError("This clip's campaign has no Discord webhook. Add one in Settings › Campaigns."
+                           if camp else "This clip wasn't made for a campaign with a Discord channel.")
+    if with_file is None:
+        with_file = camp["discord"]["file"] and not it.get("post_url")
+    text = campaigns.message(camp, {"title": it.get("title"), "caption": it.get("post"), "post_url": it.get("post_url"),
+                                    "source": it.get("link"), "file": it.get("name")})
+    try:
+        r = discordhook.send(hook, text, it.get("path", "") if with_file else "")
+    except RuntimeError as e:
+        it["discord"] = {"at": time.time(), "error": str(e)}
+        save_queue_soon()
+        raise
+    it["discord"] = {"at": time.time(), "attached": r["attached"], "note": r["note"], "post_url": bool(it.get("post_url"))}
+    save_queue_soon()
+    return r
+
+
+def auto_discord(it: dict):
+    """Campaigns set to send each clip as soon as it renders: in the background, so a slow upload
+    never holds up the next render."""
+    camp = campaigns.get((it.get("campaign") or {}).get("id", ""))
+    if not camp or not camp["discord"]["auto"] or not camp["discord"]["webhook"]:
+        return
+
+    def go():
+        try:
+            send_to_discord(it)
+            print(f"  Sent {it.get('name') or 'the clip'} to {camp['name']}'s Discord.", flush=True)
+        except RuntimeError as e:
+            print(f"  Couldn't send it to Discord: {e}", flush=True)
+    threading.Thread(target=go, daemon=True).start()
 
 
 TEST_HOOKS = {"fail_next_render": False, "break_next_output": False}
@@ -1861,6 +1928,7 @@ def queue_worker(idx: int = 0):
                 print(f"  Rendered {it.get('name') or 'the clip'} in {time.time() - t0:.0f} s.", flush=True)
                 save_queue_soon(0)
                 play_sound("ready", it)
+                auto_discord(it)
             except engine.Cancelled:
                 with queue_lock:
                     if SHUTTING_DOWN[0]:
@@ -2248,10 +2316,12 @@ class Handler(BaseHTTPRequestHandler):
                 ctype = "font/woff" if path.endswith(".woff") else None
                 return self._send_file(path, ctype, cache=path.endswith((".svg", ".ico", ".png", ".woff")))
             return self._err("forbidden", 403)
-        if p == "/watermark":
-            img = exports.load()["watermark"].get("image") or ""
-            if img and os.path.isfile(img):
-                return self._send_file(img)
+        m = re.fullmatch(r"/wmimg/([\w.-]+)", p)
+        if m:
+            # a watermark layer's image, for the preview: only Clip Radar's own copies
+            for img in (os.path.join(watermarks.image_dir(), m.group(1)), os.path.join(str(paths.DATA_DIR), m.group(1))):
+                if watermarks.clean_mark({"kind": "image", "image": img}):
+                    return self._send_file(img, cache=True)
             return self._err("no watermark image", 404)
         if p == "/api/status":
             ts = tools_setup.status()
@@ -2308,6 +2378,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"items": items, "eta": queue_eta(), "workers": MAX_WORKERS[0]})
         if p == "/api/export":
             return self._json(export_view())
+        if p == "/api/campaigns":
+            return self._json(campaigns_view())
         if p == "/api/sources":
             return self._json(sources_view())
         if p == "/api/locations":
@@ -2498,23 +2570,102 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"job": job["id"]})
 
         if p == "/api/watermark/image":
-            # Settings › Export format › Watermark: a copy is kept, so moving the original doesn't break exports
-            src = str(body.get("path") or "")
-            if not src:
-                exports.save({"watermark": dict(exports.load()["watermark"], image="")})
-                return self._json(export_view())
-            ext = os.path.splitext(src)[1].lower()
-            if ext not in (".png", ".jpg", ".jpeg", ".webp") or not os.path.isfile(src):
-                return self._err("Choose a PNG, JPG or WebP image.")
-            if os.path.getsize(src) > 20_000_000:
-                return self._err("That image is over 20 MB. Use a smaller one.")
-            dst = str(paths.DATA_DIR / f"watermark{ext}")
+            # a watermark layer's image: a copy is kept, so moving the original doesn't break exports
             try:
-                shutil.copy2(src, dst)
-            except OSError as e:
-                return self._err(f"Couldn't copy the image: {e}")
-            exports.save({"watermark": dict(exports.load()["watermark"], image=dst)})
-            return self._json(export_view())
+                img = watermarks.store_file(str(body.get("path") or ""))
+            except (ValueError, OSError) as e:
+                return self._err(str(e) if isinstance(e, ValueError) else f"Couldn't copy the image: {e}")
+            return self._json({"image": img, "url": "/wmimg/" + os.path.basename(img)})
+
+        if p == "/api/import":
+            # a Clip Radar file shared in Discord (a campaign or a watermark), or an image for a layer,
+            # from a file on this PC or from its link
+            try:
+                if body.get("url"):
+                    data = discordhook.download(str(body["url"]))
+                else:
+                    src = str(body.get("path") or "")
+                    if not os.path.isfile(src):
+                        return self._err("That file isn't there.")
+                    if os.path.getsize(src) > watermarks.MAX_PACK:
+                        return self._err("That file is too big to be a Clip Radar file.")
+                    with open(src, "rb") as f:
+                        data = f.read()
+                if watermarks.image_kind(data):
+                    img = watermarks.store_image(data)
+                    return self._json({"kind": "image", "image": img, "url": "/wmimg/" + os.path.basename(img)})
+                res = campaigns.import_any(data)
+            except (ValueError, RuntimeError, OSError) as e:
+                return self._err(str(e))
+            if res["kind"] == "watermark":
+                pre = res["preset"]
+                ex = exports.load()
+                keep = [x for x in ex["wm_presets"] if x["name"].lower() != pre["name"].lower()]
+                exports.save({"wm_presets": keep + [pre]})        # saved; the window puts it in use
+                return self._json({"kind": "watermark", "name": pre["name"], "marks": pre["marks"], "export": export_view()})
+            return self._json({"kind": "campaign", "name": res["campaign"]["name"], "id": res["campaign"]["id"],
+                               "campaigns": campaigns_view()})
+
+        if p == "/api/watermark/share":
+            # Settings › Watermark › Share: one file with the layers and their images, for Discord
+            pack = watermarks.make_pack(str(body.get("name") or "Watermark"), body.get("marks") or [])
+            if not pack["marks"]:
+                return self._err("Add a text or image layer first.")
+            return self._json(_share_file(pack, f"{watermarks.safe_name(pack['name'])} - watermark.json"))
+
+        if p.startswith("/api/campaigns/"):
+            act = p.rsplit("/", 1)[1]
+            try:
+                if act == "save":
+                    camps = campaigns.save(body.get("campaign") or {})
+                    if body.get("activate"):
+                        cid = (body.get("campaign") or {}).get("id") or camps["list"][-1]["id"]
+                        campaigns.set_active(cid)
+                elif act == "delete":
+                    campaigns.delete(str(body.get("id") or ""))
+                elif act == "active":
+                    campaigns.set_active(str(body.get("id") or ""))
+                elif act == "share":
+                    c = campaigns.get(str(body.get("id") or ""))
+                    if not c:
+                        return self._err("That campaign isn't there any more.")
+                    pack = campaigns.make_pack(c, with_webhook=bool(body.get("webhook")))
+                    return self._json(_share_file(pack, f"{watermarks.safe_name(c['name'])} - campaign.json"))
+                elif act == "test":
+                    hook = str(body.get("webhook") or "")
+                    discordhook.send(hook, "Clip Radar is connected. Finished clips will be sent here.")
+                    return self._json({"ok": True})
+                else:
+                    return self._err("not found", 404)
+            except (ValueError, RuntimeError) as e:
+                return self._err(str(e))
+            return self._json(campaigns_view())
+
+        if p == "/api/queue/post_url":
+            # Exports › Submit: where you posted the clip, for the campaign's Discord channel
+            url = str(body.get("url") or "").strip()[:300]
+            if url and not re.match(r"https?://\S+$", url):
+                return self._err("Paste the link to your post (it starts with https://).")
+            with queue_lock:
+                it = next((x for x in queue if x["id"] == body.get("item")), None)
+                if not it:
+                    return self._err("That clip isn't in Exports any more.")
+                it["post_url"] = url
+            save_queue_soon()
+            return self._json({"ok": True})
+
+        if p == "/api/discord/send":
+            with queue_lock:
+                it = next((x for x in queue if x["id"] == body.get("item")), None)
+            if not it or it["status"] != "done":
+                return self._err("That clip isn't rendered yet.")
+            if "post_url" in body:
+                it["post_url"] = str(body.get("post_url") or "").strip()[:300]
+            try:
+                r = send_to_discord(it, with_file=body.get("file"))
+            except RuntimeError as e:
+                return self._err(str(e))
+            return self._json(dict(r, item=queue_public(it)))
 
         if p == "/api/pick_file":
             kind = body.get("kind", "video")
@@ -3155,6 +3306,7 @@ def pick_file(kind: str) -> str:
             return ""
         types = ([("Chat logs", "*.json *.json.gz"), ("All files", "*.*")] if kind == "chat" else
                  [("Images", "*.png *.jpg *.jpeg *.webp"), ("All files", "*.*")] if kind == "image" else
+                 [("Clip Radar files and images", "*.json *.png *.jpg *.jpeg *.webp"), ("All files", "*.*")] if kind == "shared" else
                  [("Videos", "*.mp4 *.mkv *.mov *.flv *.ts *.webm *.m4v *.avi"), ("All files", "*.*")])
         try:
             root = tk.Tk()
@@ -3165,7 +3317,8 @@ def pick_file(kind: str) -> str:
             root.attributes("-topmost", True)
             if kind == "folder":
                 return filedialog.askdirectory(parent=root, title="Choose a folder") or ""
-            return filedialog.askopenfilename(parent=root, title={"chat": "Choose a chat log", "image": "Choose an image"}
+            return filedialog.askopenfilename(parent=root, title={"chat": "Choose a chat log", "image": "Choose an image",
+                                                                  "shared": "Choose a campaign, watermark or image"}
                                               .get(kind, "Choose a video"), filetypes=types) or ""
         except Exception:
             return ""

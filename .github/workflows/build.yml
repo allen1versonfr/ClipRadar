@@ -74,6 +74,7 @@ jobs:
           python tests/test_download.py
           python tests/test_cleanup.py
           python tests/test_quality.py
+          python tests/test_campaigns.py
           python tests/test_captions_anim.py
           python tests/test_ui.py
 
@@ -191,6 +192,14 @@ jobs:
                 Write-Host "::notice title=OK app server::status $($r | ConvertTo-Json -Compress); page $($page.Length) bytes"
               }
               Invoke-RestMethod -Method Post http://127.0.0.1:7860/api/quit -Body '{}' -ContentType 'application/json' | Out-Null
+            }
+            if (-not $ok) {
+              # what the app said, and where it is listening, so a failure here can be explained
+              $p.Refresh()
+              Write-Host "start $run of 3; process running: $(-not $p.HasExited)"
+              Get-NetTCPConnection -State Listen -OwningProcess $p.Id -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "listening on $($_.LocalAddress):$($_.LocalPort)" }
+              Get-NetTCPConnection -State Listen -LocalPort 7860 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "port 7860 held by pid $($_.OwningProcess) ($((Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName))" }
+              Get-Content "$env:LOCALAPPDATA\ClipRadar\clipradar.log" -ErrorAction SilentlyContinue | Select-Object -Last 40
             }
             Start-Sleep 3; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
             if (-not $ok) { Write-Host "::error title=FAIL app server::did not start"; exit 1 }

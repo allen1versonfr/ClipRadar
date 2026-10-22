@@ -3,6 +3,31 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.11.0] - 2026-10-22
+
+Working with clipping campaigns and clipping Discords, and watermarks you can move and share.
+
+### Added
+- **Campaigns** (Settings › Campaigns): one clipping organisation's rules kept together, and one click to switch between them.
+  - Text and hashtags every post must carry, at the end or the start of the post caption. They're added after the content check, so they're never masked, and hashtags you already have aren't repeated.
+  - The shortest and longest clip it accepts: clips outside get a warning in Exports.
+  - Its own watermark, used instead of yours while it's active.
+  - Its Discord channel (a webhook). Finished clips can be sent there as soon as they render, or from Exports › Submit, with the video attached (up to 10 MB) until you paste the link to your post, then with the link. The message is a template ({title}, {caption}, {post_url}, {campaign}, {source}, {file}) and never pings anyone. Test sends a message to check the webhook.
+  - Share a campaign as one file (rules and watermark images inside) to hand to clippers, and import it from a file or a Discord link. The webhook is only included when you tick Include the webhook.
+- **Watermark layers:** up to 6, each text or an image, instead of one.
+  - Drag a layer on the clip preview in Review to put it anywhere (Where › Anywhere); corners and centre still work as before.
+  - Rotation for every layer; font, colour, outline and box colour for text.
+  - Save as… keeps a set of layers under a name; Share… saves them as one file with the images inside; Import… and From link… bring in a watermark file, a campaign file or a logo image (PNG, JPG, WebP).
+
+- **Skip many clips at once** (Review › To review): Skip clips skips every clip left in the list, or only those scored under 40, 50, 60 or 75. Clips you made yourself stay, Undo brings them back, and a bulk skip isn't taught to the ranking.
+
+### Changed
+- Watermark settings from earlier versions become one layer, in the same place. Clips already in the render queue keep their watermark.
+- Watermark images are kept in Clip Radar's own folder and only those are used or shown, so a watermark can't point at another file on your PC.
+
+### Fixed
+- Text watermarks in the clip preview could be drawn half their width to the left of where the export puts them.
+
 ## [4.10.1] - 2026-10-22
 
 ### Fixed

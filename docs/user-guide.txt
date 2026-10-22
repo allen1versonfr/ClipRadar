@@ -362,6 +362,9 @@ HOW CLIPS ARE PICKED
   - Keep the top (To review list): keep and render the top 3, 5, 10, 15, 20
     or all clips in one go, in the order shown, with your export settings.
     Clips with content flags to review are left for you.
+  - Skip (To review list): skip every clip left in the list, or only those
+    scored under 40, 50, 60 or 75. Clips you made yourself stay. Undo brings
+    them back, and skipped clips can still be kept from the Skipped tab.
   - Clips to suggest goes from 5 to 60 in steps of 5, then up to 100. You get
     the number you asked for; when a video doesn't have that many separate
     moments, Clip Radar says so.
@@ -436,13 +439,39 @@ EXPORT FORMAT
   Balanced and High keep the stream's own frame rate, up to 60. A 30 FPS
   stream is never turned into 60: that would only repeat frames, not add
   motion.
-  Watermark: text or an image, in a corner or the centre, with size, opacity,
-  distance from the side, a dark box behind text, and when it appears and
-  disappears. Only exports get it; your videos aren't changed. It shows in the
-  clip preview. Top positions sit below TikTok's top bar, bottom ones above its
-  caption area.
+  Watermark: up to 6 layers, each text or an image. Text layers have a font,
+  colour, outline or a box behind them (in any colour). Every layer has a
+  place (a corner, the centre, or Anywhere: drag it on the clip preview in
+  Review), size, opacity, rotation, distance from the side, and when it
+  appears and disappears. Only exports get it; your videos aren't changed.
+  Corners sit below TikTok's top bar or above its caption area.
+  Save as... keeps a set of layers under a name. Share... saves one file
+  with the layers and their images (in the projects folder's Shared folder)
+  to drop into Discord. Import... and From link... bring in a watermark or
+  campaign file, or a logo image, from your PC or a Discord link.
   Volume (Clip tab): make one clip quieter or louder than the rest.
   A sound plays when you add a clip to the render queue and when it's ready.
+
+CAMPAIGNS (CLIPPING ORGANISATIONS AND DISCORDS)
+  Settings > Campaigns keeps each clipping campaign's rules together:
+  - the text every post must carry (an @handle, a code, #ad), at the end or
+    the start of the post caption, and hashtags it must carry (added on top
+    of yours and never left out);
+  - the shortest and longest clip it accepts (clips outside get a warning in
+    Exports);
+  - its own watermark (Copy my current watermark, then edit it under Export
+    format > Watermark while the campaign is active);
+  - its Discord channel: paste the channel's webhook link (channel settings >
+    Integrations > Webhooks > Copy webhook URL) and press Test.
+  Pick the Active campaign: clips you keep from then on follow its rules, and
+  Exports shows which campaign is active. In Exports, Submit to <campaign>
+  sends a finished clip to its Discord channel: the video (up to 10 MB) until
+  you paste the link to your post, then the link. Or turn on Send each clip
+  as soon as it renders. The message can use {title}, {caption}, {post_url},
+  {campaign}, {source} and {file}; it never pings anyone.
+  Share... saves the campaign as one file (rules and watermark) to hand to
+  clippers. The webhook is left out unless you tick Include the webhook:
+  anyone with it can post in that channel.
 
 PERFORMANCE
   Settings > Performance sets how many clips render at once (1-3) and how

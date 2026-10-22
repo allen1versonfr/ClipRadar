@@ -123,6 +123,49 @@ with sync_playwright() as p:
               sum(1 for e, _ in server.SOUND_LOG if e == "queued") - sounds == 1, server.SOUND_LOG)
         kept = pg.evaluate("W.clips.filter(c => c.state === 'kept').length")
         check("the three clips show as kept", kept == 3, kept)
+
+        # a watermark layer dragged on the clip preview is saved where it was dropped
+        import exports
+        exports.save({"watermark": {"on": True, "marks": [{"kind": "text", "text": "@mychannel", "pos": "tl"}]}})
+        pg.evaluate("loadExport()")
+        pg.wait_for_timeout(800)
+        r = pg.evaluate("hit.wm0")
+        box = pg.locator("#phone").bounding_box()
+        k = box["width"] / pg.evaluate("phone.width")
+        if r:
+            sx, sy = box["x"] + (r["x"] + r["w"] / 2) * k, box["y"] + (r["y"] + r["h"] / 2) * k
+            pg.mouse.move(sx, sy)
+            pg.mouse.down()
+            pg.mouse.move(sx + 20, sy + box["height"] * 0.4, steps=8)
+            pg.mouse.up()
+            pg.wait_for_timeout(1000)
+        m = exports.load()["watermark"]["marks"][0]
+        check("the watermark shows in the clip preview", bool(r), r)
+        check("and a layer dragged there is saved where it was dropped", m["pos"] == "free" and 0.45 < m["y"] < 0.7, m)
+
+        # skip many at once: only clips under the score picked, then everything left; Undo brings them back
+        pg.evaluate("W.clips.forEach((c, i) => { if (c.state === 'todo') c.quality = i % 2 ? 30 : 80 }); renderRows()")
+        todo = pg.evaluate("W.clips.filter(c => c.state === 'todo' && !isGem(c)).map(c => c.quality)")
+        pg.select_option("#skipScore", "50")
+        pg.click("#batchSkip")
+        pg.wait_for_timeout(400)
+        if len([q for q in todo if q < 50]) > 3:
+            pg.click("#dlgYes")
+            pg.wait_for_timeout(400)
+        left = pg.evaluate("W.clips.filter(c => c.state === 'todo' && !isGem(c)).map(c => c.quality)")
+        check("Skip with a score skips only the clips scored under it", sorted(left) == sorted(q for q in todo if q >= 50), (todo, left))
+        pg.click("#toasts .act")
+        pg.wait_for_timeout(300)
+        back = pg.evaluate("W.clips.filter(c => c.state === 'todo' && !isGem(c)).length")
+        check("and Undo brings them back", back == len(todo), (back, todo))
+        pg.select_option("#skipScore", "0")
+        pg.click("#batchSkip")
+        pg.wait_for_timeout(400)
+        if len(todo) > 3:
+            pg.click("#dlgYes")
+            pg.wait_for_timeout(400)
+        left = pg.evaluate("W.clips.filter(c => c.state === 'todo' && !isGem(c)).length")
+        check("Skip all clips leaves none to review", left == 0 and len(todo) > 0, (left, todo))
     else:
         print("[skip] no ffmpeg here: multi-clip export not checked")
     b.close()

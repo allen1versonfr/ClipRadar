@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 4.10.1" src="https://img.shields.io/badge/version-4.10.1-ffd21f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 4.11.0" src="https://img.shields.io/badge/version-4.11.0-ffd21f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/vodclipper/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/vodclipper/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -54,6 +54,11 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
   - Eight bundled fonts, including Montserrat, Anton, Bebas Neue and Bangers.
 - **Layouts and framing:** facecam above gameplay, the whole frame (following the streamer's face), the facecam alone, or a blurred fit. Auto-frame finds a facecam or a person and picks the layout.
 - **Background render queue.** Clips render to 1080×1920 MP4 on your GPU's encoder (NVIDIA, Intel or AMD), falling back to the CPU automatically. If one fails, Clip Radar says why in plain words and gives you a Retry button.
+- **Watermarks you can move and share.** Up to six layers of text (any bundled font, colour, outline or box) and logo images, in a corner or dragged anywhere on the clip preview, each with its own size, opacity, rotation and timing. Save sets of them, and share one as a single file (images inside) or import one from a file or a Discord link.
+- **Clipping campaigns and Discords.** Keep each clipping organisation's rules together under **Settings › Campaigns**: text and hashtags every post must carry, minimum and maximum clip length, the campaign's own watermark, and its Discord submission channel (a webhook).
+  - Clips you keep while a campaign is active follow its rules, and Exports warns about clips that are too short or too long for it.
+  - Finished clips can go to the campaign's Discord channel as soon as they render, with the video attached, or later with the link to your post.
+  - Campaigns are shared and imported as one file, so a server can hand its clippers the rules and watermark in one go. The webhook is only included when you choose.
 - **Post on TikTok** through TikTok Studio: the caption is copied, the video selected in File Explorer, and the upload page opened for you to finish.
 - **Hashtags in file names and posts**, set separately: real `#Tag` text in each exported file's name (the streamer's own tag, your tags per streamer, general tags), and default hashtags for post captions per streamer and per platform.
 - **Updates itself.** When a new release is posted on GitHub, Clip Radar offers it in the app. One click downloads it, installs it and reopens the app.
@@ -134,6 +139,9 @@ src/
   learning.py     learns per streamer from what you keep, skip and post
   twitchauth.py   Twitch sign-in for ad-free live recording
   studio.py       TikTok Studio handoff (caption, file, upload page)
+  watermarks.py   watermark layers, and watermark files to share and import
+  campaigns.py    clipping campaigns: post rules, length limits, own watermark, Discord channel
+  discordhook.py  sending clips to a Discord webhook, downloading shared files from a link
   hashtags.py     hashtags for file names and post captions
   chattitles.py   titles from phrases many chatters typed
   secret.py       encrypted storage for sign-ins (Windows DPAPI)
