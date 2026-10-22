@@ -71,6 +71,7 @@ jobs:
           python tests/test_ranking_explain.py
           python tests/test_hashtags.py
           python tests/test_ytextra.py
+          python tests/test_download.py
           python tests/test_cleanup.py
           python tests/test_quality.py
           python tests/test_captions_anim.py

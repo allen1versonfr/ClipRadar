@@ -287,14 +287,22 @@ def estimate_delay(rate0: np.ndarray, an_audio: np.ndarray, events: Optional[dic
     c = c - c.mean()
     if t.std() < 1e-6 or c.std() < 1e-6:
         return default, False
-    lags = list(range(1, 16))
+    # delays are looked for in 1-15 s, but "how much stands out" is judged against 1-30 s: chat's reaction
+    # is spread over several seconds, so a real peak is wide, and a median over 1-15 s alone sits half
+    # inside it (real-world test, a 6-hour IRL stream: lags 2-6 all ~0.05, median over 1-15 s 0.033 vs
+    # 0.007 over 1-30 s, so a clear 4 s delay read as "couldn't tell")
+    lags = list(range(1, 31))
     corr = []
     for L in lags:
         a, b = t[:-L], c[L:]
         corr.append(float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9)))
-    k = int(np.argmax(corr))
+    k = int(np.argmax(corr[:15]))
     best, med = corr[k], float(np.median(corr))
-    if best < 0.12 or best - med < 0.08:          # chance alone stays well under these
+    # what chance alone gives shrinks with length (about 1/sqrt(n/3): onsets are ~3 s wide). Short
+    # streams keep the old fixed bars; a long one needs 3x and 2x that (that 6-hour stream: 0.012 by this
+    # estimate, its peak 0.053; random data of that length peaks under 0.016, so the bar of 0.035 holds)
+    noise = 1.0 / math.sqrt(max(1.0, n / 3))
+    if best < min(0.12, max(0.03, 3 * noise)) or best - med < min(0.08, max(0.02, 2 * noise)):
         return default, False
     return float(min(max(lags[k], 2), 12)), True
 

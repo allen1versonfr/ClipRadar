@@ -90,6 +90,19 @@ lag, sure = detect.estimate_delay(rate0, audio, None)
 check("works out how late chat reacts", sure and lag == 7, (lag, sure))
 lag2, sure2 = detect.estimate_delay(rng.poisson(2, N).astype(np.float32), rng.normal(0, 1, N).astype(np.float32), None)
 check("no clear answer: keeps 6 s", lag2 == 6.0 and not sure2, (lag2, sure2))
+# a 6-hour stream: chat follows the stream only loosely (busy chat, small reactions), yet over hours the
+# lag is clear; chance alone still isn't taken for one
+LONG = 6 * 3600
+la = rng.normal(0, 1, LONG).astype(np.float32)
+lr0 = rng.poisson(4, LONG).astype(np.float32)
+for t in rng.choice(np.arange(60, LONG - 60), 900, replace=False):
+    la[t:t + 2] += 1.5
+    lr0[t + 3:t + 6] += rng.poisson(2, 3)          # chat reacts 3 s later, a little
+lag3, sure3 = detect.estimate_delay(lr0, la, None)
+check("a long stream with faint but steady reactions: works out the lag", sure3 and lag3 == 3, (lag3, sure3))
+noise_runs = [detect.estimate_delay(rng.poisson(4, LONG).astype(np.float32), rng.normal(0, 1, LONG).astype(np.float32), None)
+              for _ in range(5)]
+check("a long stream of pure chance: still no answer", all(not s for _, s in noise_runs), noise_runs)
 check("shifting chat by the delay", list(detect.shift(np.arange(10, dtype=np.float32), 3)[:3]) == [3, 4, 5])
 
 
@@ -226,6 +239,27 @@ server._pick(pr, 60, 0)
 check("and says so instead of cutting the list short quietly", pr["pick_note"].startswith(f"Found {len(few)} of the 60"), pr["pick_note"])
 server._pick(pr, 5, 0)
 check("no note when the number is met", pr["pick_note"] == "")
+
+# ---- chat delay on a long stream (real-world test: a 6-hour IRL stream, chat clearly ~4 s behind but
+# weak and spread over 2-6 s, read as "couldn't tell"); random data never gets a delay it's "sure" of
+def _sim(seed, n, couple=True, react=0.7):
+    rng = np.random.default_rng(seed)
+    audio = rng.normal(0, 1, n).clip(-3, 8).astype(np.float32)
+    for t in rng.integers(0, n, n // 30):
+        audio[t:t + 3] += rng.uniform(1, 5)
+    chat = rng.poisson(4, n).astype(np.float32)
+    if couple:
+        for t in np.where(audio > 3)[0][::2]:
+            for L in range(2, 7):
+                if t + L < n:
+                    chat[t + L] += rng.poisson(react)
+    return chat, audio
+
+
+long_found = [detect.estimate_delay(*_sim(s, 21832), None) for s in range(3)]
+check("a long stream's weak, spread-out chat delay is found", all(sure and 2 <= d <= 6 for d, sure in long_found), long_found)
+fp = [detect.estimate_delay(*_sim(100 + s, n, couple=False), None)[1] for n in (1800, 7200, 21832) for s in range(8)]
+check("random data is never 'sure' of a delay, short or long", not any(fp), sum(fp))
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

@@ -108,6 +108,12 @@ if weak:
     s5 = lr.replay(loud7, chat=chat7, min_quality=weak["quality"] + 1)
     check("a minimum score above it leaves it out, keeps stronger ones", all(f["quality"] > weak["quality"] for f in s5.found)
           and s5.skipped["confidence"] >= 1 and len(s5.found) >= 4, ([f["quality"] for f in s5.found], s5.skipped))
+    # a moment passed on is decided once: the rescan of the last minute mustn't log it (and count it) again
+    lines = []
+    s5b = lr.replay(loud7, chat=chat7, min_quality=weak["quality"] + 1, log=lines.append)
+    said = [m for m in lines if m.startswith(("Passed on", "Skipped"))]
+    check("a moment passed on is logged and counted once", said and len(said) == len(set(said))
+          and sum(s5b.skipped.values()) == len(said), (said, s5b.skipped))
 s6 = lr.replay(loud, chat=chat, min_quality=0)
 check("minimum 0 keeps the default behaviour", len(s6.found) == len(s.found))
 

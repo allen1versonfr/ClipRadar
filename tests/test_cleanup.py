@@ -127,6 +127,30 @@ cleanup.sweep([WORK], [], set())
 check("old temporary files are cleared", not os.path.exists(os.path.join(tmp, "old_preview")))
 check("recent ones (still useful) stay", os.path.exists(os.path.join(tmp, "fresh_framing", "f.npz")))
 
+# ---- stalled downloads: only Clip Radar's own, even when Projects is a whole drive (D:\)
+drive = tempfile.mkdtemp(prefix="vc_drive_")
+mine_p = os.path.join(drive, "vod_123")
+other_p = os.path.join(drive, "Someone else's downloads")
+for d in (mine_p, other_p):
+    os.makedirs(d)
+json.dump({"title": "vod_123"}, open(os.path.join(mine_p, "meta.json"), "w"))
+stale = [os.path.join(mine_p, "vod.mp4.part"), os.path.join(mine_p, "vod.f1080p60.mp4.part-Frag12"),
+         os.path.join(other_p, "movie.mkv.part"), os.path.join(other_p, "vod.mp4.part"), os.path.join(mine_p, "notes.part")]
+for p in stale:
+    open(p, "wb").write(b"p")
+    os.utime(p, (OLD, OLD))
+found = {os.path.relpath(p, drive) for p in locations.stale_partials([drive])}
+check("stalled downloads in a project are found", found == {os.path.join("vod_123", "vod.mp4.part"),
+                                                            os.path.join("vod_123", "vod.f1080p60.mp4.part-Frag12")}, found)
+real_listdir = os.listdir
+os.listdir = lambda p: (_ for _ in ()).throw(PermissionError(5, "Access is denied", p)) if p == other_p else real_listdir(p)
+try:
+    ok = locations.stale_partials([drive])
+except OSError as e:
+    ok = e
+os.listdir = real_listdir
+check("an unreadable folder (System Volume Information) is skipped, not the end of cleanup", isinstance(ok, list) and len(ok) == 2, ok)
+
 # ---- skipped clips
 out = tempfile.mkdtemp()
 def rendered(name, auto):

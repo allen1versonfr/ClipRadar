@@ -265,6 +265,7 @@ class LiveSession:
         self.taken: list = []                  # (start, end) already clipped
         self.auto_peaks: list = []             # peaks of automatic moments (for spacing)
         self.pending: list = []                # peaks waiting for their reaction to finish
+        self.passed: list = []                 # (peak, reason) already reported as passed on (see _pass)
         self.manual: list = []                 # requested "clip that" ranges
         self.moments: list = []                # project ids, filled in by the server
         self.score = np.zeros(0, dtype=np.float32)
@@ -982,8 +983,7 @@ class LiveSession:
             cand = self._cand.pop(p, {})
             if any(st < te - 2 and en > ts + 2 for ts, te in self.taken) or \
                     any(abs(p - q) < max(self.min_gap, self.DUP_GAP) for q in self.auto_peaks):
-                self.skipped["repeat"] += 1
-                self.log(f"Skipped {engine.fmt_ts(p)}: same moment as one already clipped")
+                self._pass(p, "repeat", f"Skipped {engine.fmt_ts(p)}: same moment as one already clipped")
                 continue
             adj = 0.0
             if self.adjust is not None:
@@ -992,17 +992,14 @@ class LiveSession:
                 except Exception:
                     adj = 0.0
                 if s[p] + adj < self.threshold:
-                    self.skipped["learned"] += 1
-                    self.log(f"Passed on a moment at {engine.fmt_ts(p)}: not like the clips you usually keep")
+                    self._pass(p, "learned", f"Passed on a moment at {engine.fmt_ts(p)}: not like the clips you usually keep")
                     continue
             if self.chat_usable() and not self._crowd_ok(an, p, chat):
-                self.skipped["crowd"] = self.skipped.get("crowd", 0) + 1
-                self.log(f"Passed on {engine.fmt_ts(p)}: only chat, and only one or two people")
+                self._pass(p, "crowd", f"Passed on {engine.fmt_ts(p)}: only chat, and only one or two people")
                 continue
             q = detect.quality(float(s[p]) + adj)
             if q < self.min_quality:
-                self.skipped["confidence"] += 1
-                self.log(f"Passed on a moment at {engine.fmt_ts(p)}: score {q}, under your minimum of {self.min_quality}")
+                self._pass(p, "confidence", f"Passed on a moment at {engine.fmt_ts(p)}: score {q}, under your minimum of {self.min_quality}")
                 continue
             now = _now()
             lat = {}
@@ -1021,6 +1018,17 @@ class LiveSession:
             if p not in self.pending and not (self.forming[p].get("early") and not final):
                 self.forming.pop(p, None)
                 self._cand.pop(p, None)
+
+    def _pass(self, p: float, why: str, msg: str):
+        """A moment not clipped, for this reason. The last minute is looked at again on every pass (scores
+        near the live edge still change, and a moment can still be clipped later), so the same moment comes
+        back here again and again: say so and count it once per reason, not on every pass."""
+        if any(abs(p - q) <= 12 and w == why for q, w in self.passed):
+            return
+        self.passed.append((p, why))
+        del self.passed[:-200]
+        self.skipped[why] = self.skipped.get(why, 0) + 1
+        self.log(msg)
 
     def _crowd_ok(self, an, p: float, chat: list) -> bool:
         """A moment carried by chat alone needs a crowd: more people than usual reacting, not one

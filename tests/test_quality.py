@@ -206,5 +206,27 @@ import server  # noqa: E402
 check("off: no watermark in the render options", server._wm_opts({"on": False, "text": "hi"}) == {})
 check("on: the render gets it", server._wm_opts({"on": True, "text": "hi", "pos": "br"})["wm_pos"] == "br")
 
+# ---- picture check: clips mostly too dark or too blurry to watch get a warning (from the real-world
+# test: a motion-blurred, nearly black IRL clip was suggested without a word)
+if shutil.which("ffmpeg"):
+    ptmp = tempfile.mkdtemp(prefix="vc_pic_")
+    mk = lambda name, vf: subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",  # noqa: E731
+                                          "testsrc2=size=1280x720:rate=30:duration=4", *(["-vf", vf] if vf else []),
+                                          "-c:v", "libx264", "-preset", "ultrafast", os.path.join(ptmp, name)], check=True)
+    mk("sharp.mp4", "")
+    mk("blur.mp4", "boxblur=12:2")
+    mk("dark.mp4", "eq=brightness=-0.75")
+    pc = {n: engine.picture_check(os.path.join(ptmp, n + ".mp4"), 0, 4) for n in ("sharp", "blur", "dark")}
+    check("picture check: a sharp, bright clip passes", pc["sharp"] == {"dark": 0.0, "blurry": 0.0}, pc["sharp"])
+    check("picture check: a blurred clip is blurry", pc["blur"]["blurry"] >= 0.6, pc["blur"])
+    check("picture check: a dark clip is dark", pc["dark"]["dark"] >= 0.6, pc["dark"])
+    import server
+    it = {"start": 0.0, "end": 4.0}
+    server._check_picture(it, {"video": os.path.join(ptmp, "dark.mp4")})
+    check("a dark clip gets a warning in Exports (it still renders)", "dark" in it.get("warning", ""), it)
+    it = {"start": 0.0, "end": 4.0}
+    server._check_picture(it, {"video": os.path.join(ptmp, "sharp.mp4")})
+    check("a good clip gets none", not it.get("warning"), it)
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)
