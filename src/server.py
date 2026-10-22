@@ -361,7 +361,8 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
         ct = ytextra.comment_title(pr["yt"], d["start"], d["end"], _streamer_name(pr))   # a YouTube video's comments
     info = titles.generate(rel, _chat_window(pr, d["start"], d["end"]),
                            peak_rel=d.get("peak", d["start"]) - d["start"], used=used,
-                           streamer=_streamer_name(pr), with_tags=tp["hashtags"], pick=tp["pick"], chat_title=ct)
+                           streamer=_streamer_name(pr), with_tags=tp["hashtags"], pick=tp["pick"], chat_title=ct,
+                           platform=_origin(pr)["platform"] if pr.get("workdir") else "twitch")
     cfg = safety.load_config()
     if not d.get("user_title") and not d.get("userTitle"):
         d["title"] = safety.mask_text(info["title"], cfg)
@@ -895,6 +896,10 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
         ids = [i for i in order if any(c["id"] == i for c in pr["clips"])]
         ids += [c["id"] for c in pr["clips"] if c["id"] not in ids]
         todo = [i for i in ids if not next((c for c in pr["clips"] if c["id"] == i), {}).get("listened")]
+        t_start = time.time()
+        if todo:
+            how = "YouTube's captions" if yt_words else f"Whisper {model}" if can_listen else "chat only"
+            print(f"  Titling {len(todo)} clips ({how})...", flush=True)
         for n, cid in enumerate(todo):
             check()
             if pr.get("clips_ver", 0) != ver:
@@ -948,6 +953,8 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
             job["progress"] = (n + 1) / max(1, len(todo))
             if not pr.get("live"):
                 save_project_soon(pid, 3.0)
+        if todo:
+            print(f"  Titled {len(todo)} clips in {time.time() - t_start:.0f} s.", flush=True)
         if not pr.get("live"):
             _save_transcripts(pr)
         if on_done:
@@ -1159,6 +1166,23 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
     )
 
 
+def _auto_layout(pr: dict) -> dict:
+    """Layout › Auto-frame's pick for a project as render options ({} when it can't tell). For renders
+    asked for without a layout: the default Cam + game box is the top-left corner, which on a stream
+    without a facecam shows whatever is there (the chat overlay, a corner of the game)."""
+    if not pr.get("video") or not framing.available():
+        return {}
+    try:
+        r = framing.suggest(pr["video"], float(pr["info"].get("duration") or 0) or 60.0,
+                            cache_dir=locations.temp_dir(os.path.basename(pr["workdir"]), "framing"))
+    except Exception as e:
+        print(f"  Auto-frame skipped: {str(e)[:160]}", flush=True)
+        return {}
+    if not r.get("layout"):
+        return {}
+    return {k: r[k] for k in ("layout", "cam", "track") if r.get(k)}
+
+
 def _framing_for(pr: dict, start: float, end: float, ro, log=None) -> Optional[dict]:
     """Follow the face for a whole-frame crop (Layout › Follow face). None when it doesn't apply."""
     if engine.effective_layout(ro) != "full" or ro.track != "auto" or not framing.available():
@@ -1200,6 +1224,8 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
     if end_ - start_ < 1:
         raise RuntimeError("That clip is too short.")
     pr = projects.get(pid) or {}
+    if pr and "layout" not in (opts or {}):
+        opts = dict(opts or {}, **_auto_layout(pr))
     d = _find_clip(pr, c.get("id")) if pr else None
     if d:
         why = checkflow.blocks_render(d)
@@ -1294,7 +1320,8 @@ def _file_name(it: dict, outdir: str) -> str:
     else:
         base = _safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
     # Settings › Hashtags › In file names: the real tags, '#' and all, chosen with the name (so a retry keeps them)
-    base = hashtags.with_tags(base, hashtags.file_tags((it.get("name_fields") or {}).get("streamer", "")))
+    nf = it.get("name_fields") or {}
+    base = hashtags.with_tags(base, hashtags.file_tags(nf.get("streamer", ""), platform=nf.get("platform", "")))
     with queue_lock:
         claimed = {os.path.normcase(x["name"]) for x in queue if x is not it and x.get("name")
                    and os.path.normcase(x.get("folder") or "") == os.path.normcase(outdir)}
@@ -1808,11 +1835,13 @@ def queue_worker(idx: int = 0):
                 return
             save_queue_soon()
             t0 = time.time()
+            print(f"  Rendering \"{it.get('title') or 'clip'}\" ({it['end'] - it['start']:.0f} s)...", flush=True)
             try:
                 _render_item(it)
                 it["status"] = "done"
                 it["progress"] = 1.0
                 it["step"] = f"Done in {time.time() - t0:.0f}s"
+                print(f"  Rendered {it.get('name') or 'the clip'} in {time.time() - t0:.0f} s.", flush=True)
                 save_queue_soon(0)
                 play_sound("ready", it)
             except engine.Cancelled:
