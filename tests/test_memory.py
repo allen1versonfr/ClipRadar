@@ -37,7 +37,10 @@ class FakeModel:
 
     def transcribe(self, audio, **kw):
         time.sleep(float(getattr(audio, "hold", 0) or 0))
-        return iter([]), None
+        n = int(getattr(audio, "segments", 0) or 0)
+        total = len(audio) / 16000
+        word = types.SimpleNamespace(start=0.0, end=0.1, word="hi")
+        return iter([types.SimpleNamespace(end=total * (i + 1) / n, text="hi", words=[word]) for i in range(n)]), None
 
 
 sys.modules["faster_whisper"] = types.SimpleNamespace(WhisperModel=FakeModel)
@@ -75,6 +78,16 @@ check("let go once idle", engine.release_whisper(0) is True and not engine._whis
 check("nothing to let go twice", engine.release_whisper(0) is False)
 engine.transcribe(quiet, "base", "en", log)
 check("loads again when needed", list(engine._whisper_cache) == ["base"])
+
+
+class Segmented(np.ndarray):
+    segments = 4
+
+
+seen = []
+engine.transcribe(np.zeros(16000 * 8, dtype=np.float32).view(Segmented), "base", "en", log, progress=seen.append)
+check("transcription reports how far it has got (a render's bar moves while captions are made)",
+      [round(f, 2) for f in seen] == [0.25, 0.5, 0.75, 1.0], seen)
 
 
 class Held(np.ndarray):

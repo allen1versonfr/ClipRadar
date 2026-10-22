@@ -1067,6 +1067,13 @@ def _frac(v, default: float) -> float:
         return default
 
 
+def _int_in(v, default: int, lo: int, hi: int) -> int:
+    try:
+        return int(min(hi, max(lo, int(float(v)))))
+    except (TypeError, ValueError):
+        return default
+
+
 def _clean_words(ws) -> Optional[list]:
     """Caption words edited in the app (absolute times), or None when the clip wasn't edited."""
     if not isinstance(ws, list):
@@ -1124,6 +1131,8 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         caption_motion=str(o.get("caption_motion") or ""), caption_speed=int(o.get("caption_speed", 100) or 100),
         caption_emph=bool(o.get("caption_emph", False)), caption_filler=bool(o.get("caption_filler", True)),
         caption_punct=bool(o.get("caption_punct", True)),
+        caption_spacing=_int_in(o.get("caption_spacing"), 100, 100, 200),
+        caption_offset=_int_in(o.get("caption_offset"), 0, -1000, 1000),
         cap_x=_frac(o.get("cap_x"), 0.5),
         cap_y=_frac(o.get("cap_y"), 0.7),
         title_style=str(o.get("title_style", "box")),
@@ -1695,7 +1704,9 @@ def apply_perf(prefs: Optional[dict] = None):
     MAX_WORKERS[0] = p["renders"]
     if p["priority"] == "responsive":
         engine.RENDER_PRIORITY[0] = 0x00004000 if sys.platform == "win32" else 0     # BELOW_NORMAL_PRIORITY_CLASS
-        engine.RENDER_THREADS[:] = ["-threads", str(max(2, (os.cpu_count() or 4) // 2))]
+        # leave one core for you; the lower priority (Windows) already lets what you're doing go first.
+        # Half the cores cost a third of the speed (measured: 30 s clip, 4 cores, 23.8 s vs 18.2 s)
+        engine.RENDER_THREADS[:] = ["-threads", str(max(2, (os.cpu_count() or 4) - 1))]
     else:
         engine.RENDER_PRIORITY[0] = 0
         engine.RENDER_THREADS[:] = []
@@ -2887,7 +2898,7 @@ class Handler(BaseHTTPRequestHandler):
             if pid not in projects:
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
-                it = queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=True)
+                it = queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=body.get("sound", True) is not False)
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
             except RuntimeError as e:

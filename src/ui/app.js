@@ -83,7 +83,7 @@ let vodJob = null, ttJob = null, setupJob = null;
 const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, game_x: 0.5, game_zoom: 1.0,
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
   caption_style: 'pop', caption_font: 'classic', caption_anim: true, caption_motion: 'pop', caption_speed: 100,
-  caption_emph: false, caption_filler: true, caption_punct: true, cap_x: 0.5, cap_y: 0.7,
+  caption_emph: false, caption_filler: true, caption_punct: true, caption_spacing: 100, caption_offset: 0, cap_x: 0.5, cap_y: 0.7,
   title_style: 'box', title_font: 'classic', title_size: 100, title_x: 0.5, title_y: 0.05,
   whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16', cap_outline: 100, cap_shadow: 100,
   track: 'auto', track_target: 'auto', focus_y: 0.4 };
@@ -702,6 +702,7 @@ function renderRows() {
   const flaggedN = W.clips.filter(isFlagged).length, openN = W.clips.filter(c => checkStatus(c) === 'needs_review').length;
   $('#flagTab').hidden = !flaggedN && filter !== 'flagged'; $('#nFlag').textContent = openN || (flaggedN ? '' : '');
   $('#flagBar').hidden = filter !== 'flagged';
+  $('#batchBar').hidden = filter !== 'todo' || !W || !W.clips.some(c => c.state === 'todo' && !isGem(c));
   const list = visible();
   if (!list.length) {
     $('#cards')._html = '';
@@ -1115,18 +1116,45 @@ async function keep() {
     return;
   }
   if (!await checkGate(c)) return;
+  if (await queueKeep(c)) { updateStatusBar(); advance(keyOf(c)); }
+}
+async function queueKeep(c, quiet = false, sound = true) {
+  // keep one clip: queue its render with the current export settings and record the keep
   const rank = W.kind === 'live' ? (c.moment || rankOf(c)) : c.id;
   const clip = { id: c.id, rank, start: c.start, end: c.end,
-                 title: c.title.trim(), post: $('#postInput').value || postFor(c), thumb: c.thumb, gain: c.gain || 0 };
+                 title: c.title.trim(), post: (c === curClip() && $('#postInput').value) || postFor(c), thumb: c.thumb, gain: c.gain || 0 };
   if (c.wordsEdited) clip.words = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end);
   queueEpoch++;
-  try { const it = await api('/api/queue/add', { pid: c.pid, clip, opts: JSON.parse(JSON.stringify(opts)) }); queueItems.push(it); queueEpoch++; }
-  catch (e) { toast(e.message, 'err'); return; }
+  try { const it = await api('/api/queue/add', { pid: c.pid, clip, opts: JSON.parse(JSON.stringify(opts)), sound }); queueItems.push(it); queueEpoch++; }
+  catch (e) { if (!quiet) toast(e.message, 'err'); return false; }
   c.state = 'kept'; saveClip(c);
   feedback(c, 'keep');
-  toast(`Rendering "${clip.title || 'clip ' + clip.rank}" in the background.`, '', 2500);
-  updateStatusBar(); advance(keyOf(c));
+  if (!quiet) toast(`Rendering "${clip.title || 'clip ' + clip.rank}" in the background.`, '', 2500);
+  return true;
 }
+$('#batchKeep').onclick = async () => {
+  // a multi-clip export: keep the top N of the list (in the order shown), skipping clips the
+  // content check holds back, without a question per clip
+  const n = +$('#batchN').value, list = visible().filter(c => c.state === 'todo' && !isGem(c));
+  const pick = n ? list.slice(0, n) : list;
+  if (!pick.length) { toast('Nothing left to review in this list.', '', 2500); return; }
+  if (!await ask({ title: `Keep and render ${plural(pick.length, 'clip')}?`, ok: 'Keep and render',
+    body: `The top ${plural(pick.length, 'clip')} in this list, each rendered with the current export settings and file name, one after another (Settings › Performance sets how many at once). Clips with content flags to review are left for you.` })) return;
+  const allowFlagged = safetyCfg.enabled === false || (safetyCfg.export_flagged || 'ask') === 'allow';
+  let done = 0, held = 0, failed = 0;
+  $('#batchKeep').disabled = true;
+  try {
+    for (const c of pick) {
+      const st = checkStatus(c);
+      if (st === 'excluded' || (st === 'needs_review' && !allowFlagged)) { held++; continue; }
+      if (await queueKeep(c, true, !done)) done++; else failed++;     // one queue sound for the batch
+    }
+  } finally { $('#batchKeep').disabled = false; }
+  renderRows(); updateStatusBar();
+  const c = curClip(); if (c && c.state === 'kept') advance(keyOf(c));
+  toast(`Rendering ${plural(done, 'clip')}.` + (held ? ` ${plural(held, 'clip')} left for you: review the content flags first.` : '')
+    + (failed ? ` ${plural(failed, 'clip')} couldn't be added.` : ''), failed ? 'err' : '', 5000);
+};
 async function skipOrUndo() {
   const c = curClip(); if (!c || mode !== 'clip') return;
   if (c.state === 'kept') {
@@ -1402,6 +1430,7 @@ function chunksFor(c) {
   });
 }
 function captionAt(c, t) {
+  t -= (opts.caption_offset || 0) / 1000;        // captions moved earlier or later (Text › Timing)
   for (const ch of chunksFor(c)) {
     if (t >= ch.start && t < ch.end) {
       let hi = 0; ch.words.forEach((w, j) => { if (w.start <= t) hi = j; });
@@ -1436,7 +1465,14 @@ function drawCaption(g, cap, capY, Wd, Ht, t) {
   const sp = g.measureText(' ').width, widths = cap.texts.map(w => g.measureText(w).width);
   const maxW = 2 * (Math.min(cx, Wd - cx) - 70 * k), lines = [[]]; let lw = 0;
   cap.texts.forEach((w, i) => { if (lw && lw + sp + widths[i] > maxW) { lines.push([]); lw = 0; } lines[lines.length - 1].push(i); lw += (lw ? sp : 0) + widths[i]; });
-  const lh = fs * 1.15, y0 = cy - (lines.length - 1) * lh / 2;
+  const spacing = clamp(opts.caption_spacing || 100, 100, 200);
+  if (spacing > 100 && lines.length > 1 && cap.texts.length > 1) {
+    // more line spacing: two balanced lines, split where the render splits them (engine._join_lines)
+    const half = (chars) / 2; let acc = 0, best = 1, bd = Infinity;
+    for (let i = 1; i < cap.texts.length; i++) { acc += cap.texts[i - 1].length + 1; if (Math.abs(acc - half) < bd) { bd = Math.abs(acc - half); best = i; } }
+    lines.length = 0; lines.push([...Array(best).keys()], [...Array(cap.texts.length - best).keys()].map(i => i + best));
+  }
+  const lh = fs * 1.15 + (lines.length > 1 ? fs * (spacing - 100) / 100 : 0), y0 = cy - (lines.length - 1) * lh / 2;
   const bord = Math.max(4, Math.floor(fs1080 / 12)) * k * clamp(opts.cap_outline ?? 100, 0, 250) / 100;
   // the same animations as the render (engine.build_ass): how a group comes in, and how the word being said moves
   let motion = opts.caption_motion || (opts.caption_anim ? 'pop' : 'none'); if (st === 'clean' && motion === 'pop') motion = 'none';
@@ -1714,6 +1750,8 @@ function syncControls() {
   $('#capMotion').value = opts.caption_motion || (opts.caption_anim ? 'pop' : 'none');
   $('#capSpeed').value = opts.caption_speed || 100; $('#capSpeedOut').textContent = (opts.caption_speed || 100) + '%';
   $('#capSpeedRow').hidden = $('#capMotion').value === 'none';
+  $('#capSpacing').value = opts.caption_spacing || 100; $('#capSpacingOut').textContent = (opts.caption_spacing || 100) + '%';
+  $('#capOffset').value = opts.caption_offset || 0; $('#capOffsetOut').textContent = ((opts.caption_offset || 0) > 0 ? '+' : '') + ((opts.caption_offset || 0) / 1000).toFixed(2) + ' s';
   $('#capEmph').checked = !!opts.caption_emph; $('#capFiller').checked = opts.caption_filler !== false; $('#capPunct').checked = opts.caption_punct !== false;
   $('#titleSize').value = opts.title_size; $('#titleSizeOut').textContent = opts.title_size + '%';
   $$('#titleStyles .tile').forEach(b => b.classList.toggle('on', b.dataset.v === opts.title_style));
@@ -1767,7 +1805,7 @@ function trackSoon() {
 }
 function showTrack(r) {
   $('#trackNote').textContent = r.path && r.path.length
-    ? `Following the face (seen in ${Math.round((r.coverage || 0) * 100)}% of the clip). The crop moves smoothly and holds still while the face is hidden.`
+    ? `${r.reason || 'Following the face'} (seen in ${Math.round((r.coverage || 0) * 100)}% of the clip). The crop moves smoothly, holds still while a face is hidden, and only moves to someone else once the person it follows has gone.`
     : `${r.reason || 'No face found'}. The crop stays at the focus point.`;
 }
 $('#autoFrame').onclick = async () => {
@@ -1827,6 +1865,8 @@ $('#capFont').onclick = e => { const b = e.target.closest('button'); if (b) { op
 $('#titleSize').oninput = e => { opts.title_size = +e.target.value; syncControls(); };
 $('#capMotion').onchange = e => { opts.caption_motion = e.target.value; opts.caption_anim = e.target.value !== 'none'; syncControls(); };
 $('#capSpeed').oninput = e => { opts.caption_speed = +e.target.value; syncControls(); };
+$('#capSpacing').oninput = e => { opts.caption_spacing = +e.target.value; syncControls(); };
+$('#capOffset').oninput = e => { opts.caption_offset = +e.target.value; syncControls(); };
 $('#capEmph').onchange = e => { opts.caption_emph = e.target.checked; syncControls(); };
 $('#capFiller').onchange = e => { opts.caption_filler = e.target.checked; syncControls(); };
 $('#capPunct').onchange = e => { opts.caption_punct = e.target.checked; syncControls(); };
@@ -2788,7 +2828,7 @@ $('#pfLives').onchange = e => saveExport({ lives: +e.target.value });
 $('#pfPriority').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ priority: v }); };
 // saved caption styles
 const CAP_KEYS = ['captions', 'caption_pos', 'caption_color', 'caption_size', 'words_per_line', 'uppercase', 'caption_style', 'caption_font',
-  'caption_anim', 'caption_motion', 'caption_speed', 'caption_emph', 'caption_filler', 'caption_punct',
+  'caption_anim', 'caption_motion', 'caption_speed', 'caption_emph', 'caption_filler', 'caption_punct', 'caption_spacing', 'caption_offset',
   'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_x', 'title_y'];
 function renderCapPresets() {
   $('#capTemplates').innerHTML = CAP_TEMPLATES.map((p, i) => `<button class="chip" data-ct="${i}" title="Use this look (you can change anything after)">${esc(p.name)}</button>`).join('');

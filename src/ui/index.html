@@ -163,6 +163,12 @@
               <button data-f="all">All <b id="nAll"></b></button>
               <button data-f="gems" id="gemsTab" hidden title="Quiet gems: funny or quotable lines Deep scan found where chat and volume were calm">Gems <b id="nGems"></b></button>
             </div>
+            <div class="flag-bar" id="batchBar" hidden>
+              <span class="muted" title="Keep several clips at once: each renders with the current export settings, the same as pressing Keep on it">Keep the top</span>
+              <select class="input sm" id="batchN" aria-label="How many clips to keep"><option>3</option><option selected>5</option><option>10</option><option>15</option><option>20</option><option value="0">all</option></select>
+              <span class="grow"></span>
+              <button class="btn xs primary" id="batchKeep" title="Keep and render the top clips in this list, in this order">Keep and render</button>
+            </div>
             <div class="flag-bar" id="flagBar" hidden>
               <select class="input sm" id="flagFilter" aria-label="Show flagged clips by status">
                 <option value="all">All flagged</option><option value="needs_review">Needs review</option>
@@ -327,6 +333,8 @@
                     <option value="bounce">Bounce</option><option value="fade">Fade in</option><option value="slide">Slide up</option>
                     <option value="reveal">Word by word</option><option value="none">None</option></select></label>
                   <label class="fld inline" id="capSpeedRow">Speed<input type="range" id="capSpeed" min="50" max="200" step="10" value="100"><output id="capSpeedOut" class="tnum"></output></label>
+                  <label class="fld inline" title="Space between the two lines of a long caption">Line spacing<input type="range" id="capSpacing" min="100" max="200" step="10" value="100"><output id="capSpacingOut" class="tnum"></output></label>
+                  <label class="fld inline" title="Captions a little early or late compared with the voice? Move them all: minus is earlier, plus is later">Timing<input type="range" id="capOffset" min="-1000" max="1000" step="50" value="0"><output id="capOffsetOut" class="tnum"></output></label>
                   <label class="fld switch-label" title="Words like &quot;no way&quot;, &quot;insane&quot; and shouted words stay in the highlight colour">Highlight strong words<span class="switch"><input type="checkbox" id="capEmph"><i></i></span></label>
                   <label class="fld switch-label">Keep "um" and "uh"<span class="switch"><input type="checkbox" id="capFiller" checked><i></i></span></label>
                   <label class="fld switch-label">Keep punctuation<span class="switch"><input type="checkbox" id="capPunct" checked><i></i></span></label>

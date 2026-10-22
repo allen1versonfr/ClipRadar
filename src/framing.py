@@ -33,6 +33,9 @@ HOLD_S = 2.0                  # a face that disappears (turned away, covered) is
 MAX_SPEED = 0.22              # fastest pan, in source widths per second
 DEADZONE = 0.035              # the crop doesn't move for wiggles smaller than this (source widths)
 MIN_COVERAGE = 0.3            # under this share of frames with the face, don't follow (fall back)
+GROUP_SIZE = 0.4              # another face at least this big (vs the biggest) counts as a second person
+GROUP_FIT = 0.92             # people are framed together when they span under this share of the crop
+SWITCH_S = 1.5               # someone else is followed only after the person followed is gone this long
 TARGETS = ("auto", "largest", "left", "right", "point")
 
 _lock = threading.Lock()
@@ -169,12 +172,30 @@ def detect_fine(big: np.ndarray) -> list:
 
 # ---------------------------------------------------------------- following a face
 
-def _pick(faces: list, prev: Optional[float], target: str, point: tuple) -> Optional[tuple]:
-    """The face to follow in one frame."""
+def _group(faces: list, crop_frac: float) -> Optional[tuple]:
+    """Two or more people of similar size who fit in the crop together: one box around them all."""
+    size = lambda f: (f[2] - f[0]) * (f[3] - f[1])  # noqa: E731
+    big = max(size(f) for f in faces)
+    people = [f for f in faces if size(f) >= GROUP_SIZE * big]
+    if len(people) < 2:
+        return None
+    x1, x2 = min(f[0] for f in people), max(f[2] for f in people)
+    if x2 - x1 > crop_frac * GROUP_FIT:
+        return None
+    return (x1, min(f[1] for f in people), x2, max(f[3] for f in people), min(f[4] for f in people), "group")
+
+
+def _pick(faces: list, prev: Optional[float], target: str, point: tuple, crop_frac: float = 0.0) -> Optional[tuple]:
+    """The face to follow in one frame. In automatic mode, people sitting together (a duo stream,
+    a guest) are framed as a group when they fit in the crop."""
     if not faces:
         return None
     cx = lambda f: (f[0] + f[2]) / 2  # noqa: E731
     size = lambda f: (f[2] - f[0]) * (f[3] - f[1])  # noqa: E731
+    if target == "auto" and len(faces) > 1 and 0 < crop_frac < 1:
+        g = _group(faces, crop_frac)
+        if g is not None:
+            return g
     if prev is not None and target in ("auto", "point"):
         near = min(faces, key=lambda f: abs(cx(f) - prev))
         if abs(cx(near) - prev) < 0.12:
@@ -197,9 +218,17 @@ def follow(detections: list, fps: float = SAMPLE_FPS, target: str = "auto", poin
     raw = np.full(n, np.nan)
     ys, hs, ws = [], [], []
     prev = None
+    away, switch, groups = 0, max(1, int(SWITCH_S * fps)), 0
     for i, faces in enumerate(detections):
-        f = _pick(faces, prev, target, point)
+        f = _pick(faces, prev, target, point, crop_frac)
+        if f is not None and prev is not None and abs((f[0] + f[2]) / 2 - prev) >= 0.12:
+            # someone else: only move over once the person followed has really gone (not when
+            # they're missed for a moment while a second person is in view)
+            away += 1
+            f = f if away >= switch else None
         if f is not None:
+            away = 0
+            groups += len(f) > 5
             raw[i] = prev = (f[0] + f[2]) / 2
             ys.append((f[1] + f[3]) / 2)
             hs.append(f[3] - f[1])
@@ -253,7 +282,8 @@ def follow(detections: list, fps: float = SAMPLE_FPS, target: str = "auto", poin
     path = [(round(i / fps, 2), round(float(cam[i]), 4)) for i in idx]
     jitter = float(np.median(np.abs(np.diff(raw[have])))) if have.sum() > 2 else 0.0
     conf = cov * float(np.clip(1 - jitter * 10, 0.5, 1.0))     # a face that jumps around is less certain
-    return dict(out, path=path, confidence=round(conf, 2), reason="Following the face")
+    reason = "Keeping both people in frame" if groups > 0.5 * have.sum() else "Following the face"
+    return dict(out, path=path, confidence=round(conf, 2), reason=reason)
 
 
 def x_expr(path: list, sw: int, cw: int) -> str:
@@ -304,7 +334,7 @@ def track(video: str, start: float, end: float, info: dict, o, cache_dir: str = 
     point = (float(getattr(o, "game_x", 0.5)), float(getattr(o, "focus_y", 0.4)))
     cf = crop_frac(info, o)
     key = hashlib.sha1(json.dumps([os.path.basename(video), os.path.getsize(video) if os.path.exists(video) else 0,
-                                   round(start, 2), round(end, 2), target, point, round(cf, 3), 2]).encode()).hexdigest()[:16]
+                                   round(start, 2), round(end, 2), target, point, round(cf, 3), 3]).encode()).hexdigest()[:16]
     cpath = os.path.join(cache_dir, f"track_{key}.json") if cache_dir else ""
     if cpath and os.path.isfile(cpath):
         try:

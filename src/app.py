@@ -195,8 +195,8 @@ def selftest(out_json: str, media: str = "") -> int:
             rec(f"tool {tool}", False, "not found")
             continue
         try:
-            p = subprocess.run([exe, *args], capture_output=True, text=True, timeout=60,
-                               stdin=subprocess.DEVNULL, creationflags=engine.CREATE_NO_WINDOW)
+            p = subprocess.run([exe, *args], capture_output=True, text=True, timeout=60, encoding="utf-8",
+                               errors="replace", stdin=subprocess.DEVNULL, creationflags=engine.CREATE_NO_WINDOW)
             first = (p.stdout or p.stderr).strip().splitlines()[:1]
             rec(f"tool {tool}", True, f"{exe} | {first[0] if first else 'ran'}")
         except Exception as e:

@@ -123,6 +123,24 @@ check("automatic: the biggest face", abs(pick("auto") - 0.75) < 0.05)
 check("left-most and right-most person", abs(pick("left") - 0.2) < 0.05 and abs(pick("right") - 0.75) < 0.05, (pick("left"), pick("right")))
 check("nearest to the focus point", abs(pick("point", (0.1, 0.4)) - 0.2) < 0.05)
 
+# several people
+duo = [[face_at(0.42, w=0.08), face_at(0.58, w=0.08)] for _ in range(24)]
+r = framing.follow(duo, FPS, crop_frac=0.32)
+check("two people side by side are framed together", abs(r["path"][-1][1] - 0.5) < 0.03 and "both" in r["reason"],
+      (r["path"][-1], r["reason"]))
+apart = [[face_at(0.15, w=0.1), face_at(0.85, w=0.1)] for _ in range(24)]
+r = framing.follow(apart, FPS, crop_frac=0.32)
+xs = [x for _, x in r["path"]]
+check("too far apart to fit: stays on one person, no swapping", max(xs) - min(xs) < 0.02 and "both" not in r["reason"], xs)
+# a speaker change: A talks alone, then B is there too and A is missed now and then, then A leaves
+a_, b_ = face_at(0.25, w=0.1), face_at(0.78, w=0.1)
+seq = [[a_] for _ in range(16)] + [[a_, b_] if i % 3 else [b_] for i in range(16)] + [[b_] for _ in range(24)]
+r = framing.follow(seq, FPS, crop_frac=0.32)
+mid = framing.path_at(r["path"], 31 / FPS)
+check("a second person and a missed frame don't pull the crop away", mid < 0.35, round(mid, 3))
+check("once the first person has gone, the crop moves to the other", r["path"][-1][1] > 0.7, r["path"][-1])
+check("and never whips across", max(abs(b - a) for (_, a), (_, b) in zip(r["path"], r["path"][1:])) <= framing.MAX_SPEED * 0.5 + 1e-6)
+
 # ---------------------------------------------------------------- ffmpeg expression and paths
 e = framing.x_expr([(0, 0.5), (1, 0.6), (2, 0.6)], 1920, 608)
 check("crop expression moves between keyframes", e.startswith("'gte(t,0)*lt(t,1)*(656.0+192.000*(t-0))") and "gte(t,2)*848.0" in e, e)

@@ -89,6 +89,26 @@ check("both kept by default", len(engine.caption_words(WORDS, R())) == len(WORDS
 kept = engine.caption_words(WORDS, R(caption_filler=False))
 check("dropping words keeps the others' timing", all(w in WORDS for w in kept))
 
+late = dialogues(engine.build_ass(WORDS, R(caption_offset=250), 1300, 5.0))
+check("timing: captions can be moved later, every word by the same amount",
+      all(abs(d[0] - round(w["start"] + 0.25, 2)) < 0.011 for d, w in zip(late, WORDS)), [d[0] for d in late[:3]])
+early = dialogues(engine.build_ass(WORDS, R(caption_offset=-400), 1300, 5.0))
+check("timing: moved earlier, never before the clip starts", early[0][0] == 0.0 and abs(early[1][0] - 0.15) < 0.011,
+      [d[0] for d in early[:2]])
+srt = os.path.join(tempfile.mkdtemp(prefix="vc_srt_"), "c.srt")
+engine.write_srt(WORDS, R(caption_offset=500), srt, 5.0)
+check("timing: the .srt file moves with the burned-in captions", "00:00:00,700 -->" in open(srt, encoding="utf-8").read(),
+      open(srt, encoding="utf-8").read()[:60])
+LONG = [{"start": 0.2 + i * 0.3, "end": 0.45 + i * 0.3, "word": w}
+        for i, w in enumerate("absolutely unbelievable comeback tonight".split())]
+wide = dialogues(engine.build_ass(LONG, R(words_per_line=4, caption_spacing=160), 1300, 5.0))
+check("line spacing: a long caption is split into two balanced lines with a spacer between them",
+      all(d[2].count("\\N") == 2 and "\\h" in d[2] for d in wide) and "UNBELIEVABLE\\N" in wide[0][2], wide[0][2][-90:])
+check("line spacing: normal spacing leaves the wrapping to libass",
+      not any("\\N" in d[2] for d in dialogues(engine.build_ass(LONG, R(words_per_line=4), 1300, 5.0))))
+check("line spacing: a short caption stays on one line",
+      not any("\\N" in d[2] for d in dialogues(engine.build_ass(WORDS[:2], R(caption_spacing=200), 1300, 5.0))))
+
 if shutil.which("ffmpeg"):
     tmp = tempfile.mkdtemp(prefix="vc_cap_")
     src = os.path.join(tmp, "s.mp4")
@@ -107,6 +127,26 @@ if shutil.which("ffmpeg"):
                     bad.append(f"{motion}/{style}: empty")
             except Exception as e:
                 bad.append(f"{motion}/{style}: {str(e)[-120:]}")
+    # measured: the gap between the two lines really grows (bright rows on a black frame)
+    import numpy as np
+    black = os.path.join(tmp, "black.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=black:size=1080x1920:rate=30:duration=2",
+                    "-f", "lavfi", "-i", "sine=frequency=300:duration=2", "-shortest", "-c:v", "libx264",
+                    "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", black], check=True)
+    heights = {}
+    for sp in (100, 200):
+        out = os.path.join(tmp, f"sp{sp}.mp4")
+        engine.render_clip(black, 0.0, 1.5, out, R(layout="full", hw_encode=False, speed="fast", caption_motion="none",
+                                                   words_per_line=4, caption_spacing=sp),
+                           words=[dict(w, start=0.1, end=1.4) for w in LONG], log=lambda m: None)
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", "1.0", "-i", out, "-frames:v", "1", "-f", "rawvideo",
+                              "-pix_fmt", "gray", "-"], capture_output=True).stdout
+        img = np.frombuffer(raw, np.uint8).reshape(1920, 1080)
+        rows = np.where((img > 200).sum(axis=1) > 3)[0]
+        heights[sp] = int(rows.max() - rows.min()) if rows.size else 0
+    check("line spacing 200% makes the caption taller than 100% (measured on the rendered frame)",
+          heights[200] > heights[100] * 1.25, heights)
+    print(f"  caption height on the frame: {heights}")
     check(f"every preset renders with every caption style ({len(engine.CAPTION_MOTIONS) * len(engine.CAPTION_STYLES)} renders)", not bad, bad[:3])
 else:
     print("[skip] no ffmpeg here: renders not checked")
