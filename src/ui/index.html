@@ -168,6 +168,13 @@
               <select class="input sm" id="batchN" aria-label="How many clips to keep"><option>3</option><option selected>5</option><option>10</option><option>15</option><option>20</option><option value="0">all</option></select>
               <span class="grow"></span>
               <button class="btn xs primary" id="batchKeep" title="Keep and render the top clips in this list, in this order">Keep and render</button>
+              <span class="bar-break"></span>
+              <span class="muted" title="Skip many clips at once">Skip</span>
+              <select class="input sm" id="skipScore" aria-label="Which clips to skip" title="Skip every clip in this list, or only those scored under a number (the score on each clip, out of 100)">
+                <option value="0">All clips</option><option value="40">Scored under 40</option><option value="50">Scored under 50</option><option value="60">Scored under 60</option><option value="75">Scored under 75</option>
+              </select>
+              <span class="grow"></span>
+              <button class="btn xs" id="batchSkip" title="Skip these clips at once. Clips you made yourself aren't skipped.">Skip clips</button>
             </div>
             <div class="flag-bar" id="flagBar" hidden>
               <select class="input sm" id="flagFilter" aria-label="Show flagged clips by status">

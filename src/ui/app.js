@@ -1156,6 +1156,22 @@ $('#batchKeep').onclick = async () => {
   toast(`Rendering ${plural(done, 'clip')}.` + (held ? ` ${plural(held, 'clip')} left for you: review the content flags first.` : '')
     + (failed ? ` ${plural(failed, 'clip')} couldn't be added.` : ''), failed ? 'err' : '', 5000);
 };
+$('#batchSkip').onclick = async () => {
+  // skip many at once: every clip left in this list, or those scored under the number picked.
+  // Clips you made yourself stay. Not taught to the ranking: a bulk skip isn't a verdict on each clip.
+  const under = +$('#skipScore').value;
+  const pick = visible().filter(c => c.state === 'todo' && !isGem(c) && !c.manual && (!under || (c.quality || 0) < under));
+  if (!pick.length) { toast(under ? `No clips scored under ${under} left to review.` : 'Nothing left to review in this list.', '', 3000); return; }
+  if (pick.length > 3 && !await ask({ title: `Skip ${plural(pick.length, 'clip')}?`, ok: 'Skip',
+    body: (under ? `Every clip in this list scored under ${under}.` : 'Every clip left in this list.') + ' They move to Skipped, where you can still keep any of them.' })) return;
+  pick.forEach(c => { c.state = 'skipped'; saveClip(c); });
+  renderRows(); updateStatusBar();
+  const c = curClip(); if (c && c.state === 'skipped') advance(keyOf(c));
+  toast(`Skipped ${plural(pick.length, 'clip')}.`, '', 6000, { label: 'Undo', fn: () => {
+    pick.forEach(x => { if (x.state === 'skipped') { x.state = 'todo'; saveClip(x); } });
+    renderRows(); updateStatusBar(); fillInspector();
+  } });
+};
 async function skipOrUndo() {
   const c = curClip(); if (!c || mode !== 'clip') return;
   if (c.state === 'kept') {

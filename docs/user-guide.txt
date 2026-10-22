@@ -362,6 +362,9 @@ HOW CLIPS ARE PICKED
   - Keep the top (To review list): keep and render the top 3, 5, 10, 15, 20
     or all clips in one go, in the order shown, with your export settings.
     Clips with content flags to review are left for you.
+  - Skip (To review list): skip every clip left in the list, or only those
+    scored under 40, 50, 60 or 75. Clips you made yourself stay. Undo brings
+    them back, and skipped clips can still be kept from the Skipped tab.
   - Clips to suggest goes from 5 to 60 in steps of 5, then up to 100. You get
     the number you asked for; when a video doesn't have that many separate
     moments, Clip Radar says so.

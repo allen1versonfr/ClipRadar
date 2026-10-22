@@ -19,6 +19,8 @@ Working with clipping campaigns and clipping Discords, and watermarks you can mo
   - Rotation for every layer; font, colour, outline and box colour for text.
   - Save as… keeps a set of layers under a name; Share… saves them as one file with the images inside; Import… and From link… bring in a watermark file, a campaign file or a logo image (PNG, JPG, WebP).
 
+- **Skip many clips at once** (Review › To review): Skip clips skips every clip left in the list, or only those scored under 40, 50, 60 or 75. Clips you made yourself stay, Undo brings them back, and a bulk skip isn't taught to the ranking.
+
 ### Changed
 - Watermark settings from earlier versions become one layer, in the same place. Clips already in the render queue keep their watermark.
 - Watermark images are kept in Clip Radar's own folder and only those are used or shown, so a watermark can't point at another file on your PC.
