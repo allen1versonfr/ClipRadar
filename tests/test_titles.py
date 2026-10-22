@@ -91,5 +91,43 @@ check("never more than five tags", len(titles.hashtags("funny", "Someone", "Mine
 check("plain description reads naturally", titles.describe(None, "", "Sam") == "A moment from Sam's stream 👀"
       and titles.describe(None, "") == "A moment from the stream 👀")
 
+# Whisper mishearing noise is never a title (all seen on a real 6-hour stream)
+for junk in ["5, 4, 5, 5, 5, 6,.p", "L!, c!, I'm d, b, b, t, c!", "TH, d, s,fore, dad, oh, u,ne",
+             "Girls insp, h, wap, r, wap", "Uu, uu, uu, luumph, uu, uu, uu tha", "😂 Yippy 😆 👛 It's", "U dram fave, l!"]:
+    check(f"garbled: {junk!r}", titles.garbled(junk))
+for fine in ["No, actually, bro, what is it?", "How come, bruh", "Yo bud, sh!t!", "What the, what", "I never seen",
+             "It's time to go, bruh", "He pranked calling people, right?", "No no no way"]:
+    check(f"a real line isn't garbled: {fine!r}", not titles.garbled(fine))
+rj = titles.generate(W("L!, c!, I'm d, b, b, t, c!", 1), laugh, 2.0, set())
+check("a garbled line falls back to a template", rj["title_a"] in [titles.polish(t) for t in titles.VIBES["funny"]["templates"] + titles.NEUTRAL], rj["title_a"])
+
+# automatic captions have no punctuation: long runs are cut at a pause, not mid-sentence
+cap = ("okay I've had my little pink decorating moment and I loved every second of it this starter house is "
+       "definitely the most colorful I've ever had").split()
+ws, t = [], 0.6
+for w in cap:
+    ws.append({"start": t, "end": t + 0.25, "word": w})
+    t += 0.3 + (0.45 if w in ("moment", "it") else 0.0)       # the speaker pauses after "moment" and "it"
+pieces = [titles._phrase_text(p) for p in titles._phrases(ws)]
+check("captions: no piece ends on a word that leads into the next", not any(p.split()[-1].lower() in titles.DANGLING_END for p in pieces[:-1]), pieces)
+check("captions: cut where the speaker paused", any(p.endswith("of it") for p in pieces), pieces)
+rc = titles.generate(ws, [], 5.0, set())
+check("captions: the title is a whole thought", not rc["title_a"].lower().endswith(" this"), rc["title_a"])
+
+# many clips of one mood: the templates take turns once they're all used
+used, got = set(), []
+for i in range(30):
+    x = titles.generate([], ["KEKW"] * (8 + i % 7), float(i % 5), used)
+    got.append(x["title_a"])
+    used.add(x["title_a"].lower())
+top = max(got.count(g) for g in set(got))
+check("30 funny clips without words: no title on more than a quarter of them", top <= 30 // 4, sorted(got))
+
+# a YouTube video: YouTube's tags and name, not Twitch's
+ry = titles.generate(words, laugh, 4.0, set(), streamer="GeminiTay", platform="youtube")
+check("YouTube: no Twitch tags", not any("twitch" in t for t in ry["hashtags"]) and "#youtube" in ry["hashtags"], ry["hashtags"])
+check("YouTube: the description says YouTube", "Twitch" not in ry["description"], ry["description"])
+check("Twitch is still the default", "#twitch" in titles.generate(words, laugh, 4.0, set(), streamer="X1")["hashtags"])
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

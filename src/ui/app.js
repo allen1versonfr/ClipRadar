@@ -475,6 +475,7 @@ function openVod(p) {
   }
   startWorkspace();
   if (p.pick_note && !p.restored) toast(p.pick_note, '', 6000);
+  if (!p.restored && layoutUntouched()) autoFrame();
   listen();
   const og = p.origin || {};
   if (og.start > 0 && !p.restored && og.start < p.duration) {
@@ -1767,7 +1768,7 @@ function syncControls() {
 let lsTimer = 0; function liveSettingsSoon() { clearTimeout(lsTimer); lsTimer = setTimeout(() => liveSettings({ opts: JSON.parse(JSON.stringify(opts)), model: opts.whisper_model, language: opts.language }), 600); }
 $('#capOutline').oninput = e => { opts.cap_outline = +e.target.value; syncControls(); };
 $('#capShadow').oninput = e => { opts.cap_shadow = +e.target.value; syncControls(); };
-$('#layoutSeg').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { opts.layout = v; syncControls(); } };
+$('#layoutSeg').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { opts.layout = v; opts.layout_auto = false; syncControls(); } };
 $('#shapeSeg').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) { opts.aspect = v; hideExact(); syncControls(); } };
 $('#camH').oninput = e => { opts.cam_height = e.target.value / 100; syncControls(); };
 $('#gameX').oninput = e => { opts.game_x = e.target.value / 100; syncControls(); };
@@ -1808,19 +1809,25 @@ function showTrack(r) {
     ? `${r.reason || 'Following the face'} (seen in ${Math.round((r.coverage || 0) * 100)}% of the clip). The crop moves smoothly, holds still while a face is hidden, and only moves to someone else once the person it follows has gone.`
     : `${r.reason || 'No face found'}. The crop stays at the focus point.`;
 }
-$('#autoFrame').onclick = async () => {
-  if (!W) return;
-  const b = $('#autoFrame'); b.disabled = true; $('#autoFrameNote').textContent = 'Looking for faces…';
+async function autoFrame() {
+  if (!W || !W.pid) return;
+  const pid = W.pid, b = $('#autoFrame'); b.disabled = true; $('#autoFrameNote').textContent = 'Looking for faces…';
   try {
-    const r = await api(`/api/framing/${W.pid}`);
+    const r = await api(`/api/framing/${pid}`);
+    if (!W || W.pid !== pid) return;
     if (!r.layout) { $('#autoFrameNote').textContent = r.reason || 'Nothing to suggest.'; return; }
     opts.layout = r.layout; if (r.cam) opts.cam = r.cam; if (r.track) opts.track = r.track;
+    opts.layout_auto = true;      // picked for this video: the next new video gets its own pick
     if (r.layout === 'split' && opts.aspect === '16:9') opts.aspect = '9:16';
     hideExact(); syncControls();
     $('#autoFrameNote').textContent = r.reason + (r.confidence < .6 ? ' (not sure: check it)' : '');
   } catch (e) { $('#autoFrameNote').textContent = e.message; }
   finally { b.disabled = false; }
-};
+}
+$('#autoFrame').onclick = autoFrame;
+// a new video is auto-framed unless you chose the layout or drew the camera box yourself: the default
+// Cam + game box is the top-left corner, which on a stream without a facecam is the chat or the game
+const layoutUntouched = () => opts.layout_auto || (opts.layout === 'split' && JSON.stringify(opts.cam) === JSON.stringify(DEFAULTS.cam));
 $('#zoom').oninput = e => { opts.game_zoom = e.target.value / 100; syncControls(); };
 $('#caps').onchange = e => { opts.captions = e.target.checked; syncControls(); };
 $('#capPos').onchange = e => { opts.caption_pos = e.target.value; syncControls(); };
@@ -2010,6 +2017,7 @@ picker.addEventListener('pointermove', e => {
 picker.addEventListener('pointerup', () => {
   if (!drag) return;
   if (opts.cam[2] < 0.03 || opts.cam[3] < 0.03) opts.cam = drag.prev;
+  else opts.layout_auto = false;          // you drew the camera box: keep it for the next video too
   drag = null; syncControls();
 });
 

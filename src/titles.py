@@ -31,7 +31,7 @@ VIBES = {
                  "pepelaugh", "xd", "haha", "hahaha", "dead", "😂", "🤣", "💀"},
         "said": {"haha", "hahaha", "lol", "funny", "hilarious", "joke", "laughing", "dying", "crying"},
         "templates": ["Chat could not stop laughing", "This had chat in tears", "Why is this so funny",
-                      "Chat lost it at this"],
+                      "Chat lost it at this", "This one broke chat", "The whole chat lost it"],
         "named": ["{n} had chat crying laughing", "{n} made chat lose it", "Chat could not stop laughing at {n}"],
         "describe": "Chat could not stop laughing at this one",
     },
@@ -80,6 +80,10 @@ NEUTRAL_NAMED = ["{n} moment you have to see", "Wait for it... ({n})", "Watch {n
 CLIP_REQ = ["Chat said clip it", "Chat made me clip this"]
 CLIP_REQ_NAMED = ["{n}'s chat said clip it"]
 BASE_TAGS = ["#twitch", "#twitchclips"]
+# a video from YouTube or X gets that platform's tags and name instead (sources.PLATFORMS keys); files
+# and other sites keep Twitch's, as they're usually stream recordings
+PLATFORM_TAGS = {"youtube": ["#youtube", "#gaming"], "x": ["#gaming"]}
+PLATFORM_NAMES = {"youtube": "YouTube", "x": "X"}
 MAX_TAGS = 5
 STRONG = {"no", "way", "what", "bro", "dude", "wait", "insane", "crazy", "oh", "god", "yes", "let's",
           "lets", "go", "holy", "dead", "how", "why", "never", "literally", "actually", "impossible",
@@ -87,6 +91,16 @@ STRONG = {"no", "way", "what", "bro", "dude", "wait", "insane", "crazy", "oh", "
 FILLER = {"um", "uh", "uhh", "umm", "like", "so", "yeah", "okay", "ok", "the", "a", "and", "i", "you",
           "it", "is", "to", "of", "that", "this", "but", "just", "mm", "hmm"}
 LEAD_FILLER = {"um", "uh", "uhh", "umm", "so", "and", "but", "like", "yeah", "okay", "ok", "well", "mm", "hmm"}
+# a piece cut out of a longer run of speech reads as a fragment when it ends on one of these
+# ("...every second of it this") or starts on one of the others ("to have like a cute little...")
+DANGLING_END = {"the", "a", "an", "to", "of", "and", "but", "or", "so", "my", "your", "our", "this", "that", "i",
+                "i'm", "it's", "is", "was", "are", "in", "on", "at", "for", "with", "as", "be", "we",
+                "they", "he", "she", "if", "when", "because", "than", "there", "just", "really", "very"}
+DANGLING_START = {"of", "to", "and", "but", "or", "than", "that", "which", "with", "for", "as", "at", "in", "on",
+                  "would", "could", "should", "is", "are", "was", "were", "be", "been", "being"}
+# short words that are real words, so a line made of them isn't taken for Whisper mishearing noise
+SHORT_WORDS = {"i", "a", "no", "so", "oh", "ok", "go", "my", "me", "we", "he", "is", "it", "to", "do", "up", "on",
+               "in", "at", "be", "us", "yo", "ya", "of", "or", "an", "as", "if", "by", "am", "hi", "ah", "uh", "um"}
 PROFANITY = re.compile(r"\b(fuck\w*|shit\w*|bitch\w*|cunt\w*|dick\w*|pussy\w*|asshole\w*|nigg\w*|fag\w*|retard\w*)\b",
                        re.I)
 _TOKEN = re.compile(r"<3|[\w']+|[^\w\s]")
@@ -119,20 +133,34 @@ def _phrases(words: list) -> list:
             cur = []
     if cur:
         out.append(cur)
-    # split very long phrases at commas, else into ~8 word pieces
+    # split very long phrases at commas, else into pieces of 4-9 words, cut where the speaker paused
+    # longest and never right after a word that leads into the next ("the", "my", "this"). Automatic
+    # captions have no punctuation at all, so a cut every 8 words landed mid-sentence: "I loved every
+    # second of it this" (this starter house...). Pieces cut this way are marked for _score_phrase.
     final = []
     for ph in out:
         if len(ph) <= 11:
             final.append(ph)
             continue
-        piece = []
-        for w in ph:
-            piece.append(w)
-            if (w["word"].endswith(",") and len(piece) >= 3) or len(piece) >= 8:
-                final.append(piece)
-                piece = []
-        if piece:
+        i = 0
+        while i < len(ph):
+            rest = ph[i:]
+            if len(rest) <= 11:
+                cut = len(rest)
+            else:
+                cut = next((k + 1 for k in range(2, 9) if rest[k]["word"].endswith(",")), 0)
+                if not cut:
+                    def gap(k):        # the break after rest[k - 1]
+                        lead = re.sub(r"[^\w']", "", rest[k - 1]["word"]).lower() in DANGLING_END
+                        return rest[k]["start"] - rest[k - 1]["end"] - (1.0 if lead else 0.0) + 0.01 * k
+                    cut = max(range(4, 10), key=gap)
+            piece = [dict(w) for w in rest[:cut]]
+            if i:
+                piece[0]["_cut_start"] = True
+            if i + cut < len(ph) and not piece[-1]["word"].endswith(","):
+                piece[-1]["_cut_end"] = True
             final.append(piece)
+            i += cut
     return final
 
 
@@ -177,7 +205,30 @@ def _score_phrase(ph: list, text: str, peak_rel: float) -> float:
     # words Whisper hallucinates on silence/music
     if re.search(r"thank(s| you) for watching|subscribe|♪", text, re.I):
         s -= 5
+    # a piece cut out of a longer sentence that starts or stops mid-thought
+    if ph[0].get("_cut_start") and toks and toks[0] in DANGLING_START:
+        s -= 1.5
+    if ph[-1].get("_cut_end") and toks and toks[-1] in DANGLING_END:
+        s -= 1.5
     return s
+
+
+def garbled(text: str) -> bool:
+    """Whisper mishearing noise rather than a line someone said: "5, 4, 5, 5, 5, 6,.p",
+    "L!, c!, I'm d, b, b, t, c!", "Uu, uu, uu, luumph", or a string of emoji."""
+    toks = re.findall(r"[^\W_]+(?:['!*][^\W_]+)*", text)          # "sh!t" (masked) is one word
+    if not toks:
+        return True
+    odd = sum(1 for t in toks if t.isdigit() or (len(t) <= 2 and t.lower() not in SHORT_WORDS))
+    long = sum(1 for t in toks if len(t) >= 3 and not t.isdigit())
+    if long == 0 or (long == 1 and odd) or odd / len(toks) >= 0.5:
+        return True
+    # a stammered list: most words cut off by commas, with fragments among them
+    commas = len(re.findall(r"\w[!?]?,", text))
+    if commas >= 3 and commas / len(toks) >= 0.5 and (odd / len(toks) >= 0.25 or len(set(map(str.lower, toks))) < 0.7 * len(toks)):
+        return True
+    symbols = sum(1 for c in text if not (c.isalnum() or c.isspace() or c in ".,!?'\"-…*"))
+    return symbols >= 2
 
 
 def _vibe(chat_msgs: list, words: list) -> tuple:
@@ -265,9 +316,9 @@ def _named(title: str, name: str, vibe: Optional[str], quote: str, used: set) ->
     return fresh + [t for t in res if t.lower() in used]
 
 
-def hashtags(vibe: Optional[str], streamer: str = "", game: str = "") -> list:
+def hashtags(vibe: Optional[str], streamer: str = "", game: str = "", platform: str = "twitch") -> list:
     """A few relevant tags: the platform, the streamer, the game (when known) and the clip's mood."""
-    tags = list(BASE_TAGS)
+    tags = list(PLATFORM_TAGS.get(platform, BASE_TAGS))
     n = re.sub(r"[^\w]", "", _name(streamer))
     if n:
         tags.insert(1, "#" + n.lower())
@@ -283,11 +334,11 @@ def hashtags(vibe: Optional[str], streamer: str = "", game: str = "") -> list:
     return out[:MAX_TAGS]
 
 
-def describe(vibe: Optional[str], quote: str, streamer: str = "", emoji: str = "👀") -> str:
+def describe(vibe: Optional[str], quote: str, streamer: str = "", emoji: str = "👀", platform: str = "twitch") -> str:
     """A post caption, separate from the title: what was said (or how chat took it), and whose stream."""
     name = _name(streamer)
     if quote:
-        text = f'"{quote}"' + (f" ({name} on Twitch)" if name else "")
+        text = f'"{quote}"' + (f" ({name} on {PLATFORM_NAMES.get(platform, 'Twitch')})" if name else "")
     elif vibe in VIBES:
         text = VIBES[vibe]["describe"] + (f", live on {name}'s stream" if name else "")
     else:
@@ -302,7 +353,7 @@ def compose(description: str, tags: list, with_tags: bool = True) -> str:
 
 def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
              used: Optional[set] = None, streamer: str = "", with_tags: bool = True,
-             pick: str = "a", game: str = "", chat_title: str = "") -> dict:
+             pick: str = "a", game: str = "", chat_title: str = "", platform: str = "twitch") -> dict:
     """
     words      transcript words with times relative to the clip start: [{start,end,word}]
     chat_msgs  chat message texts from the moments right after the clip
@@ -312,6 +363,7 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
     with_tags  add hashtags to the post text
     pick       which title goes on the video by default: 'a' or 'b'
     chat_title a title from a phrase many chatters typed (chattitles.find), or ''
+    platform   where the video came from (sources.PLATFORMS key), for the tags and description
     """
     used = used or set()
     name = _name(streamer)
@@ -320,7 +372,7 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
     quotes = []
     for ph in _phrases(words):
         text = polish(_phrase_text(ph))
-        if len(text) < 4:
+        if len(text) < 4 or garbled(text):
             continue
         quotes.append((_score_phrase(ph, text, peak_rel), _mask(text)))
     quotes.sort(key=lambda q: -q[0])
@@ -340,7 +392,14 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
             seen.add(t.lower())
             ordered.append(t)
     fresh = [t for t in ordered if t.lower() not in used]
-    ordered = fresh + [t for t in ordered if t.lower() in used]
+    stale = [t for t in ordered if t.lower() in used]
+    if not fresh and stale:
+        # every option is taken already (a long stream with many clips of one mood): spread them out
+        # instead of giving each clip the first template. `used` holds each title once, so it can't
+        # count turns; what's in this clip (its chat, its words, where it peaks) picks one instead
+        k = (len(chat_msgs) + len(words) + int((peak_rel or 0) * 10)) % len(stale)
+        stale = stale[k:] + stale[:k]
+    ordered = fresh + stale
     title_a = ordered[0] if ordered else "You have to see this"
 
     quote = good_quotes[0] if good_quotes else ""
@@ -359,9 +418,9 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
             alts.append(t)
 
     emoji = VIBES[vibe]["emoji"] if vibe else "👀"
-    tags = hashtags(vibe, name, game)
+    tags = hashtags(vibe, name, game, platform)
     # the description says something the title on the video doesn't: the reaction when the title is the quote
-    desc = describe(vibe, "" if quote and quote == title_a and vibe else quote, name, emoji)
+    desc = describe(vibe, "" if quote and quote == title_a and vibe else quote, name, emoji, platform)
     return {
         "title": title,
         "title_a": title_a,

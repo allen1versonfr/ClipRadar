@@ -45,6 +45,37 @@ if sys.stdout is None or sys.stderr is None or paths.FROZEN:
     except OSError:
         pass
 
+
+class _Stamped:
+    """Every line of the log starts with the time, so a slow or stuck step shows how long it took."""
+
+    def __init__(self, stream):
+        self._s, self._start = stream, True
+
+    def write(self, text: str) -> int:
+        if not text:
+            return 0
+        out = []
+        for part in text.splitlines(keepends=True):
+            if self._start:
+                out.append(time.strftime("%H:%M:%S "))
+            out.append(part)
+            self._start = part.endswith(("\n", "\r"))
+        self._s.write("".join(out))
+        return len(text)
+
+    def flush(self):
+        self._s.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._s, name)
+
+
+if sys.stdout is not None:
+    sys.stdout = _Stamped(sys.stdout)
+if sys.stderr is not None:
+    sys.stderr = _Stamped(sys.stderr)
+
 for _old, _new in paths.MIGRATION.items():
     print(f"Moved {_old} to {_new}" if _new else f"Couldn't move {_old} yet (in use); using it for now", flush=True)
 if _fixed_paths:

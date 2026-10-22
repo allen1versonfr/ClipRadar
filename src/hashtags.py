@@ -125,9 +125,14 @@ def save(patch: dict) -> dict:
 
 # ---------------------------------------------------------------- file names
 
-def file_tags(streamer: str, cfg: Optional[dict] = None) -> list:
+# the default general tag names Twitch: a clip from one of these sites gets that site's tag in its place
+PLATFORM_CLIPS = {"youtube": "#YouTubeClips", "x": "#XClips"}
+
+
+def file_tags(streamer: str, cfg: Optional[dict] = None, platform: str = "") -> list:
     """The tags for a clip's file name: the streamer's own tag, your tags for that streamer, then
-    your general tags. Empty when file-name hashtags are off."""
+    your general tags. Empty when file-name hashtags are off. platform ("YouTube", "Twitch", ...):
+    where the video came from, so a YouTube video isn't tagged #TwitchClips."""
     c = (cfg or load())["file"]
     if not c["enabled"]:
         return []
@@ -135,7 +140,8 @@ def file_tags(streamer: str, cfg: Optional[dict] = None) -> list:
     if c["streamer_tag"] and streamer:
         items.append(tag(re.sub(r"\s+", "", streamer)))       # "Kai Cenat" -> "#KaiCenat"
     items += _for(c["streamers"], streamer)
-    items += c["general"]
+    swap = PLATFORM_CLIPS.get((platform or "").lower())
+    items += [swap if swap and t.lower() == "#twitchclips" else t for t in c["general"]]
     return tags(items, c["max"])
 
 
