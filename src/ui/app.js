@@ -28,7 +28,7 @@ function toast(msg, kind = '', ms = 4500, action = null) {
   const el = document.createElement('div');
   el.className = 'toast ' + kind; el.textContent = msg;
   for (const a of (Array.isArray(action) ? action : action ? [action] : [])) {
-    const b = document.createElement('button'); b.className = 'act'; b.textContent = a.label;
+    const b = document.createElement('button'); b.className = 'act'; b.textContent = a.label; b.dataset.testid = 'toast-action';
     b.onclick = () => { el.remove(); a.fn(); }; el.appendChild(b);
   }
   $('#toasts').appendChild(el);
@@ -3194,6 +3194,22 @@ document.addEventListener('visibilitychange', () => {
   loadStatus(); refreshQueue(); pollLive(); pollClips();
 });
 loadStatus().then(() => { updateStatusBar(); });
+
+/* Test hooks: the one way tests/test_ui.py looks inside the page. Any UI that replaces this one
+   (the React rewrite) must provide the same object, so the smoke test keeps working unchanged.
+   Plain data in and out: Playwright passes JSON, not functions. See docs/react-migration.md. */
+window.ClipRadarTest = {
+  clips: () => (W && W.clips || []).map(c => ({ state: c.state, quality: c.quality, gem: !!isGem(c) })),
+  setOption: (k, v) => { opts[k] = v; },
+  setTodoQualities: qs => {          // qs[i] is the score for the i-th clip still to review (gems excluded)
+    let i = 0;
+    for (const c of (W && W.clips || [])) if (c.state === 'todo' && !isGem(c) && i < qs.length) c.quality = qs[i++];
+    renderRows();
+  },
+  reloadExport: () => loadExport(),
+  hitBox: name => hit[name] || null,          // where a draggable layer was drawn, in preview canvas pixels
+  previewWidth: () => phone.width,            // the preview canvas's own width (hitBox units)
+};
 /* =============================================================== editor (3.4): timeline, trims, undo/redo */
 const MIN_LEN = 1;                       // shortest clip, seconds
 const SHAPES = { '9:16': [1080, 1920], '1:1': [1080, 1080], '16:9': [1920, 1080] };

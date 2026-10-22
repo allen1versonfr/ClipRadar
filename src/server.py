@@ -67,6 +67,34 @@ import watermarks
 
 from version import VERSION
 HERE = paths.RES_DIR
+
+# The HTTP API the window talks to. Bump when a response shape or route changes in a way an
+# already-open UI can't cope with; the UI reads it from /api/status.
+API_VERSION = 1
+MAX_BODY = 16 << 20       # largest POST body accepted (requests carry paths and settings, never files)
+
+# Two UIs can ship side by side while the React rewrite lands:
+#   src/ui   the original page (index.html + app.js), always served at /legacy/
+#   src/web  the React build (`npm run build` in web/ writes it here), served at / when present
+# CLIPRADAR_UI=legacy forces the original page at /, CLIPRADAR_UI=web refuses to fall back.
+WEB_DIR = HERE / "web"
+# mimetypes reads the Windows registry, where .js is sometimes text/plain: module scripts (what a
+# Vite build emits) are then refused by the browser. Pin the types the UI depends on.
+for _ext, _type in ((".js", "text/javascript"), (".mjs", "text/javascript"), (".css", "text/css"),
+                    (".json", "application/json"), (".svg", "image/svg+xml"), (".woff", "font/woff"),
+                    (".woff2", "font/woff2"), (".ttf", "font/ttf"), (".otf", "font/otf"),
+                    (".wasm", "application/wasm"), (".map", "application/json"), (".webp", "image/webp")):
+    mimetypes.add_type(_type, _ext)
+_UI_PREFIXES = ("/api/", "/ui/", "/files/", "/vod/", "/export/", "/wmimg/", "/assets/", "/legacy/")
+
+
+def ui_mode() -> str:
+    want = os.environ.get("CLIPRADAR_UI", "auto").strip().lower()
+    if want == "legacy":
+        return "legacy"
+    if (WEB_DIR / "index.html").is_file():
+        return "web"
+    return "missing" if want == "web" else "legacy"
 import locations  # noqa: E402
 WORKROOT = locations.path("projects")        # where new projects go (Settings › Storage › Projects)
 PORT = int(os.environ.get("CLIPRADAR_PORT", "7860"))
@@ -2228,7 +2256,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
-        return json.loads(self.rfile.read(n) or b"{}") if n else {}
+        if n < 0 or n > MAX_BODY:
+            raise ValueError("body too large")
+        if not n:
+            return {}
+        # JSON only: a page on another site can't send this type without a CORS preflight
+        # (which this server never answers), so it can't reach the API even if Origin is missing.
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            raise ValueError("expected application/json")
+        return json.loads(self.rfile.read(n) or b"{}")
 
     def _err(self, msg, code=400):
         self._json({"error": msg}, code)
@@ -2250,6 +2287,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._err("not found", 404)
         size = os.path.getsize(path)
         ctype = ctype or mimetypes.guess_type(path)[0] or "application/octet-stream"
+        if ctype in ("application/javascript", "text/javascript", "text/css", "text/html") and "charset" not in ctype:
+            ctype += "; charset=utf-8"
         if path.lower().endswith(".mkv"):
             ctype = "video/webm"  # lets Chrome/Edge try to play Matroska
         rng = self.headers.get("Range")
@@ -2275,7 +2314,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(length))
-        self.send_header("Cache-Control", "max-age=3600" if cache else "no-cache")
+        self.send_header("Cache-Control", cache if isinstance(cache, str) else "max-age=3600" if cache else "no-cache")
         if code == 206:
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.end_headers()
@@ -2304,10 +2343,37 @@ class Handler(BaseHTTPRequestHandler):
         p = unquote(u.path)
         q = parse_qs(u.query)
 
+        legacy_index = str(HERE / "ui" / "index.html")
+        if p in ("/legacy", "/legacy/", "/legacy/index.html"):
+            return self._send_file(legacy_index, "text/html; charset=utf-8")
+        mode = ui_mode()
         if p in ("/", "/index.html"):
-            return self._send_file(str(HERE / "ui" / "index.html"), "text/html; charset=utf-8")
+            if mode == "web":
+                return self._send_file(str(WEB_DIR / "index.html"), "text/html; charset=utf-8")
+            if mode == "missing":
+                return self._err("The new UI isn't built (run npm run build in web/), or unset CLIPRADAR_UI.", 503)
+            return self._send_file(legacy_index, "text/html; charset=utf-8")
         if p == "/favicon.ico":
             return self._send_file(str(HERE / "ui" / "icon.svg"), "image/svg+xml", cache=True)
+        if mode == "web" and not p.startswith(_UI_PREFIXES):
+            # files from the React build: hashed bundles under /assets/ never change, so cache them
+            # for good; anything else at the top (robots.txt, a manifest) is served as is; a path with
+            # no file extension is a client-side route and gets the app's index.html.
+            base = os.path.realpath(WEB_DIR)
+            path = os.path.realpath(os.path.join(base, p.lstrip("/")))
+            if not path.startswith(base + os.sep):
+                return self._err("forbidden", 403)
+            if os.path.isfile(path):
+                return self._send_file(path)
+            if "." not in p.rsplit("/", 1)[-1]:
+                return self._send_file(str(WEB_DIR / "index.html"), "text/html; charset=utf-8")
+            return self._err("not found", 404)
+        if p.startswith("/assets/") and mode == "web":
+            base = os.path.realpath(WEB_DIR / "assets")
+            path = os.path.realpath(os.path.join(base, p[len("/assets/"):]))
+            if path.startswith(base + os.sep):
+                return self._send_file(path, cache="public, max-age=31536000, immutable")
+            return self._err("forbidden", 403)
         if p.startswith("/ui/"):
             base = os.path.realpath(HERE / "ui")
             path = os.path.realpath(os.path.join(base, p[4:]))
@@ -2337,6 +2403,8 @@ class Handler(BaseHTTPRequestHandler):
                 "window": MODE["window"],
                 "frozen": paths.FROZEN,
                 "version": VERSION,
+                "api": API_VERSION,
+                "ui": ui_mode(),
                 "running": busy(),
                 "live": (live_active().id if live_active() else ""),
                 "lives": [{"id": x.id, "title": x.title, "status": x.status} for x in live_list()],
@@ -2482,7 +2550,12 @@ class Handler(BaseHTTPRequestHandler):
         p = urlparse(self.path).path
         try:
             body = self._body()
-        except Exception:
+        except Exception as e:
+            self.close_connection = True          # the body may be unread: don't reuse this connection
+            if "too large" in str(e):
+                return self._err("Request too large.", 413)
+            if "application/json" in str(e):
+                return self._err("Send JSON (Content-Type: application/json).", 415)
             return self._err("bad request")
         if not isinstance(body, dict):
             return self._err("bad request")

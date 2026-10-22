@@ -8,3 +8,6 @@ tools/
 *.log
 src/models/*.onnx
 *.part
+src/web/
+web/node_modules/
+web/dist/

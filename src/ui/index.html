@@ -47,10 +47,10 @@
   </header>
 
   <nav class="rail" aria-label="Sections">
-    <button data-view="home" class="on"><svg class="ic"><use href="#i-home"/></svg><span>Home</span></button>
-    <button data-view="review"><svg class="ic"><use href="#i-review"/></svg><span>Review</span><b class="badge" id="badgeReview" hidden></b></button>
-    <button data-view="exports"><svg class="ic"><use href="#i-exports"/></svg><span>Exports</span><b class="badge" id="badgeExports" hidden></b></button>
-    <button data-view="settings"><svg class="ic"><use href="#i-settings"/></svg><span>Settings</span></button>
+    <button data-view="home" data-testid="nav-home" class="on"><svg class="ic"><use href="#i-home"/></svg><span>Home</span></button>
+    <button data-view="review" data-testid="nav-review"><svg class="ic"><use href="#i-review"/></svg><span>Review</span><b class="badge" id="badgeReview" hidden></b></button>
+    <button data-view="exports" data-testid="nav-exports"><svg class="ic"><use href="#i-exports"/></svg><span>Exports</span><b class="badge" id="badgeExports" hidden></b></button>
+    <button data-view="settings" data-testid="nav-settings"><svg class="ic"><use href="#i-settings"/></svg><span>Settings</span></button>
   </nav>
 
   <main class="views">
@@ -75,7 +75,7 @@
               <div><h2>Past broadcast or video</h2><p>Find the best moments in a Twitch VOD, a YouTube video or finished stream, an X video, or a recording on your PC.</p></div>
             </header>
             <div class="row">
-              <input class="input grow" id="src" placeholder="Twitch, YouTube or X link, or a video file" spellcheck="false" autocomplete="off" aria-label="Video link or file">
+              <input class="input grow" id="src" data-testid="source-input" placeholder="Twitch, YouTube or X link, or a video file" spellcheck="false" autocomplete="off" aria-label="Video link or file">
               <button class="btn" id="browseSrc">Browse…</button>
             </div>
             <div class="form-grid">
@@ -106,7 +106,7 @@
               <div class="job-log tnum" id="vodLog"></div>
               <div class="err" id="vodErr"></div>
             </div>
-            <footer><button class="btn primary" id="analyze">Find clips</button></footer>
+            <footer><button class="btn primary" id="analyze" data-testid="find-clips">Find clips</button></footer>
           </section>
 
           <section class="panel source" id="liveCard">
@@ -163,18 +163,18 @@
               <button data-f="all">All <b id="nAll"></b></button>
               <button data-f="gems" id="gemsTab" hidden title="Quiet gems: funny or quotable lines Deep scan found where chat and volume were calm">Gems <b id="nGems"></b></button>
             </div>
-            <div class="flag-bar" id="batchBar" hidden>
+            <div class="flag-bar" id="batchBar" data-testid="batch-bar" hidden>
               <span class="muted" title="Keep several clips at once: each renders with the current export settings, the same as pressing Keep on it">Keep the top</span>
-              <select class="input sm" id="batchN" aria-label="How many clips to keep"><option>3</option><option selected>5</option><option>10</option><option>15</option><option>20</option><option value="0">all</option></select>
+              <select class="input sm" id="batchN" data-testid="batch-count" aria-label="How many clips to keep"><option>3</option><option selected>5</option><option>10</option><option>15</option><option>20</option><option value="0">all</option></select>
               <span class="grow"></span>
-              <button class="btn xs primary" id="batchKeep" title="Keep and render the top clips in this list, in this order">Keep and render</button>
+              <button class="btn xs primary" id="batchKeep" data-testid="batch-keep" title="Keep and render the top clips in this list, in this order">Keep and render</button>
               <span class="bar-break"></span>
               <span class="muted" title="Skip many clips at once">Skip</span>
-              <select class="input sm" id="skipScore" aria-label="Which clips to skip" title="Skip every clip in this list, or only those scored under a number (the score on each clip, out of 100)">
+              <select class="input sm" id="skipScore" data-testid="skip-score" aria-label="Which clips to skip" title="Skip every clip in this list, or only those scored under a number (the score on each clip, out of 100)">
                 <option value="0">All clips</option><option value="40">Scored under 40</option><option value="50">Scored under 50</option><option value="60">Scored under 60</option><option value="75">Scored under 75</option>
               </select>
               <span class="grow"></span>
-              <button class="btn xs" id="batchSkip" title="Skip these clips at once. Clips you made yourself aren't skipped.">Skip clips</button>
+              <button class="btn xs" id="batchSkip" data-testid="batch-skip" title="Skip these clips at once. Clips you made yourself aren't skipped.">Skip clips</button>
             </div>
             <div class="flag-bar" id="flagBar" hidden>
               <select class="input sm" id="flagFilter" aria-label="Show flagged clips by status">
@@ -194,7 +194,7 @@
           <section class="stage" id="stage">
             <div class="player" id="playerBox">
               <div class="phone" id="phoneBox">
-                <canvas id="phone" width="540" height="960" aria-label="Clip preview in TikTok format"></canvas>
+                <canvas id="phone" data-testid="clip-preview" width="540" height="960" aria-label="Clip preview in TikTok format"></canvas>
                 <video id="filePlayer" playsinline loop hidden></video>
                 <div class="phone-badge" id="phoneBadge"></div>
                 <button class="exact-close" id="exactClose" hidden title="Back to the live preview">Exact preview &middot; close &times;</button>
@@ -831,7 +831,7 @@
 <dialog class="modal" id="dlg">
   <h3 id="dlgTitle"></h3>
   <p id="dlgBody"></p>
-  <div class="row end"><button class="btn" id="dlgNo">Cancel</button><button class="btn primary" id="dlgYes">OK</button></div>
+  <div class="row end"><button class="btn" id="dlgNo" data-testid="confirm-no">Cancel</button><button class="btn primary" id="dlgYes" data-testid="confirm-yes">OK</button></div>
 </dialog>
 <dialog class="modal det" id="detDlg">
   <h3>Detection settings</h3>
@@ -875,7 +875,7 @@
   <p class="fine">On the timeline: drag the clip's edges to trim (they snap to word edges; hold Alt to stop that), click to jump, scroll to move along, Ctrl+scroll to zoom.</p>
   <div class="row end"><button class="btn primary" id="keysClose">Close</button></div>
 </dialog>
-<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<div class="toasts" id="toasts" data-testid="toasts" role="status" aria-live="polite"></div>
 <video id="vod" preload="auto" playsinline style="display:none"></video>
 <script src="/ui/app.js"></script>
 </body>

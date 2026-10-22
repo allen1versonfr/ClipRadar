@@ -3,6 +3,10 @@ UI smoke test: the window's page loads and every view opens without a script err
 Windows window sizes, with no sideways scrolling. A script error stops the rest of the page from
 working, and nothing else in the test suite would notice.
 
+The test only touches the page through data-testid attributes and window.ClipRadarTest, so it runs
+unchanged against any UI that keeps that contract (docs/react-migration.md). CLIPRADAR_UI picks which
+UI is served (legacy or web).
+
 Needs Playwright and a Chromium-based browser: CLIPRADAR_BROWSER (a chrome/msedge executable), the
 browser Playwright installed, or Microsoft Edge (always there on Windows).
 
@@ -77,7 +81,7 @@ with sync_playwright() as p:
         pg.goto(url)
         pg.wait_for_timeout(1500)
         for view in ("review", "exports", "settings", "home"):
-            pg.click(f"button[data-view={view}]")
+            pg.click(f"[data-testid=nav-{view}]")
             pg.wait_for_timeout(500)
             over = pg.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1")
             check(f"{w}x{h}: {view} opens without sideways scrolling", not over)
@@ -86,9 +90,9 @@ with sync_playwright() as p:
     pg = b.new_page()
     pg.goto(url)
     pg.wait_for_timeout(1200)
-    pg.click("button[data-view=settings]")
+    pg.click("[data-testid=nav-settings]")
     pg.wait_for_timeout(500)
-    bg = pg.evaluate("getComputedStyle(document.querySelector('.btn.primary')).backgroundColor")
+    bg = pg.evaluate("getComputedStyle(document.querySelector('[data-testid=find-clips]')).backgroundColor")
     check("the primary buttons use the signature yellow", bg.replace(" ", "") == "rgb(255,210,31)", bg)
     tabs = pg.evaluate("[...document.querySelectorAll('#setTikTok')].length")
     check("the old TikTok sign-in settings are gone", tabs == 0)
@@ -106,32 +110,32 @@ with sync_playwright() as p:
                         "-f", "lavfi", "-i", "anoisesrc=d=120:a=0.02", "-af", f"volume='if({loud},40,1)':eval=frame",
                         "-shortest", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", vod],
                        check=True)
-        pg.click("button[data-view=home]")
-        pg.fill("#src", vod)
-        pg.click("#analyze")
-        pg.wait_for_selector("#batchBar:not([hidden])", timeout=120000)
-        pg.select_option("#batchN", "3")
-        pg.evaluate("opts.captions = false")          # no Whisper download for this check
+        pg.click("[data-testid=nav-home]")
+        pg.fill("[data-testid=source-input]", vod)
+        pg.click("[data-testid=find-clips]")
+        pg.wait_for_selector("[data-testid=batch-bar]", state="visible", timeout=120000)
+        pg.select_option("[data-testid=batch-count]", "3")
+        pg.evaluate("ClipRadarTest.setOption('captions', false)")          # no Whisper download for this check
         sounds = sum(1 for e, _ in server.SOUND_LOG if e == "queued")
-        pg.click("#batchKeep")
-        pg.click("#dlgYes")
+        pg.click("[data-testid=batch-keep]")
+        pg.click("[data-testid=confirm-yes]")
         pg.wait_for_timeout(2500)
         with server.queue_lock:
             n = len(server.queue)
         check("Keep the top 3 queues three renders", n == 3, n)
         check("and plays one queued sound for the batch",
               sum(1 for e, _ in server.SOUND_LOG if e == "queued") - sounds == 1, server.SOUND_LOG)
-        kept = pg.evaluate("W.clips.filter(c => c.state === 'kept').length")
+        kept = pg.evaluate("ClipRadarTest.clips().filter(c => c.state === 'kept').length")
         check("the three clips show as kept", kept == 3, kept)
 
         # a watermark layer dragged on the clip preview is saved where it was dropped
         import exports
         exports.save({"watermark": {"on": True, "marks": [{"kind": "text", "text": "@mychannel", "pos": "tl"}]}})
-        pg.evaluate("loadExport()")
+        pg.evaluate("ClipRadarTest.reloadExport()")
         pg.wait_for_timeout(800)
-        r = pg.evaluate("hit.wm0")
-        box = pg.locator("#phone").bounding_box()
-        k = box["width"] / pg.evaluate("phone.width")
+        r = pg.evaluate("ClipRadarTest.hitBox('wm0')")
+        box = pg.locator("[data-testid=clip-preview]").bounding_box()
+        k = box["width"] / pg.evaluate("ClipRadarTest.previewWidth()")
         if r:
             sx, sy = box["x"] + (r["x"] + r["w"] / 2) * k, box["y"] + (r["y"] + r["h"] / 2) * k
             pg.mouse.move(sx, sy)
@@ -144,27 +148,30 @@ with sync_playwright() as p:
         check("and a layer dragged there is saved where it was dropped", m["pos"] == "free" and 0.45 < m["y"] < 0.7, m)
 
         # skip many at once: only clips under the score picked, then everything left; Undo brings them back
-        pg.evaluate("W.clips.forEach((c, i) => { if (c.state === 'todo') c.quality = i % 2 ? 30 : 80 }); renderRows()")
-        todo = pg.evaluate("W.clips.filter(c => c.state === 'todo' && !isGem(c)).map(c => c.quality)")
-        pg.select_option("#skipScore", "50")
-        pg.click("#batchSkip")
+        n_todo = pg.evaluate("ClipRadarTest.clips().filter(c => c.state === 'todo' && !c.gem).length")
+        # alternate low and high, starting low, so at least one clip is under the threshold
+        pg.evaluate("qs => ClipRadarTest.setTodoQualities(qs)", [80 if i % 2 else 30 for i in range(n_todo)])
+        todo = pg.evaluate("ClipRadarTest.clips().filter(c => c.state === 'todo' && !c.gem).map(c => c.quality)")
+        check("there are clips under the score to skip", any(q < 50 for q in todo), todo)
+        pg.select_option("[data-testid=skip-score]", "50")
+        pg.click("[data-testid=batch-skip]")
         pg.wait_for_timeout(400)
         if len([q for q in todo if q < 50]) > 3:
-            pg.click("#dlgYes")
+            pg.click("[data-testid=confirm-yes]")
             pg.wait_for_timeout(400)
-        left = pg.evaluate("W.clips.filter(c => c.state === 'todo' && !isGem(c)).map(c => c.quality)")
+        left = pg.evaluate("ClipRadarTest.clips().filter(c => c.state === 'todo' && !c.gem).map(c => c.quality)")
         check("Skip with a score skips only the clips scored under it", sorted(left) == sorted(q for q in todo if q >= 50), (todo, left))
-        pg.click("#toasts .act")
+        pg.click("[data-testid=toasts] [data-testid=toast-action]")
         pg.wait_for_timeout(300)
-        back = pg.evaluate("W.clips.filter(c => c.state === 'todo' && !isGem(c)).length")
+        back = pg.evaluate("ClipRadarTest.clips().filter(c => c.state === 'todo' && !c.gem).length")
         check("and Undo brings them back", back == len(todo), (back, todo))
-        pg.select_option("#skipScore", "0")
-        pg.click("#batchSkip")
+        pg.select_option("[data-testid=skip-score]", "0")
+        pg.click("[data-testid=batch-skip]")
         pg.wait_for_timeout(400)
         if len(todo) > 3:
-            pg.click("#dlgYes")
+            pg.click("[data-testid=confirm-yes]")
             pg.wait_for_timeout(400)
-        left = pg.evaluate("W.clips.filter(c => c.state === 'todo' && !isGem(c)).length")
+        left = pg.evaluate("ClipRadarTest.clips().filter(c => c.state === 'todo' && !c.gem).length")
         check("Skip all clips leaves none to review", left == 0 and len(todo) > 0, (left, todo))
     else:
         print("[skip] no ffmpeg here: multi-clip export not checked")

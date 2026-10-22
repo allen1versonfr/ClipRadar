@@ -3,6 +3,22 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Groundwork for the new React UI. Nothing changes on screen.
+
+### Added
+- The app can serve a React build of its UI (`src/web`, built from `web/`) at `/`, with the current page kept at `/legacy/`. `CLIPRADAR_UI=legacy` or `web` picks one. CI and `build_exe.bat` build and package it once `web/` exists. See `docs/react-migration.md`.
+- `/api/status` reports the API version and which UI is served.
+- `tests/test_api_contract.py`: every API path a UI calls exists, every GET answers JSON, and the server's request checks and file serving behave. `scripts/api_routes.py` lists the routes (`docs/api-routes.md`).
+
+### Changed
+- `tests/test_ui.py` talks to the page only through `data-testid` attributes and `window.ClipRadarTest`, so it runs unchanged against the new UI. Its skip-by-score check no longer depends on where clips sit in the list.
+
+### Fixed
+- JavaScript, CSS and font files are served with fixed content types. Windows sometimes reports `.js` as plain text, which would stop a React build from loading on those PCs.
+- Requests to the app's server must send JSON and stay under 16 MB; larger or other bodies are refused without being read.
+
 ## [4.11.1] - 2026-10-22
 
 ### Fixed

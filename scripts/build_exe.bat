@@ -66,6 +66,17 @@ if not exist "src\models\audio_events.onnx" (
   mkdir src\models 2>nul
 )
 
+rem ---------- React UI (web\ builds into src\web; skipped until web\ exists) ----------
+set "WEBDATA="
+if exist "web\package.json" (
+  where npm >nul 2>nul || ( echo   The React UI needs Node.js 22 ^(nodejs.org^). & pause & exit /b 1 )
+  pushd web
+  call npm ci || ( popd & echo   npm ci failed. & pause & exit /b 1 )
+  call npm run build || ( popd & echo   The React UI didn't build. & pause & exit /b 1 )
+  popd
+)
+if exist "src\web\index.html" set "WEBDATA=--add-data src\web;web"
+
 rem ---------- PyInstaller ----------
 echo   [3/4] Packaging (this is the slow part)...
 set "PKG=--onedir"
@@ -73,7 +84,7 @@ if "%MODE%"=="onefile" set "PKG=--onefile"
 rem src\stubs\av stands in for PyAV (Clip Radar decodes audio with FFmpeg; see that file)
 set "PYTHONPATH=src\stubs"
 "%VPY%" -m PyInstaller --noconfirm --clean --log-level WARN %PKG% --windowed ^
-  --name ClipRadar --icon "src\ui\icon.ico" --add-data "src\ui;ui" --add-data "src\models;models" ^
+  --name ClipRadar --icon "src\ui\icon.ico" --add-data "src\ui;ui" --add-data "src\models;models" %WEBDATA% ^
   --paths src --paths src\stubs --exclude-module hf_xet ^
   --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime ^
   --collect-all webview --collect-submodules yt_dlp --collect-data certifi ^

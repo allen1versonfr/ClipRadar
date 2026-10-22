@@ -37,6 +37,28 @@ jobs:
       - name: Install packages
         run: python -m pip install -U pip && python -m pip install -r requirements.txt pywebview pyinstaller playwright
 
+      # The React UI (web/) builds into src/web, which the server serves at / when it's there.
+      # Until web/ exists these steps do nothing and the original page (src/ui) is the UI.
+      - name: Check for the React UI
+        id: web
+        shell: pwsh
+        run: echo "present=$(Test-Path web/package.json)" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-node@v5
+        if: steps.web.outputs.present == 'True'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build the React UI
+        if: steps.web.outputs.present == 'True'
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          if (-not (Test-Path ../src/web/index.html)) { Write-Host "::error title=web::npm run build didn't write src/web/index.html"; exit 1 }
+
       - name: Get the laughter detector (built by the "Build model files" workflow)
         shell: pwsh
         run: |
@@ -76,7 +98,18 @@ jobs:
           python tests/test_quality.py
           python tests/test_campaigns.py
           python tests/test_captions_anim.py
+          python tests/test_api_contract.py
           python tests/test_ui.py
+
+      # The same smoke test against the React UI, once it's built. It talks to the page only through
+      # data-testid attributes and window.ClipRadarTest (docs/react-migration.md). Allowed to fail
+      # while the rewrite is in progress: remove continue-on-error when the new UI should ship.
+      - name: UI smoke test (React UI)
+        if: steps.web.outputs.present == 'True'
+        continue-on-error: true
+        env:
+          CLIPRADAR_UI: web
+        run: python tests/test_ui.py
 
       - name: Get ffmpeg, TwitchDownloader and yt-dlp
         env:
@@ -96,8 +129,10 @@ jobs:
         run: |
           python -m pip uninstall -y av hf_xet
           $env:PYTHONPATH = "src/stubs"
+          $web = @()
+          if (Test-Path src/web/index.html) { $web = @("--add-data", "src/web;web") }
           python -m PyInstaller --noconfirm --clean --log-level WARN --onedir --windowed `
-            --name ClipRadar --icon src/ui/icon.ico --add-data "src/ui;ui" --add-data "src/models;models" `
+            --name ClipRadar --icon src/ui/icon.ico --add-data "src/ui;ui" --add-data "src/models;models" @web `
             --paths src --paths src/stubs --exclude-module hf_xet `
             --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime `
             --collect-all webview --collect-submodules yt_dlp --collect-data certifi `

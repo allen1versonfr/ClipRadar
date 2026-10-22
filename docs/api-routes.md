@@ -1,0 +1,108 @@
+# HTTP routes
+
+Generated from `src/server.py` by `python scripts/api_routes.py`. Regenerate after adding a route;
+`tests/test_api_contract.py` checks that every path a UI calls is in this set.
+
+`{id}` is a project, job, live session or queue item id (`\w+`). All `/api/*` answers are JSON
+(`Cache-Control: no-store`); errors are `{"error": "<message for the user>"}` with a 4xx/5xx status.
+POST bodies are JSON objects (`Content-Type: application/json`, at most 16 MB).
+
+| Method | Path |
+|---|---|
+| GET | `/legacy` |
+| GET | `/legacy/` |
+| GET | `/legacy/index.html` |
+| GET | `/` |
+| GET | `/index.html` |
+| GET | `/favicon.ico` |
+| GET | `/wmimg/{name}` |
+| GET | `/api/status` |
+| GET | `/api/update` |
+| GET | `/api/update/versions` |
+| GET | `/api/safety` |
+| GET | `/api/hotkey` |
+| GET | `/api/ping` |
+| GET | `/api/recent` |
+| GET | `/api/live/{id}` |
+| GET | `/api/twitch` |
+| GET | `/api/learning` |
+| GET | `/api/titles` |
+| GET | `/api/hashtags` |
+| GET | `/api/cleanup` |
+| GET | `/api/learning/explain` |
+| GET | `/api/queue` |
+| GET | `/api/export` |
+| GET | `/api/campaigns` |
+| GET | `/api/sources` |
+| GET | `/api/locations` |
+| GET | `/api/framing/{id}` |
+| GET | `/api/perf` |
+| GET | `/api/strip/{id}` |
+| GET | `/api/project/{id}` |
+| GET | `/api/clips/{id}` |
+| GET | `/api/storage` |
+| GET | `/api/job/{id}` |
+| GET | `/export/{id}` |
+| GET | `/vod/{id}` |
+| GET | `/api/frame/{id}` |
+| GET | `/files/{id}/{path}` |
+| POST | `/api/analyze` |
+| POST | `/api/locations` |
+| POST | `/api/storage/clear_cache` |
+| POST | `/api/sources/pause` |
+| POST | `/api/sources/resume` |
+| POST | `/api/sources/forget` |
+| POST | `/api/setup_tools` |
+| POST | `/api/watermark/image` |
+| POST | `/api/import` |
+| POST | `/api/watermark/share` |
+| POST | `/api/campaigns/save` |
+| POST | `/api/campaigns/delete` |
+| POST | `/api/campaigns/active` |
+| POST | `/api/campaigns/share` |
+| POST | `/api/campaigns/test` |
+| POST | `/api/queue/post_url` |
+| POST | `/api/discord/send` |
+| POST | `/api/pick_file` |
+| POST | `/api/update/check` |
+| POST | `/api/update/token` |
+| POST | `/api/update/settings` |
+| POST | `/api/update/install` |
+| POST | `/api/quit` |
+| POST | `/api/delete` |
+| POST | `/api/uninstall` |
+| POST | `/api/live/start` |
+| POST | `/api/live/{id}/{stop|clip|settings}` |
+| POST | `/api/handoff` |
+| POST | `/api/open_url` |
+| POST | `/api/cancel` |
+| POST | `/api/repick` |
+| POST | `/api/add_clip` |
+| POST | `/api/check` |
+| POST | `/api/clip_remove` |
+| POST | `/api/clip_restore` |
+| POST | `/api/preview_render` |
+| POST | `/api/titles` |
+| POST | `/api/cleanup` |
+| POST | `/api/hashtags` |
+| POST | `/api/framing/track` |
+| POST | `/api/export` |
+| POST | `/api/streamer` |
+| POST | `/api/clip_state` |
+| POST | `/api/listen` |
+| POST | `/api/queue/add` |
+| POST | `/api/queue/remove` |
+| POST | `/api/queue/retry` |
+| POST | `/api/test/hotkey` |
+| POST | `/api/test/yt_hls` |
+| POST | `/api/safety` |
+| POST | `/api/safety/scan` |
+| POST | `/api/hotkey` |
+| POST | `/api/deepscan` |
+| POST | `/api/feedback` |
+| POST | `/api/learning` |
+| POST | `/api/learning/forget` |
+| POST | `/api/twitch/token` |
+| POST | `/api/twitch/logout` |
+| POST | `/api/twitch/login` |
+| POST | `/api/open_folder` |
