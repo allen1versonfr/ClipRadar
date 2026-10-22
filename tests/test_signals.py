@@ -168,6 +168,12 @@ a2, b2 = engine.refine_with_words(mid["start"] + 0.1, words[12]["end"] - 0.1, mi
 sent2 = [w for w in words if w["start"] >= words[6]["start"] and w["end"] <= words[13]["end"]]
 check("start moves back to the start of the sentence", abs(a2 - (words[6]["start"] - 0.2)) < 0.01, (a2, words[6]["start"]))
 check("end moves on to the end of the sentence", abs(b2 - (words[13]["end"] + 0.35)) < 0.01, (b2, words[13]["end"]))
+# a cut just 50 ms into a word that follows a pause (the exe self-test's case: "Chad, ... clip it right now")
+paused = [{"start": 20.0, "end": 20.3, "word": "Chad,"}, {"start": 21.12, "end": 21.4, "word": "clip"},
+          {"start": 21.45, "end": 21.6, "word": "it"}, {"start": 21.65, "end": 22.0, "word": "now."}]
+a3, b3 = engine.refine_with_words(21.12 + 0.05, 22.0 - 0.1, 21.12, paused)
+check("a cut a few ms into a word moves back to before it", a3 <= 21.12, a3)
+check("and one a few ms before a word's end moves past it", b3 >= 22.0, b3)
 
 # ------------------------------------------------------------------ learning
 feats = []

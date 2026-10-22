@@ -178,7 +178,9 @@ jobs:
             $p = Start-Process dist/ClipRadar/ClipRadar.exe -ArgumentList "--browser" -PassThru
             $sw = [Diagnostics.Stopwatch]::StartNew()
             $ok = $false
-            foreach ($i in 1..400) {
+            # a time limit, not a count: a server that accepts but doesn't answer makes each try take
+            # the full 5 s, and 400 of those once ran the job out of time with nothing printed
+            while ($sw.Elapsed.TotalSeconds -lt 90) {
               Start-Sleep -Milliseconds 100
               try { $r = Invoke-RestMethod http://127.0.0.1:7860/api/status -TimeoutSec 5; if ($r.version) { $ok = $true; break } } catch {}
             }
