@@ -1731,6 +1731,10 @@ def clip_features(an: Analysis, start: float, end: float, peak: float, chat: Opt
     return {k: round(v, 3) for k, v in f.items()}
 
 
+WEAK_QUALITY = 50          # a 0-100 score under this isn't "a clear moment" (detect.quality)
+MIN_AUTO_CLIPS = 3         # automatic picks never drop below this many when the video has them
+
+
 def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0.6,
                chat: Optional[list] = None, chat_delay: float = 6.0, adjust=None,
                min_len: float = MIN_LEN, max_len: float = MAX_LEN, sensitivity: str = "normal",
@@ -1793,9 +1797,15 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
     items.sort(key=lambda it: -it["rank"])
     clips: list = []
     smart = not (length and length > 0)
+    # automatic, no chat (an ordinary YouTube video, a file): after the first few, weak moments aren't
+    # suggested just to reach the usual number (real-world test: 2 strong moments in a 28-min upload,
+    # padded with clips scoring 45). With chat, the floor above already does this.
+    weak = WEAK_QUALITY if auto and not an.has_chat else 0
     for it in items:
         if len(clips) >= count:
             break
+        if weak and len(clips) >= MIN_AUTO_CLIPS and detect.quality(it["rank"]) < weak:
+            continue
         st, en = it["start"], it["end"]
         near = next((c for c in clips if st < c.end + 4 and en > c.start - 4), None)
         if near is not None:
@@ -2649,6 +2659,38 @@ def write_srt(words: list, o: "RenderOpts", path: str, clip_len: float):
     with open(tmp, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     os.replace(tmp, path)
+
+
+DARK_LUMA = 38          # average brightness (0-255) under this reads as "can't see anything" on a phone
+BLUR_SHARP = 20.0      # edge strength (Laplacian variance, 192 px wide) under this is a smear (sharp video: 200-1500)
+
+
+def picture_check(video: str, start: float, end: float, samples: int = 5) -> dict:
+    """How much of a clip is too dark or too blurry to watch, from a few frames of the source (before
+    captions and titles are drawn on, so they don't count as detail). {"dark": 0-1, "blurry": 0-1}."""
+    w, h = 192, 108
+    dark = blurry = got = 0
+    for k in range(samples):
+        t = start + (end - start) * (k + 0.5) / samples
+        try:
+            p = subprocess.run([ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, t):.2f}", "-i", video,
+                                "-frames:v", "1", "-vf", f"scale={w}:{h},format=gray", "-f", "rawvideo", "-"],
+                               capture_output=True, timeout=30, creationflags=CREATE_NO_WINDOW)
+        except Exception:
+            continue
+        if len(p.stdout) != w * h:
+            continue
+        g = np.frombuffer(p.stdout, np.uint8).reshape(h, w).astype(np.float32)
+        got += 1
+        if float(g.mean()) < DARK_LUMA:
+            dark += 1
+            continue                                   # a dark frame is low-detail anyway: count it once
+        lap = g[1:-1, 2:] + g[1:-1, :-2] + g[2:, 1:-1] + g[:-2, 1:-1] - 4 * g[1:-1, 1:-1]
+        if float(lap.var()) < BLUR_SHARP:
+            blurry += 1
+    if not got:
+        return {"dark": 0.0, "blurry": 0.0}
+    return {"dark": round(dark / got, 2), "blurry": round(blurry / got, 2)}
 
 
 def audio_peak(path: str) -> Optional[float]:

@@ -218,5 +218,21 @@ with twitchauth.cookie_file() as cf:
 check("cookie file for yt-dlp", ".twitch.tv\tTRUE\t/\tTRUE\t0\tauth-token\tabcdefghijklmnopqrstuvwxyz0123" in body
       and not os.path.exists(gone_later))
 
+# ------------------------------------------------------------------ weak moments in a video without chat
+# real-world test: a 28-min YouTube upload had 2 strong moments and was padded to 5 with clips scoring 45
+n = 1800
+sw = np.zeros(n, dtype=np.float32)
+for at, v in ((300, 6.0), (700, 5.5), (1000, 3.0), (1300, 2.0), (1500, 1.9), (1650, 1.8)):
+    sw[at:at + 6] = v
+an_w = engine.Analysis(float(n), np.zeros(n, np.float32), np.zeros(n, np.float32), False, True)
+an_w.score = sw
+auto = engine.pick_clips(an_w, count=0)
+check("automatic, no chat: weak moments aren't added just to fill the count",
+      len(auto) == 3 and all(c.quality >= 50 for c in auto[:2]), [(round(c.peak), c.quality) for c in auto])
+check("a number you chose still gets them", len(engine.pick_clips(an_w, count=6)) == 6)
+an_c = engine.Analysis(float(n), np.zeros(n, np.float32), np.zeros(n, np.float32), True, True)
+an_c.score = sw
+check("with chat, automatic picks are unchanged by this", len(engine.pick_clips(an_c, count=0)) >= len(auto))
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

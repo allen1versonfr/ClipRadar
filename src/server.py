@@ -1504,6 +1504,7 @@ def _render_item(it: dict):
         try:
             _check_output(path, expect)
             _check_sound(it, pr, path)
+            _check_picture(it, pr)
             break
         except BrokenOutput as e:
             print(f"  {e}" + (" Trying once more." if attempt == 1 else ""), flush=True)
@@ -1586,6 +1587,21 @@ def _check_sound(it: dict, pr: dict, path: str):
     if peak < -60:
         it["warning"] = ("This clip came out almost silent. If it shouldn't be, check the stream at this point "
                          "(Twitch mutes some music).")
+
+
+def _check_picture(it: dict, pr: dict):
+    """A clip that's mostly too dark or too blurry to watch on a phone gets a warning (it still renders)."""
+    try:
+        pc = engine.picture_check(pr["video"], it["start"], it["end"])
+    except Exception:
+        return
+    it["picture"] = pc
+    if it.get("warning"):
+        return
+    if pc["dark"] >= 0.6:
+        it["warning"] = "Most of this clip is very dark: it may be hard to see on a phone."
+    elif pc["blurry"] >= 0.6:
+        it["warning"] = "Most of this clip is blurry (fast movement or out of focus): check it before posting."
 
 
 def _compare_settings(pr: dict, det: dict, cw: float, count: int, length: float) -> dict:

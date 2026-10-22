@@ -155,8 +155,13 @@ def test_link(app: App, link: str, args) -> dict:
     # titles: the listening job transcribes each clip (or uses YouTube's captions)
     t1 = time.time()
     lj = app.post("/api/listen", {"pid": pid, "order": [c["id"] for c in pv["clips"]], "model": args.model})
+    top_ids = [c["id"] for c in pv["clips"][:args.clips]]
     if lj.get("job"):
-        _wait(lambda: app.get(f"/api/job/{lj['job']}")["status"] != "running", args.timeout, 3)
+        # the app titles clips best-first: render as soon as the ones we render are titled, the way the
+        # app lets you keep the top clips while the rest are still being listened to
+        _wait(lambda: app.get(f"/api/job/{lj['job']}")["status"] != "running"
+              or all(c.get("listened") for c in app.get(f"/api/clips/{pid}")["clips"] if c["id"] in top_ids),
+              args.timeout, 3)
     r["steps"]["titles_s"] = round(time.time() - t1, 1)
     clips = app.get(f"/api/clips/{pid}")["clips"]
     r["clips"] = [{"id": c["id"], "start": c["start"], "end": c["end"], "peak": c.get("peak"), "score": c.get("quality"),
