@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 for _s in (sys.stdout, sys.stderr):
@@ -99,25 +100,46 @@ check("link template for the app", sources.link_template({"source": "https://you
 lines = []
 for i, (t, who, txt) in enumerate([(5.0, "Ann", "lol"), (6.5, "Bob", "no way"), (7.0, "Cat", None)]):
     item = {"liveChatTextMessageRenderer": {"message": {"runs": [{"text": txt}] if txt else
-                                                        [{"emoji": {"shortcuts": [":face-with-tears-of-joy:"]}}]},
+                                                        [{"emoji": {"emojiId": "😂", "shortcuts": [":face-with-tears-of-joy:"],
+                                                                    "isCustomEmoji": False}}]},
                                             "authorName": {"simpleText": who}}}
     lines.append({"replayChatItemAction": {"actions": [{"addChatItemAction": {"item": item}}], "videoOffsetTimeMsec": str(int(t * 1000))}})
 lines.append({"replayChatItemAction": {"actions": [{"addChatItemAction": {"item": {"liveChatPaidMessageRenderer": {
     "message": {"runs": [{"text": "great stream"}]}, "authorName": {"simpleText": "Dan"}}}}}], "videoOffsetTimeMsec": "9000"}})
+# a channel's own emoji, and the shape yt-dlp writes while recording a live chat (offset outside)
+lines.append({"replayChatItemAction": {"actions": [{"addChatItemAction": {"item": {"liveChatTextMessageRenderer": {
+    "message": {"runs": [{"text": "omg "}, {"emoji": {"emojiId": "UCabc/xyz", "shortcuts": [":_hahaLaugh:"], "isCustomEmoji": True}}]},
+    "authorName": {"simpleText": "Eve"}}}}}]}, "videoOffsetTimeMsec": "12500", "isLive": True})
 p = os.path.join(tempfile.mkdtemp(), "chat.json")
 with open(p, "w", encoding="utf-8") as f:
-    f.write("\n".join(json.dumps(x) for x in lines))
+    f.write("\n".join(json.dumps(x, ensure_ascii=False) for x in lines))
 chat = engine.load_chat(p)
 check("YouTube chat replay is read", [m[:3] for m in chat[:2]] == [(5.0, "lol", "ann"), (6.5, "no way", "bob")]
-      and chat[2][1] == ":face-with-tears-of-joy:" and chat[3][3] == "superchat", chat)
+      and chat[3][3] == "superchat", chat)
+check("a standard YouTube emoji is the real character, so it counts as a laugh",
+      chat[2][1] == "😂" and engine.chat_weight(chat[2][1]) > 0, chat[2])
+check("a channel's own emoji keeps its name", chat[4][1].split() == ["omg", "hahaLaugh"], chat[4])
+check("the live-recording shape keeps its time", chat[4][0] == 12.5, chat[4])
 
 # ---------------------------------------------------------------- YouTube livestreams in live mode
 work = tempfile.mkdtemp()
 s = live.LiveSession("t1", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", work, events=False)
-check("live mode takes a YouTube livestream link", s.via_ytdlp and s.channel is None and s.chat_state() == "none")
+check("live mode takes a YouTube livestream link (its chat isn't connected yet)", s.via_ytdlp and s.channel is None
+      and s.chat_state() == "offline")
 os.environ["CLIPRADAR_TEST"] = "1"
 os.environ["CLIPRADAR_TEST_YT_HLS"] = "http://127.0.0.1:9/live.m3u8"
 check("its playlist comes from yt-dlp (here: the test stand-in)", s._resolve() == "http://127.0.0.1:9/live.m3u8" and s.title == "testchannel (live)", s.title)
+# its chat, as yt-dlp records a live chat: each message timed at the live edge, the backlog left out
+s._anchor = (live._now(), 100.0)
+old = int((time.time() - 120) * 1e6)
+for k, (text, sent) in enumerate([("first one", None), ("so funny 😂", int(time.time() * 1e6)), ("from before I joined", old)]):
+    s._yt_line(json.dumps({"replayChatItemAction": {"actions": [{"addChatItemAction": {"item": {"liveChatTextMessageRenderer": {
+        "message": {"runs": [{"text": text}]}, "authorName": {"simpleText": f"u{k}"},
+        **({"timestampUsec": str(sent)} if sent else {})}}}}]}, "videoOffsetTimeMsec": "0", "isLive": True}))
+check("a YouTube livestream's chat is read, at the live edge", [m[1] for m in s.chat] == ["first one", "so funny 😂"]
+      and all(99.9 <= m[0] <= 104 for m in s.chat), s.chat)
+s.irc_ok = True
+check("and its chat state is shown like Twitch's", s.chat_state() == "ok")
 try:
     live.LiveSession("t2", "https://x.com/a/status/1", work, events=False)
     check("an X post isn't a livestream", False)

@@ -432,6 +432,7 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     os.makedirs(workdir, exist_ok=True)
 
     desc: dict = {}
+    meta = None
     if not vod_id and not project_video(workdir):
         # YouTube, X and others: find out what it is first (a video, a finished stream, a live one...)
         step("Checking the link")
@@ -466,6 +467,13 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
             raise
         raise RuntimeError(sources.explain(str(e), c["platform"])) from None
     check()
+    if c["platform"] == "youtube" and meta:
+        # no chat on an ordinary video: what YouTube knows about it (Most replayed, comments, captions)
+        import ytextra
+        step("Reading YouTube's Most replayed graph, comments and captions")
+        ytextra.gather(url, workdir, meta, log, ["--cookies", cookie_file] if cookie_file
+                       else ["--cookies-from-browser", cookies_browser] if cookies_browser else [])
+        check()
     step("Getting chat replay")
     info: dict = {}
     if chat_file:
@@ -966,7 +974,8 @@ def _yt_chat(obj: dict) -> list:
     """Messages from one line of a YouTube chat replay (yt-dlp's live_chat.json)."""
     r = obj.get("replayChatItemAction") or {}
     try:
-        t = float(r.get("videoOffsetTimeMsec") or 0) / 1000
+        # a replay has the offset inside; yt-dlp's live-chat recording puts it next to it
+        t = float(r.get("videoOffsetTimeMsec") or obj.get("videoOffsetTimeMsec") or 0) / 1000
     except (TypeError, ValueError):
         return []
     out = []
@@ -978,10 +987,22 @@ def _yt_chat(obj: dict) -> list:
             if not isinstance(m, dict):
                 continue
             runs = ((m.get("message") or m.get("headerSubtext") or {}).get("runs")) or []
-            text = "".join(x.get("text") or (((x.get("emoji") or {}).get("shortcuts") or [""])[0]) for x in runs if isinstance(x, dict))
+            text = "".join(x.get("text") or _yt_emoji(x.get("emoji") or {}) for x in runs if isinstance(x, dict))
             who = ((m.get("authorName") or {}).get("simpleText")) or ""
             out.append((t, text, str(who).lower(), kind))
     return out
+
+
+def _yt_emoji(e: dict) -> str:
+    """A YouTube chat emoji as text: the real character for standard emoji (so 😂 counts as a laugh,
+    like on Twitch), the name for a channel's own emoji (":_hahaLaugh:" -> "hahaLaugh")."""
+    if not isinstance(e, dict):
+        return ""
+    if not e.get("isCustomEmoji") and e.get("emojiId") and len(str(e["emojiId"])) <= 8:
+        return str(e["emojiId"])
+    sc = (e.get("shortcuts") or [""])[0] or ""
+    name = sc.strip(":").lstrip("_")
+    return f" {name} " if name else ""
 
 
 def chat_times(chat: list) -> list:
@@ -1157,6 +1178,11 @@ class Analysis:
     emote_rate: Optional[np.ndarray] = None
     react: Optional[np.ndarray] = None
     noise: Optional[np.ndarray] = None
+    # 4.9: YouTube videos (ytextra): Most replayed and the moments comments point at, 0..1 per second
+    replay: Optional[np.ndarray] = None
+    comments: Optional[np.ndarray] = None
+    comment_people: Optional[np.ndarray] = None
+    chapters: Optional[list] = None
 
     @property
     def has_events(self) -> bool:
@@ -1196,6 +1222,10 @@ class Analysis:
         for k, arr in (("emotes", self.emote_z), ("surge", self.surge), ("react", self.react)):
             if arr is not None and float(w.get(k, 0)) > 0:
                 parts[k] = float(w[k]) * _fit(arr, n)
+        import ytextra
+        for k, arr, gain in (("replay", self.replay, ytextra.REPLAY_GAIN), ("comments", self.comments, ytextra.COMMENT_GAIN)):
+            if arr is not None:
+                parts[k] = float(w.get(k, 1.0)) * gain * _fit(arr, n)
         s = sum(parts.values())
         if self.noise is not None:
             s = np.where(s > 0, s * _fit(self.noise, n, 1.0), s)
@@ -1212,7 +1242,8 @@ class Analysis:
                        loud=cut(self.loud), fine=None if self.fine is None else self.fine[a * FINE_HZ:b * FINE_HZ].copy(),
                        chat_stats=self.chat_stats, weights=self.weights, chat_delay=self.chat_delay,
                        surge=cut(self.surge), emote_z=cut(self.emote_z), emote_rate=cut(self.emote_rate),
-                       react=cut(self.react), noise=cut(self.noise))
+                       react=cut(self.react), noise=cut(self.noise), replay=cut(self.replay),
+                       comments=cut(self.comments), comment_people=cut(self.comment_people), chapters=self.chapters)
         sub.combine(self.chat_weight_pct)
         return sub
 
@@ -1270,7 +1301,7 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
 
 # Bump when anything that feeds the analysis changes (chat scoring, loudness, detector use),
 # so a cached analysis.npz from an older version is thrown away instead of reused.
-ANALYSIS_VERSION = 1
+ANALYSIS_VERSION = 2          # 4.9: YouTube chat emoji are read as emoji
 
 
 def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Optional[str]:
@@ -1330,7 +1361,7 @@ def analyze_cached(workdir: str, video: str, chat: list, chat_delay=6.0, chat_we
         if an is not None:
             log("Opened the analysis from last time.")
             progress(1.0)
-            return _finish(an, chat, emote_set, weights, chat_weight_pct)
+            return _finish(an, chat, emote_set, weights, chat_weight_pct, workdir)
     an = analyze(video, chat, chat_delay=chat_delay, chat_weight_pct=chat_weight_pct, log=log,
                  progress=progress, check=check, events=events)
     if key:
@@ -1338,12 +1369,16 @@ def analyze_cached(workdir: str, video: str, chat: list, chat_delay=6.0, chat_we
             _save_analysis(path, key, an)
         except Exception as e:
             log(f"Couldn't save the analysis for next time ({str(e)[:80]}).")
-    return _finish(an, chat, emote_set, weights, chat_weight_pct)
+    return _finish(an, chat, emote_set, weights, chat_weight_pct, workdir)
 
 
-def _finish(an: Analysis, chat: list, emote_set, weights: Optional[dict], chat_weight_pct: float) -> Analysis:
+def _finish(an: Analysis, chat: list, emote_set, weights: Optional[dict], chat_weight_pct: float,
+            workdir: str = "") -> Analysis:
     import detect
+    import ytextra
     detect.enrich(an, chat, an.chat_delay, emote_set)
+    if workdir:
+        ytextra.apply(an, ytextra.load(workdir))       # a YouTube video: Most replayed and comments
     an._emotes = emote_set
     an.combine(chat_weight_pct, weights or detect.preset("any"))
     return an
@@ -1746,6 +1781,18 @@ def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: flo
         parts.append("right after a quiet moment")
     if trigger is not None:
         parts.append(f"chat reacting to {max(1, int(round(i - trigger)))} s earlier")
+    w0, w1 = max(0, i - 8), i + 8
+    if an.replay is not None and float(np.max(an.replay[w0:w1], initial=0)) > 0.5:
+        parts.append("most replayed" if float(np.max(an.replay[w0:w1])) > 0.85 else "often replayed")
+    if an.comment_people is not None:
+        k = int(np.max(an.comment_people[max(0, i - 15):i + 4], initial=0))
+        if k >= 2:
+            parts.append(f"{k} comments point here")
+    if an.chapters:
+        import ytextra
+        ch = ytextra.chapter_at(an.chapters, float(i))
+        if ch:
+            parts.append(f"in chapter \u201c{ch[:40]}\u201d")
     es = getattr(an, "_emotes", None)
     if chat:
         import chatsignal

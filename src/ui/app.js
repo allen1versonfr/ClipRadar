@@ -2047,7 +2047,8 @@ function renderExports() {
   $('#exTable').hidden = !items.length;
   patchList($('#exTable tbody'), items.slice().reverse().map(q => {
     let st;
-    if (q.status === 'done') st = `<span class="st-done">${icon('check')}Ready${q.srt ? ' + .srt' : ''}</span>` + (q.warning ? `<span class="err-why warn" title="${esc(q.warning)}">${esc(q.warning)}</span>` : '');
+    if (q.status === 'done') st = `<span class="st-done">${icon('check')}Ready${q.srt ? ' + .srt' : ''}</span>` + (q.warning ? `<span class="err-why warn" title="${esc(q.warning)}">${esc(q.warning)}</span>` : '')
+      + (q.captions_skipped ? `<button class="btn sm retry" data-retry="${q.id}" title="Render it again with captions">${icon('refresh')}Retry</button>` : '');
     else if (q.status === 'rendering') st = `<span>${esc(q.step || 'Rendering')} ${Math.round(q.progress * 100)}% · ${fmtLeft(q.eta)}</span><span class="meter"><i style="width:${Math.round(q.progress * 100)}%"></i></span>`;
     else if (q.status === 'error') st = `<span class="st-err">${icon('alert')}Failed</span><span class="err-why" title="${esc(q.error)}">${esc(q.error)}</span><button class="btn sm retry" data-retry="${q.id}">${icon('refresh')}Retry</button>`;
     else st = '<span class="st-wait">Waiting</span>' + (q.warning ? `<span class="err-why warn" title="${esc(q.warning)}">${esc(q.warning)}</span>` : '');

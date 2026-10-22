@@ -376,7 +376,7 @@ class LiveSession:
     def chat_state(self) -> str:
         """none (no chat for this stream), offline (can't connect), quiet (went silent after being
         busy: probably delayed or dropped) or ok."""
-        if not self.channel:
+        if not self.channel and not self.via_ytdlp:
             return "none"
         if not self.irc_ok:
             return "offline"
@@ -392,9 +392,17 @@ class LiveSession:
         threading.Thread(target=self._record_loop, daemon=True, name=f"live-rec-{self.id}").start()
         if self.channel:
             threading.Thread(target=self._chat_loop, daemon=True, name=f"live-chat-{self.id}").start()
+        elif self.via_ytdlp:
+            threading.Thread(target=self._yt_chat_loop, daemon=True, name=f"live-ytchat-{self.id}").start()
 
     def stop(self):
         self.stop_flag.set()
+        yp = getattr(self, "_yt_proc", None)
+        if yp and yp.poll() is None:
+            try:
+                yp.kill()
+            except Exception:
+                pass
         p = self._proc
         if p and p.poll() is None:
             try:
@@ -1168,6 +1176,102 @@ class LiveSession:
                         if s >= len(self._emote_raw):
                             self._emote_raw.extend([0.0] * (s + 1 - len(self._emote_raw)))
                         self._emote_raw[s] += 1.0
+
+    # ------------------------------------------------------------------ YouTube live chat (4.9)
+    YT_STALE = 30.0      # older than this when it arrives: the backlog YouTube shows on joining, not a reaction
+
+    def _yt_line(self, raw: str):
+        """One line of yt-dlp's live-chat recording: its messages, timed at the live edge like Twitch chat."""
+        try:
+            obj = json.loads(raw)
+        except ValueError:
+            return
+        if not isinstance(obj, dict) or self._anchor is None or self.in_ad:
+            return
+        sent = None
+        for a in (obj.get("replayChatItemAction") or {}).get("actions") or []:
+            item = ((a or {}).get("addChatItemAction") or {}).get("item") or {}
+            for r in item.values():
+                if isinstance(r, dict) and r.get("timestampUsec"):
+                    try:
+                        sent = int(r["timestampUsec"]) / 1e6
+                    except (TypeError, ValueError):
+                        pass
+        if sent is not None and time.time() - sent > self.YT_STALE:
+            return
+        for _t, text, user, kind in engine._yt_chat(obj):
+            self.add_chat(self.live_edge(), text, user, kind)
+
+    def _yt_chat_loop(self):
+        """A YouTube livestream's chat: yt-dlp records it to a file as it happens, read as it grows."""
+        test = os.environ.get("CLIPRADAR_TEST_YT_CHAT") if os.environ.get("CLIPRADAR_TEST") else ""
+        if test:
+            return self._yt_chat_replay(test)
+        exe = engine.which("yt-dlp")
+        if not exe:
+            self.log("YouTube chat needs yt-dlp; ranking this stream by its sound.")
+            return
+        out = os.path.join(self.dir, "ytchat")
+        while not self.stop_flag.is_set():
+            for ext in (".live_chat.json", ".live_chat.json.part"):
+                try:
+                    os.remove(out + ext)
+                except OSError:
+                    pass
+            cmd = [exe, "--skip-download", "--write-subs", "--sub-langs", "live_chat", "--no-warnings", "--ignore-config",
+                   "--no-playlist", "-o", out + ".%(ext)s"]
+            if self.cookies:
+                cmd += ["--cookies-from-browser", self.cookies]
+            try:
+                self._yt_proc = p = subprocess.Popen(cmd + [self.source], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                                     stderr=subprocess.DEVNULL, creationflags=engine.CREATE_NO_WINDOW)
+            except OSError as e:
+                self.log(f"Couldn't start YouTube chat ({str(e)[:60]}).")
+                return
+            pos, buf = 0, b""
+            while True:
+                done = p.poll() is not None or self.stop_flag.is_set()
+                path = next((out + e for e in (".live_chat.json.part", ".live_chat.json") if os.path.exists(out + e)), "")
+                if path:
+                    try:
+                        with open(path, "rb") as f:
+                            f.seek(pos)
+                            data = f.read()
+                        pos += len(data)
+                        *lines, buf = (buf + data).split(b"\n")
+                        self.irc_ok = True
+                        for ln in lines:
+                            if ln.strip():
+                                self._yt_line(ln.decode("utf-8", "replace"))
+                    except OSError:
+                        pass
+                if done:
+                    break
+                self.stop_flag.wait(1.0)
+            self.irc_ok = False
+            if not self.stop_flag.is_set():
+                self.log("YouTube chat stopped; reconnecting")
+                self.stop_flag.wait(10)
+
+    def _yt_chat_replay(self, path: str):
+        """Tests: a recorded live-chat file played back at its own pace."""
+        try:
+            lines = open(path, encoding="utf-8").read().splitlines()
+        except OSError:
+            return
+        while self._anchor is None and not self.stop_flag.is_set():
+            self.stop_flag.wait(0.5)
+        self.irc_ok = True
+        t0 = time.monotonic()
+        for ln in lines:
+            if self.stop_flag.is_set():
+                break
+            try:
+                at = float(json.loads(ln).get("videoOffsetTimeMsec") or 0) / 1000
+            except (ValueError, AttributeError):
+                continue
+            self.stop_flag.wait(max(0.0, at - (time.monotonic() - t0)))
+            self._yt_line(ln)
 
     def _chat_loop(self):
         host, port, use_tls = self._irc_target()

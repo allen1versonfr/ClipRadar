@@ -1,4 +1,4 @@
-# Clip Radar 5 work — final report (4.1.5 → 4.8.0)
+# Clip Radar 5 work — final report (4.1.5 → 4.9.0)
 
 Baseline: Clip Radar 4.1.5 (`main` at `71822ad`, release `v4.1.5` checked on GitHub before
 starting). Owner decision during the work: **no "Clip Radar 1.0" rebrand; the existing version
@@ -16,7 +16,8 @@ numbering continues.** The full audit, measurements and per-milestone notes are 
 | 5 | 4.5.0 | allen1versonfr/vodclipper#19 | Source frame rate, quality presets, blur-fit fixes, watermark, caption animations |
 | 6 | 4.6.0 | allen1versonfr/vodclipper#20 | Flat UI with the yellow accent, caption templates, reset style, TikTok guides, per-clip volume, UI smoke test |
 | 7 | 4.7.0 | allen1versonfr/vodclipper#21 | Update test from the previous Clip Radar release, user guide, this report |
-| Gaps | 4.8.0 | (this PR) | Brief re-checked section by section: multi-clip export, caption line spacing and timing, framing two people, render progress during captions, faster responsive renders, measured scan/render/presets against 4.1.5 |
+| Gaps | 4.8.0 | allen1versonfr/vodclipper#22 | Brief re-checked section by section: multi-clip export, caption line spacing and timing, framing two people, render progress during captions, faster responsive renders, measured scan/render/presets against 4.1.5 |
+| YouTube | 4.9.0 | (this PR) | Most replayed, comment timestamps and captions for ordinary YouTube videos, YouTube live chat, emoji, render without captions when Whisper can't run, real-world test script |
 
 Each release is published by the existing `build.yml` when its PR merges, after the Windows build,
 packaged self-test, end-to-end test, VodClipper→Clip Radar upgrade test and install/uninstall test

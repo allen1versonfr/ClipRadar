@@ -143,5 +143,39 @@ exports.save({"sounds": True})
 
 server.SHUTTING_DOWN[0] = True
 srv.shutdown()
+# the speech model can't run (its first download failed): the clip renders without captions and says
+# so; YouTube's captions stand in when the video has them; with censoring on, the render stops instead
+import engine  # noqa: E402
+import safety  # noqa: E402
+real_ew, real_wa = server.ensure_words, engine.whisper_available
+
+
+def broken(*a, **k):
+    raise RuntimeError("Couldn't load Whisper. cpu: 403 Forbidden")
+
+
+server.ensure_words, engine.whisper_available = broken, lambda: True
+ro = engine.RenderOpts(captions=True)
+prw = {"info": {"has_audio": True}, "yt": {}, "chat": []}
+it = {"start": 10.0, "end": 20.0, "title": "T", "post": ""}
+safety.save_config({"censor": "off"})
+words = server._render_inputs(it, prw, ro, lambda: None)[0]
+check("Whisper can't run: the clip renders without captions", words == [] and it.get("captions_skipped"), words)
+check("and says why, with Retry", "without captions" in it.get("warning", "") and "Retry" in it["warning"], it.get("warning"))
+it2 = {"start": 10.0, "end": 20.0, "title": "T", "post": ""}
+prw["yt"] = {"words": [{"start": 12.0, "end": 12.4, "word": "hello"}]}
+words = server._render_inputs(it2, prw, ro, lambda: None)[0]
+check("a YouTube video's own captions stand in", [w["word"] for w in words] == ["hello"] and abs(words[0]["start"] - 2.0) < 1e-6
+      and not it2.get("warning"), words)
+safety.save_config({"censor": "mute"})
+prw["yt"] = {}
+try:
+    server._render_inputs({"start": 10.0, "end": 20.0, "title": "T", "post": ""}, prw, ro, lambda: None)
+    check("with censoring on, the render stops instead of skipping the bleeps", False)
+except RuntimeError as e:
+    check("with censoring on, the render stops instead of skipping the bleeps", "censor" in str(e), str(e))
+safety.save_config({"censor": "off"})
+server.ensure_words, engine.whisper_available = real_ew, real_wa
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

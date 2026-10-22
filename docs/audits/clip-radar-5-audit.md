@@ -468,3 +468,43 @@ previous Clip Radar); packaged-exe self-test and smoke test; installer, upgrade 
 Still not done, by decision: the "Clip Radar 1.0" rebrand (§17), which the owner dropped in favour
 of the existing numbering, and a multitrack editor (§9 says only if the architecture supports it;
 it doesn't).
+
+## 15. 4.9.0 — YouTube, and testing on real links
+
+**Real-world test of `twitch.tv/videos/2881416511` (owner's permission): not run.** The development
+container's network policy refuses Twitch and YouTube (`gql.twitch.tv`, `usher.ttvnw.net`,
+`www.youtube.com`: proxy `connect_rejected`), and it has no connection to the owner's PC. So
+`scripts/real_world_test.py` was added: on a PC, `python scripts/real_world_test.py <link>` opens the
+link in a throwaway copy of the app (or `--app` an installed ClipRadar.exe), finds and titles the
+clips, renders the best few with the default settings and writes `report.md`/`report.json`. Checked
+here on a local test stream only.
+
+That check found a real problem: **a render failed outright when the speech model couldn't load**
+(here because its first download is blocked; on a PC, an offline first run). Now the clip renders
+without captions, the Exports row says why and offers Retry, and a YouTube video's own captions are
+used when it has them. With automatic censoring on the render still stops, because censoring needs
+the transcript. (`test_retry.py`.)
+
+**Ordinary YouTube videos** had no ranking signal but the sound. Added (`src/ytextra.py`,
+`test_ytextra.py`), all from yt-dlp, all optional:
+
+| Signal | Source | Use |
+|---|---|---|
+| Most replayed | `heatmap` in the metadata already fetched (no extra request) | up to +3 on the score where viewers rewatch, relative to the video's own baseline; a flat graph adds nothing |
+| Comment timestamps | top 400 comments (`--write-comments`, one request) | each commenter once per moment, likes as agreement (1 vote per 25 likes, max 8); full weight at 8 votes, so one comment can't make a clip; replies and chapter lists ignored |
+| Comment phrases | same comments, through `chattitles` | `Comments: "..."` titles when several commenters used the same words |
+| Captions | uploaded, else automatic, json3 (word timing when YouTube has it) | titles and cut points without Whisper; burned-in captions still use Whisper |
+| Chapters | metadata | named in the reason |
+
+Checked in `test_ytextra.py` on a talking-head-like video (flat sound, no chat). Without the
+signals its top clip lands anywhere; with a Most replayed bump and three commenters at 4:20, the
+top clip is at that moment and its reason says "most replayed; 3 comments point here; in chapter
+'Boss fight'". Not checked against a live YouTube page (blocked here): yt-dlp's field names
+(`heatmap`, `comments`, `automatic_captions`) are the stable ones it has documented for years, but
+a real run on a PC is the proof.
+
+**YouTube chat:** emoji in chat replays came through as names (`:face-with-tears-of-joy:`), so they
+didn't count as laughs; now standard emoji are the character and channel emoji keep their name.
+YouTube livestreams now have chat in live clipping: yt-dlp records the live chat to a file and Clip
+Radar reads it as it grows (the backlog shown on joining is skipped), the same way Twitch chat
+arrives over IRC. Tested with a recorded live chat played back (`test_sources.py`, e2e).

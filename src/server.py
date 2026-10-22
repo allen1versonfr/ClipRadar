@@ -48,6 +48,7 @@ import updater
 import audio_events
 import chatsignal
 import chattitles
+import ytextra
 import cleanup
 import checkflow
 import detect
@@ -356,6 +357,8 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
            for w in words_abs if d["start"] - 0.2 <= w["start"] <= d["end"]]
     tp = title_prefs()
     ct = _chat_title(pr, d["start"], d["end"]) if tp["chat_titles"] else ""
+    if not ct and tp["chat_titles"] and pr.get("yt"):
+        ct = ytextra.comment_title(pr["yt"], d["start"], d["end"], _streamer_name(pr))   # a YouTube video's comments
     info = titles.generate(rel, _chat_window(pr, d["start"], d["end"]),
                            peak_rel=d.get("peak", d["start"]) - d["start"], used=used,
                            streamer=_streamer_name(pr), with_tags=tp["hashtags"], pick=tp["pick"], chat_title=ct)
@@ -592,6 +595,7 @@ def do_analyze(job, body: dict):
                      "book": {"next": 1, "moments": []}}
     pr = projects[pid]
     pr["streamer_display"] = engine._meta(s.workdir).get("streamer_display", "")
+    pr["yt"] = ytextra.load(s.workdir)        # a YouTube video: Most replayed, comments, captions
     engine._save_meta(s.workdir, duration=an.duration)
     _load_transcripts(pr)
     est = engine.estimate(an)
@@ -882,7 +886,8 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
         old["cancel"] = True
     job = new_job("listen")
     pr["listen_job"] = job["id"]
-    can_listen = engine.whisper_available() and pr["info"]["has_audio"]
+    yt_words = bool((pr.get("yt") or {}).get("words"))
+    can_listen = (engine.whisper_available() and pr["info"]["has_audio"]) or yt_words
 
     def go():
         check = job_check(job)
@@ -907,7 +912,11 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
                         live_gate.acquire(_live_prio(d), check)
                         job["step"] = f"Listening to clip {n + 1} of {len(todo)}"
                     try:
-                        words = ensure_words(pr, d["start"] - TX_MARGIN, d["end"] + TX_MARGIN, model, lang, check)
+                        if yt_words:
+                            # YouTube's own captions: titles and cut points right away, no Whisper
+                            words = ytextra.words_in(pr["yt"], d["start"] - TX_MARGIN, d["end"] + TX_MARGIN)
+                        else:
+                            words = ensure_words(pr, d["start"] - TX_MARGIN, d["end"] + TX_MARGIN, model, lang, check)
                     finally:
                         if gated:
                             live_gate.release()
@@ -1344,7 +1353,22 @@ def _render_inputs(it: dict, pr: dict, ro, check) -> tuple:
                  for w in it["words"] if it["start"] - 0.2 <= w["start"] < it["end"]]
     elif (ro.captions or censoring) and pr["info"]["has_audio"] and engine.whisper_available():
         it["step"] = "Listening for captions"
-        abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check)
+        try:
+            abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check)
+        except engine.Cancelled:
+            raise
+        except Exception as e:
+            # Whisper couldn't run (often: its first download failed). YouTube's own captions if the video
+            # has them; otherwise the clip renders without captions and says so. Censoring needs the
+            # words, so with censoring on the render stops rather than skip the bleeps.
+            abs_words = ytextra.words_in(pr.get("yt") or {}, it["start"], it["end"])
+            if not abs_words and censoring:
+                raise RuntimeError(f"Couldn't transcribe the clip to censor it ({str(e)[:120]}). "
+                                   "Check your internet connection (the speech model downloads the first time), then retry.")
+            if not abs_words:
+                it["warning"] = (f"Rendered without captions: the speech model couldn't run ({str(e)[:100]}). "
+                                 "Check your internet connection (it downloads the first time), then press Retry.")
+                it["captions_skipped"] = True
         words = [{"start": w["start"] - it["start"], "end": w["end"] - it["start"], "word": w["word"]}
                  for w in abs_words if w["start"] < it["end"]]
     # content check: flag, and (if switched on) mask and bleep what it finds
@@ -2919,11 +2943,14 @@ class Handler(BaseHTTPRequestHandler):
             n = 0
             with queue_lock:
                 for it in queue:
-                    if it["status"] == "error" and (body.get("id") in (it["id"], "all")):
+                    redo = it["status"] == "error" or (it["status"] == "done" and it.get("captions_skipped"))
+                    if redo and (body.get("id") in (it["id"], "all")):
                         # Drop stale render state so a retry starts a fresh attempt, not a
                         # half-finished UI lifecycle. Keep the chosen output name for replacement.
                         it.update(status="queued", progress=0.0, error="", detail="", step="Waiting",
                                   cancel=False, eta=None, attempts=it.get("attempts", 0))
+                        if it.pop("captions_skipped", None):
+                            it.pop("warning", None)
                         n += 1
             queue_wake.set()
             save_queue_soon()
@@ -2941,6 +2968,7 @@ class Handler(BaseHTTPRequestHandler):
             if act == "yt_hls":
                 # stands in for YouTube: live links resolve to this playlist (a local test stream)
                 os.environ["CLIPRADAR_TEST_YT_HLS"] = str(body.get("url") or "")
+                os.environ["CLIPRADAR_TEST_YT_CHAT"] = str(body.get("chat") or "")      # a recorded live chat to play back
                 return self._json({"ok": True})
             return self._err("not found", 404)
 

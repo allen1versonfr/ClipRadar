@@ -757,15 +757,29 @@ def main():
                 diag["segment list"] = open(os.path.join(segdir0, lst[0]), encoding="utf-8", errors="replace").read()[-600:]
         rec("chat connected", wait(lambda: get(f"/api/live/{sid}")["chat_connected"], 30))
         # a second stream at the same time: a YouTube livestream (resolved to the same test stream)
-        post("/api/test/yt_hls", {"url": stream_url})
+        # its chat as yt-dlp records a live chat (offset next to the action, real timestamps)
+        ytchat = os.path.join(tmp, "yt_live_chat.jsonl")
+        with open(ytchat, "w", encoding="utf-8") as f:
+            for k in range(240):
+                f.write(json.dumps({"replayChatItemAction": {"actions": [{"addChatItemAction": {"item": {
+                    "liveChatTextMessageRenderer": {"message": {"runs": [{"text": "this is so funny "},
+                                                                         {"emoji": {"emojiId": "😂", "isCustomEmoji": False}}]},
+                                                    "authorName": {"simpleText": f"ytfan{k % 40}"}}}}}]},
+                    "videoOffsetTimeMsec": str(k * 500), "isLive": True}, ensure_ascii=False) + "\n")
+        post("/api/test/yt_hls", {"url": stream_url, "chat": ytchat})
         yv = post("/api/live/start", {"source": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "length": 20, "warmup": 30,
                                       "buffer_minutes": 1, "frequency": "normal", "opts": opts, "model": a.model})
         ysid = yv.get("id")
         yrec = ysid and wait(lambda: get(f"/api/live/{ysid}")["status"] == "recording", 60)
         yl = get(f"/api/live/{ysid}") if ysid else {}
         rec("a YouTube livestream records alongside the Twitch one", yrec and yl.get("title") == "testchannel (live)"
-            and yl.get("chat_state") == "none" and len(get("/api/status").get("lives", [])) == 2,
+            and len(get("/api/status").get("lives", [])) == 2,
             {k: yl.get(k) for k in ("status", "title", "chat_state", "error")} if ysid else yv.get("error"))
+        ychat = ysid and wait(lambda: (lambda v: v if v.get("chat_total", 0) >= 10 and v.get("chat_state") == "ok" else None)(
+            get(f"/api/live/{ysid}")), 30)
+        yl = get(f"/api/live/{ysid}") if ysid else {}
+        rec("a YouTube livestream's chat is read", bool(ychat),
+            {k: yl.get(k) for k in ("chat_state", "chat_total", "chat_connected")})
         third = post("/api/live/start", {"source": "twitch.tv/someoneelse"})
         rec("live streams at once is limited (Settings › Performance)", third.get("_status") == 409 and "at once" in third.get("error", ""),
             third.get("error"))
