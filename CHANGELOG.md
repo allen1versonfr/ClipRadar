@@ -28,6 +28,12 @@ Working with clipping campaigns and clipping Discords, and watermarks you can mo
 ### Fixed
 - Text watermarks in the clip preview could be drawn half their width to the left of where the export puts them.
 
+## [4.10.1] - 2026-10-22
+
+### Fixed
+- A clip whose layout FFmpeg couldn't build ("Failed to configure input pad on Parsed_crop" / "Error reinitializing filters") no longer fails. It renders with the whole picture on a blurred background, and Exports says so, with Reset + Retry for the layout you chose.
+- When a render does fail, the error keeps FFmpeg's reason line instead of only the last 10 lines, which left it out.
+
 ## [4.10.0] - 2026-10-22
 
 Fixes from the first real-world test: a 6-hour Twitch VOD (89,208 chat messages) and a 28-minute YouTube video, opened, titled and rendered on a Windows PC.

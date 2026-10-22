@@ -1501,7 +1501,8 @@ def _render_item(it: dict):
         enc_t0[0] = None
         engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=title,
                            progress=prog, check=check, words=words, censor=spans, censor_mode=mode,
-                           log=lambda m: print("  " + m, flush=True), framing=fr)
+                           log=lambda m: print("  " + m, flush=True), framing=fr,
+                           warn=lambda m: it.__setitem__("warning", m))
         took = time.time() - (enc_t0[0] or t_start)
         if took > 0.5:
             exports.record_speed(skey, length / took)
