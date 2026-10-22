@@ -111,7 +111,7 @@ function setView(v) {
   if (v !== 'exports') { $('#exVideo').pause(); }
   if (v === 'review') { sizePhone(); drawHeat(); dirty = true; }
   if (v === 'exports') { refreshQueue(); if (exSel) renderDetail(true); }
-  if (v === 'settings') { loadStorage(); loadCleanup(); loadLocations(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); loadExport(); }
+  if (v === 'settings') { loadStorage(); loadCleanup(); loadLocations(); renderTools(); loadSafety(); renderHotkey(); loadTwitch(); loadLearning(); loadExport(); loadCampaigns(); }
   if (v === 'home') loadRecent();
   updateCrumb();
 }
@@ -1548,7 +1548,7 @@ let hoverWhat = null, phoneHover = false, dragState = null, suppressClick = fals
 function renderPhone() {
   const Wd = phone.width, Ht = phone.height, g = pg;
   g.fillStyle = '#000'; g.fillRect(0, 0, Wd, Ht);
-  hit.title = hit.cap = null;
+  hit.title = hit.cap = null; for (const k in hit) if (k.startsWith('wm')) delete hit[k];
   if (!W) return;
   let src = null, sw = 0, sh = 0;
   if (vodOk && vod.readyState >= 2 && vod.videoWidth) { src = vod; sw = vod.videoWidth; sh = vod.videoHeight; }
@@ -1583,10 +1583,11 @@ function renderPhone() {
   $('#phoneBadge').textContent = badge;
 }
 
-/* --- drag the title and captions around the frame --- */
+/* --- drag the title, captions and watermark layers around the frame --- */
 function phonePt(e) { const r = phone.getBoundingClientRect(); return [(e.clientX - r.left) * phone.width / r.width, (e.clientY - r.top) * phone.height / r.height]; }
 function hitTest(x, y) {
   const inside = r => r && x >= r.x - 10 && x <= r.x + r.w + 10 && y >= r.y - 10 && y <= r.y + r.h + 10;
+  for (let i = wmTarget().marks.length - 1; i >= 0; i--) if (inside(hit['wm' + i])) return 'wm' + i;   // drawn last: on top
   if (inside(hit.title)) return 'title';
   if (inside(hit.cap)) return 'cap';
   return null;
@@ -1596,6 +1597,7 @@ phone.addEventListener('pointerdown', e => {
   const [x, y] = phonePt(e), what = hitTest(x, y); if (!what) return;
   const r = hit[what], Wd = phone.width, Ht = phone.height;
   dragState = { what, ox: x - (r.x + r.w / 2), oy: what === 'title' ? y - r.y : y - (r.y + r.h / 2), moved: false, sx: x, sy: y, snapX: false };
+  if (what.startsWith('wm')) { wmSel = +what.slice(2); dragState.mark = wmTarget().marks[wmSel]; }
   if (what === 'cap' && opts.caption_pos !== 'custom') { opts.cap_x = .5; opts.cap_y = (r.y + r.h / 2) / Ht; }
   phone.setPointerCapture(e.pointerId); dirty = true;
 });
@@ -1605,7 +1607,8 @@ phone.addEventListener('pointermove', e => {
     if (!dragState.moved && Math.hypot(x - dragState.sx, y - dragState.sy) < 4) return;
     dragState.moved = true;
     let fx = (x - dragState.ox) / Wd; dragState.snapX = Math.abs(fx - .5) < .025; if (dragState.snapX) fx = .5;
-    if (dragState.what === 'title') { opts.title_x = clamp(fx, .3, .7); opts.title_y = clamp((y - dragState.oy) / Ht, 0, .92); }
+    if (dragState.mark) Object.assign(dragState.mark, { pos: 'free', x: Math.round(clamp(fx, 0, 1) * 1e4) / 1e4, y: Math.round(clamp((y - dragState.oy) / Ht, 0, 1) * 1e4) / 1e4 });
+    else if (dragState.what === 'title') { opts.title_x = clamp(fx, .3, .7); opts.title_y = clamp((y - dragState.oy) / Ht, 0, .92); }
     else { opts.caption_pos = 'custom'; opts.cap_x = clamp(fx, .3, .7); opts.cap_y = clamp((y - dragState.oy) / Ht, 120 / OUT()[1], 1 - 120 / OUT()[1]); }
     dirty = true; return;
   }
@@ -1615,8 +1618,10 @@ phone.addEventListener('pointermove', e => {
 });
 phone.addEventListener('pointerup', () => {
   if (!dragState) return;
+  const mark = dragState.mark;
   suppressClick = dragState.moved; dragState = null; dirty = true;
-  if (suppressClick) syncControls();
+  if (suppressClick && mark) { renderWatermark(); wmSave(true); }      // a watermark layer: saved where you left it
+  else if (suppressClick) syncControls();
 });
 phone.addEventListener('pointerenter', () => { phoneHover = true; dirty = true; });
 phone.addEventListener('pointerleave', () => { phoneHover = false; if (hoverWhat) { hoverWhat = null; } dirty = true; });
@@ -2065,12 +2070,13 @@ function renderExports() {
     const tt = q.handoff ? `<span class="tt-cell" title="Opened TikTok Studio ${esc(new Date(q.handoff.at * 1000).toLocaleString())}">Opened in Studio</span>`
       : old ? `<span class="tt-cell ok" title="Posted with an older version of Clip Radar">${q.tiktok.mode === 'draft' ? 'Sent to drafts' : 'Posted'}</span>`
       : '<span class="tt-cell">Not yet</span>';
+    const dc = q.discord && !q.discord.error ? `<span class="tt-cell ok" title="Sent to ${esc((q.campaign || {}).name || 'the campaign')}'s Discord">Discord ✓</span>` : '';
     return `<tr data-id="${q.id}" class="${q.id === exSel ? 'sel' : ''}">
       <td><span class="vt" style="display:block"><img src="${q.thumb}" alt=""></span></td>
       <td><div class="tt1">${esc(q.title || 'Clip ' + q.rank)}</div><div class="tt2">${esc(q.source_title || '')}</div></td>
       <td class="r tnum">${fmt(q.duration)}</td>
       <td><div class="st-cell">${st}</div></td>
-      <td>${tt}</td>
+      <td>${tt}${dc}</td>
       <td><button class="ibtn row-x" data-x="${q.id}" title="${q.status === 'done' ? 'Remove from list (the file stays)' : q.status === 'error' ? 'Remove' : 'Cancel'}">${icon('x')}</button></td></tr>`;
   }).join(''), 'id');
   if (exSel && !items.some(q => q.id === exSel)) { exSel = null; }
@@ -2102,7 +2108,7 @@ function renderDetail(force) {
   const q = queueItems.find(x => x.id === exSel);
   $('#exNone').hidden = !!q; $('#exBody').hidden = !q;
   if (!q) { shownItem = ''; $('#exVideo').removeAttribute('src'); return; }
-  const stateKey = q.status + (q.url || '') + JSON.stringify(q.handoff || {});
+  const stateKey = q.status + (q.url || '') + JSON.stringify(q.handoff || {}) + JSON.stringify(q.discord || {});
   if (!force && shownItem === q.id && shownState === stateKey) return;
   const newItem = shownItem !== q.id;
   shownItem = q.id; shownState = stateKey;
@@ -2126,7 +2132,48 @@ function renderDetail(force) {
   $('#ttPanel').hidden = q.status !== 'done';
   if (q.status === 'done' && (newItem || force)) prepareHandoff(q);
   else if (q.status === 'done') renderTTStatus(q);
+  renderSubmit(q, newItem || force);
 }
+/* Exports › Submit: send a clip made for a campaign (or the link to where you posted it) to the
+   campaign's Discord channel */
+function renderSubmit(q, fresh) {
+  const cp = q.campaign, c = cp && campState && campState.list.find(x => x.id === cp.id);
+  $('#subPanel').hidden = !cp || q.status !== 'done'; if ($('#subPanel').hidden) return;
+  $('#subCamp').textContent = cp.name;
+  $('#subRules').textContent = !c ? 'This campaign was deleted, so there\'s nowhere to send it.'
+    : c.discord.webhook ? `Sends ${c.discord.file ? 'the video (or your post link, once you have one)' : 'your post link'} to the campaign's Discord channel.${c.notes ? ' Notes: ' + c.notes : ''}`
+    : 'Add the campaign\'s Discord webhook in Settings › Campaigns to send clips from here.';
+  if (fresh && document.activeElement !== $('#subUrl')) $('#subUrl').value = q.post_url || '';
+  $('#subSend').disabled = !c || !c.discord.webhook; $('#subErr').textContent = '';
+  const d = q.discord, el = $('#subStatus');
+  el.hidden = !d;
+  if (d) el.innerHTML = d.error ? `<span class="st-err">${icon('alert')}${esc(d.error)}</span>`
+    : `<span>${icon('check')}Sent to Discord ${esc(new Date(d.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}${d.attached ? ' with the video' : d.post_url ? ' with your post link' : ''}.</span>${d.note ? `<span class="muted">${esc(d.note)}</span>` : ''}`;
+}
+let subTimer = 0;
+$('#subUrl').addEventListener('input', () => {
+  clearTimeout(subTimer);
+  subTimer = setTimeout(async () => {
+    const q = queueItems.find(x => x.id === exSel); if (!q) return;
+    try { await api('/api/queue/post_url', { item: q.id, url: $('#subUrl').value.trim() }); q.post_url = $('#subUrl').value.trim(); $('#subErr').textContent = ''; }
+    catch (e) { $('#subErr').textContent = e.message; }
+  }, 500);
+});
+$('#subCopy').onclick = () => {
+  const q = queueItems.find(x => x.id === exSel); if (!q) return;
+  copyText([q.title, $('#subUrl').value.trim() || q.name, q.post].filter(Boolean).join('\n'), 'Submission');
+};
+$('#subSend').onclick = async () => {
+  const q = queueItems.find(x => x.id === exSel); if (!q) return;
+  $('#subErr').textContent = ''; $('#subSend').disabled = true;
+  try {
+    const r = await api('/api/discord/send', { item: q.id, post_url: $('#subUrl').value.trim() });
+    Object.assign(q, r.item); renderSubmit(q, false); renderExports();
+    toast(r.attached ? 'Sent to Discord with the video.' : 'Sent to Discord.', '', 3500);
+    if (r.note) toast(r.note, '', 6000);
+  } catch (e) { $('#subErr').textContent = e.message; }
+  finally { $('#subSend').disabled = false; }
+};
 $('#exShow').onclick = () => { const q = queueItems.find(x => x.id === exSel); if (q) api('/api/open_folder', { folder: q.folder }).catch(e => toast(e.message, 'err')); };
 $('#exCopy').onclick = () => { const q = queueItems.find(x => x.id === exSel); if (q) copyText(q.post || q.title || ''); };
 
@@ -2712,7 +2759,7 @@ function renderExportSettings() {
   $('#exPresetNote').textContent = (v.presets.find(p => p.key === pr.preset) || {}).note || '';
   $('#exQualityPreset').innerHTML = (v.quality || []).map(q => `<button data-v="${q.key}" class="${q.key === pr.quality ? 'on' : ''}" title="${esc(q.note)}">${esc(q.label)}</button>`).join('');
   $('#exQualityNote').textContent = ((v.quality || []).find(q => q.key === pr.quality) || {}).note || '';
-  renderWatermark(pr.watermark || {});
+  renderWatermark();
   $('#exScale').value = String(+st.scale === 1 ? 1 : st.scale); $('#exFps').value = String(st.fps); $('#exVcodec').value = st.vcodec;
   $('#exQuality').value = st.vbitrate ? `b:${st.vbitrate}` : `q:${st.crf}`;
   if (!$('#exQuality').value) $('#exQuality').value = 'q:20';
@@ -2746,71 +2793,307 @@ const customPatch = kv => saveExport({ custom: Object.assign({}, (exState && exS
 $('#exPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ preset: v }); };
 $('#exScale').onchange = e => customPatch({ scale: +e.target.value });
 $('#exFps').onchange = e => customPatch({ fps: +e.target.value });
-/* --- watermark: settings, and the same placement as the render in the clip preview --- */
-const wmImg = new Image(); let wmImgSrc = '';
-function renderWatermark(w) {
-  const busy = el => document.activeElement === el;
-  $('#wmOn').checked = !!w.on; $('#wmBody').hidden = !w.on;
-  if (!busy($('#wmText'))) $('#wmText').value = w.text || '';
-  $$('#wmPos button').forEach(b => b.classList.toggle('on', b.dataset.v === (w.pos || 'tl')));
-  $('#wmSize').value = w.size; $('#wmSizeV').textContent = w.size + '%';
-  $('#wmOp').value = w.opacity; $('#wmOpV').textContent = w.opacity + '%';
-  $('#wmMar').value = w.margin; $('#wmMarV').textContent = w.margin + ' px';
-  $('#wmBox').checked = !!w.box;
-  if (!busy($('#wmStart'))) $('#wmStart').value = w.start || 0;
-  if (!busy($('#wmEnd'))) $('#wmEnd').value = w.end || '';
-  $('#wmClear').hidden = !w.image; $('#wmImgName').textContent = w.image ? 'Image set' : '';
-  const src = w.image ? '/watermark?v=' + encodeURIComponent(w.image) + Date.now() % 1e6 : '';
-  if (w.image && !wmImgSrc) { wmImg.src = src; wmImgSrc = src; } else if (!w.image) wmImgSrc = '';
+/* --- watermark: layers (text or image), saved sets, sharing, and the same placement as the render in
+   the clip preview, where layers can be dragged. While the active campaign has its own watermark,
+   that's the one edited here (it's the one clips get). --- */
+const wmImgs = {};
+const wmUrl = path => '/wmimg/' + encodeURIComponent(String(path).split(/[\\/]/).pop());
+function wmImage(path) {
+  const k = wmUrl(path);
+  if (!wmImgs[k]) { const im = new Image(); im.onload = () => { dirty = true; }; im.src = k; wmImgs[k] = im; }
+  return wmImgs[k];
+}
+let wmSel = 0;
+function wmTarget() {
+  const c = activeCamp();
+  if (c && c.watermark.use) return { camp: c, on: true, marks: c.watermark.marks };
+  const w = (exState && exState.prefs.watermark) || { on: false, marks: [] };
+  return { camp: null, on: !!w.on, marks: w.marks || (w.marks = []) };
 }
 let wmTimer = 0;
-function saveWatermark(now) {
+async function wmSave(now) {
   clearTimeout(wmTimer);
-  wmTimer = setTimeout(() => {
-    const cur = (exState && exState.prefs.watermark) || {};
-    saveExport({ watermark: Object.assign({}, cur, { on: $('#wmOn').checked, text: $('#wmText').value,
-      pos: ($('#wmPos button.on') || {}).dataset?.v || 'tl', size: +$('#wmSize').value, opacity: +$('#wmOp').value,
-      margin: +$('#wmMar').value, box: $('#wmBox').checked, start: +$('#wmStart').value || 0, end: +$('#wmEnd').value || 0 }) });
+  wmTimer = setTimeout(async () => {
+    const t = wmTarget();
+    if (t.marks.some(m => m.kind !== 'image' && !(m.text || '').trim())) return;    // still typing: an empty layer would be dropped
+    const marks = t.marks;
+    if (t.camp) await saveCampaign(Object.assign({}, t.camp, { watermark: { use: true, marks } }));
+    else await saveExport({ watermark: { on: $('#wmOn').checked, marks } });
   }, now ? 0 : 400);
 }
-['#wmText', '#wmStart', '#wmEnd'].forEach(id => $(id).addEventListener('input', () => saveWatermark()));
-['#wmSize', '#wmOp', '#wmMar'].forEach(id => $(id).addEventListener('input', () => {
-  $('#wmSizeV').textContent = $('#wmSize').value + '%'; $('#wmOpV').textContent = $('#wmOp').value + '%'; $('#wmMarV').textContent = $('#wmMar').value + ' px';
-  if (exState) Object.assign(exState.prefs.watermark, { size: +$('#wmSize').value, opacity: +$('#wmOp').value, margin: +$('#wmMar').value });
-  dirty = true; saveWatermark();
-}));
-['#wmOn', '#wmBox'].forEach(id => $(id).addEventListener('change', () => saveWatermark(true)));
-$('#wmPos').onclick = e => { const b = e.target.closest('button'); if (!b) return; $$('#wmPos button').forEach(x => x.classList.toggle('on', x === b)); saveWatermark(true); };
+const WM_NEW = { pos: 'tl', x: .5, y: .5, size: 100, opacity: 70, margin: 40, rotation: 0, color: '#FFFFFF', font: 'classic', outline: true, box: false, box_color: '#141414', start: 0, end: 0 };
+function renderWatermark() {
+  const busy = el => document.activeElement === el;
+  const t = wmTarget(), marks = t.marks;
+  $('#wmOn').checked = t.on; $('#wmOn').disabled = !!t.camp; $('#wmBody').hidden = !t.on;
+  $('#wmCampNote').hidden = !t.camp;
+  if (t.camp) $('#wmCampName').textContent = t.camp.name;
+  const pres = (exState && exState.prefs.wm_presets) || [];
+  const cur = $('#wmPreset').value;
+  $('#wmPreset').innerHTML = `<option value="">${pres.length ? 'Saved watermarks…' : 'No saved watermarks'}</option>` + pres.map(p => `<option>${esc(p.name)}</option>`).join('');
+  $('#wmPreset').value = pres.some(p => p.name === cur) ? cur : '';
+  $('#wmPresetDel').hidden = !$('#wmPreset').value;
+  wmSel = Math.max(0, Math.min(wmSel, marks.length - 1));
+  $('#wmLayers').innerHTML = marks.length ? marks.map((m, i) => `<div class="wm-layer ${i === wmSel ? 'on' : ''}" data-wl="${i}">
+      ${m.kind === 'image' ? `<img src="${wmUrl(m.image)}" alt="">` : `<b class="wm-t" style="color:${esc(m.color || '#fff')}">T</b>`}
+      <span class="ellipsis">${m.kind === 'image' ? 'Image' : esc(m.text)}</span><small class="muted">${m.pos === 'free' ? 'placed by hand' : ({ tl: 'top left', tr: 'top right', bl: 'bottom left', br: 'bottom right', c: 'centre' })[m.pos]}</small>
+      <span class="grow"></span>
+      <button class="ibtn" data-wup="${i}" title="Bring forward" ${i === marks.length - 1 ? 'disabled' : ''}>${icon('up')}</button>
+      <button class="ibtn" data-wx="${i}" title="Remove this layer">${icon('x')}</button></div>`).join('')
+    : '<span class="muted small">No layers yet. Add your @handle as text, or a logo image.</span>';
+  $('#wmAddText').disabled = $('#wmAddImage').disabled = marks.length >= 6;
+  const m = marks[wmSel];
+  $('#wmEdit').hidden = !m; if (!m) return;
+  const txt = m.kind !== 'image';
+  $('#wmTextRow').hidden = !txt; $('#wmImgRow').hidden = txt; $('#wmTextStyle').hidden = !txt;
+  if (txt && !busy($('#wmText'))) $('#wmText').value = m.text || '';
+  $$('#wmPos button').forEach(b => b.classList.toggle('on', b.dataset.v === m.pos));
+  const free = m.pos === 'free';
+  $('#wmMarRow').hidden = free || m.pos === 'c'; $('#wmXRow').hidden = $('#wmYRow').hidden = !free;
+  $('#wmSize').value = m.size; $('#wmSizeV').textContent = m.size + '%';
+  $('#wmOp').value = m.opacity; $('#wmOpV').textContent = m.opacity + '%';
+  $('#wmRot').value = m.rotation || 0; $('#wmRotV').textContent = (m.rotation || 0) + '°';
+  $('#wmMar').value = m.margin; $('#wmMarV').textContent = m.margin + ' px';
+  $('#wmX').value = Math.round(m.x * 1000) / 10; $('#wmXV').textContent = Math.round(m.x * 100) + '%';
+  $('#wmY').value = Math.round(m.y * 1000) / 10; $('#wmYV').textContent = Math.round(m.y * 100) + '%';
+  if (!$('#wmFont').options.length) $('#wmFont').innerHTML = Object.entries(FONTS).map(([k, f]) => `<option value="${k}">${f.label}</option>`).join('');
+  $('#wmFont').value = m.font || 'classic'; $('#wmColor').value = (m.color || '#FFFFFF').toLowerCase();
+  $('#wmOutline').checked = m.outline !== false; $('#wmBox').checked = !!m.box;
+  $('#wmBoxColor').value = (m.box_color || '#141414').toLowerCase(); $('#wmBoxColorRow').hidden = !m.box;
+  if (!busy($('#wmStart'))) $('#wmStart').value = m.start || 0;
+  if (!busy($('#wmEnd'))) $('#wmEnd').value = m.end || '';
+}
+function wmEdit(patch, now) {
+  const m = wmTarget().marks[wmSel]; if (!m) return;
+  Object.assign(m, patch); dirty = true; renderWatermark(); wmSave(now);
+}
+$('#wmOn').addEventListener('change', () => { if (exState) exState.prefs.watermark.on = $('#wmOn').checked; renderWatermark(); wmSave(true); });
+$('#wmText').addEventListener('input', () => wmEdit({ text: $('#wmText').value }));
+$('#wmStart').addEventListener('input', () => wmEdit({ start: +$('#wmStart').value || 0 }));
+$('#wmEnd').addEventListener('input', () => wmEdit({ end: +$('#wmEnd').value || 0 }));
+[['#wmSize', 'size'], ['#wmOp', 'opacity'], ['#wmRot', 'rotation'], ['#wmMar', 'margin']].forEach(([id, k]) => $(id).addEventListener('input', () => wmEdit({ [k]: +$(id).value })));
+[['#wmX', 'x'], ['#wmY', 'y']].forEach(([id, k]) => $(id).addEventListener('input', () => wmEdit({ [k]: +$(id).value / 100 })));
+$('#wmFont').onchange = () => wmEdit({ font: $('#wmFont').value }, true);
+$('#wmColor').addEventListener('input', () => wmEdit({ color: $('#wmColor').value.toUpperCase() }));
+$('#wmBoxColor').addEventListener('input', () => wmEdit({ box_color: $('#wmBoxColor').value.toUpperCase() }));
+$('#wmOutline').onchange = () => wmEdit({ outline: $('#wmOutline').checked }, true);
+$('#wmBox').onchange = () => wmEdit({ box: $('#wmBox').checked }, true);
+$('#wmPos').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v === 'free') toast('Drag the layer on the clip preview in Review to put it anywhere.', '', 3500);
+  wmEdit({ pos: b.dataset.v }, true);
+};
+$('#wmLayers').onclick = e => {
+  const t = wmTarget(), x = e.target.closest('[data-wx]'), up = e.target.closest('[data-wup]'), row = e.target.closest('[data-wl]');
+  if (x) { t.marks.splice(+x.dataset.wx, 1); wmSel = Math.min(wmSel, t.marks.length - 1); renderWatermark(); wmSave(true); dirty = true; return; }
+  if (up) { const i = +up.dataset.wup; [t.marks[i], t.marks[i + 1]] = [t.marks[i + 1], t.marks[i]]; wmSel = i + 1; renderWatermark(); wmSave(true); dirty = true; return; }
+  if (row) { wmSel = +row.dataset.wl; renderWatermark(); }
+};
+function wmAdd(m) {
+  const t = wmTarget();
+  if (!t.camp && exState) { exState.prefs.watermark.on = true; $('#wmOn').checked = true; }
+  t.marks.push(Object.assign({}, WM_NEW, m)); wmSel = t.marks.length - 1; renderWatermark(); wmSave(true); dirty = true;
+}
+$('#wmAddText').onclick = () => wmAdd({ kind: 'text', text: '@yourchannel' });
+$('#wmAddImage').onclick = async () => {
+  const path = await pick('image'); if (!path) return;
+  try { const r = await api('/api/watermark/image', { path }); wmAdd({ kind: 'image', image: r.image, size: 100 }); }
+  catch (e) { toast(e.message, 'err'); }
+};
 $('#wmPick').onclick = async () => {
+  const path = await pick('image'); if (!path) return;
+  try { const r = await api('/api/watermark/image', { path }); wmEdit({ image: r.image }, true); } catch (e) { toast(e.message, 'err'); }
+};
+$('#wmPreset').onchange = () => {
+  const p = ((exState && exState.prefs.wm_presets) || []).find(x => x.name === $('#wmPreset').value);
+  if (p) { wmUse(p.marks); toast(`Using "${p.name}".`, '', 2000); }
+  $('#wmPresetDel').hidden = !p;
+};
+function wmUse(marks) {
+  const t = wmTarget();
+  t.marks.splice(0, t.marks.length, ...JSON.parse(JSON.stringify(marks)));
+  if (!t.camp && exState) { exState.prefs.watermark.on = true; $('#wmOn').checked = true; }
+  wmSel = 0; renderWatermark(); wmSave(true); dirty = true;
+}
+$('#wmPresetSave').onclick = async () => {
+  const marks = wmTarget().marks; if (!marks.length) { toast('Add a layer first.', 'err'); return; }
+  const name = (window.prompt('Name this watermark (for example the campaign or channel it\'s for):', $('#wmPreset').value || '') || '').trim(); if (!name) return;
+  const pres = ((exState && exState.prefs.wm_presets) || []).filter(p => p.name !== name).concat([{ name, marks }]);
+  await saveExport({ wm_presets: pres }); $('#wmPreset').value = name; renderWatermark(); toast(`Saved "${name}".`, '', 2000);
+};
+$('#wmPresetDel').onclick = async () => {
+  const name = $('#wmPreset').value; if (!name) return;
+  await saveExport({ wm_presets: ((exState && exState.prefs.wm_presets) || []).filter(p => p.name !== name) });
+};
+$('#wmShare').onclick = async () => {
+  const marks = wmTarget().marks; if (!marks.length) { toast('Add a layer first.', 'err'); return; }
+  const name = (window.prompt('Name the watermark file:', $('#wmPreset').value || (activeCamp() || {}).name || 'My watermark') || '').trim(); if (!name) return;
+  try { const r = await api('/api/watermark/share', { name, marks }); toast(`Saved "${r.name}" in your projects folder's Shared folder. Drop it into Discord to share it.`, '', 7000); }
+  catch (e) { toast(e.message, 'err'); }
+};
+// a shared file (campaign or watermark) or a logo image, from this PC or a link
+async function importShared(body) {
+  let r; try { r = await api('/api/import', body); } catch (e) { toast(e.message, 'err', 7000); return; }
+  if (r.kind === 'image') { wmAdd({ kind: 'image', image: r.image }); toast('Image added as a watermark layer.', '', 3000); }
+  else if (r.kind === 'watermark') { exState = r.export; wmUse(r.marks); $('#wmPreset').value = r.name; renderExportSettings(); toast(`Imported the "${r.name}" watermark. It's in use and saved.`, '', 4000); }
+  else { campState = r.campaigns; renderCampaigns(); toast(`Imported the "${r.name}" campaign. Choose it under Settings › Campaigns to use it.`, '', 6000); }
+}
+async function importPick() { const path = await pick('shared'); if (path) importShared({ path }); }
+async function importLink() {
+  const url = (window.prompt('Paste the link to the file (in Discord: right-click the file › Copy link):', '') || '').trim();
+  if (url) importShared({ url });
+}
+$('#wmImport').onclick = importPick;
+$('#wmImportUrl').onclick = importLink;
+$('#wmUseMine').onclick = () => { const c = activeCamp(); if (c) saveCampaign(Object.assign({}, c, { watermark: Object.assign({}, c.watermark, { use: false }) })); };
+
+// the same sizes and anchors as engine.mark_anchor / _mark_dialogue, so the preview matches the export
+function wmBox(m, g, Wd, Ht) {
+  const k = Wd / 1080;
+  if (m.kind === 'image') {
+    const im = wmImage(m.image); if (!im.complete || !im.naturalWidth) return null;
+    const bw = Wd * .2 * m.size / 100; return { bw, bh: bw * im.naturalHeight / im.naturalWidth, im };
+  }
+  const fs = 44 * m.size / 100 * fontOf(m.font).scale * k;
+  g.font = fontCss(m.font, fs); const pad = m.box ? Math.max(6, fs / 4) : 0;
+  return { bw: g.measureText(m.text).width + 2 * pad, bh: fs * 1.2 + 2 * pad, fs, pad };
+}
+function wmAnchor(m, Wd, Ht, bw, bh) {
+  const mg = Math.max(0, Math.min(200, m.margin)) * Wd / 1080, pos = m.pos || 'tl';
+  let x, y;
+  if (pos === 'free') { x = m.x * Wd - bw / 2; y = m.y * Ht - bh / 2; }
+  else if (pos === 'c') { x = (Wd - bw) / 2; y = (Ht - bh) / 2; }
+  else { x = pos[1] === 'l' ? mg : Wd - bw - mg; y = pos[0] === 't' ? Ht * .13 : Ht * .80 - bh; }
+  return [Math.max(0, Math.min(x, Wd - bw)), Math.max(0, Math.min(y, Ht - bh))];
+}
+function drawWatermark(g, Wd, Ht, t) {
+  const tg = wmTarget();
+  if (!tg.on) return;
+  tg.marks.forEach((m, i) => {
+    const dragging = dragState && dragState.what === 'wm' + i;
+    if (!dragging && (t < (m.start || 0) || (m.end && t > m.end))) return;
+    g.save();
+    const b = wmBox(m, g, Wd, Ht); if (!b) { g.restore(); return; }
+    const [x, y] = wmAnchor(m, Wd, Ht, b.bw, b.bh);
+    hit['wm' + i] = { x, y, w: b.bw, h: b.bh };
+    g.globalAlpha = Math.max(.05, Math.min(1, m.opacity / 100));
+    g.translate(x + b.bw / 2, y + b.bh / 2); g.rotate((m.rotation || 0) * Math.PI / 180); g.translate(-b.bw / 2, -b.bh / 2);
+    if (b.im) g.drawImage(b.im, 0, 0, b.bw, b.bh);
+    else {
+      if (m.box) { g.fillStyle = m.box_color || '#141414'; g.fillRect(0, 0, b.bw, b.bh); }
+      g.textBaseline = 'top'; g.textAlign = 'left'; g.fillStyle = m.color || '#fff';
+      if (!m.box && m.outline !== false) { g.strokeStyle = 'rgba(0,0,0,.9)'; g.lineWidth = Math.max(1, b.fs / 7); g.lineJoin = 'round'; g.strokeText(m.text, b.pad, b.pad + b.fs * .1); }
+      g.fillText(m.text, b.pad, b.pad + b.fs * .1);
+    }
+    g.restore();
+  });
+}
+/* --- Settings › Campaigns: clipping campaigns' rules, watermark and Discord channel --- */
+let campState = null, cpEditId = '';
+let cpEditCopy = null;   // your watermark, copied into the campaign being edited (kept when you press Save)
+const activeCamp = () => (campState && campState.list.find(c => c.id === campState.active)) || null;
+async function loadCampaigns() { try { campState = await api('/api/campaigns'); renderCampaigns(); } catch {} }
+async function saveCampaign(c, activate) {
+  try { campState = await api('/api/campaigns/save', { campaign: c, activate: !!activate }); renderCampaigns(); return true; }
+  catch (e) { toast(e.message, 'err', 6000); return false; }
+}
+function renderCampaigns() {
+  const v = campState; if (!v) return;
+  $('#cpActive').innerHTML = '<option value="">None (your own settings)</option>' + v.list.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  $('#cpActive').value = v.active || '';
+  $('#cpList').innerHTML = v.list.map(c => `<div class="cp-row ${c.id === cpEditId ? 'on' : ''}" data-cp-id="${c.id}">
+      <b>${esc(c.name)}</b>${c.org ? `<span class="muted small">${esc(c.org)}</span>` : ''}${c.id === v.active ? '<span class="pill">Active</span>' : ''}
+      <span class="grow"></span><span class="muted small">${[c.caption || c.tags.length ? 'caption rules' : '', c.min_len || c.max_len ? 'length' : '', c.watermark.use ? 'watermark' : '', c.discord.webhook ? 'Discord' : ''].filter(Boolean).join(' · ')}</span></div>`).join('')
+    || '<span class="muted small">No campaigns yet. Make one, or import the file a clipping server shared.</span>';
+  const c = v.list.find(x => x.id === cpEditId);
+  $('#cpEdit').hidden = !c && cpEditId !== 'new';
+  const a = activeCamp();
+  $('#exCamp').hidden = !a; if (a) $('#exCamp').textContent = 'Campaign: ' + a.name;
+  renderWatermark(); dirty = true;
+}
+function fillCampaign(c) {
+  cpEditCopy = null;
+  $('#cpName').value = c.name || ''; $('#cpOrg').value = c.org || ''; $('#cpLink').value = c.link || ''; $('#cpNotes').value = c.notes || '';
+  $('#cpCaption').value = c.caption || ''; $('#cpTags').value = (c.tags || []).join(' ');
+  $$('#cpWhere button').forEach(b => b.classList.toggle('on', b.dataset.v === (c.caption_where || 'end')));
+  $('#cpMin').value = c.min_len || ''; $('#cpMax').value = c.max_len || '';
+  $('#cpWmUse').checked = !!(c.watermark && c.watermark.use);
+  const n = ((c.watermark || {}).marks || []).length; $('#cpWmInfo').textContent = n ? `${n} layer${n > 1 ? 's' : ''}` : 'No layers yet';
+  const d = c.discord || {};
+  $('#cpHook').value = d.webhook || ''; $('#cpHook').type = 'password'; $('#cpHookShow').textContent = 'Show';
+  $('#cpAuto').checked = !!d.auto; $('#cpFile').checked = d.file !== false;
+  $('#cpMsg').value = d.message || campState.default_message;
+  $('#cpTokens').innerHTML = campState.tokens.map(t => `<button class="chip" data-cptok="${t}">{${t}}</button>`).join('');
+  $('#cpFileRow').title = `Discord takes files up to ${campState.upload_mb} MB on servers without boosts; bigger clips are sent as a message only.`;
+  $('#cpDelete').hidden = !c.id;
+  $('#cpShare').disabled = !c.id;
+}
+function readCampaign() {
+  const c = campState.list.find(x => x.id === cpEditId) || { watermark: { use: false, marks: [] } };
+  return Object.assign({}, c, {
+    name: $('#cpName').value.trim(), org: $('#cpOrg').value.trim(), link: $('#cpLink').value.trim(), notes: $('#cpNotes').value,
+    caption: $('#cpCaption').value.trim(), tags: $('#cpTags').value, caption_where: ($('#cpWhere button.on') || {}).dataset?.v || 'end',
+    min_len: +$('#cpMin').value || 0, max_len: +$('#cpMax').value || 0,
+    watermark: Object.assign({}, c.watermark, { use: $('#cpWmUse').checked }),
+    discord: { webhook: $('#cpHook').value.trim(), auto: $('#cpAuto').checked, file: $('#cpFile').checked, message: $('#cpMsg').value },
+  });
+}
+$('#cpActive').onchange = async () => {
+  try { campState = await api('/api/campaigns/active', { id: $('#cpActive').value }); renderCampaigns(); } catch (e) { toast(e.message, 'err'); }
+  const a = activeCamp();
+  toast(a ? `Clips you keep now follow ${a.name}'s rules.` : 'No campaign: clips use your own settings.', '', 3500);
+};
+$('#cpList').onclick = e => {
+  const r = e.target.closest('[data-cp-id]'); if (!r) return;
+  cpEditId = r.dataset.cpId; fillCampaign(campState.list.find(c => c.id === cpEditId)); renderCampaigns();
+};
+$('#cpNew').onclick = () => { cpEditId = 'new'; fillCampaign({ caption_where: 'end', discord: { file: true } }); renderCampaigns(); $('#cpName').focus(); };
+$('#cpWhere').onclick = e => { const b = e.target.closest('button'); if (b) $$('#cpWhere button').forEach(x => x.classList.toggle('on', x === b)); };
+$('#cpTokens').onclick = e => {
+  const b = e.target.closest('[data-cptok]'); if (!b) return;
+  const el = $('#cpMsg'), pos = el.selectionStart ?? el.value.length;
+  el.value = el.value.slice(0, pos) + `{${b.dataset.cptok}}` + el.value.slice(pos); el.focus();
+};
+$('#cpHookShow').onclick = () => { const h = $('#cpHook'); h.type = h.type === 'password' ? 'text' : 'password'; $('#cpHookShow').textContent = h.type === 'password' ? 'Show' : 'Hide'; };
+$('#cpHookTest').onclick = async () => {
+  try { await api('/api/campaigns/test', { webhook: $('#cpHook').value.trim() }); toast('Sent a test message. Check the channel in Discord.', '', 4000); }
+  catch (e) { toast(e.message, 'err', 7000); }
+};
+$('#cpWmCopy').onclick = () => {
+  const w = (exState && exState.prefs.watermark) || { marks: [] };
+  if (!w.marks.length) { toast('Your watermark has no layers yet: add some under Export format › Watermark.', 'err', 5000); return; }
+  cpEditCopy = JSON.parse(JSON.stringify(w.marks));
+  $('#cpWmUse').checked = true; $('#cpWmInfo').textContent = `${w.marks.length} layer${w.marks.length > 1 ? 's' : ''} (save to keep)`;
+};
+$('#cpSave').onclick = async () => {
+  const c = readCampaign();
+  if (cpEditCopy) c.watermark = { use: $('#cpWmUse').checked, marks: cpEditCopy };
+  if (!c.name) { toast('Give the campaign a name.', 'err'); $('#cpName').focus(); return; }
+  if (c.discord.webhook && !/^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/api(?:\/v\d+)?\/webhooks\/\d+\/[\w-]+$/.test(c.discord.webhook)) {
+    toast('That isn\'t a Discord webhook link. In Discord: channel settings › Integrations › Webhooks › Copy webhook URL.', 'err', 7000); return;
+  }
+  const isNew = cpEditId === 'new';
+  if (await saveCampaign(c, isNew && !campState.active)) {
+    if (isNew) cpEditId = campState.list[campState.list.length - 1].id;
+    cpEditCopy = null; fillCampaign(campState.list.find(x => x.id === cpEditId)); renderCampaigns();
+    toast(`Saved "${c.name}".`, '', 2000);
+  }
+};
+$('#cpDelete').onclick = async () => {
+  const c = campState.list.find(x => x.id === cpEditId); if (!c) return;
+  if (!await ask({ title: `Delete "${c.name}"?`, body: 'Its rules, watermark and Discord webhook are removed. Clips already rendered keep their files.', ok: 'Delete', danger: true })) return;
+  try { campState = await api('/api/campaigns/delete', { id: c.id }); cpEditId = ''; renderCampaigns(); } catch (e) { toast(e.message, 'err'); }
+};
+$('#cpShare').onclick = async () => {
   try {
-    const { path } = await api('/api/pick_file', { kind: 'image' }); if (!path) return;
-    exState = await api('/api/watermark/image', { path }); wmImgSrc = ''; renderExportSettings();
+    const r = await api('/api/campaigns/share', { id: cpEditId, webhook: $('#cpShareHook').checked });
+    toast(`Saved "${r.name}" in your projects folder's Shared folder. Drop it into Discord to share it.`, '', 7000);
   } catch (e) { toast(e.message, 'err'); }
 };
-$('#wmClear').onclick = async () => { try { exState = await api('/api/watermark/image', { path: '' }); wmImgSrc = ''; renderExportSettings(); } catch (e) { toast(e.message, 'err'); } };
-function drawWatermark(g, Wd, Ht, t) {
-  const w = exState && exState.prefs && exState.prefs.watermark;
-  if (!w || !w.on || !(w.text || w.image)) return;
-  if (t < (w.start || 0) || (w.end && t > w.end)) return;
-  const k = Wd / 1080, m = Math.max(0, Math.min(200, w.margin)) * k, pos = w.pos || 'tl';
-  g.save(); g.globalAlpha = Math.max(.05, Math.min(1, w.opacity / 100));
-  let bw, bh;
-  if (w.image && wmImg.complete && wmImg.naturalWidth) { bw = Wd * .2 * w.size / 100; bh = bw * wmImg.naturalHeight / wmImg.naturalWidth; }
-  else {
-    const fs = 44 * w.size / 100 * k;
-    g.font = `800 ${fs}px Inter, "Segoe UI", sans-serif`; bw = g.measureText(w.text).width; bh = fs * 1.2;
-  }
-  let x = pos === 'c' ? (Wd - bw) / 2 : pos[1] === 'l' ? m : Wd - bw - m;
-  let y = pos === 'c' ? (Ht - bh) / 2 : pos[0] === 't' ? Ht * .13 : Ht * .80 - bh;   // same as engine.watermark_anchor
-  x = Math.max(0, Math.min(x, Wd - bw)); y = Math.max(0, Math.min(y, Ht - bh));
-  if (w.image && wmImg.complete && wmImg.naturalWidth) g.drawImage(wmImg, x, y, bw, bh);
-  else {
-    if (w.box) { g.fillStyle = 'rgba(20,20,20,1)'; const p = bh * .2; g.fillRect(x - p, y - p * .5, bw + 2 * p, bh + p); }
-    g.fillStyle = '#fff'; g.strokeStyle = 'rgba(0,0,0,.9)'; g.lineWidth = Math.max(1, 3 * k); g.textBaseline = 'top';
-    if (!w.box) g.strokeText(w.text, x, y); g.fillText(w.text, x, y);
-  }
-  g.restore();
-}
+$('#cpImport').onclick = importPick;
+$('#cpImportUrl').onclick = importLink;
+$('#exCamp').onclick = () => { setView('settings'); setTimeout(() => $('#setCampaigns').scrollIntoView({ behavior: 'smooth' }), 50); };
+loadCampaigns();
 $('#exQualityPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ quality: v }); };
 $('#exVcodec').onchange = e => customPatch({ vcodec: e.target.value, container: e.target.value === 'vp9' ? 'webm' : ($('#exContainer').value === 'webm' ? 'mp4' : $('#exContainer').value) });
 $('#exQuality').onchange = e => { const [k, n] = e.target.value.split(':'); customPatch(k === 'b' ? { vbitrate: +n } : { crf: +n, vbitrate: 0 }); };

@@ -74,6 +74,7 @@ jobs:
           python tests/test_download.py
           python tests/test_cleanup.py
           python tests/test_quality.py
+          python tests/test_campaigns.py
           python tests/test_captions_anim.py
           python tests/test_ui.py
 

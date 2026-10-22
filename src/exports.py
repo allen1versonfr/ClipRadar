@@ -16,6 +16,7 @@ from typing import Optional
 
 import paths
 import persist
+import watermarks
 
 PRESETS = {
     "tiktok": {"label": "TikTok", "aspect": "9:16", "scale": 1.0, "fps": 0, "vcodec": "h264", "crf": 20, "vbitrate": 0,
@@ -73,27 +74,15 @@ DEFAULTS = {
     "cap_presets": [], "frame_presets": [],
     # a short sound when you queue a clip and when a render is ready
     "sounds": True,
-    # watermark on exports (the source is never changed)
-    "watermark": {"on": False, "text": "", "image": "", "pos": "tl", "size": 100, "opacity": 70, "margin": 40,
-                  "box": False, "start": 0.0, "end": 0.0},
+    # watermark on exports (the source is never changed): layers, and saved sets of layers (watermarks.py)
+    "watermark": {"on": False, "marks": []}, "wm_presets": [],
 }
-WM_POS = ("tl", "tr", "bl", "br", "c")
 
 
 def _wm(d) -> dict:
-    d = d if isinstance(d, dict) else {}
-    base = DEFAULTS["watermark"]
-    num = lambda k, lo, hi, typ=int: typ(min(max(typ(d.get(k, base[k]) or 0), lo), hi))  # noqa: E731
-    try:
-        out = {"on": bool(d.get("on", False)), "text": str(d.get("text") or "").strip()[:60],
-               "image": str(d.get("image") or ""), "pos": d.get("pos") if d.get("pos") in WM_POS else "tl",
-               "size": num("size", 40, 250), "opacity": num("opacity", 5, 100), "margin": num("margin", 0, 200),
-               "box": bool(d.get("box")), "start": num("start", 0, 3600, float), "end": num("end", 0, 3600, float)}
-    except (TypeError, ValueError):
-        return dict(base)
-    if out["image"] and not os.path.isfile(out["image"]):
-        out["image"] = ""                      # the copy is gone: fall back to the text (or nothing)
-    return out
+    return watermarks.clean(d)
+
+
 CAP_KEYS = ("captions", "caption_pos", "caption_color", "caption_size", "words_per_line", "uppercase", "caption_style",
             "caption_font", "caption_anim", "caption_motion", "caption_speed", "caption_emph", "caption_filler",
             "caption_punct", "caption_spacing", "caption_offset", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
@@ -172,6 +161,7 @@ def clean(d: dict) -> dict:
     out["frame_presets"] = frames
     out["sounds"] = bool(d.get("sounds", True))
     out["watermark"] = _wm(d.get("watermark"))
+    out["wm_presets"] = watermarks.clean_presets(d.get("wm_presets"))
     return out
 
 
@@ -204,7 +194,7 @@ def settings(prefs: Optional[dict] = None) -> dict:
         s["container"] = "webm"
         s["acodec"] = "opus"
     s.update(preset=p["preset"], subtitles=p["subtitles"], denoise=p["denoise"], voice=p["voice"], template=p["template"],
-             watermark=p.get("watermark") or dict(DEFAULTS["watermark"]))
+             watermark=p.get("watermark") or {"on": False, "marks": []})
     return s
 
 
