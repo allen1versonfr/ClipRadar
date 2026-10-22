@@ -690,6 +690,7 @@ class _Stepper:
         self.progress, self.step, self.log = progress, step, log
         self.t = 0.0
         self.pct = -1
+        self.frac = 0.0
 
     def update(self, done, total, frag_i, frag_n, speed, eta):
         frac = None
@@ -698,6 +699,7 @@ class _Stepper:
         elif frag_n:
             frac = (frag_i or 0) / frag_n
         if frac is not None:
+            self.frac = frac
             self.progress(min(0.999, max(0.0, frac)))
         now = time.time()
         if now - self.t > 1.0:
@@ -753,27 +755,39 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
     info = {}
     errors, tail = [], []
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                         text=True, encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW)
+                         text=True, encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW,
+                         **({} if os.name == "nt" else {"start_new_session": True}))
     last_output = [time.monotonic()]
+    last_line = [time.monotonic()]
     stalled = [False]
 
     def watch_download():
-        # yt-dlp normally emits progress frequently. Kill a wedged child rather than leave
-        # the UI on "Exploring the VOD" indefinitely with a live worker and no output.
+        # yt-dlp normally prints progress often, but after 100% it can go quiet for minutes while it
+        # joins or remuxes a long VOD (an 18 GB, 6-hour stream: about 3 minutes). A download file that
+        # is still growing counts as progress; only real silence is a stall. A stalled download is
+        # stopped with its whole process tree: yt-dlp.exe is a launcher, and killing only it left the
+        # real download running in the background.
+        size, told = -1, False
         while p.poll() is None:
-            if time.monotonic() - last_output[0] > 180:
+            now = _download_bytes(out_dir)
+            if now != size:
+                if size >= 0:
+                    last_output[0] = time.monotonic()
+                size = now
+            if not told and st.frac >= 0.99 and time.monotonic() - last_line[0] > 5:
+                told = True
+                step("Putting the video together (a few minutes for a long stream)")
+                log("Download finished; joining it into one video.")
+            if time.monotonic() - last_output[0] > DOWNLOAD_STALL_S:
                 stalled[0] = True
-                try:
-                    p.kill()
-                except OSError:
-                    pass
+                kill_tree(p)
                 return
             time.sleep(2)
 
     threading.Thread(target=watch_download, daemon=True).start()
     try:
         for line in p.stdout:
-            last_output[0] = time.monotonic()
+            last_output[0] = last_line[0] = time.monotonic()
             line = line.strip()
             if line.startswith("VCPROG "):
                 v = [num(x) for x in line.split()[1:8]]
@@ -791,18 +805,56 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
             try:
                 check()
             except Cancelled:
-                p.kill()
+                kill_tree(p)
                 raise
     finally:
         p.wait()
     if stalled[0]:
-        raise RuntimeError("The VOD download stopped producing progress for 3 minutes. Check your connection and retry.")
+        raise RuntimeError(f"The VOD download stopped for {DOWNLOAD_STALL_S // 60} minutes with nothing written. "
+                           "Check your connection and retry.")
     if p.returncode != 0 or not _video_in(out_dir):
         if info.get("is_live") or any("is_live" in t for t in tail):
             raise RuntimeError("That stream is live. Wait until it ends and use the VOD link.")
         raise RuntimeError(errors[-1] if errors else (tail[-1] if tail else f"yt-dlp exited with code {p.returncode}"))
     return _finish_download(workdir, info.get("title") or "vod", info.get("duration"), progress, log,
                             str(info.get("uploader_id") or info.get("uploader") or "").lower(), out_dir)
+
+
+DOWNLOAD_STALL_S = 180       # no output and no file growth for this long: the download is stuck
+
+
+def _download_bytes(folder: str) -> int:
+    """Bytes in the download's files so far (vod.*: parts, fragments, the file being joined)."""
+    total = 0
+    try:
+        for f in os.listdir(folder):
+            if f.startswith("vod.") or f.startswith("vod-"):
+                try:
+                    total += os.path.getsize(os.path.join(folder, f))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+
+def kill_tree(p: subprocess.Popen):
+    """Stop a process and everything it started (yt-dlp.exe is a launcher; ffmpeg runs under it)."""
+    if p.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True, timeout=30,
+                           creationflags=CREATE_NO_WINDOW)
+        else:
+            import signal
+            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+    except Exception:
+        pass
+    try:
+        p.kill()
+    except OSError:
+        pass
 
 
 def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file="", out_dir=""):
