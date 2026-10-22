@@ -1662,7 +1662,7 @@ def refine_with_words(start: float, end: float, peak: float, words: list,
     k = next((i for i, w in enumerate(ws) if w["end"] > start + 0.05), None)
     if k is not None and ws[k]["start"] < end:
         prev = ws[k - 1] if k > 0 else None
-        mid_word = ws[k]["start"] < start - 0.05
+        mid_word = ws[k]["start"] < start - 0.02       # even 50 ms in clips the word's first sound
         joined = prev is not None and ws[k]["start"] - prev["end"] < gap and not _ends_sentence(prev)
         if mid_word or joined:
             j = k
@@ -1685,7 +1685,7 @@ def refine_with_words(start: float, end: float, peak: float, words: list,
     if inside:
         k = inside[-1]
         nxt = ws[k + 1] if k + 1 < len(ws) else None
-        mid_word = ws[k]["end"] > end + 0.05
+        mid_word = ws[k]["end"] > end + 0.02
         joined = nxt is not None and nxt["start"] - ws[k]["end"] < gap and not _ends_sentence(ws[k])
         if mid_word or joined:
             j = k

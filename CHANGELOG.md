@@ -3,6 +3,12 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.11.1] - 2026-10-22
+
+### Fixed
+- A clip could start a few hundredths of a second into a word (after a pause), clipping its first sound. Cuts now move to just before the word, and likewise past a word at the end.
+- CI: the app server smoke test waits at most 90 seconds in all, so a server that accepts connections but never answers fails quickly with its diagnostics instead of running the job out of time.
+
 ## [4.11.0] - 2026-10-22
 
 Working with clipping campaigns and clipping Discords, and watermarks you can move and share.
