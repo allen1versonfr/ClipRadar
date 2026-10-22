@@ -227,5 +227,26 @@ check("and says so instead of cutting the list short quietly", pr["pick_note"].s
 server._pick(pr, 5, 0)
 check("no note when the number is met", pr["pick_note"] == "")
 
+# ---- chat delay on a long stream (real-world test: a 6-hour IRL stream, chat clearly ~4 s behind but
+# weak and spread over 2-6 s, read as "couldn't tell"); random data never gets a delay it's "sure" of
+def _sim(seed, n, couple=True, react=0.7):
+    rng = np.random.default_rng(seed)
+    audio = rng.normal(0, 1, n).clip(-3, 8).astype(np.float32)
+    for t in rng.integers(0, n, n // 30):
+        audio[t:t + 3] += rng.uniform(1, 5)
+    chat = rng.poisson(4, n).astype(np.float32)
+    if couple:
+        for t in np.where(audio > 3)[0][::2]:
+            for L in range(2, 7):
+                if t + L < n:
+                    chat[t + L] += rng.poisson(react)
+    return chat, audio
+
+
+long_found = [detect.estimate_delay(*_sim(s, 21832), None) for s in range(3)]
+check("a long stream's weak, spread-out chat delay is found", all(sure and 2 <= d <= 6 for d, sure in long_found), long_found)
+fp = [detect.estimate_delay(*_sim(100 + s, n, couple=False), None)[1] for n in (1800, 7200, 21832) for s in range(8)]
+check("random data is never 'sure' of a delay, short or long", not any(fp), sum(fp))
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

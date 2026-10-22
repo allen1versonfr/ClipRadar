@@ -1353,7 +1353,7 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
 
 # Bump when anything that feeds the analysis changes (chat scoring, loudness, detector use),
 # so a cached analysis.npz from an older version is thrown away instead of reused.
-ANALYSIS_VERSION = 2          # 4.9: YouTube chat emoji are read as emoji
+ANALYSIS_VERSION = 3          # 4.9: YouTube chat emoji; 4.10: chat delay found on long streams too
 
 
 def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Optional[str]:

@@ -3,6 +3,24 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.10.0] - 2026-10-22
+
+Fixes from the first real-world test: a 6-hour Twitch VOD (89,208 chat messages) and a 28-minute YouTube video, opened, titled and rendered on a Windows PC.
+
+### Changed
+- New videos are auto-framed when they open (unless you picked a layout or drew a camera box yourself). Before, they started in the stacked camera + game layout, and on a stream without a webcam the top panel showed the chat printed on the video.
+- Titles: garbled speech ("5, 4, 5, 5…") is never used as a title; titles from YouTube's captions are whole sentences; template titles take turns instead of repeating (the most repeated title on the test stream went from 16 clips to 4).
+- YouTube clips get #YouTubeClips (not #TwitchClips), and their post text no longer mentions Twitch.
+- Every line of the app's log has a time, and titling and each render are logged.
+- Automatic clip counts for videos without chat (ordinary YouTube videos, files) no longer pad with weak moments: after the first 3, clips scoring under 50 are left out. A number you choose is still filled.
+- `scripts/real_world_test.py` renders as soon as the clips it renders are titled, instead of waiting for every suggested clip.
+
+### Fixed
+- Long VODs: after 100% yt-dlp can go quiet for minutes while it joins the file (3 minutes for the 18 GB test VOD, 7 s short of the stall limit), and the download was called stalled. A download whose file is still growing now counts as progress, and the status says the video is being put together.
+- A stalled or cancelled download is stopped with everything it started. Before, only yt-dlp's launcher was stopped and the real download carried on in the background.
+- Chat delay on long streams: a 6-hour stream whose chat clearly followed it 4 s behind read as "couldn't tell how late chat reacts". The check now allows for a reaction spread over several seconds and for how little a long stream shows by chance. Random data is still never "sure" of a delay.
+- Clips that are mostly very dark or blurry get a warning in Exports. They still render.
+
 ## [4.9.0] - 2026-10-22
 
 Better clips from YouTube, and a script for testing on real links.
