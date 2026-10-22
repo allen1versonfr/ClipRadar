@@ -826,7 +826,8 @@ class LiveSession:
         try:
             p = subprocess.run([engine.ffprobe(), "-v", "error", "-show_entries", "format=duration",
                                 "-of", "default=nw=1:nk=1", path], capture_output=True, text=True, timeout=30,
-                               stdin=subprocess.DEVNULL, creationflags=engine.CREATE_NO_WINDOW)
+                               encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+                               creationflags=engine.CREATE_NO_WINDOW)
             return float(p.stdout.strip() or 0)
         except Exception:
             return 0.0

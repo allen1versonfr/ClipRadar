@@ -42,6 +42,21 @@ R = engine.RenderOpts
 # ---- frame rate
 check("by default, the stream's own frame rate", engine.output_fps({"fps": 60}, R()) == 60 and engine.output_fps({"fps": 29.97}, R()) == 29.97)
 check("capped at 60", engine.output_fps({"fps": 120}, R()) == 60)
+# ---- text read from FFmpeg and the other tools is decoded as UTF-8: FFmpeg echoes file names, and a
+# title like 名前 can't be decoded with Windows' default code page (a render was failing as "came out
+# without sound" because the volume check couldn't read FFmpeg's answer)
+import ast
+SRC = os.path.join(HERE, "..", "src")
+loose = []
+for fn in sorted(os.listdir(SRC)):
+    if fn.endswith(".py"):
+        tree = ast.parse(open(os.path.join(SRC, fn), encoding="utf-8").read())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                kw = {k.arg: k.value for k in node.keywords}
+                if isinstance(kw.get("text"), ast.Constant) and kw["text"].value is True and "encoding" not in kw:
+                    loose.append(f"{fn}:{node.lineno}")
+check("every tool output read as text is decoded as UTF-8", not loose, loose)
 check("a 30 FPS stream is never turned into 60", engine.output_fps({"fps": 30}, R(fps=60)) == 30)
 check("a chosen lower rate is used", engine.output_fps({"fps": 60}, R(fps=30)) == 30)
 check("an unreadable rate falls back to 30", engine.output_fps({"fps": 0}, R()) == 30 and engine.output_fps({}, R()) == 30)

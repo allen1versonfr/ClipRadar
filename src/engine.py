@@ -2558,7 +2558,8 @@ def audio_peak(path: str) -> Optional[float]:
         if not probe(path)["has_audio"]:
             return None
         out = subprocess.run([ffmpeg(), "-v", "info", "-nostdin", "-i", path, "-vn", "-af", "volumedetect", "-f", "null", "-"],
-                             capture_output=True, text=True, timeout=120, creationflags=CREATE_NO_WINDOW).stderr
+                             capture_output=True, text=True, timeout=120, encoding="utf-8", errors="replace",
+                             creationflags=CREATE_NO_WINDOW).stderr     # ffmpeg echoes the file name in UTF-8
         m = re.search(r"max_volume:\s*(-?[\d.]+|-inf) dB", out)
         return -200.0 if m and m.group(1) == "-inf" else float(m.group(1)) if m else None
     except Exception:

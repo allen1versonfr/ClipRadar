@@ -19,6 +19,9 @@ Closing the gaps left against the Clip Radar 5 brief, with measurements against 
 - High frame rate is folded into Balanced: both made the same file, since Balanced already keeps 50 and 60 FPS. A saved High frame rate setting becomes Balanced.
 - The quality notes give measured differences (High takes about 1.5 times as long as Balanced; Fast is about a third quicker).
 
+### Fixed
+- On Windows, a clip whose title has letters like é or 名前 failed with "came out without sound": the sound check couldn't read FFmpeg's answer, which repeats the file name. Everything Clip Radar reads from FFmpeg and the other tools is now read as UTF-8.
+
 ## [4.7.0] - 2026-10-21
 
 Release preparation: updating is tested from the previous Clip Radar, and the guide covers everything new.
