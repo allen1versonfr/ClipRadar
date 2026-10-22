@@ -3,6 +3,22 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.8.0] - 2026-10-22
+
+Closing the gaps left against the Clip Radar 5 brief, with measurements against 4.1.5.
+
+### Added
+- Keep the top 3, 5, 10, 15, 20 or all clips in one go (To review list › Keep and render): each renders with the current export settings, in the order shown, with one queue sound for the batch. Clips with content flags to review are left for you.
+- Captions: Line spacing for two-line captions, and Timing, which moves every caption earlier or later (up to a second) when they don't line up with the voice. The preview shows both.
+- Auto-framing with more than one person: two people of similar size who fit in the crop together are framed together. When they don't fit, it stays on one person and only moves to the other once the first has gone, instead of jumping between them when a face is missed for a moment.
+- The render bar moves while captions are being transcribed (it used to sit still until Whisper finished).
+- `scripts/bench_pipeline.py`: scan and render time, peak memory and the export presets on a made-up 30-minute stream, to compare two versions on one PC.
+
+### Changed
+- Keep the PC responsive (Settings › Performance) now leaves one CPU core free instead of using half of them. Renders still run at lower priority on Windows. A 30 s clip on a 4-core PC: 23.8 s before, 18.2 s now.
+- High frame rate is folded into Balanced: both made the same file, since Balanced already keeps 50 and 60 FPS. A saved High frame rate setting becomes Balanced.
+- The quality notes give measured differences (High takes about 1.5 times as long as Balanced; Fast is about a third quicker).
+
 ## [4.7.0] - 2026-10-21
 
 Release preparation: updating is tested from the previous Clip Radar, and the guide covers everything new.

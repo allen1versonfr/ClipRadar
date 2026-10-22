@@ -37,19 +37,23 @@ ADVANCED = {   # what Advanced can change, and the values allowed
     "loudness": (0.0, -14.0, -16.0, -18.0, -23.0),
 }
 SUBTITLES = ("burn", "burn_srt", "srt")
-# Export quality (Settings › Export format): how hard the encoder works, and whether to keep a
-# high frame rate. "smooth" keeps up to 60 FPS when the stream has it; it never invents frames.
+# Export quality (Settings › Export format): how hard the encoder works, and the frame rate.
+# Balanced and High keep the stream's own rate (up to 60) and never invent frames. Measured on a
+# 4-core CPU, 30 s at 1080x1920 (scripts/bench_pipeline.py --presets): Fast 10.9 s / 8.7 MB,
+# Balanced 15.6 s / 12.3 MB, High 24.2 s / 15.2 MB; SSIM against High 0.9965 (Fast), 0.9978 (Balanced).
+# A separate "High frame rate" choice (4.5) made the same file as Balanced, so it was folded into it.
 QUALITY = {
     "fast": {"label": "Fast export", "speed": "fast", "fps": 30,
-             "note": "Quickest renders and smallest files, at up to 30 FPS. Fine for previews and drafts."},
+             "note": "About a third quicker than Balanced and smaller files, at up to 30 FPS (a 60 FPS stream is "
+                     "halved). Fine for previews and drafts."},
     "balanced": {"label": "Balanced", "speed": "balanced", "fps": 0,
-                 "note": "Recommended. The stream's own frame rate (up to 60) at good quality."},
+                 "note": "Recommended. Keeps the stream's own frame rate, so 50 or 60 FPS streams stay smooth. "
+                         "A 30 FPS stream stays 30: doubling frames would only repeat them, not add motion."},
     "high": {"label": "High quality", "speed": "high", "fps": 0,
-             "note": "Sharper detail in fast motion and dark scenes; renders take about twice as long."},
-    "smooth": {"label": "High frame rate", "speed": "balanced", "fps": 60,
-               "note": "Keeps 50 or 60 FPS when the stream was recorded that way. A 30 FPS stream stays 30: "
-                       "doubling frames would only repeat them, not add motion."},
+             "note": "Sharper detail in fast motion and dark scenes, at the stream's own frame rate; renders take "
+                     "about 1.5 times as long as Balanced and files are about 25% bigger."},
 }
+OLD_QUALITY = {"smooth": "balanced"}       # "High frame rate" (4.5-4.7) made the same file as Balanced
 TOKENS = ("title", "streamer", "platform", "source", "number", "date", "hashtags", "project", "preset")
 DEFAULT_TEMPLATE = "{title}"
 MAX_NAME = 120
@@ -92,7 +96,7 @@ def _wm(d) -> dict:
     return out
 CAP_KEYS = ("captions", "caption_pos", "caption_color", "caption_size", "words_per_line", "uppercase", "caption_style",
             "caption_font", "caption_anim", "caption_motion", "caption_speed", "caption_emph", "caption_filler",
-            "caption_punct", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
+            "caption_punct", "caption_spacing", "caption_offset", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
             "title_size", "title_x", "title_y")
 FRAME_KEYS = ("layout", "cam", "cam_height", "game_zoom", "game_x", "track", "track_target", "focus_y", "aspect")
 
@@ -141,7 +145,8 @@ def clean(d: dict) -> dict:
     t = str(d.get("template") or DEFAULT_TEMPLATE).strip()[:200]
     out["template"] = t if "{" in t else DEFAULT_TEMPLATE
     out["subtitles"] = d.get("subtitles") if d.get("subtitles") in SUBTITLES else "burn"
-    out["quality"] = d.get("quality") if d.get("quality") in QUALITY else "balanced"
+    q = OLD_QUALITY.get(d.get("quality"), d.get("quality"))
+    out["quality"] = q if q in QUALITY else "balanced"
     out["denoise"], out["voice"] = bool(d.get("denoise")), bool(d.get("voice"))
     rep = []
     for pair in (d.get("replace") or [])[:200]:

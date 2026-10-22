@@ -440,11 +440,13 @@ def export_checks(ctx):
         rec("X preset renders at 720x1280", got and got[:2] == (720, 1280), got or (d and d.get("error")))
         rec("file name follows the template", d and d.get("name", "").endswith(f"{int(c['id']):02d} - X size.mp4"), d and d.get("name"))
         post("/api/hashtags", {"file": {"enabled": True, "general": ["#TwitchClips", "#Gaming"]}})
-        tg = post("/api/queue/add", {"pid": pid, "clip": dict(base, title="Tagged", rank=c["id"] + 1000, words=None,
+        # on Windows' real file system: Unicode, a tag already in the title, and characters Windows forbids
+        tg = post("/api/queue/add", {"pid": pid, "clip": dict(base, title="Tagged é 名前 #Gaming: why?", rank=c["id"] + 1000, words=None,
                                                              start=base["start"] + 1), "opts": opts})
         dt = _wait_item(tg.get("id"), 240)
         tname = (dt or {}).get("name", "")
-        rec("hashtags are in the rendered file's name", dt and dt["status"] == "done" and "_#TwitchClips_#Gaming" in tname
+        rec("hashtags are in the rendered file's name", dt and dt["status"] == "done" and "_#TwitchClips" in tname
+            and "Tagged é 名前" in tname and tname.count("#Gaming") == 1 and not any(ch in tname for ch in ':?')
             and os.path.isfile(os.path.join(dt["folder"], tname)), tname or (dt and dt.get("error")))
         post("/api/hashtags", {"file": {"enabled": False}})
         srt = os.path.join(d["folder"], os.path.splitext(d["name"])[0] + ".srt") if d and d.get("name") else ""

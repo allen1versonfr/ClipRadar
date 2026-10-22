@@ -414,3 +414,57 @@ templates.
   - checks the updated install uninstalls cleanly.
 - **User guide updated** for Milestones 3–6.
 - **Final report:** `docs/clip-radar-5-report.md`.
+
+## 14. 4.8.0 — gaps against the brief, closed
+
+The owner asked for every section of the brief to be checked against what shipped. Found missing or
+only partly done, and now done:
+
+| Brief | Gap | Done in 4.8.0 |
+|---|---|---|
+| §3 progress, §11 "not stuck at 0%" | the render bar sat at 8% while Whisper transcribed a clip's captions | transcription reports how far it has got; the bar moves from 8% to 30% with it (`test_memory.py`) |
+| §9.11 multi-clip export | only one clip at a time (keeping several was the workaround) | Keep the top N in the To review list: one confirmation, current export settings, one queue sound, flagged clips left for review (`test_ui.py` drives it in a browser with a real video) |
+| §7 line spacing, timing | not controls | Line spacing (100–200%) and Timing (±1 s). Measured on a rendered frame: a two-line caption is 103 px tall at 100%, 167 px at 200% (`test_captions_anim.py`) |
+| §11, §18 several speakers | automatic framing followed the biggest face and could swap people when one was missed for a frame | two people who fit are framed together; otherwise it stays on one and switches only after 1.5 s without them; tests for a duo, two people too far apart, and a speaker change with missed frames (`test_framing.py`) |
+| §3, §8 measurements | no scan time, render throughput or preset numbers | `scripts/bench_pipeline.py`, below |
+| §2 redundant controls | "High frame rate" made byte-identical files to Balanced (same encoder, both keep the source rate up to 60) | folded into Balanced; saved settings map over |
+
+### Measured (this Linux container, 4 cores, CPU only; median of 3 runs, 4.1.5 and 4.8.0 interleaved)
+
+Made-up 30-minute 1280×720 30 FPS stream with ten loud moments, chat reactions to them and three
+F-waves (`python scripts/bench_pipeline.py --src <version>/src`). The render is the top clip, 30 s,
+9:16 blur-fit, no captions, software encoder, default settings, through the app's queue.
+
+| | 4.1.5 | 4.8.0 |
+|---|---|---|
+| Find clips on the 30-min stream | 7.31 s | 7.11 s (no real change) |
+| Peak memory after Find clips | 87.3 MB | 87.3 MB |
+| Render of a 30 s clip (default "Keep the PC responsive") | 24.48 s (1.23× real time) | 20.29 s (1.48× real time); −17%, from using 3 of 4 cores instead of 2 |
+| Clips suggested automatically | 8, one of them an F-wave (score 7.31) | 7, all real moments |
+| 15 clips asked for | 9 returned | 15 returned |
+
+Scan time didn't change and wasn't a measured bottleneck. 6.3 s before a container restart, 7.1–7.3 s
+after, for both versions alike. A render is about 80% encoder (filters alone: 2.8 s of 14.9 s with
+all cores), so the thread count was the lever worth pulling.
+
+Export presets, the same 30 s (`--presets`):
+
+| | time | x real time | size | SSIM vs High |
+|---|---|---|---|---|
+| Fast export | 10.9 s | 2.7× | 8.7 MB | 0.9965 |
+| Balanced | 15.6 s | 1.9× | 12.3 MB | 0.9978 |
+| High quality | 24.2 s | 1.2× | 15.2 MB | (reference) |
+
+With a 60 FPS source: Balanced kept 60 FPS (28.6 s, 16.3 MB), Fast rendered 30 FPS (14.6 s, 8.8 MB).
+The synthetic picture (FFmpeg's test pattern) is busier than most streams, so real files will be
+smaller. GPU encoders couldn't be measured here.
+
+Checked and already covered, no change: Deep Scan termination and cancel (`test_deepscan.py`);
+retry (`test_retry.py`); crop geometry; Unicode, duplicate tags, long names and Windows-forbidden
+characters in file names (`test_hashtags.py`, and now also an e2e render on Windows with
+`Tagged é 名前 #Gaming: why?`); legacy settings migration (CI updates from VodClipper 3.11 and the
+previous Clip Radar); packaged-exe self-test and smoke test; installer, upgrade and uninstall.
+
+Still not done, by decision: the "Clip Radar 1.0" rebrand (§17), which the owner dropped in favour
+of the existing numbering, and a multitrack editor (§9 says only if the architecture supports it;
+it doesn't).

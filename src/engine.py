@@ -1802,6 +1802,8 @@ class RenderOpts:
     caption_emph: bool = False      # strong words ("no way", "insane", shouting) in the highlight colour
     caption_filler: bool = True     # keep "um", "uh" in captions
     caption_punct: bool = True      # keep punctuation in captions
+    caption_spacing: int = 100      # gap between a caption's two lines, percent of normal (100-200)
+    caption_offset: int = 0         # move captions earlier (-) or later (+), milliseconds
     cap_x: float = 0.5              # custom caption centre, fractions of the frame
     cap_y: float = 0.7
     title_style: str = "box"        # box | dark | accent | outline
@@ -2079,9 +2081,11 @@ _HALLUCINATION = re.compile(r"thank(s| you) (so much )?for watching|please subsc
                             r"subtitles by|amara\.org|♪|\[music\]|\(music\)", re.I)
 
 
-def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = "") -> list:
+def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = "",
+               progress: Progress = _noop) -> list:
     """audio: path or 16 kHz mono float32 numpy array. prompt: names and words to expect (the
-    streamer, emotes, your own vocabulary), so Whisper spells them right."""
+    streamer, emotes, your own vocabulary), so Whisper spells them right. progress gets 0-1 as
+    the transcript reaches further into the audio."""
     if isinstance(audio, (str, os.PathLike)):
         # decode with the bundled FFmpeg: the packaged app has no PyAV (stubs/av)
         audio = extract_audio(str(audio), 0.0, probe(str(audio))["duration"] or 0.1)
@@ -2090,7 +2094,7 @@ def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = ""
     with _busy_lock:
         _whisper_busy[0] += 1
     try:
-        return _transcribe(audio, model_size, language, log, prompt)
+        return _transcribe(audio, model_size, language, log, prompt, progress)
     finally:
         with _busy_lock:
             _whisper_used[0] = time.time()
@@ -2098,7 +2102,7 @@ def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = ""
         _release_later()
 
 
-def _transcribe(audio, model_size: str, language: str, log: Log, prompt: str) -> list:
+def _transcribe(audio, model_size: str, language: str, log: Log, prompt: str, progress: Progress = _noop) -> list:
     with _whisper_lock:
         model = _load_whisper(model_size, log)
         kw = dict(language=language or None, word_timestamps=True, vad_filter=True, beam_size=5,
@@ -2111,7 +2115,9 @@ def _transcribe(audio, model_size: str, language: str, log: Log, prompt: str) ->
             kw.pop("condition_on_previous_text", None)
             segs, _ = model.transcribe(audio, **kw)
         words = []
+        total = max(0.1, len(audio) / 16000)
         for seg in segs:
+            progress(min(1.0, float(getattr(seg, "end", 0) or 0) / total))
             # Whisper's own check for text made up during silence or music
             if getattr(seg, "no_speech_prob", 0) > 0.6 and getattr(seg, "avg_logprob", 0) < -1.0:
                 continue
@@ -2284,6 +2290,30 @@ def _wm_alpha(opacity: int) -> str:
     return f"&H{int(round(255 * (1 - max(5, min(100, opacity)) / 100))):02X}&"
 
 
+def _shifted(words: list, o: "RenderOpts") -> list:
+    """Caption words moved by Text › Timing (burned-in captions and the .srt alike)."""
+    off = max(-1000, min(1000, int(getattr(o, "caption_offset", 0) or 0))) / 1000
+    if not off:
+        return words
+    return [dict(w, start=max(0.0, w["start"] + off), end=max(0.05, w["end"] + off)) for w in words]
+
+
+def _join_lines(parts: list, texts: list, fs: int, spacing: int, width: int, upper: bool) -> str:
+    """The words of one caption. At normal line spacing libass wraps them itself; with more
+    spacing, a caption too wide for one line is split into two balanced lines here, with a
+    spacer line (its height is the extra space) between them."""
+    if spacing <= 100 or len(parts) < 2:
+        return " ".join(parts)
+    glyph = 0.62 if upper else 0.54                    # average character width, share of the font size
+    chars = sum(len(t) for t in texts) + len(texts) - 1
+    if chars * fs * glyph <= width:
+        return " ".join(parts)
+    left = [sum(len(t) + 1 for t in texts[:k]) for k in range(1, len(texts))]
+    k = 1 + min(range(len(left)), key=lambda i: abs(left[i] - chars / 2))
+    gap = max(1, int(fs * (spacing - 100) / 100))
+    return " ".join(parts[:k]) + f"\\N{{\\fs{gap}}}\\h{{\\fs{fs}}}\\N" + " ".join(parts[k:])
+
+
 def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, title: str = "") -> str:
     W, H = out_size(o)
     hi = _ass_color(o.caption_color)
@@ -2357,6 +2387,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if style == "clean" and motion == "pop":
         motion = "none"                    # clean captions never popped
     dur = int(120 * 100 / max(50, min(200, getattr(o, "caption_speed", 100))))    # ms
+    words = _shifted(words, o)
+    spacing = max(100, min(200, int(getattr(o, "caption_spacing", 100) or 100)))
     chunks = _chunks(caption_words(words, o), o, clip_len)
     for ci, ch in enumerate(chunks):
         texts = [_ass_escape(w["word"].upper() if o.uppercase else w["word"]) for w in ch]
@@ -2426,7 +2458,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     place = f"\\move({x},{y + int(fs * 0.6)},{x},{y},0,{dur * 2})"
                     lead += f"\\fad({dur * 2},0)"
             lines.append(f"Dialogue: 0,{_ass_time(st)},{_ass_time(en)},Cap,,{ml},{mr},0,,"
-                         f"{{\\an5{place}\\fs{fs}{lead}}}{pop}{' '.join(parts)}")
+                         f"{{\\an5{place}\\fs{fs}{lead}}}{pop}{_join_lines(parts, texts, fs, spacing, 2 * half, o.uppercase)}")
     return header + "\n".join(lines) + "\n"
 
 
@@ -2509,7 +2541,7 @@ def write_srt(words: list, o: "RenderOpts", path: str, clip_len: float):
         h, m, sec = int(t // 3600), int(t % 3600 // 60), t % 60
         return f"{h:02d}:{m:02d}:{int(sec):02d},{int(round((sec - int(sec)) * 1000)) % 1000:03d}"
     lines = []
-    chunks = _chunks(caption_words(words, o), o, clip_len)
+    chunks = _chunks(caption_words(_shifted(words, o), o), o, clip_len)
     for i, ch in enumerate(chunks, 1):
         end = min(clip_len, chunks[i][0]["start"] if i < len(chunks) else ch[-1]["end"] + 0.4)
         text = " ".join(w["word"] for w in ch)
@@ -2572,7 +2604,9 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                 else:
                     log("Transcribing speech for captions...")
                     try:
-                        words = transcribe(audio, o.whisper_model, o.language, log)
+                        # Whisper can take a while on a long clip: move the bar as it goes
+                        words = transcribe(audio, o.whisper_model, o.language, log,
+                                           progress=lambda f: progress(0.08 + 0.22 * f))
                     except Exception as e:
                         log(f"Captions skipped: {str(e)[:200]}")
                         words = []

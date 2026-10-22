@@ -1,4 +1,4 @@
-# Clip Radar 5 work — final report (4.1.5 → 4.7.0)
+# Clip Radar 5 work — final report (4.1.5 → 4.8.0)
 
 Baseline: Clip Radar 4.1.5 (`main` at `71822ad`, release `v4.1.5` checked on GitHub before
 starting). Owner decision during the work: **no "Clip Radar 1.0" rebrand; the existing version
@@ -15,7 +15,8 @@ numbering continues.** The full audit, measurements and per-milestone notes are 
 | 4 | 4.4.0 | allen1versonfr/vodclipper#18 | Hashtags in file names and posts, TikTok Studio handoff (API removed), safe automatic cleanup, sounds |
 | 5 | 4.5.0 | allen1versonfr/vodclipper#19 | Source frame rate, quality presets, blur-fit fixes, watermark, caption animations |
 | 6 | 4.6.0 | allen1versonfr/vodclipper#20 | Flat UI with the yellow accent, caption templates, reset style, TikTok guides, per-clip volume, UI smoke test |
-| 7 | 4.7.0 | (this PR) | Update test from the previous Clip Radar release, user guide, this report |
+| 7 | 4.7.0 | allen1versonfr/vodclipper#21 | Update test from the previous Clip Radar release, user guide, this report |
+| Gaps | 4.8.0 | (this PR) | Brief re-checked section by section: multi-clip export, caption line spacing and timing, framing two people, render progress during captions, faster responsive renders, measured scan/render/presets against 4.1.5 |
 
 Each release is published by the existing `build.yml` when its PR merges, after the Windows build,
 packaged self-test, end-to-end test, VodClipper→Clip Radar upgrade test and install/uninstall test
@@ -37,10 +38,14 @@ From the Windows CI builds, unless marked otherwise.
 | Blur-fit, 360×800 source | render failed | renders at 1080×1920 | 4.5.0 |
 | Frame rate of a 60 FPS stream's clips | 30 | 60 | 4.5.0; never above the source |
 | Per-clip volume −9…+6 dB (pink noise) | — | −22.9…−10.6 LUFS, peaks ≤ −0.5 dBFS | 4.6.0 |
+| Find clips, 30-min stream (Linux, 4 cores) | 7.31 s, 87.3 MB peak | 7.11 s, 87.3 MB | 4.8.0; no real change |
+| 30 s 9:16 render, default settings (Linux, 4 cores) | 24.5 s | **20.3 s** | 4.8.0; 3 of 4 cores instead of 2 |
+| Asked for 15 clips on that stream | 9 returned | 15 | |
+| Export presets, same 30 s | — | Fast 10.9 s / 8.7 MB, Balanced 15.6 s / 12.3 MB, High 24.2 s / 15.2 MB | SSIM vs High: 0.9965, 0.9978 |
 
-Not measured: render throughput per preset on real hardware (CI runners have no GPU, and timings on
-shared runners vary too much to compare presets), and Deep Scan or full-VOD scan times on a
-real multi-hour VOD (none available here).
+The 4.8.0 rows come from `scripts/bench_pipeline.py` on a made-up stream in the development container
+(details in the audit, §14). Not measured: GPU encoders, Windows desktop timings, and scans of a real
+multi-hour VOD (none available here).
 
 ## Implemented
 
@@ -86,9 +91,12 @@ real multi-hour VOD (none available here).
 
 **Sounds:** once on queue add (yours only) and once when a render is ready, also while minimised.
 
+**Framing (4.8.0):** two people who fit in the crop are framed together. Otherwise it stays on one
+person and moves to the other only after the first has gone for 1.5 s.
+
 **Export**
 - The stream's own frame rate (up to 60), never raised above it.
-- Fast/Balanced/High/High-FPS presets.
+- Fast/Balanced/High presets (High frame rate folded into Balanced in 4.8.0: it made the same file).
 - Blur-fit fixed for tall and narrow sources.
 - Watermark: text or image, position, size, opacity, margin, box and time window, shown in the
   preview.
@@ -97,11 +105,13 @@ real multi-hour VOD (none available here).
 - Seven animation presets on the one caption pipeline.
 - Speed, strong-word highlight, and options to drop filler and punctuation.
 - Six templates and a reset to default.
+- Line spacing and a timing shift (4.8.0).
 
 **UI**
 - A flat look with the restrained yellow accent and dark text on it.
 - A "show what TikTok covers" guide.
 - Per-clip volume.
+- Keep the top N clips in one go: a multi-clip export with one confirmation and one sound (4.8.0).
 
 **Tests**
 - Ten new unit test files (`test_startup`, `test_memory`, `test_deepscan`, `test_retry`,
@@ -117,8 +127,9 @@ real multi-hour VOD (none available here).
   development environment, and no official page in search results confirms it. Click it once on a
   PC. It's one constant, also overridable with `CLIPRADAR_STUDIO_URL`.
 - **Learned trim shifts are not applied in live mode.** A later end would delay every live clip.
-- **Caption line spacing** isn't its own control, and there are no caption backgrounds beyond the
-  box style.
+- **Caption backgrounds** are the box style only; there is no separate animated background.
+- **Active-speaker detection** isn't done: with two people it frames both when they fit, otherwise
+  it stays on one until they leave. Telling who is talking would need lip or voice matching.
 - **No multitrack editor**, as the brief allowed.
 - **`docs/images` screenshots** still show the older blue accent. They need a Windows capture with
   a project open.
@@ -133,6 +144,7 @@ python tests/test_<name>.py        # each unit script; CI runs them all (build.y
 python tests/test_ui.py            # needs Playwright and a Chromium-based browser
 python tests/e2e.py --app "python src/app.py" --ffmpeg ffmpeg --out report.json --model tiny
 python scripts/bench_startup.py --runs 5
+python scripts/bench_pipeline.py [--src other/version/src] [--presets]
 ```
 
 - **Unit tests:** every unit script passed locally at each milestone (Linux, Python 3.13), with

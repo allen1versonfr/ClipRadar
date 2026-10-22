@@ -92,6 +92,39 @@ with sync_playwright() as p:
     check("the primary buttons use the signature yellow", bg.replace(" ", "") == "rgb(255,210,31)", bg)
     tabs = pg.evaluate("[...document.querySelectorAll('#setTikTok')].length")
     check("the old TikTok sign-in settings are gone", tabs == 0)
+
+    # multi-clip export: open a real video, keep the top 3 in one go
+    import shutil
+    import subprocess
+    import tempfile
+    if shutil.which("ffmpeg"):
+        tmp = tempfile.mkdtemp(prefix="vc_ui_")
+        vod = os.path.join(tmp, "batch_test.mp4")
+        # quiet tone with four loud bursts: four moments to suggest
+        loud = "+".join(f"between(t,{t},{t + 2})" for t in (20, 45, 70, 95))
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=120",
+                        "-f", "lavfi", "-i", "anoisesrc=d=120:a=0.02", "-af", f"volume='if({loud},40,1)':eval=frame",
+                        "-shortest", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", vod],
+                       check=True)
+        pg.click("button[data-view=home]")
+        pg.fill("#src", vod)
+        pg.click("#analyze")
+        pg.wait_for_selector("#batchBar:not([hidden])", timeout=120000)
+        pg.select_option("#batchN", "3")
+        pg.evaluate("opts.captions = false")          # no Whisper download for this check
+        sounds = sum(1 for e, _ in server.SOUND_LOG if e == "queued")
+        pg.click("#batchKeep")
+        pg.click("#dlgYes")
+        pg.wait_for_timeout(2500)
+        with server.queue_lock:
+            n = len(server.queue)
+        check("Keep the top 3 queues three renders", n == 3, n)
+        check("and plays one queued sound for the batch",
+              sum(1 for e, _ in server.SOUND_LOG if e == "queued") - sounds == 1, server.SOUND_LOG)
+        kept = pg.evaluate("W.clips.filter(c => c.state === 'kept').length")
+        check("the three clips show as kept", kept == 3, kept)
+    else:
+        print("[skip] no ffmpeg here: multi-clip export not checked")
     b.close()
 
 server.SHUTTING_DOWN[0] = True

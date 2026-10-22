@@ -350,6 +350,9 @@ HOW CLIPS ARE PICKED
     it doesn't have enough decisions yet.
   - A wave of "F" (or o7, or poll votes like "1") counts for nothing: it says
     something happened, not what, and can't make a clip on its own.
+  - Keep the top (To review list): keep and render the top 3, 5, 10, 15, 20
+    or all clips in one go, in the order shown, with your export settings.
+    Clips with content flags to review are left for you.
   - Clips to suggest goes from 5 to 60 in steps of 5, then up to 100. You get
     the number you asked for; when a video doesn't have that many separate
     moments, Clip Radar says so.
@@ -363,9 +366,11 @@ FRAMING
   Follow the streamer's face (Whole frame layout): the crop moves with the
   face, smoothly and never faster than a slow pan, ignores small wobbles and
   one-off misdetections, and holds still while the face is hidden for a
-  moment. If the face is gone for longer it eases back to Focus. If a face is
+  moment. It moves to someone else only once the person it follows has been
+  gone for a second and a half. If the face is gone for longer it eases back to Focus. If a face is
   only seen now and then, or the only face is a facecam overlay, the crop
-  stays at Focus. Who to follow: automatic (the biggest face), the left-most
+  stays at Focus. Who to follow: automatic (the biggest face, or two people
+  together when they fit in the frame side by side), the left-most
   or right-most person, or the one nearest a focus point you set. Captions in
   the automatic position move off the face. The preview moves the crop the
   same way, and the exact preview shows the real render.
@@ -394,6 +399,9 @@ CAPTIONS
   none, with a speed setting. Highlight strong words keeps words like "no
   way" and shouting in your highlight colour. Keep "um" and "uh" and Keep
   punctuation can be turned off; the timing of the other words doesn't change.
+  Line spacing spreads the two lines of a long caption apart. Timing moves
+  every caption earlier or later (up to a second) if they don't line up with
+  the voice.
   Show what TikTok covers shades the parts TikTok's buttons, caption and top
   bar sit on, so you can keep text clear of them.
 
@@ -414,10 +422,11 @@ EXPORT FORMAT
   {platform}, {source}, {date}, {hashtags}, {project} and {preset} too.
   Empty fields drop out, and characters Windows can't use are removed.
   The same clip sent twice (a double click) renders once.
-  Quality: Fast export (quickest, up to 30 FPS), Balanced (recommended),
-  High quality (sharper, about twice as long to render) and High frame rate.
-  Clips keep the stream's own frame rate, up to 60. A 30 FPS stream is never
-  turned into 60: that would only repeat frames, not add motion.
+  Quality: Fast export (about a third quicker, up to 30 FPS), Balanced
+  (recommended) and High quality (sharper, about 1.5 times as long to render).
+  Balanced and High keep the stream's own frame rate, up to 60. A 30 FPS
+  stream is never turned into 60: that would only repeat frames, not add
+  motion.
   Watermark: text or an image, in a corner or the centre, with size, opacity,
   distance from the side, a dark box behind text, and when it appears and
   disappears. Only exports get it; your videos aren't changed. It shows in the
@@ -429,7 +438,7 @@ EXPORT FORMAT
 PERFORMANCE
   Settings > Performance sets how many clips render at once (1-3) and how
   many VODs download at once (1-2). Keep the PC responsive renders at lower
-  priority with half the CPU threads; Finish faster uses everything.
+  priority and leaves one CPU core free; Finish faster uses everything.
   Time left shows in Exports, on Home and in the status bar. It's based on
   how fast this PC rendered before, so the first render's estimate firms up
   after a few seconds.
