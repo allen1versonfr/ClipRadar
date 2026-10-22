@@ -60,7 +60,16 @@ USE
                      your browser under Advanced > Sign in with), removed,
                      not available in your country, or a post with no video.
                      A finished YouTube livestream brings its chat replay, so
-                     chat counts like it does for Twitch. A link with a start
+                     chat counts like it does for Twitch (YouTube emoji
+                     included). An ordinary YouTube video has no chat, so Clip
+                     Radar reads what YouTube knows about it: the Most replayed
+                     graph (where viewers rewatch), timestamps in the top
+                     comments ("3:45 when he fell": many people pointing at a
+                     moment lifts it, and their words can title the clip, shown
+                     as Comments: "..."), chapters, and YouTube's own captions,
+                     which title clips straight away without waiting for
+                     Whisper. Each clip's reason says which of these it came
+                     from. A link with a start
                      time (?t=1m30s) opens the preview there. Each clip has a
                      link back to that moment in the original (Clip tab, and
                      Copy source link in Exports) for crediting the source.
@@ -71,8 +80,8 @@ USE
                      find quiet gems (see below).
     Live stream      enter a Twitch channel (twitch.tv/name) or a YouTube
                      livestream link and press Start live clipping while the
-                     stream is on air. YouTube live chat isn't read, so YouTube
-                     streams are clipped from what's on stream.
+                     stream is on air. A YouTube livestream's chat is read too
+                     (through yt-dlp), the same way as Twitch chat.
     Running now      every video being opened and every stream being clipped,
                      with its progress. Open, Pause (Resume carries on where the
                      download stopped), Cancel or Stop each one by itself; one

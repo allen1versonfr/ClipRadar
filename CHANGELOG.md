@@ -3,6 +3,25 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.9.0] - 2026-10-22
+
+Better clips from YouTube, and a script for testing on real links.
+
+### Added
+- Ordinary YouTube videos (no chat) are ranked with what YouTube knows about them, next to the sound:
+  - the Most replayed graph: where viewers rewatch;
+  - timestamps in the top comments ("3:45 when he fell"): each commenter counts once per moment and likes count as agreement, so one comment can't make a clip but a moment many people point at stands out;
+  - chapters, named in each clip's reason.
+  Each clip's reason says which it came from ("most replayed", "5 comments point here").
+- Titles from YouTube comments: a phrase several commenters used about a moment can title it, shown as Comments: "...", the same way chat phrases do (Settings › Titles from chat turns both off).
+- YouTube's own captions (uploaded or automatic) title clips and place their cuts straight away, without waiting for Whisper. Burned-in captions still use Whisper.
+- YouTube livestreams: their chat is read while clipping live (through yt-dlp), the same way as Twitch chat. Before, YouTube streams were clipped from their sound only.
+- `scripts/real_world_test.py`: give it one or more links; it opens each in a throwaway copy of the app, finds and titles the clips, renders the best few and writes a report with times, scores, reasons, titles and the rendered files.
+
+### Fixed
+- YouTube chat emoji were read as their names (":face-with-tears-of-joy:"), so laughing emoji didn't count. Standard emoji are now the real character (😂 counts like on Twitch) and a channel's own emoji keep their name.
+- A render no longer fails when the speech model can't run (often because its first download failed): the clip renders without captions, says why, and has a Retry button. A YouTube video's own captions are used instead when it has them. With automatic censoring on, the render still stops, since censoring needs the words.
+
 ## [4.8.0] - 2026-10-22
 
 Closing the gaps left against the Clip Radar 5 brief, with measurements against 4.1.5.
