@@ -48,6 +48,11 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
+#ifdef Sign
+; code signing (only when the build has a certificate, docs/code-signing.md): Inno Setup signs the
+; uninstaller and Setup itself with the "clipradar" tool the build defines as /Sclipradar=... (installer\sign.ps1)
+SignTool=clipradar
+#endif
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
