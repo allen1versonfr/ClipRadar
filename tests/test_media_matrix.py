@@ -150,7 +150,7 @@ LAYOUTS = [
     ("cam", dict(layout="cam", cam=(0.0, 0.6, 0.4, 0.4))),
     ("blur", dict(layout="blur")),
     ("full zoomed", dict(layout="full", game_zoom=1.6, game_x=0.9)),
-    ("split, crop at the edge", dict(layout="split", cam=(1.0, 1.0, 0.0, 0.0))),
+    ("split, crop in the corner", dict(layout="split", cam=(0.75, 0.75, 0.25, 0.25))),
 ]
 if QUICK:
     LAYOUTS = LAYOUTS[:1] + LAYOUTS[3:4]
@@ -165,10 +165,15 @@ for sname, path in SOURCES.items():
         # the size-change source changes at 4 s: render across it
         start = 2.5 if "size change" in sname else 1.3
         t0 = time.time()
+        diag = {}
         try:
             engine.render_clip(path, start, start + LEN, out, R(captions=True, hw_encode=False, speed="fast", **lo),
-                               title="Matrix test", words=WORDS)
+                               title="Matrix test", words=WORDS, diag=diag)
             bad = verify(out, (1080, 1920), info["has_audio"], LEN)
+            # the same size comes out of blur-fit, so a layout that fell back would pass the checks above
+            want = engine.LAYOUT_NAMES[lo["layout"]]
+            if diag.get("fallback") or diag.get("layout_used") != want:
+                bad.append(f"rendered as {diag.get('layout_used')!r}, not {want!r} ({diag.get('fallback')})")
         except Exception as e:
             bad = ["render failed: " + str(e).strip().splitlines()[-1][:300]]
         check(f"{sname} / {lname} ({time.time() - t0:.1f}s)", not bad, "; ".join(bad))
@@ -192,10 +197,13 @@ for fname, kw, ext, size in FORMATS:
     outdir = tempfile.mkdtemp(prefix="fmt_", dir=TMP)
     out = os.path.join(outdir, "clip." + ext)
     t0 = time.time()
+    diag = {}
     try:
         engine.render_clip(land, 1.3, 1.3 + LEN, out, R(layout="split", captions=True, hw_encode=False, speed="fast", **kw),
-                           title="Format test", words=WORDS)
+                           title="Format test", words=WORDS, diag=diag)
         bad = verify(out, size, True, LEN)
+        if "fell back" in diag.get("fallback", "") or "failed (exit" in diag.get("fallback", ""):
+            bad.append(f"layout fell back: {diag['fallback']}")
     except Exception as e:
         bad = ["render failed: " + str(e).strip().splitlines()[-1][:300]]
     check(f"format {fname} ({time.time() - t0:.1f}s)", not bad, "; ".join(bad))

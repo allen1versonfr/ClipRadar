@@ -207,6 +207,33 @@ check("Retry after the cause is gone renders it", r.get("retried") == 1 and q an
       and [a["outcome"] for a in q["history"]] == ["error", "done"], q and q.get("history"))
 check("and clears the old failure", q and not q.get("error") and "error_kind" not in q and "retryable" not in q, q)
 
+# 4b. a layout FFmpeg refuses although its crop fits: the clip still comes out (blur-fit), the warning
+# says so, and the attempt keeps the first failure's graph, exit code and reason, not the fallback's
+real_cf = engine.crop_filter
+engine.crop_filter = lambda sw, sh, w, h, x, y: real_cf(sw, sh, w, h, x, y).replace("crop=", "crop=4000:4000:0:0,crop=", 1)
+q = wait(item("fb", 2.0, 6.0)["id"], ("done", "error"))
+engine.crop_filter = real_cf
+h = (q or {}).get("history") or []
+ff = h[-1].get("first_failure") if h else None
+check("a layout FFmpeg refuses still gives a clip, with a warning", q and q["status"] == "done"
+      and "blurred background" in (q.get("warning") or ""), q and (q.get("status"), q.get("warning"), q.get("error")))
+check("the attempt names the layout used and what failed first", h and h[-1].get("layout_used") == "Blur-fit"
+      and "Cam + game failed (exit" in h[-1].get("fallback", ""), h and h[-1])
+check("and keeps the first failure: the layout, FFmpeg's exit code and reason, the graph", ff and ff["layout"] == "Cam + game"
+      and ff["exit"] not in (None, 0) and "parsed_crop" in ff["reason"].lower() and "crop=4000:4000" in ff["filter"], ff)
+q = wait(item("fb2", 2.0, 6.0)["id"], ("done", "error"))
+h = (q or {}).get("history") or []
+check("once the cause is gone the same clip renders in its own layout, with no fallback",
+      q and q["status"] == "done" and not q.get("warning") and h and h[-1].get("layout_used") == "Cam + game"
+      and not h[-1].get("fallback") and not h[-1].get("first_failure"), q and (q.get("warning"), h))
+
+# 4c. a facecam box that's empty is a setting to fix: said so, not called a video problem, not retried
+q = wait(item("box", 2.0, 6.0, opts=dict(OPTS, cam=[1.0, 1.0, 0.0, 0.0]))["id"], ("done", "error"))
+check("an empty facecam box fails as a setting, saying what to change", q and q["status"] == "error"
+      and q.get("error_kind") == "layout_settings" and q.get("retryable") is False and "facecam box" in q.get("error", "")
+      and "Layout tab" in q.get("error", ""), q and (q.get("error_kind"), q.get("error")))
+check("and leaves nothing in the clips folder", q and not [f for f in os.listdir(q.get("folder") or TMP) if f.startswith("vc_")])
+
 # 5. a stall is retried once by itself; a second stall stops there (no endless loop)
 real_rc = engine.render_clip
 calls = {"n": 0}

@@ -207,7 +207,8 @@ if shutil.which("ffmpeg"):
         check("a crop that can't be built still renders the clip", os.path.getsize(out) > 1000)
     except Exception as e:
         check("a crop that can't be built still renders the clip", False, str(e)[-300:])
-    check("and says the layout fell back, with what to do", warned and "Reset" in warned[0], warned)
+    check("and says the layout fell back, and where FFmpeg's reason is", warned and "blurred background" in warned[0]
+          and "details" in warned[0], warned)
     engine.build_filter = lambda info, o, path=None, face=None: (
         "[0:v]crop=4000:4000:0:0,scale=1080:1920,format=yuv420p[v]", 960.0)
     try:

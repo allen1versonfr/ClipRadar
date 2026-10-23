@@ -2045,51 +2045,100 @@ SPEEDS = {   # x264 preset, quality offset (lower crf = better), NVENC preset
 }
 
 
+def _num(v, default: float, lo: float, hi: float) -> float:
+    """A saved setting as a number in lo..hi; the default when it's missing, not a number, NaN or infinite."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    return min(max(f, lo), hi) if math.isfinite(f) else default
+
+
+MAX_ZOOM = 4.0          # the Layout tab goes to 2x; older or edited settings are held to this
+MIN_CAM_PX = 8          # a facecam box smaller than this (source pixels, or 2% of a tiny video) is an empty box
+
+
+def crop_filter(sw: int, sh: int, w: int, h: int, x, y: int) -> str:
+    """crop=w:h:x:y for frames of sw x sh, once it's certain to fit: every crop in a layout is made here.
+    w and h even and inside the frame, 0 <= x <= sw-w and 0 <= y <= sh-h. x may be a face-following
+    expression from framing.x_expr, which clamps itself to 0..sw-w on every frame; it's checked for
+    the nesting FFmpeg refuses. A crop that doesn't fit is a bug in how it was worked out: it fails here,
+    named, instead of FFmpeg failing and the clip falling back to another layout."""
+    import framing
+    if isinstance(x, str) and x.isdigit():
+        x = int(x)                                  # a path that holds still: a fixed crop
+    ok = 2 <= w <= sw and 2 <= h <= sh and w % 2 == 0 and h % 2 == 0 and 0 <= y <= sh - h
+    if isinstance(x, str):
+        ok = ok and framing.expr_depth(x) <= framing.EXPR_MAX_DEPTH and x.endswith(f",0,{sw - w})'")
+    else:
+        ok = ok and 0 <= x <= sw - w
+    if not ok:
+        raise RenderInputError("layout", f"The layout's crop came out as {w}x{h} at x {str(x)[:40]}, y {y}, which doesn't "
+                                         f"fit this {sw}x{sh} video. That's a bug in Clip Radar, not your video or settings: "
+                                         "please report it (Exports › the clip › details).")
+    return f"crop={w}:{h}:{x}:{y}"
+
+
 def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: Optional[dict] = None) -> tuple:
     """Return (filter_complex producing [v] in yuv420p, caption_center_y).
     path: [(t, centre x)] for a whole-frame crop that follows a face (3.9 framing).
     face: {"face_y", "face_h"} so automatic captions don't cover the face."""
-    sw, sh = info["width"], info["height"]
-    z = max(1.0, o.game_zoom)
+    sw, sh = int(info["width"]), int(info["height"])
+    if sw < 2 or sh < 2:
+        raise RenderInputError("unsupported", f"This video's picture is {sw}x{sh} pixels, too small to make a clip from.")
+    z = _num(o.game_zoom, 1.0, 1.0, MAX_ZOOM)
+    game_x = _num(o.game_x, 0.5, 0.0, 1.0)
     W, H = out_size(o)
     layout = effective_layout(o)
     # start_time=0: the first frame is repeated from 0:00 when the source's video starts a moment late,
     # so the file never opens on an empty (black) frame, which TikTok takes as the cover
     fr = f"{output_fps(info, o)}:start_time=0"
+    max_w, max_h = sw - sw % 2, sh - sh % 2         # the largest even crop of the frame
 
-    def safe_cam_crop(rect: tuple) -> tuple:
-        """Clamp user-edited facecam rectangles to a valid, even-sized source crop."""
-        x, y, w, h = [min(max(float(v), 0.0), 1.0) for v in rect]
-        max_w, max_h = max(2, sw - sw % 2), max(2, sh - sh % 2)
-        cx = min(max(0, int(x * sw)), max_w - 2)
-        cy = min(max(0, int(y * sh)), max_h - 2)
+    def safe_cam_crop(rect) -> tuple:
+        """The facecam box (fractions of the source) as an even-sized crop inside the frame. A box that
+        isn't four numbers, or is too small to be a camera, is a setting to fix, said in those words."""
+        try:
+            x, y, w, h = [float(v) for v in rect]
+        except (TypeError, ValueError):
+            x = y = w = h = math.nan
+        if not all(math.isfinite(v) for v in (x, y, w, h)):
+            raise RenderInputError("layout_settings", "The facecam box in the Layout tab couldn't be read. Drag a box "
+                                                      "around the facecam (or press Reset), then retry.")
+        x, y = min(max(x, 0.0), 1.0), min(max(y, 0.0), 1.0)
+        w, h = min(max(w, 0.0), 1.0 - x), min(max(h, 0.0), 1.0 - y)    # the part of the box inside the picture
+        if w * sw < max(2, min(MIN_CAM_PX, 0.02 * sw)) or h * sh < max(2, min(MIN_CAM_PX, 0.02 * sh)):
+            raise RenderInputError("layout_settings", "The facecam box in the Layout tab is empty or outside the "
+                                                      "picture. Drag a box around the facecam (or press Reset), then retry.")
+        cx = min(int(x * sw), max_w - 2)
+        cy = min(int(y * sh), max_h - 2)
         cx -= cx % 2
         cy -= cy % 2
-        cw = min(max(2, _even(w * sw)), max_w - cx)
-        ch = min(max(2, _even(h * sh)), max_h - cy)
-        cw -= cw % 2
-        ch -= ch % 2
-        return max(2, cw), max(2, ch), cx, cy
+        cw = min(_even(w * sw), max_w - cx)
+        ch = min(_even(h * sh), max_h - cy)
+        return cw - cw % 2, ch - ch % 2, cx, cy
+
+    def cam_crop(rect) -> str:
+        return crop_filter(sw, sh, *safe_cam_crop(rect))
 
     def game_crop(out_w: int, out_h: int, follow: Optional[list] = None) -> str:
         aspect = out_w / out_h
         cwf = min(sw, sh * aspect) / z
-        cw = min(_even(cwf), sw - sw % 2)
-        ch = min(_even(cwf / aspect), sh - sh % 2)
-        cx = int(min(max(0, o.game_x * sw - cw / 2), sw - cw))
+        cw = min(_even(cwf), max_w)
+        ch = min(_even(cwf / aspect), max_h)
+        cx = int(min(max(0, game_x * sw - cw / 2), sw - cw))
         cx -= cx % 2
         if follow and cw < sw - 2:
             import framing
-            cx = framing.x_expr(follow, sw, cw)      # moves with the face, smoothly
+            cx = framing.x_expr(follow, sw, cw) or cx      # moves with the face, smoothly
         cy = (sh - ch) // 2
         cy -= cy % 2
-        return f"crop={cw}:{ch}:{cx}:{cy},scale={out_w}:{out_h}:flags=lanczos,setsar=1"
+        return f"{crop_filter(sw, sh, cw, ch, cx, cy)},scale={out_w}:{out_h}:flags=lanczos,setsar=1"
 
     if layout == "split":
-        top_h = _even(H * min(max(o.cam_height, 0.2), 0.5))
+        top_h = _even(H * _num(o.cam_height, 0.33, 0.2, 0.5))
         bot_h = H - top_h
-        cw, ch, cx, cy = safe_cam_crop(o.cam)
-        cam = (f"crop={cw}:{ch}:{cx}:{cy},scale={W}:{top_h}:force_original_aspect_ratio=increase:"
+        cam = (f"{cam_crop(o.cam)},scale={W}:{top_h}:force_original_aspect_ratio=increase:"
                f"flags=lanczos,crop={W}:{top_h},setsar=1")
         f = (f"[0:v]split=2[a][b];[a]{cam}[cam];[b]{game_crop(W, bot_h)}[game];"
              f"[cam][game]vstack=inputs=2,fps={fr},format=yuv420p[v]")
@@ -2102,8 +2151,7 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
             cap_y = framing.caption_y(face.get("face_y"), face.get("face_h"), H, cap_y)
     elif layout == "cam":
         # the facecam by itself, filling the frame
-        cw, ch, cx, cy = safe_cam_crop(o.cam)
-        f = (f"[0:v]crop={cw}:{ch}:{cx}:{cy},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
+        f = (f"[0:v]{cam_crop(o.cam)},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
              f"crop={W}:{H},setsar=1,fps={fr},format=yuv420p[v]")
         cap_y = H * 0.78
     elif layout == "blur":
@@ -2789,9 +2837,28 @@ def audio_peak(path: str) -> Optional[float]:
 
 
 def _crop_failed(err: str) -> bool:
-    """FFmpeg couldn't set up a crop of the source (it doesn't fit the frames that arrived)."""
+    """FFmpeg couldn't set up a crop of the source (it doesn't fit the frames that arrived, or its
+    expression was refused)."""
     low = err.lower()
     return "parsed_crop" in low and ("failed to configure input pad" in low or "invalid too big" in low)
+
+
+def _graph_failed(err: str) -> bool:
+    """FFmpeg couldn't build the filter graph. That happens before any frame reaches the encoder, so
+    the same graph on another encoder fails the same way."""
+    low = err.lower()
+    return _crop_failed(err) or "error initializing complex filter" in low or (
+        "[parsed_" in low and "failed to configure" in low)
+
+
+LAYOUT_NAMES = {"split": "Cam + game", "full": "Whole frame", "cam": "Facecam only", "blur": "Blur-fit"}
+
+
+def _first_reason(err: str) -> str:
+    """The line that says why FFmpeg failed: the first from a filter, else the last line."""
+    lines = [ln.strip() for ln in err.strip().splitlines() if ln.strip()]
+    why = [ln for ln in lines if "[Parsed_" in ln]
+    return (why or lines or ["no error output"])[0][:200]
 
 
 def _frame_luma(path: str, at: float = 0.0, ignore_editlist: bool = False) -> Optional[float]:
@@ -2978,7 +3045,15 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             vf = vf[:i] + f",scale={fw}:{fh}:flags=lanczos[v]" + vf[i + 3:]
         return vf
 
-    vf = filters(o, fr.get("path") or None)
+    try:
+        vf = filters(o, fr.get("path") or None)
+    except Exception:
+        shutil.rmtree(font_dir, ignore_errors=True)
+        try:
+            os.remove(ass_path)
+        except OSError:
+            pass
+        raise
     cont = getattr(o, "container", "mp4") if getattr(o, "container", "mp4") in ("mp4", "mov", "webm") else "mp4"
     if cont == "webm":
         acodec = ["-c:a", "libopus", "-b:a", f"{int(getattr(o, 'abitrate', 128))}k"]
@@ -3060,25 +3135,55 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         return code, err
 
     enc_name, enc_args = video_encoder(o)
-    diag.update(encoder=enc_name, fallback="")
+    layout = effective_layout(o)
+    following = layout == "full" and "'clip(" in vf          # a crop that moves (framing.x_expr)
+    chosen = LAYOUT_NAMES.get(layout, layout) + (", following the face" if following else "")
+    diag.update(encoder=enc_name, fallback="", layout_used=chosen)
     try:
         code, err = encode(enc_args)
-        if code != 0 and enc_name != "libx264":
+        if code != 0 and enc_name != "libx264" and not _graph_failed(err):
             log(f"GPU encoder ({enc_name}) failed, re-encoding on CPU.")
             _encoder_cache["hw"] = None
             enc_args = video_encoder(RenderOpts(hw_encode=False, crf=o.crf, vbitrate=getattr(o, "vbitrate", 0)))[1]
             diag.update(encoder="libx264", fallback=f"{enc_name} failed, used the CPU")
             code, err = encode(enc_args)
-        if code != 0 and _crop_failed(err) and (effective_layout(o) != "blur" or o.game_zoom > 1):
-            # the layout's crop couldn't be built from this video: the whole picture on a blurred
-            # background has no crop of the source, so the clip still comes out
-            log("The layout couldn't be built from this video; rendering the whole picture instead.")
-            vf = filters(replace(o, layout="blur", game_zoom=1.0), None)
-            diag["fallback"] = (diag.get("fallback", "") + "; " if diag.get("fallback") else "") + "layout fell back to blur-fit"
-            code, err = encode(enc_args)
+        if code != 0 and _crop_failed(err) and (layout != "blur" or _num(o.game_zoom, 1.0, 1.0, MAX_ZOOM) > 1):
+            # Every crop is checked before FFmpeg runs (crop_filter), so this is FFmpeg refusing a crop that
+            # fits: a source it can't handle the way it's set up. The first failure is kept as the attempt's
+            # (graph, exit code, FFmpeg's words); then the same layout without following the face, and
+            # last the whole picture on a blurred background, which has no crop of the source.
+            first = {"layout": chosen, "exit": code, "reason": _ffmpeg_reason(err)[-1500:], "filter": vf[:4000]}
+            diag["first_failure"] = first
+            kept = {k: diag.get(k) for k in ("cmd", "exit", "stderr")}
+            tries = []
+            if following:
+                tries.append((LAYOUT_NAMES["full"] + ", not following the face", lambda: filters(o, None),
+                              "This clip couldn't follow the face, so it shows the middle of the picture (or your Focus "
+                              "point). Exports › the clip › details has FFmpeg's reason."))
+            tries.append((LAYOUT_NAMES["blur"], lambda: filters(replace(o, layout="blur", game_zoom=1.0), None),
+                          f"This clip's layout ({LAYOUT_NAMES.get(layout, layout)}) couldn't be built from the video, so "
+                          "it shows the whole picture on a blurred background. Exports › the clip › details has "
+                          "FFmpeg's reason; please send it to us so this can be fixed."))
+            used, failed_vf = "", vf
+            for used, graph, msg in tries:
+                vf = graph()          # (this also writes the captions for that layout)
+                if vf == failed_vf:
+                    continue          # the same graph would fail the same way
+                log(f"The layout couldn't be built ({_first_reason(err)}); trying {used}.")
+                code, err = encode(enc_args)
+                if code == 0 or not _crop_failed(err):
+                    break
+            note = f"{chosen} failed (exit {first['exit']}: {_first_reason(first['reason'])})"
+            diag["fallback"] = (diag["fallback"] + "; " if diag.get("fallback") else "") + (
+                f"{note}, used {used}" if code == 0 else f"{note}, and {used} failed too (exit {code})")
             if code == 0:
-                warn("This clip's layout couldn't be built from the video, so it shows the whole picture "
-                     "on a blurred background. Press Reset in the Layout tab and Retry for the chosen layout.")
+                diag["layout_used"] = used
+                warn(msg)
+            else:
+                diag["fallback_stderr"] = err[-1500:]
+                diag.update(kept)               # the attempt shows the first failure, not the fallback's
+                raise RuntimeError(f"ffmpeg render failed: the layout ({chosen}) couldn't be built, and {used} failed "
+                                   f"too.\n{first['reason']}\n\n{used}:\n{_ffmpeg_reason(err)}")
         if code == 0 and black_start(tmp_path, length):
             # TikTok takes the frame at 0:00 as the cover: a black one there is a black cover
             used = diag.get("encoder", enc_name)

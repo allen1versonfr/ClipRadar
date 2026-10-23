@@ -121,6 +121,9 @@ function Detail({ q, onRetry, onShow }: { q: QueueItem; onRetry: () => void; onS
   const [more, setMore] = useState(false)
   const attempts = q.history.map(attemptLine).join('\n')
   const details = [q.detail && q.detail !== q.error ? q.detail : '', attempts].filter(Boolean).join('\n\n')
+  // a clip that came out with a warning (a layout that fell back): what failed first, for a bug report
+  const ff = q.history.at(-1)?.first_failure
+  const firstFailure = ff ? `${ff.layout} failed, exit ${ff.exit}:\n${ff.reason}\n\nFilter graph:\n${ff.filter}` : ''
   return (
     <aside className="ex-detail" data-testid="export-detail" aria-label="Selected clip">
       <div className="phone">
@@ -130,6 +133,12 @@ function Detail({ q, onRetry, onShow }: { q: QueueItem; onRetry: () => void; onS
       </div>
       <div className="file">{q.name ?? ''}</div>
       {q.status === 'done' && <button className="btn" onClick={onShow}>Show in folder</button>}
+      {q.status === 'done' && q.warning && firstFailure && (
+        <div className="row">
+          <button className="btn ghost" aria-expanded={more} onClick={() => setMore(!more)}>{more ? 'Hide details' : 'Details'}</button>
+          {more && <pre className="details" data-testid="export-details">{`${attempts}\n\n${firstFailure}`}</pre>}
+        </div>
+      )}
       {q.status === 'error' && (
         <div className="err-box" role="alert">
           <p data-testid="export-error">{q.error}</p>

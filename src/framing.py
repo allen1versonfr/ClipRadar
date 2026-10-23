@@ -286,18 +286,65 @@ def follow(detections: list, fps: float = SAMPLE_FPS, target: str = "auto", poin
     return dict(out, path=path, confidence=round(conf, 2), reason=reason)
 
 
-def x_expr(path: list, sw: int, cw: int) -> str:
-    """ffmpeg expression for the crop's left edge over time, from (t, centre) keyframes."""
-    pts = [(t, min(max(c * sw - cw / 2, 0), sw - cw)) for t, c in path]
-    if len(pts) == 1:
-        return str(int(pts[0][1]))
-    terms = []
-    for (t0, a), (t1, b) in zip(pts, pts[1:]):
-        if t1 <= t0:
+# FFmpeg's expression parser refuses expressions nested deeper than about 100 levels (FFmpeg 8 and later;
+# 6.1 had no limit), and the crop that uses one then fails to configure. One term per keyframe in a flat
+# sum is one level per keyframe: a face path over about 48 s (a keyframe every 0.5 s) went past it, and the
+# clip fell back to blur-fit. x_expr picks the segment with a balanced if() tree instead: log2(keyframes)
+# levels, so even an hour's path stays far below the limit.
+EXPR_MAX_DEPTH = 40
+
+
+def clean_path(path) -> list:
+    """The keyframes of a face path that can be used: (t, centre) pairs of finite numbers, in time order,
+    one per time (a repeated time keeps the later keyframe), centres 0..1. Anything else (a stale or
+    hand-edited cache, None, NaN, a short entry) is dropped."""
+    pts = {}
+    for p in path or []:
+        try:
+            t, c = float(p[0]), float(p[1])
+        except (TypeError, ValueError, IndexError, KeyError):
             continue
-        terms.append(f"gte(t,{t0:g})*lt(t,{t1:g})*({a:.1f}+{(b - a) / (t1 - t0):.3f}*(t-{t0:g}))")
-    expr = "+".join(terms) + f"+gte(t,{pts[-1][0]:g})*{pts[-1][1]:.1f}+lt(t,{pts[0][0]:g})*{pts[0][1]:.1f}"
-    return f"'{expr}'"
+        if np.isfinite(t) and np.isfinite(c):
+            pts[round(t, 3)] = min(max(c, 0.0), 1.0)
+    return sorted(pts.items())
+
+
+def x_expr(path: list, sw: int, cw: int) -> Optional[str]:
+    """ffmpeg expression for the crop's left edge over time, from (t, centre) keyframes: straight lines
+    between keyframes, held before the first and after the last, always inside 0..sw-cw.
+    None when the path has no usable keyframe."""
+    hi = max(0, sw - cw)
+    pts = [(t, round(min(max(c * sw - cw / 2, 0.0), hi), 1)) for t, c in clean_path(path)]
+    if not pts:
+        return None
+    if len(pts) == 1 or all(x == pts[0][1] for _, x in pts):
+        return str(int(pts[0][1]))
+
+    def seg(i: int) -> str:
+        (t0, a), (t1, b) = pts[i], pts[i + 1]
+        return f"{a:.1f}" if a == b else f"{a:.1f}+{(b - a) / (t1 - t0):.4f}*(t-{t0:.3f})"
+
+    def pick(lo: int, n: int) -> str:
+        """The segment for t among segments lo..lo+n-1 (t is already inside their span)."""
+        if n == 1:
+            return seg(lo)
+        mid = lo + n // 2
+        return f"if(lt(t,{pts[mid][0]:.3f}),{pick(lo, mid - lo)},{pick(mid, lo + n - mid)})"
+
+    body = (f"if(lt(t,{pts[0][0]:.3f}),{pts[0][1]:.1f},if(gte(t,{pts[-1][0]:.3f}),{pts[-1][1]:.1f},"
+            f"{pick(0, len(pts) - 1)}))")
+    return f"'clip({body},0,{hi})'"
+
+
+def expr_depth(expr: str) -> int:
+    """How deeply one of x_expr's expressions nests: its brackets (its sums are of two terms, so they add no
+    levels of their own the way a long flat sum does)."""
+    d = top = 0
+    for ch in expr:
+        d += ch == "("
+        d -= ch == ")"
+        top = max(top, d)
+    return top
 
 
 def path_at(path: list, t: float) -> Optional[float]:
@@ -313,6 +360,7 @@ def path_at(path: list, t: float) -> Optional[float]:
 
 def shift(path: list, offset: float, length: float) -> list:
     """The part of a path from offset to offset + length, with times starting at 0."""
+    path = clean_path(path)
     if not path:
         return []
     ts = [0.0] + [t - offset for t, _ in path if 0 < t - offset < length] + [length]

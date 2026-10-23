@@ -1967,14 +1967,21 @@ def _attempt_end(it: dict, outcome: str, kind: str = "", error: str = "", diag: 
     if error:
         a["error"] = error[:300]
     d = diag or {}
-    for k in ("encoder", "exit", "fallback", "black_start"):
+    for k in ("encoder", "exit", "fallback", "black_start", "layout_used"):
         if d.get(k) not in (None, ""):
             a[k] = d[k]
+    ff = d.get("first_failure")
+    if ff:
+        # a layout that had to fall back: what failed first, even though the clip came out
+        a["first_failure"] = {"layout": ff.get("layout", ""), "exit": ff.get("exit"),
+                              "reason": redact(ff.get("reason", ""))[-1500:], "filter": redact(ff.get("filter", ""))[:4000]}
     if outcome != "done":
         if d.get("cmd"):
             a["cmd"] = redact(d["cmd"])[:2000]
         if d.get("stderr"):
             a["stderr"] = redact(d["stderr"])[-1500:]
+        if d.get("fallback_stderr"):
+            a["fallback_stderr"] = redact(d["fallback_stderr"])[-1500:]
 
 
 def _after_render(it: dict):

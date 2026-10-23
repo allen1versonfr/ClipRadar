@@ -3,6 +3,19 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.15.2] - 2026-10-23
+
+### Fixed
+- Clips in the **Whole frame** layout that follow the streamer's face came out as the whole picture on a blurred background, with "This clip's layout couldn't be built from the video", whenever the clip was longer than about 48 seconds. The cause was the crop that follows the face. It was one long FFmpeg expression with a step every half second, and the FFmpeg builds Clip Radar now downloads refuse expressions nested more than about 100 levels deep. The expression now picks its step by halving the clip (a few levels even for an hour-long clip) and keeps the crop inside the picture on every frame. Retry a clip that showed the warning to get it in its layout.
+- Every crop a layout makes is checked before FFmpeg runs: inside the picture, with an even size, and a face-following crop held inside it for the whole clip. A crop that doesn't fit is reported as a Clip Radar bug instead of quietly falling back to blur-fit. Face paths with repeated times, missing or broken values are cleaned first.
+- A facecam box that's empty or unreadable (from older or edited settings) now fails with "The facecam box in the Layout tab is empty…", which says what to fix, instead of rendering a few blown-up pixels. A zoom, focus or camera size saved as something other than a number falls back to the default; zoom is held to 4x.
+- When FFmpeg still refuses a layout whose crop fits, a Whole frame clip first tries again without following the face, and only then uses blur-fit. The warning names the layout. The clip's attempt keeps the first failure (the layout, FFmpeg's exit code and reason, the filter graph), so it's no longer replaced by the fallback's. A finished clip with a warning shows these under Technical details in Exports. If blur-fit fails too, the error says both failed.
+- A filter graph FFmpeg can't build no longer counts as a GPU encoder failure. Before, the same graph was run again on the CPU, and the GPU encoder was turned off for the rest of the session.
+
+### Tests
+- `tests/test_layout_geometry.py` (real FFmpeg, generated videos): every layout and shape on landscape, portrait, square, odd, tiny, 59.94 fps VFR, rotated and size-changing sources, checked to render in the chosen layout; facecam boxes at every edge, tiny, empty and malformed; face paths from first to last frame, with repeated times, long gaps, the picture's edges and broken keyframes, with the crop's position read from the pixels; a 54.5 s 1:1 clip following a face; the original failure, then the corrected render; an invalid crop reported before FFmpeg; blur-fit when FFmpeg refuses a crop; no GPU retry for a broken graph; nothing left behind after success, cancel or failure.
+- `tests/test_media_matrix.py` now fails a row that fell back to blur-fit (the output is the same size, so before it passed). `tests/test_render_lifecycle.py` checks a fallback's attempt record, and a facecam box that's a setting to fix.
+
 ## [4.15.1] - 2026-10-23
 
 ### Fixed
