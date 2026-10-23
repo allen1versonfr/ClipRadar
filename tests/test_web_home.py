@@ -83,6 +83,10 @@ with sync_playwright() as pw:
     check("Home is the new UI's first screen", page.locator("h1", has_text="New project").count() == 1)
     bg = page.evaluate("getComputedStyle(document.querySelector('[data-testid=find-clips]')).backgroundColor")
     check("Find clips is the accent green (DESIGN.md)", bg.replace(" ", "") == "rgb(47,227,111)", bg)
+    live_bg = page.evaluate("getComputedStyle([...document.querySelectorAll('button')]"
+                            ".find(b => b.textContent.includes('Start live clipping'))).backgroundColor")
+    check("Start live clipping is a secondary button, so Find clips is the one main action",
+          live_bg.replace(" ", "") != "rgb(47,227,111)", live_bg)
     check("no tools banner when the tools are there", page.locator("[data-testid=tools-banner]").count() == 0)
 
     # choices made here are the original page's choices too

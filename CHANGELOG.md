@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Dim text is brighter, so labels and hints meet the WCAG AA contrast minimum on every panel. They were below it before.
 - Links are underlined white text rather than coloured, so the green only ever means "do this" or "this is selected".
 - On the timeline, laughter is drawn in cyan, so it can't be mistaken for the selection.
+- Home has one main action per card's job: **Find clips** stays green and **Start live clipping** is now an outlined button, so the two no longer compete.
 - New UI: bigger type (14 px body, bolder screen titles) and short transitions when you switch screens, which turn off when Windows is set to reduce motion.
 
 ### Fixed

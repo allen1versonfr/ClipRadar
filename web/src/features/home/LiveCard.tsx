@@ -108,7 +108,7 @@ export function LiveCard({ status }: { status: Status | undefined }) {
       </p>
       <p className="fine">{hk?.registered ? `Press ${hk.keys ?? ''} anywhere to clip the last 30 seconds. ` : ''}Only the last 15 minutes of the stream are kept on disk.</p>
       {error && <p className="err-tx" role="alert">{error}</p>}
-      <footer><button className="btn primary" disabled={busy} onClick={() => void start()}>Start live clipping</button></footer>
+      <footer><button className="btn" disabled={busy} onClick={() => void start()}>Start live clipping</button></footer>
     </section>
   )
 }

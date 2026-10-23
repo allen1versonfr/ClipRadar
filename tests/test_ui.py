@@ -95,6 +95,9 @@ with sync_playwright() as p:
     # on Home, where the button is: the new UI only draws the screen you're on
     bg = pg.evaluate("getComputedStyle(document.querySelector('[data-testid=find-clips]')).backgroundColor")
     check("the primary buttons use the accent green (DESIGN.md)", bg.replace(" ", "") == "rgb(47,227,111)", bg)
+    live_bg = pg.evaluate("getComputedStyle([...document.querySelectorAll('button')]"
+                          ".find(b => b.textContent.includes('Start live clipping'))).backgroundColor")
+    check("Start live clipping is secondary: one main action on Home", live_bg.replace(" ", "") != "rgb(47,227,111)", live_bg)
     pg.click("[data-testid=nav-settings]")
     pg.wait_for_timeout(500)
     tabs = pg.evaluate("[...document.querySelectorAll('#setTikTok')].length")
