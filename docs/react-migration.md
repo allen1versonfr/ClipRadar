@@ -121,7 +121,7 @@ should ship.
 |---|---|
 | `nav-home` `nav-review` `nav-exports` `nav-settings` | the four main views; clicking switches |
 | `source-input` | Home: link or file box |
-| `find-clips` | Home: Find clips (a primary button: the test checks it's the signature yellow `#ffd21f`) |
+| `find-clips` | Home: Find clips (a primary button: the test checks it's the accent green `#2fe36f`, DESIGN.md) |
 | `batch-bar` | Review: the bar with Keep / Skip many; hidden until there are clips |
 | `batch-count` | its `<select>`: 3, 5, 10, 15, 20, 0 (all) |
 | `batch-keep` | Keep and render the top N |

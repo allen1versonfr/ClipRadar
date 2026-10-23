@@ -82,7 +82,7 @@ with sync_playwright() as pw:
     page.wait_for_selector("[data-testid=find-clips]", timeout=15000)
     check("Home is the new UI's first screen", page.locator("h1", has_text="New project").count() == 1)
     bg = page.evaluate("getComputedStyle(document.querySelector('[data-testid=find-clips]')).backgroundColor")
-    check("Find clips is the signature yellow", bg.replace(" ", "") == "rgb(255,210,31)", bg)
+    check("Find clips is the accent green (DESIGN.md)", bg.replace(" ", "") == "rgb(47,227,111)", bg)
     check("no tools banner when the tools are there", page.locator("[data-testid=tools-banner]").count() == 0)
 
     # choices made here are the original page's choices too
@@ -120,6 +120,16 @@ with sync_playwright() as pw:
     page.wait_for_url("**/legacy/**", timeout=60000)
     page.wait_for_selector("[data-testid=batch-bar]", state="visible", timeout=60000)
     check("a Recent video opens again in Review", len(page.evaluate("ClipRadarTest.clips()")) >= 1)
+    # screens the new UI doesn't have yet open in the original page, on that screen
+    page.goto(url + "/next/#settings")
+    page.get_by_role("link", name="Open Settings in the current UI").click()
+    page.wait_for_url("**/legacy/**", timeout=15000)
+    page.wait_for_selector("#view-settings", state="visible", timeout=15000)
+    check("'Open Settings in the current UI' lands on Settings", page.locator("#view-home").is_hidden())
+    page.evaluate("location.hash = '#view=exports'")
+    page.wait_for_selector("#view-exports", state="visible", timeout=5000)
+    check("a hand-over link works without a reload too", page.locator("#view-settings").is_hidden()
+          and page.evaluate("location.hash") == "", page.evaluate("location.hash"))
     check("no errors in either page", not errors, errors[:5])
     browser.close()
 

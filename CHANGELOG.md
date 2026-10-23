@@ -3,6 +3,18 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.16.0] - 2026-10-23
+
+### Changed
+- **New look: electric green.** Clip Radar's accent is now electric green instead of yellow, in both the current and the new UI. As before, it marks only the main action on a screen, what's selected and progress. Ready and done states use the same green. The design direction is written down in `DESIGN.md`.
+- Dim text is brighter, so labels and hints meet the WCAG AA contrast minimum on every panel. They were below it before.
+- Links are underlined white text rather than coloured, so the green only ever means "do this" or "this is selected".
+- On the timeline, laughter is drawn in cyan, so it can't be mistaken for the selection.
+- New UI: bigger type (14 px body, bolder screen titles) and short transitions when you switch screens, which turn off when Windows is set to reduce motion.
+
+### Fixed
+- Opening a screen of the current UI from the new UI, or from a link that only changes the `#`, now always lands on that screen.
+
 ## [4.15.1] - 2026-10-23
 
 ### Fixed

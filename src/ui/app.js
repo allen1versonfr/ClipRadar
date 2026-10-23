@@ -80,6 +80,9 @@ let queueItems = [];
 let exSel = null;
 let safetyCfg = { enabled: true, censor: 'off', censor_categories: [] };
 let vodJob = null, ttJob = null, setupJob = null;
+// the accent from the stylesheet (DESIGN.md), for what's drawn on canvases
+const ACCENT = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#2fe36f';
+const accentA = a => { const n = parseInt(ACCENT.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
 const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, game_x: 0.5, game_zoom: 1.0,
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
   caption_style: 'pop', caption_font: 'classic', caption_anim: true, caption_motion: 'pop', caption_speed: 100,
@@ -1685,16 +1688,16 @@ function drawHeatNow() {
   W.clips.forEach(c => {
     const a = absOf(c, c.start) / D * Wd, b = Math.max(a + 2, absOf(c, c.end) / D * Wd);
     const isCur = keyOf(c) === cur && mode === 'clip';
-    g.fillStyle = isCur ? 'rgba(255,210,31,.16)' : c.state === 'kept' ? 'rgba(62,194,143,.13)' : c.state === 'skipped' ? 'rgba(255,255,255,.025)'
+    g.fillStyle = isCur ? accentA(.18) : c.state === 'kept' ? accentA(.07) : c.state === 'skipped' ? 'rgba(255,255,255,.025)'
       : isGem(c) ? 'rgba(201,167,255,.10)' : 'rgba(255,255,255,.06)';
     g.fillRect(a, 0, b - a, base);
-    if (isCur) { g.fillStyle = '#ffd21f'; g.fillRect(a, 0, b - a, 2); }
+    if (isCur) { g.fillStyle = ACCENT; g.fillRect(a, 0, b - a, 2); }
   });
   // signal: neutral bars, the hottest moments in accent
   const hi = Math.max(3, ...curve), bw = Wd / Math.max(1, n);
   for (let i = 0; i < n; i++) {
     const v = Math.max(0, curve[i] / hi), h = Math.max(1, v * (base - 8));
-    g.fillStyle = v > 0.55 ? '#ffd21f' : v > 0.3 ? '#5a6274' : '#363a44';
+    g.fillStyle = v > 0.55 ? ACCENT : v > 0.3 ? '#5a6274' : '#363a44';
     g.fillRect(i * bw, base - h, Math.max(1, bw - (bw > 3 ? 1 : 0)), h);
   }
   // markers
@@ -1706,7 +1709,7 @@ function drawHeatNow() {
     .forEach(({ c, i, x }) => {
       if (placed.some(px => Math.abs(px - x) < 14)) return;
       placed.push(x);
-      g.fillStyle = keyOf(c) === cur && mode === 'clip' ? '#e9eaed' : c.state === 'kept' ? '#3ec28f' : c.state === 'skipped' ? '#4a4d56'
+      g.fillStyle = keyOf(c) === cur && mode === 'clip' ? '#e9eaed' : c.state === 'kept' ? ACCENT : c.state === 'skipped' ? '#4a4d56'
         : isGem(c) ? '#c9a7ff' : '#a3a6ae';
       g.fillText(W.kind === 'live' ? String(c.moment || i + 1) : isGem(c) ? 'G' + gemNo(c) : String(hypeNo(c)), x, Ht - 2);
     });
@@ -3423,7 +3426,7 @@ function drawEditor() {
   // detected events and chat
   const [ey0, ey1] = ED.ev;
   if (d && d.events) {
-    const cols = { laugh: '#5ee6a8', scream: '#ff9f43', cheer: '#c9a7ff' };
+    const cols = { laugh: '#4fd1ff', scream: '#ff9f43', cheer: '#c9a7ff' };   // categories, kept apart from the green accent
     for (const [k, arr] of Object.entries(d.events)) {
       g.fillStyle = cols[k] || '#888';
       arr.forEach((v, i) => { if (v < 0.12) return; const t = d.start + i, x0 = tToX(t, w), x1 = tToX(t + 1, w); if (x1 < 0 || x0 > w) return;
@@ -3437,12 +3440,12 @@ function drawEditor() {
     g.stroke();
   }
   if (d && d.chat && d.chat.length) {
-    g.strokeStyle = '#ffd21f'; g.lineWidth = 1.2; g.beginPath();
+    g.strokeStyle = ACCENT; g.lineWidth = 1.2; g.beginPath();
     d.chat.forEach((v, i) => { const x = tToX(d.start + i + 0.5, w), y = ey1 - 2 - clamp(v, 0, 8) / 8 * (ey1 - ey0 - 4); i ? g.lineTo(x, y) : g.moveTo(x, y); });
     g.stroke();
   }
   // content check flags and fixes
-  for (const s of fixSpans(c)) { const x0 = tToX(s[0], w), x1 = tToX(s[1], w); g.fillStyle = 'rgba(62,194,143,.85)'; g.fillRect(x0, ey0, Math.max(2, x1 - x0), 3); }
+  for (const s of fixSpans(c)) { const x0 = tToX(s[0], w), x1 = tToX(s[1], w); g.fillStyle = accentA(.85); g.fillRect(x0, ey0, Math.max(2, x1 - x0), 3); }
   for (const f of ((c.safety && c.safety.flags) || []).filter(f => f.source === 'speech' && f.status === 'open')) {
     const x0 = tToX(c.start + f.start, w), x1 = tToX(c.start + f.end, w);
     g.fillStyle = f.severity >= 3 ? '#f05a5e' : f.severity === 2 ? '#e3a33b' : '#a3a6ae'; g.fillRect(x0, ey0, Math.max(3, x1 - x0), 3);
@@ -3455,7 +3458,7 @@ function drawEditor() {
     [c.orig[0], c.orig[1]].forEach(t => { const x = Math.round(tToX(t, w)) + .5; g.beginPath(); g.moveTo(x, 14); g.lineTo(x, h); g.stroke(); });
     g.setLineDash([]);
   }
-  const locked = c.state === 'kept', acc = locked ? '#6d7079' : '#ffd21f';
+  const locked = c.state === 'kept', acc = locked ? '#90939c' : ACCENT;
   g.strokeStyle = acc; g.lineWidth = 1.5; g.strokeRect(xs, 13, xe - xs, h - 14);
   for (const [x, which] of [[xs, 's'], [xe, 'e']]) {
     const hot = ed.hover === which || (ed.drag && ed.drag.which === which);
@@ -3599,7 +3602,7 @@ loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); load
 
 // the new UI (/next/) hands over to this page for the screens it doesn't have yet:
 // /legacy/#open=<project id> opens that video in Review, #live=<session id> a live session, #view=<name> a screen
-(async function openFromHash() {
+async function openFromHash() {
   const m = /^#(open|live|view)=([\w-]+)$/.exec(location.hash);
   if (!m) return;
   history.replaceState(null, '', location.pathname + location.search);
@@ -3608,7 +3611,9 @@ loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); load
     else if (m[1] === 'live') openLive(await api('/api/live/' + m[2]), false);
     else if (['home', 'review', 'exports', 'settings'].includes(m[2])) setView(m[2]);
   } catch (e) { toast(e.message, 'err'); }
-})();
+}
+openFromHash();
+addEventListener('hashchange', openFromHash);      // also when only the #hash changes (no reload)
 
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-copy-link], #exLink'); if (!b) return;

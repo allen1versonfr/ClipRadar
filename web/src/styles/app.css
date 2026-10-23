@@ -5,7 +5,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .45; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-h1 { font-size: 16px; font-weight: 600; margin: 0; }
+h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .muted { color: var(--tx1); }
 .small { font-size: 12px; }
 .pad { padding: var(--gap); }
@@ -44,7 +44,16 @@ h1 { font-size: 16px; font-weight: 600; margin: 0; }
 .meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
 .meter.busy i { width: 30%; animation: meter-busy 1.4s ease-in-out infinite; }
 @keyframes meter-busy { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
-@media (prefers-reduced-motion: reduce) { .meter.busy i { animation: none; width: 100%; opacity: .35; } }
+/* DESIGN.md motion: subtle. A screen eases in when you switch to it, so the change reads as one step;
+   panels and controls change state in under 200 ms. Nothing moves on its own except progress. */
+.main > section { animation: screen-in 160ms ease-out; }
+@keyframes screen-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.btn, .seg button, .rail a, .ibtn, .input, .table tbody tr, .ex-table tbody tr { transition: background-color 120ms, border-color 120ms, color 120ms; }
+@media (prefers-reduced-motion: reduce) {
+  .meter.busy i { animation: none; width: 100%; opacity: .35; }
+  .main > section { animation: none; }
+  .meter i { transition: none; }
+}
 .banner { margin: var(--gap); padding: 8px 12px; border-radius: var(--r); }
 .banner.err { background: rgba(240, 90, 94, .12); color: var(--danger); }
 
@@ -91,8 +100,7 @@ h1 { font-size: 16px; font-weight: 600; margin: 0; }
 
 /* home */
 .home { padding: 20px 24px 32px; display: flex; flex-direction: column; gap: 16px; max-width: 1200px; }
-.home h1 { font-size: 18px; }
-.home h2 { font-size: 14px; font-weight: 600; margin: 0; }
+.home h2 { font-size: 15px; font-weight: 650; margin: 0; }
 .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
 .panel { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 16px; }
 .panel.source { display: flex; flex-direction: column; gap: 12px; }
@@ -114,7 +122,9 @@ h1 { font-size: 16px; font-weight: 600; margin: 0; }
 .chk span { display: flex; flex-direction: column; }
 .chk small, .hint, .fine { color: var(--tx2); font-size: 12px; }
 .fine { margin: 0; }
-.fine a, .not-ported p a { color: var(--accent); }
+/* links are text, not actions: the green is kept for the main action, the selection and progress */
+.fine a, .not-ported p a { color: var(--tx0); text-decoration: underline; text-underline-offset: 2px; }
+.fine a:hover, .not-ported p a:hover { color: var(--accent); }
 details.adv summary { cursor: pointer; color: var(--tx1); }
 details.adv[open] summary { margin-bottom: 10px; }
 .seg { display: inline-flex; border: 1px solid var(--line2); border-radius: var(--r); overflow: hidden; align-self: flex-start; }

@@ -12,14 +12,14 @@
   --line:#26272c;
   --line2:#33353c;
   --tx0:#e9eaed;
-  --tx1:#a3a6ae;
-  --tx2:#6d7079;
-  --accent:#ffd21f;    /* signature yellow, used sparingly: primary actions, selection, progress */
-  --accent-2:#f2c200;
-  --accent-soft:rgba(255,210,31,.12);
-  --on-accent:#141414; /* text on yellow */
+  --tx1:#b4b7bf;
+  --tx2:#90939c;      /* the dimmest grey that meets WCAG AA (4.5:1) on every surface */
+  --accent:#2fe36f;    /* electric green (DESIGN.md), used sparingly: primary actions, selection, progress */
+  --accent-2:#22c75d;
+  --accent-soft:rgba(47,227,111,.12);
+  --on-accent:#06140b; /* text on green */
   --live:#f2484d;
-  --ok:#3ec28f;
+  --ok:var(--accent);  /* ready/done uses the accent: green already means done (DESIGN.md) */
   --warn:#e3a33b;
   --danger:#f05a5e;
   --r:6px;
@@ -38,8 +38,10 @@ button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 button:disabled{cursor:default;opacity:.45}
 :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-a{color:var(--accent);text-decoration:none}
-a:hover{text-decoration:underline}
+/* links are text, not actions: green is kept for the main action, the selection and progress (DESIGN.md) */
+a{color:var(--tx0);text-decoration:underline;text-underline-offset:2px}
+a:hover{color:var(--accent)}
+a.btn,a.btn:hover{text-decoration:none}
 h1{font-size:20px;font-weight:600;margin:0 0 16px;letter-spacing:-.017em}
 h2{font-size:14px;font-weight:600;margin:0}
 h3{font-size:13px;font-weight:600;margin:0}
@@ -433,7 +435,7 @@ dialog.modal::backdrop{background:rgba(0,0,0,.55)}
 .cap-lines{flex:1;overflow:auto;padding:0 8px 8px;display:flex;flex-direction:column;gap:2px}
 .cline{display:grid;grid-template-columns:44px minmax(0,1fr) 26px;align-items:center;gap:6px;padding:3px 6px;border-radius:var(--r);border:1px solid transparent}
 .cline:hover{background:var(--bg2)}
-.cline.on{background:var(--accent-soft);border-color:rgba(255,210,31,.35)}
+.cline.on{background:var(--accent-soft);border-color:rgba(47,227,111,.35)}
 .cline .ct{font-size:11.5px;color:var(--tx2);cursor:pointer}
 .cline.on .ct{color:var(--accent)}
 .cline input{height:30px;border:1px solid transparent;background:transparent;border-radius:5px;padding:0 8px;color:var(--tx0);font-size:13px;width:100%}
@@ -494,7 +496,7 @@ ul.flags b{font-weight:600;color:var(--tx0)}
 .form-grid label.chk{flex-direction:row;gap:8px;color:var(--tx0);font-size:13px}
 .ad-note:empty{display:none}
 .ad-note b{color:var(--tx0);font-weight:500}
-.ad-note a{color:var(--accent)}
+.ad-note a{color:var(--tx0)}
 .rv-head .facts .est{color:var(--tx0)}
 .rv-head .deep{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--tx1);white-space:nowrap}
 .rv-head .deep .meter{width:90px}
@@ -502,12 +504,12 @@ ul.flags b{font-weight:600;color:var(--tx0)}
 .rv-head .ad-tag i{width:7px;height:7px;border-radius:2px;background:#ffd27a}
 .rv-head .tuned{font-size:12px;color:var(--tx2);white-space:nowrap}
 .crow .gem{display:inline-flex;align-items:center;gap:4px;color:#c9a7ff;font-size:11px;font-weight:600;margin-top:3px}
-.crow .tuned-up{color:#5ee6a8}
+.crow .tuned-up{color:var(--ok)}
 .gem-note{margin:6px 10px 10px;color:var(--tx2);font-size:12px;line-height:1.45}
 #lrTable td{padding:7px 0}
 #lrTable td.r{text-align:right}
 #lrTable .muted{font-size:12px}
-.tw-ok{color:#5ee6a8}
+.tw-ok{color:var(--ok)}
 .clips-pane .seg button{padding:0 5px}
 .clips-pane .seg button b{margin-left:2px}
 
@@ -582,8 +584,8 @@ h3.sub{font-size:12.5px;font-weight:600;margin:4px 0 -4px;padding-top:12px;borde
 
 /* ------------------------------------------------------------------ 3.5: detection */
 .qpill{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:16px;padding:0 4px;border-radius:4px;font-size:10.5px;font-weight:700;background:var(--bg3);color:var(--tx1)}
-.qpill.q3{background:rgba(62,194,143,.18);color:#5ee6a8}
-.qpill.q2{background:rgba(255,210,31,.14);color:#ffe27a}
+.qpill.q3{background:var(--accent-soft);color:var(--accent)}
+.qpill.q2{background:rgba(255,255,255,.08);color:var(--tx0)}
 .qpill.q1{background:var(--bg3);color:var(--tx1)}
 .why{display:flex;flex-direction:column;gap:4px;margin-top:2px}
 .why-row{display:grid;grid-template-columns:96px 1fr 34px;align-items:center;gap:8px;font-size:11.5px;color:var(--tx1)}

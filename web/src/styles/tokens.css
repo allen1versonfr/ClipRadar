@@ -1,4 +1,5 @@
-/* The design tokens of the original page (src/ui/app.css), so both UIs look like one app.
+/* Design tokens: DESIGN.md is the direction; the colours match the original page (src/ui/app.css),
+   so both UIs look like one app.
    Fonts load from the original page's folder rather than a second copy in the build. */
 @font-face { font-family: "Inter"; font-weight: 400; font-display: block; src: url(/ui/fonts/Inter-Regular.woff) format("woff"); }
 @font-face { font-family: "Inter"; font-weight: 500; font-display: block; src: url(/ui/fonts/Inter-Medium.woff) format("woff"); }
@@ -14,13 +15,13 @@
   --line: #26272c;
   --line2: #33353c;
   --tx0: #e9eaed;
-  --tx1: #a3a6ae;
-  --tx2: #6d7079;
-  --accent: #ffd21f;   /* signature yellow, used sparingly: primary actions, selection, progress */
-  --accent-2: #f2c200;
-  --accent-soft: rgba(255, 210, 31, .12);
-  --on-accent: #141414;
-  --ok: #3ec28f;
+  --tx1: #b4b7bf;
+  --tx2: #90939c;      /* the dimmest grey that meets WCAG AA (4.5:1) on every surface */
+  --accent: #2fe36f;   /* electric green: the main action, the selection, progress; nothing else */
+  --accent-2: #22c75d;
+  --accent-soft: rgba(47, 227, 111, .12);
+  --on-accent: #06140b;
+  --ok: var(--accent);  /* ready/done is the accent: green already means done */
   --warn: #e3a33b;
   --danger: #f05a5e;
   --r: 6px;
@@ -28,7 +29,7 @@
   --gap: 12px;
   color-scheme: dark;
   font-family: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
-  font-size: 13px;
+  font-size: 14px;     /* DESIGN.md: an energetic creator app, so bigger type than the original page's 13px */
   font-feature-settings: "cv11", "calt";
   -webkit-font-smoothing: antialiased;
 }
