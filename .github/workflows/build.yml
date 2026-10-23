@@ -18,6 +18,10 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # Code signing runs only once a certificate is in the repo's secrets (docs/code-signing.md).
+      # Without one, every step builds and releases the same unsigned app as before.
+      SIGNING_CONFIGURED: ${{ (secrets.AZURE_SIGNING_ACCOUNT != '' || secrets.WINDOWS_CERT_PFX_BASE64 != '') && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -163,6 +167,76 @@ jobs:
           Copy-Item tools dist/ClipRadar/tools -Recurse -Force
           Copy-Item docs/user-guide.txt dist/ClipRadar/README.txt
 
+      # Signing (only with a certificate): signtool from the Windows SDK, and either Azure Artifact Signing
+      # (the Microsoft dlib, NuGet package pinned by hash) or a PFX imported into the user's certificate
+      # store. installer/sign.ps1 reads what this step sets up; no secret is written to the log or a command line.
+      - name: Set up code signing
+        if: env.SIGNING_CONFIGURED == 'true'
+        shell: pwsh
+        env:
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $st = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.Directory.Name -eq "x64" -and $_.Directory.Parent.Name -match '^\d+(\.\d+)+$' } |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
+          if (-not $st) { Write-Host "::error title=signing::signtool.exe (Windows SDK) not found"; exit 1 }
+          "SIGNTOOL=$($st.FullName)" >> $env:GITHUB_ENV
+          if ($env:AZURE_SIGNING_ACCOUNT) {
+            $missing = @("AZURE_SIGNING_ENDPOINT", "AZURE_SIGNING_PROFILE", "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET") |
+              Where-Object { -not [Environment]::GetEnvironmentVariable($_) }
+            if ($missing) { Write-Host "::error title=signing::Azure signing needs these secrets too: $($missing -join ', ')"; exit 1 }
+            $dir = "$env:RUNNER_TEMP\artifact-signing"
+            Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.128/microsoft.artifactsigning.client.1.0.128.nupkg" -OutFile "$dir.zip" -UseBasicParsing
+            $got = (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash.ToLower()
+            if ($got -ne "74bd7d27e6ce1051409c38d9b46bc8df0400ecd643d51ffbf2ac00869061e40b") { Write-Host "::error title=signing::Artifact Signing client hash $got doesn't match"; exit 1 }
+            Expand-Archive "$dir.zip" $dir -Force
+            # sign as the app registration in AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET, nothing else
+            @{ Endpoint = $env:AZURE_SIGNING_ENDPOINT; CodeSigningAccountName = $env:AZURE_SIGNING_ACCOUNT; CertificateProfileName = $env:AZURE_SIGNING_PROFILE
+               ExcludeCredentials = @("ManagedIdentityCredential", "WorkloadIdentityCredential", "SharedTokenCacheCredential", "VisualStudioCredential",
+                                      "VisualStudioCodeCredential", "AzureCliCredential", "AzurePowerShellCredential", "AzureDeveloperCliCredential",
+                                      "InteractiveBrowserCredential") } | ConvertTo-Json | Set-Content "$dir\metadata.json" -Encoding utf8
+            "SIGN_MODE=azure", "SIGN_DLIB=$dir\bin\x64\Azure.CodeSigning.Dlib.dll", "SIGN_METADATA=$dir\metadata.json" | Add-Content $env:GITHUB_ENV
+            Write-Host "::notice title=signing::Azure Artifact Signing, account $env:AZURE_SIGNING_ACCOUNT"
+          } else {
+            $pfx = "$env:RUNNER_TEMP\cert.pfx"
+            $certs = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+            try {
+              [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX_BASE64))
+              $certs.Import($pfx, "$env:CERT_PASSWORD", "PersistKeySet, UserKeySet")
+            } catch { Write-Host "::error title=signing::couldn't read WINDOWS_CERT_PFX_BASE64 (not base64, or the wrong WINDOWS_CERT_PASSWORD)"; exit 1 }
+            finally { Remove-Item $pfx -Force -ErrorAction SilentlyContinue }
+            $cert = @($certs | Where-Object HasPrivateKey)[0]
+            if (-not $cert) { Write-Host "::error title=signing::the PFX has no private key"; exit 1 }
+            if ($cert.NotAfter -lt (Get-Date)) { Write-Host "::error title=signing::the certificate expired on $($cert.NotAfter.ToString('yyyy-MM-dd'))"; exit 1 }
+            $store = [Security.Cryptography.X509Certificates.X509Store]::new("My", "CurrentUser")
+            $store.Open("ReadWrite"); $store.Add($cert); $store.Close()
+            # the CA's intermediate certificates, if the PFX has them, so signtool puts the whole chain in the signature
+            $ca = [Security.Cryptography.X509Certificates.X509Store]::new("CA", "CurrentUser")
+            $ca.Open("ReadWrite"); $certs | Where-Object { -not $_.HasPrivateKey } | ForEach-Object { $ca.Add($_) }; $ca.Close()
+            "SIGN_MODE=pfx", "SIGN_THUMBPRINT=$($cert.Thumbprint)" | Add-Content $env:GITHUB_ENV
+            Write-Host "::notice title=signing::certificate $($cert.Subject), valid until $($cert.NotAfter.ToString('yyyy-MM-dd'))"
+          }
+
+      # signed before the tests and before Inno Setup packs it, so everything after uses the signed exe
+      - name: Sign ClipRadar.exe
+        if: env.SIGNING_CONFIGURED == 'true'
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          pwsh -NoProfile -File installer\sign.ps1 dist\ClipRadar\ClipRadar.exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          pwsh -NoProfile -File installer\sign.ps1 -Verify dist\ClipRadar\ClipRadar.exe
+
       - name: Report package size (biggest parts)
         shell: pwsh
         run: |
@@ -285,15 +359,27 @@ jobs:
 
       - name: Build installer (Inno Setup)
         shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
           if (-not (Test-Path $iscc)) { $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source }
           $ver = (Select-String -Path src/version.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
-          & $iscc /Q "/DAppVersion=$ver" installer\clipradar.iss
+          # with a certificate, Inno Setup signs the uninstaller and Setup through installer\sign.ps1 ($q is a quote, $f the file)
+          $sign = @()
+          if ($env:SIGNING_CONFIGURED -eq 'true') { $sign = @("/DSign", ('/Sclipradar=pwsh -NoProfile -ExecutionPolicy Bypass -File $q' + "$PWD\installer\sign.ps1" + '$q $f')) }
+          & $iscc /Q "/DAppVersion=$ver" @sign installer\clipradar.iss
           if (-not (Test-Path dist\ClipRadar-Setup.exe)) { Write-Host "::error title=FAIL installer::not built"; exit 1 }
           $mb = [math]::Round((Get-Item dist\ClipRadar-Setup.exe).Length / 1MB)
           Write-Host "::notice title=installer::ClipRadar-Setup.exe v$ver ($mb MB)"
+
+      - name: Verify signatures
+        if: env.SIGNING_CONFIGURED == 'true'
+        shell: pwsh
+        run: pwsh -NoProfile -File installer\sign.ps1 -Verify dist\ClipRadar\ClipRadar.exe dist\ClipRadar-Setup.exe
 
       - name: Test updating from VodClipper (the old name)
         shell: pwsh
@@ -498,6 +584,10 @@ jobs:
           Install
           Check "installed exe" (Test-Path "$app\ClipRadar.exe") $app
           Check "uninstaller present" (Test-Path "$app\unins000.exe")
+          if ($env:SIGNING_CONFIGURED -eq 'true') {
+            pwsh -NoProfile -File installer\sign.ps1 -Verify "$app\unins000.exe" "$app\ClipRadar.exe"
+            Check "installed exe and uninstaller signed" ($LASTEXITCODE -eq 0)
+          }
           Check "Start menu shortcut" (Test-Path $startLnk)
           Check "Start menu uninstall shortcut" (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Uninstall Clip Radar.lnk")
           Check "desktop shortcut" (Test-Path $deskLnk)
@@ -584,6 +674,10 @@ jobs:
           Compress-Archive -Path dist/ClipRadar -DestinationPath dist/ClipRadar-portable.zip -Force
           # the same installer under the old name too: VodClipper's built-in updater looks for that file
           Copy-Item dist/ClipRadar-Setup.exe dist/VodClipper-Setup.exe -Force
+          if ($env:SIGNING_CONFIGURED -eq 'true') {
+            pwsh -NoProfile -File installer/sign.ps1 -Verify dist/VodClipper-Setup.exe
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
           # and the source code of this version, so every release keeps an archive of it
           git archive --format=zip --prefix="ClipRadar-$ver/" -o "dist/ClipRadar-$ver-source.zip" HEAD
           gh release create $tag dist/ClipRadar-Setup.exe dist/VodClipper-Setup.exe dist/ClipRadar-portable.zip "dist/ClipRadar-$ver-source.zip" --title "Clip Radar $ver" --notes-file notes.md --target "${{ github.sha }}" --latest
