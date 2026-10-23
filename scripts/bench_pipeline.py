@@ -36,6 +36,17 @@ sys.path.insert(0, sys.argv[1])
 vod, chat, port = sys.argv[2], sys.argv[3], int(sys.argv[4])
 
 def peak_mb():
+    if os.name == "nt":                     # peak working set: the Windows counterpart of VmHWM
+        import ctypes
+        from ctypes import wintypes
+        class PMC(ctypes.Structure):
+            _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+                        ("PeakWorkingSetSize", ctypes.c_size_t), ("rest", ctypes.c_size_t * 7)]
+        k = ctypes.windll.kernel32
+        k.GetCurrentProcess.restype = wintypes.HANDLE
+        k.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(PMC), wintypes.DWORD]
+        c = PMC(cb=ctypes.sizeof(PMC))
+        return c.PeakWorkingSetSize / 1048576 if k.K32GetProcessMemoryInfo(k.GetCurrentProcess(), c, c.cb) else 0.0
     with open("/proc/self/status") as f:
         for line in f:
             if line.startswith("VmHWM:"):
@@ -82,7 +93,7 @@ if clips:
                render_mb=round(sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(os.environ["CLIPRADAR_WORK"])
                                    for f in fs if f.startswith("Bench clip") and f.endswith(".mp4")) / 1e6, 2),
                peak_mb_after_render=round(peak_mb(), 1))
-print("RESULT " + json.dumps(out))
+print("RESULT " + json.dumps(out), flush=True)          # os._exit skips the flush
 server.SHUTTING_DOWN[0] = True
 os._exit(0)
 """
@@ -145,7 +156,7 @@ def presets(src: str, vod: str) -> dict:
     import exports
     tmp = tempfile.mkdtemp(prefix="vc_bench_")
     res, ref = {}, None
-    for sp in ("high", "balanced", "fast", "smooth"):                   # Settings › Export format › Quality
+    for sp in ("high", "balanced", "fast"):                             # Settings › Export format › Quality
         q = exports.QUALITY[sp]
         out = os.path.join(tmp, f"{sp}.mp4")
         t = time.perf_counter()
