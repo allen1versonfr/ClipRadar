@@ -3,25 +3,17 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Added
-- New UI, Settings › **Clip ranking**: what Clip Radar learned for each streamer from your keeps, skips and posts, "What it learned" with the facts it stored and what it changes, Forget one streamer or everything (asks first), and learning on or off.
-
-### Tests
-- `web/`: 54 Vitest tests. `tests/test_web_settings.py` also checks Clip ranking against the real server: listed, explained, and forgotten.
-
 ## [4.17.0] - 2026-10-23
 
 Most of Settings in the new UI. Nothing changes unless you open the new UI (`/next/`).
 
 ### Added
-- The new UI's **Settings** screen (at `/next/#settings`): Performance, Twitch sign-in, the clip hotkey, Downloads and tools, Storage (folders, Delete VODs and clips, automatic cleanup), Updates (including All versions and a private-repository token) and About. The other sections, such as Export format and Hashtags, open in the current UI. Both UIs use the same settings, so a change in one shows in the other.
+- The new UI's **Settings** screen (at `/next/#settings`): Performance, Twitch sign-in, Clip ranking (what was learned for each streamer, "What it learned", Forget), the clip hotkey, Downloads and tools, Storage (folders, Delete VODs and clips, automatic cleanup), Updates (including All versions and a private-repository token) and About. The other sections, such as Export format and Hashtags, open in the current UI. Both UIs use the same settings, so a change in one shows in the other.
 - New UI: actions that can't be undone, like Uninstall, ask first in a dialog that starts on Cancel and closes with Escape.
 
 ### Tests
-- `web/`: 48 Vitest tests, including what each Settings panel saves, Storage's folder changes and deletes, and the confirm dialog's keyboard behaviour.
-- `tests/test_web_settings.py`: the new Settings in a real browser against the real server: choices saved on the server and shown by the current UI, a rejected Twitch token explained, a failed update check, Delete VODs (asks first, deletes only the VODs), and a 420 px window without sideways scrolling.
+- `web/`: 54 Vitest tests, including what each Settings panel saves, Storage's folder changes and deletes, Clip ranking's explain and forget, and the confirm dialog's keyboard behaviour.
+- `tests/test_web_settings.py`: the new Settings in a real browser against the real server: choices saved on the server and shown by the current UI, a rejected Twitch token explained, a failed update check, Clip ranking explained and forgotten, Delete VODs (asks first, deletes only the VODs), and a 420 px window without sideways scrolling.
 
 ## [4.16.0] - 2026-10-23
 
