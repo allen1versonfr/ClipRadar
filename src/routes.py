@@ -1028,8 +1028,10 @@ class Handler(BaseHTTPRequestHandler):
                     if redo and (body.get("id") in (it["id"], "all")):
                         # Drop stale render state so a retry starts a fresh attempt, not a
                         # half-finished UI lifecycle. Keep the chosen output name for replacement.
-                        it.update(status="queued", progress=0.0, error="", detail="", step="Waiting",
-                                  cancel=False, eta=None, attempts=it.get("attempts", 0))
+                        it.update(status="queued", stage="queued", progress=0.0, error="", detail="", step="Waiting",
+                                  cancel=False, eta=None, attempts=it.get("attempts", 0), interrupted=0)
+                        it.pop("error_kind", None)
+                        it.pop("retryable", None)
                         if it.pop("captions_skipped", None):
                             it.pop("warning", None)
                         n += 1

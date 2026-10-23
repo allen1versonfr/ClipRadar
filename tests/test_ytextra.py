@@ -9,7 +9,6 @@ has none of them.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -25,7 +24,6 @@ for _s in (sys.stdout, sys.stderr):
 os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
-import numpy as np  # noqa: E402
 import engine  # noqa: E402
 import ytextra as Y  # noqa: E402
 

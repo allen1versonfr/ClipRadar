@@ -120,6 +120,9 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .checks.col{flex-direction:column;gap:10px;margin-top:10px}
 .meter{height:4px;border-radius:2px;background:var(--bg4);overflow:hidden}
 .meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+.meter.busy i{width:30%;animation:meter-busy 1.4s ease-in-out infinite}
+@keyframes meter-busy{0%{transform:translateX(-100%)}100%{transform:translateX(340%)}}
+@media (prefers-reduced-motion:reduce){.meter.busy i{animation:none;width:100%;opacity:.35}}
 .spinner{width:12px;height:12px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--accent);animation:spin .8s linear infinite;flex:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 .status-dot{width:8px;height:8px;border-radius:50%;background:var(--tx2);flex:none}

@@ -376,7 +376,7 @@ def selftest(out_json: str, media: str = "") -> int:
                 and tone(1.05, 1.45) > 0.5 and tone(2.4, 2.9) < 0.3,
                 f"flags {[f['cat'] for f in res['flags']]}, caption {ws2[1]['word']!r}, "
                 f"1 kHz share {tone(1.05, 1.45):.2f} in the word vs {tone(2.4, 2.9):.2f} after")
-        except Exception as e:
+        except Exception:
             rec("render pipeline", False, traceback.format_exc()[-400:])
     else:
         rec("render pipeline", False, f"test video missing: {media}")

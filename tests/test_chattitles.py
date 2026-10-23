@@ -56,7 +56,7 @@ r = chattitles.find([("LETS GOOOO", f"h{i}") for i in range(30)] + [("no way", f
 check("everyday reactions are left to the reaction titles", r["title"] == "", r)
 
 # 4. names, links and personal details never reach a title
-r = chattitles.find([(f"ban cooluser99 now", f"b{i}") for i in range(10)] + [("lol", "cooluser99")], EMOTES)
+r = chattitles.find([("ban cooluser99 now", f"b{i}") for i in range(10)] + [("lol", "cooluser99")], EMOTES)
 check("a chatter's name is never in a title", "cooluser" not in r["title"].lower(), r)
 r = chattitles.find([("check out mysite.com/free", f"l{i}") for i in range(10)], EMOTES)
 check("links are dropped", "mysite" not in r["title"].lower(), r)

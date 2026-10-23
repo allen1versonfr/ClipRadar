@@ -201,7 +201,7 @@ function updateStatusBar() {
   const active = queueItems.filter(q => q.status === 'queued' || q.status === 'rendering');
   if (active.length) {
     const r = queueItems.find(q => q.status === 'rendering');
-    parts.push(`<span class="task"><i></i>Rendering ${plural(active.length, 'clip')}${r ? ' · ' + Math.round(r.progress * 100) + '%' : ''} · ${fmtLeft(queueEta)}</span>`);
+    parts.push(`<span class="task"><i></i>Rendering ${plural(active.length, 'clip')}${r ? ' · ' + esc(renderShort(r)) : ''} · ${fmtLeft(queueEta)}</span>`);
   }
   $('#sbTasks').innerHTML = parts.length ? parts.join('') : '<span class="muted">Ready</span>';
   const todo = W ? W.clips.filter(c => c.state === 'todo' && !isGem(c)).length : 0;
@@ -717,7 +717,7 @@ function renderRows() {
     patchList($('#cards'), list.map(c => {
       const q = queueFor(c);
       const st = c.state === 'kept' ? (q && q.status === 'error' ? `<span class="st err">${icon('alert')}Render failed</span>`
-          : `<span class="st kept">${icon('check')}${q ? (q.status === 'done' ? 'Rendered' : q.status === 'rendering' ? `Rendering ${Math.round(q.progress * 100)}%` : 'In render queue') : 'Kept'}</span>`)
+          : `<span class="st kept">${icon('check')}${q ? (q.status === 'done' ? 'Rendered' : q.status === 'rendering' ? `Rendering ${esc(renderShort(q))}` : 'In render queue') : 'Kept'}</span>`)
         : c.state === 'skipped' ? `<span class="st">Skipped</span>`
         : checkStatus(c) === 'excluded' ? `<span class="st excl">${icon('alert')}Excluded from export</span>`
         : c.held ? `<span class="st held">${icon('alert')}Held for review</span>` : '';
@@ -2078,7 +2078,8 @@ function renderExports() {
     let st;
     if (q.status === 'done') st = `<span class="st-done">${icon('check')}Ready${q.srt ? ' + .srt' : ''}</span>` + (q.warning ? `<span class="err-why warn" title="${esc(q.warning)}">${esc(q.warning)}</span>` : '')
       + (q.captions_skipped ? `<button class="btn sm retry" data-retry="${q.id}" title="Render it again with captions">${icon('refresh')}Retry</button>` : '');
-    else if (q.status === 'rendering') st = `<span>${esc(q.step || 'Rendering')} ${Math.round(q.progress * 100)}% · ${fmtLeft(q.eta)}</span><span class="meter"><i style="width:${Math.round(q.progress * 100)}%"></i></span>`;
+    else if (q.status === 'rendering' && renderMeasured(q)) st = `<span>${esc(q.step || 'Rendering')} ${Math.round(q.progress * 100)}% · ${fmtLeft(q.eta)}</span><span class="meter"><i style="width:${Math.round(q.progress * 100)}%"></i></span>`;
+    else if (q.status === 'rendering') st = `<span>${esc(renderShort(q))}</span><span class="meter busy"><i></i></span>`;
     else if (q.status === 'error') st = `<span class="st-err">${icon('alert')}Failed</span><span class="err-why" title="${esc(q.error)}">${esc(q.error)}</span><button class="btn sm retry" data-retry="${q.id}">${icon('refresh')}Retry</button>`;
     else st = '<span class="st-wait">Waiting</span>' + (q.warning ? `<span class="err-why warn" title="${esc(q.warning)}">${esc(q.warning)}</span>` : '');
     // Clip Radar only knows it opened TikTok Studio, never whether the clip got posted
@@ -2133,8 +2134,12 @@ function renderDetail(force) {
   $('#exFile').textContent = q.name || (q.status === 'error' ? 'Not rendered' : q.status === 'queued' ? 'Waiting to render' : 'Rendering…');
   $('#exErrBox').hidden = q.status !== 'error';
   if (q.status === 'error') {
-    $('#exErrMsg').textContent = q.error; $('#exErrDetail').textContent = q.detail || q.error;
-    $('#exErrMore').hidden = !q.detail || q.detail === q.error;
+    // every attempt, so "Retry keeps failing" shows whether it failed the same way each time
+    const tries = (q.history || []).map(a => `Attempt ${a.n}: ${a.outcome}${a.kind ? ' (' + a.kind + ')' : ''}`
+      + (a.stage && a.outcome !== 'done' ? `, during ${a.stage}` : '') + (a.encoder ? `, ${a.encoder}` : '')
+      + (a.exit !== undefined ? `, exit ${a.exit}` : '') + (a.fallback ? `, ${a.fallback}` : '')).join('\n');
+    $('#exErrMsg').textContent = q.error; $('#exErrDetail').textContent = (q.detail || q.error) + (tries ? '\n\n' + tries : '');
+    $('#exErrMore').hidden = (!q.detail || q.detail === q.error) && !tries;
   }
   const sf = q.safety;
   $('#exSafe').innerHTML = !sf ? '' : !sf.flags.length ? `<span class="safe ok">${icon('check')}Content check: nothing flagged</span>`
@@ -2754,6 +2759,13 @@ loadHashtags();
 
 /* =============================================================== export format, caption words, performance (3.7) */
 let queueEta = null, exState = null, capPresets = [], framePresets = [];
+// A render's percentage is FFmpeg's own progress, so it's shown only while FFmpeg encodes; checking the
+// source, getting captions ready and checking the file show their step and how long they've taken.
+const renderMeasured = q => q.status === 'rendering' && (!q.stage || q.stage === 'rendering');
+function renderShort(q) {
+  if (renderMeasured(q)) return `${Math.round(q.progress * 100)}%`;
+  return `${q.step || 'Preparing'} · ${fmt(Date.now() / 1000 - (q.stage_at || Date.now() / 1000))}`;
+}
 function fmtLeft(s) {
   if (s == null) return 'working out time left';
   if (s < 5) return 'almost done';

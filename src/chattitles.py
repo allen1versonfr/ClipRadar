@@ -36,7 +36,7 @@ STOP = {"a", "an", "the", "and", "or", "but", "so", "to", "of", "in", "on", "at"
         "chat", "yo", "oh", "ok", "okay", "yeah", "yes", "no", "not", "what", "why", "how", "with", "all", "get",
         "got", "go", "can", "cant", "can't", "dont", "don't", "has", "have", "had", "will", "would", "there", "here",
         "now", "then", "too", "very", "really", "omg", "wtf", "lmfao", "xd", "haha", "hahaha", "ha", "ah", "uh",
-        "um", "hmm", "is", "am", "if", "as", "by", "from", "up", "out", "lets", "let's", "gonna", "wanna"}
+        "um", "hmm", "am", "if", "as", "by", "from", "up", "out", "lets", "let's", "gonna", "wanna"}
 # reactions everyone types: the reaction templates already cover these
 GENERIC = {"lets go", "let's go", "no way", "oh my god", "oh my", "my god", "what the", "clip it", "clip that",
            "clip this", "i cant", "i can't", "im dead", "i'm dead", "so good", "so funny", "good game", "well played",

@@ -34,6 +34,11 @@ jobs:
           if (-not (Select-String -Path CHANGELOG.md -SimpleMatch "## [$ver]" -Quiet)) { $bad += "CHANGELOG section" }
           if ($bad) { Write-Host "::error title=Version $ver::update $($bad -join ' and ') for $ver"; exit 1 }
 
+      - name: Lint
+        run: |
+          python -m pip install ruff==0.17.2
+          python -m ruff check src tests scripts
+
       - name: Install packages
         run: python -m pip install -U pip && python -m pip install -r requirements.txt pywebview pyinstaller playwright
 
@@ -120,6 +125,17 @@ jobs:
           foreach ($t in "ffmpeg.exe","ffprobe.exe","TwitchDownloaderCLI.exe","yt-dlp.exe") {
             if (-not (Test-Path "tools\$t")) { Write-Host "::error title=FAIL tool download::$t missing"; exit 1 }
           }
+
+      # Real-media render checks with the FFmpeg the app ships, not whatever the runner has: every layout
+      # and export format against portrait, odd-size, silent, variable-frame-rate, rotated, HEVC and VP9
+      # sources, and the render lifecycle (stages, attempts, retry, cancel, broken output).
+      - name: Render tests with the bundled FFmpeg
+        shell: pwsh
+        run: |
+          $env:PATH = "$PWD\tools;$env:PATH"
+          python tests/test_media_matrix.py
+          python tests/test_render_lifecycle.py
+          python tests/test_quality.py
 
       # PyAV is left out: faster-whisper only uses it to read audio files, and Clip Radar always hands
       # Whisper samples decoded by the bundled FFmpeg. src/stubs/av stands in for it (saves a second

@@ -144,7 +144,7 @@ def summary(clips: list) -> dict:
 # ---------------------------------------------------------------- queue.json
 
 QUEUE_V = 1
-_QUEUE_SKIP = ("cancel",)
+_QUEUE_SKIP = ("cancel", "_diag")
 
 
 def queue_payload(items: list) -> dict:
@@ -169,8 +169,22 @@ def restore_queue(data) -> list:
         if st == "done":
             if not it.get("path") or not os.path.isfile(it["path"]):
                 continue
-        elif st in ("queued", "rendering"):
-            it.update(status="queued", progress=0.0, step="Waiting")
+        elif st == "rendering":
+            # Clip Radar closed (or crashed) mid-render. Twice in a row for the same clip and it may be
+            # what's crashing it: stop starting it by itself, and leave it to Retry.
+            n = int(it.get("interrupted") or 0) + 1
+            hist = it.get("history") if isinstance(it.get("history"), list) else []
+            if hist and isinstance(hist[-1], dict) and hist[-1].get("outcome") == "running":
+                hist[-1].update(outcome="interrupted", ended=hist[-1].get("started"))
+            it["interrupted"] = n
+            if n >= 2:
+                it.update(status="error", stage="error", progress=0.0, error_kind="interrupted", retryable=True,
+                          error="Clip Radar closed twice while rendering this clip, so it wasn't started again "
+                                "by itself. Press Retry to render it.", detail="")
+            else:
+                it.update(status="queued", stage="queued", progress=0.0, step="Waiting")
+        elif st == "queued":
+            it.update(status="queued", stage="queued", progress=0.0, step="Waiting")
         elif st != "error":
             continue
         tt = it.get("tiktok")

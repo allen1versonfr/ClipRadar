@@ -18,7 +18,6 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-import copy
 import glob
 import hashlib
 import json
@@ -34,9 +33,8 @@ import traceback
 import uuid
 import webbrowser
 from dataclasses import asdict
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 from typing import Optional
-from urllib.parse import urlparse, parse_qs, unquote
 
 import numpy as np
 
@@ -47,9 +45,7 @@ import studio
 import titles
 import hotkey
 import safety
-import tools_setup
 import updater
-import audio_events
 import campaigns
 import chatsignal
 import chattitles
@@ -69,7 +65,7 @@ import persist
 import twitchauth
 import watermarks
 
-from version import VERSION
+from version import VERSION  # noqa: F401  (read as server.VERSION by app.py and the tests)
 HERE = paths.RES_DIR
 
 # The HTTP API the window talks to. Bump when a response shape or route changes in a way an
@@ -1239,7 +1235,7 @@ def _framing_for(pr: dict, start: float, end: float, ro, log=None) -> Optional[d
 
 
 def queue_public(it: dict) -> dict:
-    d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path", "words", "sig")}
+    d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path", "words", "sig", "_diag")}
     d["duration"] = round(it["end"] - it["start"], 2)
     return d
 
@@ -1289,7 +1285,7 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
           "source_title": pr.get("title", ""),
           # enough to render it after a restart, when the project isn't open any more
           "video": pr.get("video", ""), "workdir": pr.get("workdir", ""), "live": pr.get("live", ""),
-          "opts": dict(opts or {}), "status": "queued", "progress": 0.0, "step": "Waiting",
+          "opts": dict(opts or {}), "status": "queued", "stage": "queued", "progress": 0.0, "step": "Waiting",
           "error": "", "cancel": False, "created": time.time(),
           "words": _clean_words(c.get("words")),
           # content check: fixes you applied, and flags you chose to leave alone (not censored)
@@ -1399,20 +1395,40 @@ def _check_space(outdir: str, seconds: float):
                           f"about {int(need // 1_000_000)} MB needed)")
 
 
-def _check_output(path: str, expect: float):
-    """A finished render must be a real video of the right length before it counts as done."""
+def _check_output(path: str, expect: float, want_audio: bool = False):
+    """A finished render must be a real video of the right length, with sound when the source has
+    it, that decodes to its last frame, before it counts as done. A broken one is deleted, never
+    shown as a finished clip."""
+    why = ""
     try:
         size = os.path.getsize(path)
         info = engine.probe(path) if size > 1000 else None
     except Exception:
         info = None
-    if not info or abs(info["duration"] - expect) > max(1.0, expect * 0.05):
+    if not info:
+        why = ""
+    elif abs(info["duration"] - expect) > max(1.0, expect * 0.05):
+        why = f" ({info['duration']:.1f}s instead of {expect:.1f}s)"
+    elif want_audio and not info["has_audio"]:
+        why = " (no sound)"
+    else:
+        # the end of the file must decode: a render cut short by a crash or a full disk often
+        # still has a readable header and the right length
         try:
-            os.remove(path)
-        except OSError:
-            pass
-        got = f" ({info['duration']:.1f}s instead of {expect:.1f}s)" if info else ""
-        raise BrokenOutput(f"The rendered file came out broken{got}.")
+            p = subprocess.run([engine.ffmpeg(), "-v", "error", "-nostdin", "-sseof", "-1.5", "-i", path,
+                                "-map", "0:v:0", "-f", "null", "-"], capture_output=True, text=True, timeout=60,
+                               encoding="utf-8", errors="replace", creationflags=engine.CREATE_NO_WINDOW)
+            if p.returncode != 0:
+                why = " (its end doesn't play)"
+        except subprocess.TimeoutExpired:
+            why = " (its end doesn't play)"
+        if not why:
+            return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    raise BrokenOutput(f"The rendered file came out broken{why}.")
 
 
 class BrokenOutput(RuntimeError):
@@ -1430,7 +1446,7 @@ def _render_inputs(it: dict, pr: dict, ro, check) -> tuple:
         words = [dict(w, start=w["start"] - it["start"], end=w["end"] - it["start"])
                  for w in it["words"] if it["start"] - 0.2 <= w["start"] < it["end"]]
     elif (ro.captions or censoring) and pr["info"]["has_audio"] and engine.whisper_available():
-        it["step"] = "Listening for captions"
+        set_stage(it, "preparing", "Listening for captions")
         try:
             abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check)
         except engine.Cancelled:
@@ -1479,16 +1495,47 @@ def _render_inputs(it: dict, pr: dict, ro, check) -> tuple:
     return words, title, post, spans, mode
 
 
-def _render_item(it: dict):
-    pr = _render_project(it)
+def _validate_render(it: dict, pr: dict, outdir: str):
+    """Before any work: the source is there and readable, the clip lies inside it, and the clip's
+    folder can be written. Each failure names its cause, so it isn't retried blindly."""
     if not os.path.exists(pr["video"]):
         raise RuntimeError("The VOD for this clip was deleted.")
+    try:
+        info = engine.probe(pr["video"])
+    except RuntimeError as e:
+        raise engine.RenderInputError("source_damaged", str(e)) from None
+    except Exception as e:
+        raise engine.RenderInputError("source_damaged", "The source video couldn't be read: "
+                                      + (str(e).strip().splitlines() or [type(e).__name__])[-1][:200]) from None
+    if not it["end"] - it["start"] >= 0.5:
+        raise engine.RenderInputError("source_range", "This clip is too short to render.")
+    if info["duration"] and it["start"] > info["duration"] - 0.5 and not (it.get("live") or pr.get("live")):
+        raise engine.RenderInputError("source_range", f"This clip starts at {engine.fmt_ts(it['start'])}, after the end "
+                                                      f"of the video ({engine.fmt_ts(info['duration'])}).")
+    try:
+        os.makedirs(outdir, exist_ok=True)
+        probe_file = os.path.join(outdir, f".vc_write_{it['id']}.tmp")
+        with open(probe_file, "wb") as f:
+            f.write(b"ok")
+        os.remove(probe_file)
+    except OSError as e:
+        if getattr(e, "errno", None) in (28, 112):
+            raise
+        raise engine.RenderInputError("output_folder", f"Clip Radar can't save clips in {outdir} ({e.strerror or e}). "
+                                                       "Choose another folder in Settings › Storage.") from None
+
+
+def _render_item(it: dict):
+    set_stage(it, "validating", "Checking the source")
+    it["progress"] = 0.0
+    diag = it["_diag"] = {}
+    pr = _render_project(it)
     ex = it.get("export") or {}
     ro = _ropts(it["opts"], ex)
     ro.gain_db = max(-12.0, min(12.0, float(it.get("gain") or 0)))       # Clip tab › Volume
     subs = ex.get("subtitles", "burn")
     outdir = locations.clips_dir(pr["workdir"])          # Settings › Storage › Rendered clips
-    os.makedirs(outdir, exist_ok=True)
+    _validate_render(it, pr, outdir)
     name = _file_name(it, outdir)
     length = it["end"] - it["start"]
     _check_space(outdir, length)
@@ -1503,15 +1550,18 @@ def _render_item(it: dict):
             raise engine.Cancelled()
 
     def prog(x):
-        it["progress"] = round(max(0.0, min(1.0, x)), 3)
+        # the engine reports 0.3..1.0 while FFmpeg encodes (from FFmpeg's own out_time); only that part
+        # is a real measurement, so it's the only part shown as a percentage
+        if x < 0.3:
+            return
+        frac = max(0.0, min(1.0, (x - 0.3) / 0.7))
+        it["progress"] = round(frac, 3)
         now = time.time()
-        if x >= 0.3:                                   # encoding: time left from the speed so far
-            if enc_t0[0] is None:
-                enc_t0[0] = now
-            frac = (x - 0.3) / 0.7
-            el = now - enc_t0[0]
-            if frac > 0.04 and el > 1.5:
-                it["eta"] = round((1 - frac) * el / frac + 2, 1)
+        if enc_t0[0] is None:
+            enc_t0[0] = now
+        el = now - enc_t0[0]
+        if frac > 0.04 and el > 1.5:                   # time left from the speed so far
+            it["eta"] = round((1 - frac) * el / frac + 2, 1)
 
     if TEST_HOOKS.get("fail_next_render"):
         TEST_HOOKS["fail_next_render"] = False
@@ -1520,41 +1570,38 @@ def _render_item(it: dict):
     it["source_title"] = pr["title"]
     fr = None
     if engine.effective_layout(ro) == "full" and ro.track == "auto":
-        it["step"] = "Finding the face"
+        set_stage(it, "preparing", "Finding the face")
         fr = _framing_for(pr, it["start"], it["end"], ro)
         check()
         if fr is not None:
             it["framing"] = {"followed": bool(fr.get("path")), "reason": fr.get("reason", ""), "confidence": fr.get("confidence", 0)}
-    it["step"] = "Getting captions ready"
-    # Don't leave the queue at 0% while transcript/safety preparation is running.
-    it["progress"] = 0.05
+    set_stage(it, "preparing", "Getting captions ready")
     words, title, post, spans, mode = _render_inputs(it, pr, ro, check)
-    it["progress"] = 0.25
     srt_words = list(words or []) if ro.captions else []
     if subs == "srt":
         words = []                                  # subtitles as a file only, not burned in
     path = os.path.join(outdir, name)
     expect = min(it["end"], pr["info"]["duration"] or it["end"]) - max(0.0, it["start"])
     for attempt in (1, 2):
-        it["step"] = "Rendering" if attempt == 1 else "Rendering again"
+        set_stage(it, "rendering", "Rendering" if attempt == 1 else "Rendering again")
         it["progress"] = 0.0
         t_start = time.time()
         enc_t0[0] = None
         engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=title,
                            progress=prog, check=check, words=words, censor=spans, censor_mode=mode,
                            log=lambda m: print("  " + m, flush=True), framing=fr,
-                           warn=lambda m: it.__setitem__("warning", m))
+                           warn=lambda m: it.__setitem__("warning", m), diag=diag)
         took = time.time() - (enc_t0[0] or t_start)
         if took > 0.5:
             exports.record_speed(skey, length / took)
-        it["step"] = "Checking the file"
+        set_stage(it, "verifying", "Checking the file")
         it["eta"] = 1
         if TEST_HOOKS.get("break_next_output"):
             TEST_HOOKS["break_next_output"] = False
             with open(path, "r+b") as f:
                 f.truncate(500)
         try:
-            _check_output(path, expect)
+            _check_output(path, expect, want_audio=bool(pr["info"].get("has_audio")))
             _check_sound(it, pr, path)
             _check_picture(it, pr)
             break
@@ -1813,42 +1860,111 @@ def start_preview_render(pid: str, c: dict, opts: dict, at: float) -> dict:
     return job
 
 
-def friendly_render_error(e: Exception) -> tuple:
-    """(what went wrong and what to do, in plain words; technical details)."""
+# Why a render failed, as (kind, retryable). Retryable kinds can come right on a second try with nothing
+# changed (a stall, a file another program had open); the rest need something fixed first, so they're
+# never retried automatically and the message says what to change.
+RETRYABLE = {"stalled", "broken_output", "file_locked", "memory", "interrupted"}
+
+
+def classify_render_error(e: Exception) -> tuple:
+    """(kind, what went wrong and what to do in plain words, technical details)."""
     raw = str(e) or type(e).__name__
     low = raw.lower()
+    if isinstance(e, engine.RenderInputError):
+        return e.kind, raw, raw
     errno_ = getattr(e, "errno", None) or getattr(e, "winerror", None)
     rules = [
-        (errno_ in (28, 112) or "no space left" in low or "not enough space" in low,
+        ("disk_full", errno_ in (28, 112) or "no space left" in low or "not enough space" in low,
          "Your drive is full. Free up space (Settings › Storage: Clear temporary files, Delete VODs) or choose another "
          "folder for rendered clips, then retry."),
-        (errno_ in (13, 32) or "permission denied" in low or "being used by another process" in low,
+        ("file_locked", errno_ in (13, 32) or "permission denied" in low or "being used by another process" in low,
          "The clip's file is open in another program, like a video player. Close it, then retry."),
-        ("vod for this clip was deleted" in low or "no such file" in low and "input" not in low,
+        ("source_missing", "vod for this clip was deleted" in low or "no such file" in low and "input" not in low,
          "The stream recording for this clip was deleted, so it can't be rendered any more."),
-        ("cannot allocate memory" in low or isinstance(e, MemoryError) or "out of memory" in low,
+        ("memory", "cannot allocate memory" in low or isinstance(e, MemoryError) or "out of memory" in low,
          "Your PC ran out of memory. Close some programs, then retry."),
-        ("error initializing filter 'subtitles'" in low or "libass" in low or "fontconfig" in low,
+        ("captions", "error initializing filter 'subtitles'" in low or "libass" in low or "fontconfig" in low,
          "The captions couldn't be drawn. Try the Classic font in the Text tab, then retry."),
-        ("error while opening encoder" in low or "nvenc" in low or "qsv" in low or "amf" in low,
+        ("encoder", "error while opening encoder" in low or "nvenc" in low or "qsv" in low or "amf" in low,
          "The video encoder failed. Turn off \"Use the GPU to encode\" in the Layout tab, then retry."),
-        ("failed to configure input pad" in low or "error reinitializing filters" in low
+        ("layout", "failed to configure input pad" in low or "error reinitializing filters" in low
          or "error initializing complex filter" in low or "invalid too big or non positive size" in low,
          "The clip's layout couldn't be built from this video (a crop or the framing lands outside the picture). "
          "Press Reset in the Layout tab or choose another layout, then retry."),
-        ("came out broken" in low,
+        ("broken_output", "came out broken" in low,
          "The finished file came out broken twice. Retry; if it keeps happening, turn off "
          "\"Use the GPU to encode\" in the Layout tab."),
-        ("invalid data found" in low or "moov atom" in low or "end of file" in low,
+        ("stalled", "made no progress" in low,
+         "FFmpeg stopped making progress and was stopped. Retry; if it keeps happening, turn off "
+         "\"Use the GPU to encode\" in the Layout tab or try a shorter clip."),
+        ("source_damaged", "invalid data found" in low or "moov atom" in low or "end of file" in low
+         or "no video track" in low,
          "The source video is damaged or incomplete, so this part couldn't be read."),
-        ("timed out" in low or "timeout" in low,
+        ("stalled", "timed out" in low or "timeout" in low,
          "Rendering took too long and was stopped. Retry; if it keeps happening, try a shorter clip."),
     ]
-    for hit, msg in rules:
+    for kind, hit, msg in rules:
         if hit:
-            return msg, raw[-1500:]
+            return kind, msg, raw[-1500:]
     first = raw.strip().splitlines()[-1] if raw.strip() else type(e).__name__
-    return f"Rendering stopped with an error: {first[:200]}", raw[-1500:]
+    return "unknown", f"Rendering stopped with an error: {first[:200]}", raw[-1500:]
+
+
+def friendly_render_error(e: Exception) -> tuple:
+    """(what went wrong and what to do, in plain words; technical details)."""
+    return classify_render_error(e)[1:]
+
+
+_SECRET = re.compile(r"(?i)((?:oauth|token|access_token|client_secret|authorization|password|api[_-]?key)"
+                     r"[\"']?\s*[:=]\s*[\"']?)[^\s\"'&,]+")
+
+
+def redact(text: str) -> str:
+    """Diagnostics without secrets: tokens and keys are blanked, the home folder becomes ~."""
+    text = re.sub(r"(?i)\b(bearer|oauth)\s+[^\s\"']+", r"\1 ***", str(text or ""))
+    text = _SECRET.sub(r"\1***", text)
+    home = os.path.expanduser("~")
+    return text.replace(home, "~") if len(home) > 3 else text
+
+
+def set_stage(it: dict, stage: str, step: str):
+    """Where a render is: queued, validating, preparing, rendering, verifying, then done, error or
+    cancelled. The UI shows a percentage only while rendering, where FFmpeg reports real progress;
+    the other stages show their step and how long they've taken."""
+    it["stage"], it["step"], it["stage_at"] = stage, step, time.time()
+    if it.get("history") and it["history"][-1].get("outcome") == "running":
+        it["history"][-1]["stage"] = stage
+
+
+HISTORY_KEEP = 8
+
+
+def _attempt_start(it: dict):
+    hist = it.setdefault("history", [])
+    hist.append({"n": (hist[-1]["n"] + 1) if hist else 1, "started": time.time(), "outcome": "running",
+                 "stage": "validating"})
+    del hist[:-HISTORY_KEEP]
+
+
+def _attempt_end(it: dict, outcome: str, kind: str = "", error: str = "", diag: Optional[dict] = None):
+    hist = it.get("history") or []
+    if not hist or hist[-1].get("outcome") != "running":
+        return
+    a = hist[-1]
+    a.update(ended=time.time(), outcome=outcome)
+    if kind:
+        a["kind"] = kind
+    if error:
+        a["error"] = error[:300]
+    d = diag or {}
+    for k in ("encoder", "exit", "fallback"):
+        if d.get(k) not in (None, ""):
+            a[k] = d[k]
+    if outcome != "done":
+        if d.get("cmd"):
+            a["cmd"] = redact(d["cmd"])[:2000]
+        if d.get("stderr"):
+            a["stderr"] = redact(d["stderr"])[-1500:]
 
 
 def _after_render(it: dict):
@@ -1953,10 +2069,12 @@ def queue_worker(idx: int = 0):
                 if it:
                     it["status"] = "rendering"
                     it["progress"] = 0.0
+                    _attempt_start(it)
             if not it:
                 break
             if SHUTTING_DOWN[0]:
                 it["status"] = "queued"
+                it["history"].pop()
                 return
             save_queue_soon()
             t0 = time.time()
@@ -1965,25 +2083,42 @@ def queue_worker(idx: int = 0):
                 _render_item(it)
                 it["status"] = "done"
                 it["progress"] = 1.0
-                it["step"] = f"Done in {time.time() - t0:.0f}s"
+                set_stage(it, "done", f"Done in {time.time() - t0:.0f}s")
+                _attempt_end(it, "done", diag=it.pop("_diag", None))
                 print(f"  Rendered {it.get('name') or 'the clip'} in {time.time() - t0:.0f} s.", flush=True)
                 save_queue_soon(0)
                 play_sound("ready", it)
                 auto_discord(it)
             except engine.Cancelled:
                 with queue_lock:
+                    _attempt_end(it, "interrupted" if SHUTTING_DOWN[0] else "cancelled", diag=it.pop("_diag", None))
                     if SHUTTING_DOWN[0]:
-                        it.update(status="queued", progress=0.0, step="Waiting", cancel=False)
+                        it.update(status="queued", progress=0.0, step="Waiting", stage="queued", cancel=False)
                     elif it in queue:
+                        it["stage"] = "cancelled"
                         queue.remove(it)
                 save_queue_soon(0)
                 continue
             except Exception as e:
-                it["status"] = "error"
-                it["error"], it["detail"] = friendly_render_error(e)
+                kind, msg, detail = classify_render_error(e)
+                retryable = kind in RETRYABLE
+                diag = it.pop("_diag", None)
+                _attempt_end(it, "error", kind=kind, error=msg, diag=diag)
                 it["attempts"] = it.get("attempts", 0) + 1
-                print(f"  Render failed: {it['error']} ({it['detail'][:300]})", flush=True)
-                if not isinstance(e, (RuntimeError, OSError)):
+                fails = [a for a in it.get("history", []) if a.get("outcome") == "error"]
+                if kind == "stalled" and len(fails) == 1 and not it.get("cancel"):
+                    # a stall is the one failure a second try usually gets past by itself: once
+                    print(f"  Render stalled; trying once more ({detail[-200:]})", flush=True)
+                    it.update(status="queued", progress=0.0, eta=None, stage="queued", step="Waiting to try again")
+                    save_queue_soon(0)
+                    queue_wake.set()
+                    continue
+                it["status"] = "error"
+                it["stage"] = "error"
+                it["error"], it["detail"] = msg, redact(detail)
+                it["error_kind"], it["retryable"] = kind, retryable
+                print(f"  Render failed [{kind}]: {it['error']} ({it['detail'][:300]})", flush=True)
+                if not isinstance(e, (RuntimeError, OSError, engine.RenderInputError)):
                     traceback.print_exc()
                 save_queue_soon(0)
                 continue

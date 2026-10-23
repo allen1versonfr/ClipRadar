@@ -823,7 +823,7 @@ def main():
         rec("lowest score can be changed while live", mq.get("min_quality") == 60, mq.get("min_quality"))
         post(f"/api/live/{sid}/settings", {"min_quality": 0})
         # content check: a word on your blocked list makes hands-free hold the clip back
-        cfg = post("/api/safety", {"custom": ["twitch"], "hold": True})
+        post("/api/safety", {"custom": ["twitch"], "hold": True})
         held_clip = None
         if get(f"/api/live/{sid}")["status"] == "recording":
             n0 = len(get(f"/api/live/{sid}")["clips"])

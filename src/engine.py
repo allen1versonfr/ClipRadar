@@ -46,6 +46,14 @@ class Cancelled(Exception):
         super().__init__(msg)
 
 
+class RenderInputError(ValueError):
+    """A render that can't work with what it was given (a clip outside the video, a file with no
+    picture). Retrying won't change the outcome, so it isn't retried automatically. kind names the cause."""
+    def __init__(self, kind: str, msg: str):
+        super().__init__(msg)
+        self.kind = kind
+
+
 def _noop(*_a, **_k):
     pass
 
@@ -2789,12 +2797,22 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                 title: str = "", log: Log = _noop, progress: Progress = _noop,
                 check: Check = _noop, words: Optional[list] = None,
                 censor: Optional[list] = None, censor_mode: str = "off", framing: Optional[dict] = None,
-                warn: Log = _noop) -> str:
+                warn: Log = _noop, diag: Optional[dict] = None) -> str:
     """words: transcript (times relative to clip_start) to caption with; transcribed here if None.
     censor: [(start, end)] spans (relative) to mute ("mute") or bleep ("bleep").
-    warn: told when the clip came out differently from what was asked (a layout that had to fall back)."""
+    warn: told when the clip came out differently from what was asked (a layout that had to fall back).
+    diag: filled in with what FFmpeg was asked and said (cmd, encoder, exit, stderr, fallback), for the
+    render's attempt history, whether it worked or not."""
+    diag = diag if diag is not None else {}
     info = probe(video)
     clip_start = max(0.0, clip_start)
+    if not clip_end > clip_start:
+        raise RenderInputError("source_range", "This clip ends before it starts.")
+    if info["duration"] and clip_start > info["duration"] - 0.5:
+        # FFmpeg would "succeed" here with an empty file
+        raise RenderInputError("source_range", f"This clip starts at {fmt_ts(clip_start)}, after the end of the video "
+                                               f"({fmt_ts(info['duration'])}). The recording may have been replaced "
+                                               "by a shorter one.")
     clip_end = min(info["duration"] or clip_end, clip_end)
     length = max(1.0, clip_end - clip_start)
     fr = framing or {}
@@ -2945,6 +2963,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             # (TikTok's cover picker does; without it the first frame sits one frame in and the cover is black)
             cmd += ["-movflags", "+faststart+negative_cts_offsets"]
         cmd += [*RENDER_THREADS, tmp_name]
+        diag["cmd"] = subprocess.list2cmdline(cmd)
         p = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
                              creationflags=CREATE_NO_WINDOW | RENDER_PRIORITY[0])
@@ -2992,22 +3011,29 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             p.wait()
             reader.join(timeout=5)
         if stalled[0]:
-            return p.returncode or -1, "".join(err_lines) + "\nFFmpeg made no progress for 120 seconds and was stopped."
-        return p.returncode, "".join(err_lines)
+            err = "".join(err_lines) + "\nFFmpeg made no progress for 120 seconds and was stopped."
+            code = p.returncode or -1
+        else:
+            code, err = p.returncode, "".join(err_lines)
+        diag.update(exit=code, stderr=err[-2000:], stalled=stalled[0])
+        return code, err
 
     enc_name, enc_args = video_encoder(o)
+    diag.update(encoder=enc_name, fallback="")
     try:
         code, err = encode(enc_args)
         if code != 0 and enc_name != "libx264":
             log(f"GPU encoder ({enc_name}) failed, re-encoding on CPU.")
             _encoder_cache["hw"] = None
             enc_args = video_encoder(RenderOpts(hw_encode=False, crf=o.crf, vbitrate=getattr(o, "vbitrate", 0)))[1]
+            diag.update(encoder="libx264", fallback=f"{enc_name} failed, used the CPU")
             code, err = encode(enc_args)
         if code != 0 and _crop_failed(err) and (effective_layout(o) != "blur" or o.game_zoom > 1):
             # the layout's crop couldn't be built from this video: the whole picture on a blurred
             # background has no crop of the source, so the clip still comes out
             log("The layout couldn't be built from this video; rendering the whole picture instead.")
             vf = filters(replace(o, layout="blur", game_zoom=1.0), None)
+            diag["fallback"] = (diag.get("fallback", "") + "; " if diag.get("fallback") else "") + "layout fell back to blur-fit"
             code, err = encode(enc_args)
             if code == 0:
                 warn("This clip's layout couldn't be built from the video, so it shows the whole picture "
