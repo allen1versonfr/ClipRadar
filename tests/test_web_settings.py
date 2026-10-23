@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 for _s in (sys.stdout, sys.stderr):
@@ -98,8 +99,10 @@ with sync_playwright() as pw:
     perf = page.locator("[data-testid=set-perf]")
     perf.get_by_label("Clips rendering at once").select_option("2")
     perf.get_by_role("radio", name="Finish faster").click()
-    page.wait_for_function("document.querySelector('[data-testid=set-perf] [role=radio][aria-checked=true]')"
-                           ".textContent === 'Finish faster'", timeout=5000)
+    # the choice shows at once; wait for the server to have it (the save is a request behind it)
+    deadline = time.time() + 10
+    while time.time() < deadline and (exports.load().get("renders"), exports.load().get("priority")) != (2, "fast"):
+        time.sleep(0.1)
     prefs = exports.load()
     check("clips rendering at once and priority are saved on the server", prefs.get("renders") == 2
           and prefs.get("priority") == "fast", {k: prefs.get(k) for k in ("renders", "priority")})
@@ -128,7 +131,9 @@ with sync_playwright() as pw:
     check("a failed update check says why", len(upd.locator("[data-testid=upd-state]").inner_text()) > 10,
           upd.locator("[data-testid=upd-state]").inner_text())
     upd.get_by_label("Check for updates automatically").uncheck()
-    page.wait_for_timeout(500)
+    deadline = time.time() + 10
+    while time.time() < deadline and updater.view().get("auto") is not False:
+        time.sleep(0.1)
     check("automatic update checks can be turned off", updater.view().get("auto") is False, updater.view().get("auto"))
     check("the clip hotkey says whether it works here", page.locator("[data-testid=hk-state]").inner_text() != "")
 
