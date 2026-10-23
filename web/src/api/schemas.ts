@@ -260,3 +260,44 @@ export const Cleanup = z.looseObject({
   }).default({ at: 0, freed: 0, removed: [], failed: [] }),
 })
 export type Cleanup = z.infer<typeof Cleanup>
+
+/** Settings › Clip ranking: what was learned per streamer (/api/learning). */
+const Trim = z.looseObject({ start: z.number().default(0), end: z.number().default(0), n: z.number().default(0) })
+export type Trim = z.infer<typeof Trim>
+const Reason = z.looseObject({ label: z.string(), n: z.number() })
+export const Learning = z.looseObject({
+  enabled: z.boolean().default(true),
+  profiles: z.array(z.looseObject({
+    streamer: z.string(),
+    decisions: z.number().default(0),
+    kept: z.number().default(0),
+    posted: z.number().default(0),
+    accept: z.number().nullable().default(null),
+    added: z.number().default(0),
+    trim: Trim.nullable().default(null),
+    reasons: z.array(Reason).default([]),
+  })).default([]),
+  total: z.number().default(0),
+  min_decisions: z.number().default(8),
+})
+export type Learning = z.infer<typeof Learning>
+
+/** "What it learned" for one streamer (/api/learning/explain). */
+export const Explain = z.looseObject({
+  status: z.string().default(''),
+  status_text: z.string().default(''),
+  facts: z.looseObject({
+    decisions: z.number().default(0),
+    kept: z.number().default(0),
+    skipped: z.number().default(0),
+    posted: z.number().default(0),
+    added: z.number().default(0),
+    reasons: z.array(Reason).default([]),
+    trim: Trim.nullable().default(null),
+  }),
+  compare: z.array(z.looseObject({ label: z.string(), kept: z.number(), skipped: z.number(), says: z.string() })).default([]),
+  learned: z.array(z.looseObject({ label: z.string(), direction: z.string(), strength: z.string() })).default([]),
+  rules: z.array(z.string()).default([]),
+  method: z.string().default(''),
+})
+export type Explain = z.infer<typeof Explain>

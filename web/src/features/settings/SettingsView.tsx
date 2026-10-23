@@ -1,5 +1,6 @@
 import type { Status } from '../../api/schemas'
 import { legacyViewUrl } from '../../handoff'
+import { LearningPanel } from './LearningPanel'
 import { StoragePanel } from './StoragePanel'
 import { AboutPanel, HotkeyPanel, PerformancePanel, ToolsPanel } from './SystemPanels'
 import { TwitchPanel } from './TwitchPanel'
@@ -7,7 +8,7 @@ import { UpdatesPanel } from './UpdatesPanel'
 
 /** The sections still only in the current UI; ported one at a time (docs/react-migration.md). */
 export const NOT_PORTED = ['Export format and watermark', 'Campaigns', 'Caption words', 'Titles and captions', 'Hashtags',
-  'Content check', 'Clip ranking']
+  'Content check']
 
 export function SettingsView({ status, refreshStatus }: { status: Status | undefined; refreshStatus: () => Promise<void> }) {
   return (
@@ -19,6 +20,7 @@ export function SettingsView({ status, refreshStatus }: { status: Status | undef
       </div>
       <PerformancePanel />
       <TwitchPanel />
+      <LearningPanel />
       <HotkeyPanel status={status} refreshStatus={refreshStatus} />
       <ToolsPanel status={status} refreshStatus={refreshStatus} />
       <StoragePanel refreshStatus={refreshStatus} />

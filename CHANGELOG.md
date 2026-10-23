@@ -3,6 +3,14 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- New UI, Settings › **Clip ranking**: what Clip Radar learned for each streamer from your keeps, skips and posts, "What it learned" with the facts it stored and what it changes, Forget one streamer or everything (asks first), and learning on or off.
+
+### Tests
+- `web/`: 54 Vitest tests. `tests/test_web_settings.py` also checks Clip ranking against the real server: listed, explained, and forgotten.
+
 ## [4.17.0] - 2026-10-23
 
 Most of Settings in the new UI. Nothing changes unless you open the new UI (`/next/`).

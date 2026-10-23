@@ -1,7 +1,7 @@
 """
 The new UI's Settings screen against the real server, in a real browser. What you change there is
 what the server and the current UI use: how many clips render at once, render priority, download
-quality and the update settings. Storage counts the VODs and clips, and Delete VODs asks first and
+quality and the update settings. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
 then deletes only the VODs. A Twitch token Twitch can't accept is explained, an update check that
 can't reach GitHub says so, the sections not ported yet open the current UI's Settings, and the
 screen fits a narrow window without sideways scrolling.
@@ -57,6 +57,10 @@ except ImportError:
     sys.exit(0)
 
 import cleanup  # noqa: E402
+import learning  # noqa: E402
+
+for i in range(10):                                  # decisions to learn from, for one streamer
+    learning.record("teststreamer", f"c{i}", {k: (i % 3) / 2 for k in learning.FEATURES}, "keep" if i % 3 else "skip")
 import exports  # noqa: E402
 import server  # noqa: E402
 import updater  # noqa: E402
@@ -148,6 +152,17 @@ with sync_playwright() as pw:
     auto.click()
     page.get_by_role("alertdialog").get_by_role("button", name="Cancel").click()
     check("deleting finished VODs automatically stays off after Cancel", not auto.is_checked() and not cleanup.load()["vods"])
+
+    # Clip ranking: what was learned, explained, and forgotten on request
+    lr = page.locator("[data-testid=set-learn]")
+    check("Clip ranking lists the streamer it learned for", "teststreamer" in lr.locator("[data-testid=lr-list]").inner_text()
+          and "10 decisions" in lr.inner_text())
+    lr.get_by_role("button", name="What it learned", exact=True).click()
+    page.wait_for_selector("[data-testid=lr-explain]", timeout=10000)
+    check("'What it learned' shows what's stored", "10 decisions stored" in lr.locator("[data-testid=lr-explain]").inner_text())
+    lr.get_by_role("button", name="Forget what it learned for teststreamer").click()
+    page.wait_for_function("document.querySelector('[data-testid=set-learn]').textContent.includes('Nothing learned yet')", timeout=10000)
+    check("Forget removes it on the server", not [x for x in learning.summary()["profiles"] if x["streamer"] == "teststreamer"])
 
     # narrow window: no sideways scrolling
     page.set_viewport_size({"width": 420, "height": 860})
