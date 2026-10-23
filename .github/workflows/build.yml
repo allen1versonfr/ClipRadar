@@ -75,7 +75,10 @@ jobs:
           Write-Host "::notice title=model::laughter detector $([math]::Round((Get-Item src/models/audio_events.onnx).Length / 1MB)) MB, hash ok"
 
       - name: Unit tests
+        shell: pwsh
         run: |
+          # stop at the first suite that fails: by default only the last command's exit code counts
+          $PSNativeCommandUseErrorActionPreference = $true
           python tests/test_safety.py
           python tests/test_signals.py
           python tests/test_persist.py
@@ -132,6 +135,7 @@ jobs:
       - name: Render tests with the bundled FFmpeg
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true      # stop at the first suite that fails
           $env:PATH = "$PWD\tools;$env:PATH"
           python tests/test_media_matrix.py
           python tests/test_render_lifecycle.py

@@ -7,6 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 - If Clip Radar crashed or was ended from Task Manager on Windows, FFmpeg, yt-dlp and TwitchDownloader kept running: a render went on writing a file nobody would use, a live recording kept the drive busy, and the leftovers couldn't be cleaned up on the next start. They now end with Clip Radar, however it ends. The update installer, File Explorer and browser windows Clip Radar opens are not affected. Tested by `tests/test_child_cleanup.py` on Windows.
+- CI: a suite that failed in the middle of the unit-test or render-test step went unnoticed, because only the step's last command decided its result. Each step now stops at the first failing suite.
 
 ## [4.13.0] - 2026-10-23
 

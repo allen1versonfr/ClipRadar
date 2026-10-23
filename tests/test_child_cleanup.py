@@ -33,12 +33,13 @@ if sys.platform != "win32" or not shutil.which("ffmpeg"):
 sys.path.insert(0, SRC)
 import procjob  # noqa: E402
 
-# the stand-in app: start FFmpeg (two minutes of work), print its process id, then wait to be killed
+# the stand-in app: start FFmpeg (two minutes in real time, -re: without it a fast PC is done in a second),
+# print its process id, then wait to be killed
 APP = r"""
 import subprocess, sys, time
 sys.path.insert(0, sys.argv[1])
 import procjob
-p = subprocess.Popen(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30",
+p = subprocess.Popen(["ffmpeg", "-v", "error", "-re", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30",
                       "-t", "120", "-f", "null", "-"], stdin=subprocess.DEVNULL)
 ok = procjob.adopt(p) if sys.argv[2] == "adopt" else False
 print(p.pid, ok, flush=True)
