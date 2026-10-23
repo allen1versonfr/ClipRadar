@@ -3597,6 +3597,19 @@ document.addEventListener('keydown', e => {
 
 loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); loadUpdate(); loadSafety(); loadTwitch();
 
+// the new UI (/next/) hands over to this page for the screens it doesn't have yet:
+// /legacy/#open=<project id> opens that video in Review, #live=<session id> a live session, #view=<name> a screen
+(async function openFromHash() {
+  const m = /^#(open|live|view)=([\w-]+)$/.exec(location.hash);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    if (m[1] === 'open') openVod(await api('/api/project/' + m[2]));
+    else if (m[1] === 'live') openLive(await api('/api/live/' + m[2]), false);
+    else if (['home', 'review', 'exports', 'settings'].includes(m[2])) setView(m[2]);
+  } catch (e) { toast(e.message, 'err'); }
+})();
+
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-copy-link], #exLink'); if (!b) return;
   const link = b.dataset.copyLink || b.dataset.link; if (!link) return;

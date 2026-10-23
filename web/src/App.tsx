@@ -3,11 +3,13 @@ import { api } from './api/client'
 import { Status } from './api/schemas'
 import { usePoll } from './hooks/usePoll'
 import { ExportsView } from './features/exports/ExportsView'
+import { HomeView } from './features/home/HomeView'
+import { legacyViewUrl } from './handoff'
 
 // The screens switch by #hash, so the app works the same at /next/ (while the original page stays
 // at /) and at / (CLIPRADAR_UI=web), and a reload keeps the screen.
 const VIEWS = [
-  { id: 'home', label: 'Home', ported: false },
+  { id: 'home', label: 'Home', ported: true },
   { id: 'review', label: 'Review', ported: false },
   { id: 'exports', label: 'Exports', ported: true },
   { id: 'settings', label: 'Settings', ported: false },
@@ -16,7 +18,7 @@ type ViewId = (typeof VIEWS)[number]['id']
 
 function viewFromHash(): ViewId {
   const h = location.hash.replace(/^#\/?/, '')
-  return VIEWS.find(v => v.id === h)?.id ?? 'exports'
+  return VIEWS.find(v => v.id === h)?.id ?? 'home'
 }
 
 const loadStatus = () => api(Status, '/api/status')
@@ -36,7 +38,7 @@ export function App() {
     return () => clearInterval(t)
   }, [])
 
-  const current = VIEWS.find(v => v.id === view) ?? VIEWS[2]
+  const current = VIEWS.find(v => v.id === view) ?? VIEWS[0]
   return (
     <div className="app">
       <header className="top">
@@ -51,7 +53,9 @@ export function App() {
         ))}
       </nav>
       <main className="main">
-        {current.ported ? <ExportsView /> : <NotPorted label={current.label} id={current.id} />}
+        {current.id === 'home' ? <HomeView status={status.data} refreshStatus={status.refresh} />
+          : current.id === 'exports' ? <ExportsView />
+          : <NotPorted label={current.label} id={current.id} />}
       </main>
       <footer className="status-bar">
         {status.error ? <span className="err-tx">{status.error}</span>
@@ -61,12 +65,12 @@ export function App() {
   )
 }
 
-function NotPorted({ label, id }: { label: string; id: string }) {
+function NotPorted({ label, id }: { label: string; id: ViewId }) {
   return (
     <section className="not-ported" data-testid={`not-ported-${id}`}>
       <h1>{label}</h1>
       <p>{label} isn't in the new UI yet. It works as before in the current UI.</p>
-      <a className="btn primary" href={`/legacy/`}>Open {label} in the current UI</a>
+      <a className="btn primary" href={legacyViewUrl(id)}>Open {label} in the current UI</a>
     </section>
   )
 }

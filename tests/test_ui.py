@@ -90,10 +90,13 @@ with sync_playwright() as p:
     pg = b.new_page()
     pg.goto(url)
     pg.wait_for_timeout(1200)
-    pg.click("[data-testid=nav-settings]")
+    pg.click("[data-testid=nav-home]")
     pg.wait_for_timeout(500)
+    # on Home, where the button is: the new UI only draws the screen you're on
     bg = pg.evaluate("getComputedStyle(document.querySelector('[data-testid=find-clips]')).backgroundColor")
     check("the primary buttons use the signature yellow", bg.replace(" ", "") == "rgb(255,210,31)", bg)
+    pg.click("[data-testid=nav-settings]")
+    pg.wait_for_timeout(500)
     tabs = pg.evaluate("[...document.querySelectorAll('#setTikTok')].length")
     check("the old TikTok sign-in settings are gone", tabs == 0)
 

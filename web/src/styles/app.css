@@ -88,3 +88,59 @@ h1 { font-size: 16px; font-weight: 600; margin: 0; }
 .err-box p { margin: 0; }
 .row { display: flex; gap: 8px; }
 .details { margin: 0; white-space: pre-wrap; font-size: 11px; color: var(--tx1); max-height: 220px; overflow: auto; background: var(--bg0); padding: 8px; border-radius: var(--r); }
+
+/* home */
+.home { padding: 20px 24px 32px; display: flex; flex-direction: column; gap: 16px; max-width: 1200px; }
+.home h1 { font-size: 18px; }
+.home h2 { font-size: 14px; font-weight: 600; margin: 0; }
+.sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+.panel { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 16px; }
+.panel.source { display: flex; flex-direction: column; gap: 12px; }
+.panel header p { margin: 4px 0 0; }
+.panel footer { display: flex; justify-content: flex-end; }
+.input { background: var(--bg1); border: 1px solid var(--line2); border-radius: var(--r); padding: 6px 9px; min-width: 0; }
+.input:focus { border-color: var(--accent); outline: none; }
+.grow { flex: 1; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }
+.form-grid.two { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.form-grid label, .fld { display: flex; flex-direction: column; gap: 4px; color: var(--tx1); font-size: 12px; }
+.form-grid .span2 { grid-column: span 2; }
+@media (max-width: 720px) { .form-grid .span2 { grid-column: auto; } }
+.range-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.range-row input { flex: 1; min-width: 0; width: 100%; accent-color: var(--accent); }
+.tiny { font-size: 11px; color: var(--tx2); }
+.chk { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.chk input { margin-top: 3px; accent-color: var(--accent); }
+.chk span { display: flex; flex-direction: column; }
+.chk small, .hint, .fine { color: var(--tx2); font-size: 12px; }
+.fine { margin: 0; }
+.fine a, .not-ported p a { color: var(--accent); }
+details.adv summary { cursor: pointer; color: var(--tx1); }
+details.adv[open] summary { margin-bottom: 10px; }
+.seg { display: inline-flex; border: 1px solid var(--line2); border-radius: var(--r); overflow: hidden; align-self: flex-start; }
+.seg button { border: 0; background: transparent; padding: 5px 11px; color: var(--tx1); }
+.seg button + button { border-left: 1px solid var(--line2); }
+.seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.link { border: 0; background: none; color: var(--tx1); text-decoration: underline; padding: 0 4px; }
+.job { display: flex; flex-direction: column; gap: 6px; }
+.job-top { display: flex; gap: 8px; align-items: baseline; }
+.job-top .link { margin-left: auto; }
+.job-log { margin: 0; font-size: 11px; color: var(--tx2); white-space: pre-wrap; }
+.meter.wide { width: 100%; }
+.notice { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 14px; border: 1px solid var(--warn); border-radius: var(--r-lg); background: rgba(227, 163, 59, .08); }
+.src-dash { display: flex; flex-direction: column; gap: 8px; }
+.src-dash header { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.src-row { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.src-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tx2); flex: none; }
+.src-dot.on { background: var(--ok); }
+.src-dot.live.on { background: var(--danger); }
+.src-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.src-main b, .src-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src-main small { color: var(--tx2); }
+.src-acts { display: flex; gap: 6px; align-items: center; }
+.recent h2 { margin-bottom: 8px; }
+.table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.table th { text-align: left; font-weight: 500; color: var(--tx2); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.table td { padding: 7px 8px; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table tbody tr { cursor: pointer; }
+.table tbody tr:hover, .table tbody tr:focus-visible { background: var(--bg3); }

@@ -29,6 +29,7 @@ os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 os.environ.pop("CLIPRADAR_UI", None)
+sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 failures = []
@@ -52,6 +53,7 @@ if not shutil.which("ffmpeg"):
 import engine  # noqa: E402
 import exports  # noqa: E402
 import server  # noqa: E402
+from browser import launch  # noqa: E402
 
 if not (server.WEB_DIR / "index.html").is_file():
     print("SKIPPED: the React UI isn't built (cd web && npm ci && npm run build)")
@@ -75,24 +77,6 @@ def item(iid, start, end, title):
         server.queue.append(it)
     server.queue_wake.set()
     return it
-
-
-def launch(p):
-    """The same browsers tests/test_ui.py tries: CLIPRADAR_BROWSER, Playwright's Chromium, then Edge or Chrome."""
-    exe = os.environ.get("CLIPRADAR_BROWSER")
-    tries = [dict(executable_path=exe)] if exe else []
-    if os.path.isdir("/opt/pw-browsers"):
-        for d in sorted(os.listdir("/opt/pw-browsers")):
-            cand = os.path.join("/opt/pw-browsers", d, "chrome-linux", "chrome")
-            if d.startswith("chromium-") and os.path.isfile(cand):
-                tries.append(dict(executable_path=cand))
-    tries += [{}, dict(channel="msedge"), dict(channel="chrome")]
-    for kw in tries:
-        try:
-            return p.chromium.launch(**kw)
-        except Exception:
-            continue
-    return None
 
 
 with sync_playwright() as pw:

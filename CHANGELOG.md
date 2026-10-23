@@ -3,6 +3,21 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.15.0] - 2026-10-23
+
+### Added
+- The new UI's **Home** screen (at `/next/`; "Try the new Exports" in Exports gets you there): Find clips with every option, Running now, Recent and live clipping, as in the current UI. The options you pick are shared with the current UI. Opening a video or a live session takes you to the current UI's Review, which isn't in the new UI yet, so you can already go from Home to finished clips.
+- The current UI opens a video, a live session or a screen from a link (`#open=`, `#live=`, `#view=`), which the new UI uses to hand over.
+
+### Fixed
+- When Delete VODs or a cleanup can't remove a file because it's open, the log now names the program that has it open (Windows), so a file that stays busy can be traced.
+
+### Tests
+- `web/`: 33 Vitest tests, including what Home sends to Clip Radar and a check that the new UI's render defaults match the current UI's exactly.
+- `tests/test_web_home.py`: the new Home against a real video in a real browser, through to Review with its clips, and Recent opening it again.
+- `tests/test_filelocks.py` (Windows CI): the program holding a file is named.
+- The full UI smoke test now passes against the new UI too, and CI fails if it doesn't.
+
 ## [4.14.0] - 2026-10-23
 
 The first screen of the new UI, to try alongside the current one. Nothing changes unless you open it.

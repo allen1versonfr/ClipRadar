@@ -43,7 +43,8 @@ the fix the React app would show a blank window on some PCs only.
 |---|---|
 | Shell (nav, status bar, toasts, `/api/ping`) | Ported |
 | Exports | **Ported**: list with stages and honest progress, Retry / Retry failed / Cancel / Remove, attempt history, preview, Show in folder. TikTok Studio handoff, Discord and campaigns stay in the original page for now. |
-| Home, Review, Settings | Not yet: each links to the original page. Port order: Home → Settings → Review (canvas preview and editor last). |
+| Home | **Ported** (4.15.0): Find clips with every option, Running now (pause, resume, cancel, open, hide), Recent (one click opens again), live clipping, the missing-tools banner. Choices are shared with the original page (same `vc_*` keys; the render defaults are checked against `app.js` by a test). |
+| Review, Settings | Not yet. Opening a video or live session hands over to the original page's Review (`/legacy/#open=<project>`, `#live=<session>`, `#view=<screen>`), so the whole journey already works from the new UI. Port order: Settings → Review (canvas preview and editor last). |
 
 ### Working on it
 

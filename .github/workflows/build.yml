@@ -114,12 +114,12 @@ jobs:
           python tests/test_api_contract.py
           python tests/test_ui.py
 
-      # The same smoke test against the React UI, once it's built. It talks to the page only through
-      # data-testid attributes and window.ClipRadarTest (docs/react-migration.md). Allowed to fail
-      # while the rewrite is in progress: remove continue-on-error when the new UI should ship.
+      # The same smoke test against the React UI. It talks to the page only through data-testid
+      # attributes and window.ClipRadarTest (docs/react-migration.md), so it follows the new UI's
+      # screens and its hand-over to the original page's Review while that isn't ported. A gate since
+      # 4.15.0: the whole journey (find clips, keep, render, skip) must work from the new UI.
       - name: UI smoke test (React UI)
         if: steps.web.outputs.present == 'True'
-        continue-on-error: true
         env:
           CLIPRADAR_UI: web
         run: python tests/test_ui.py
@@ -147,6 +147,7 @@ jobs:
           python tests/test_child_cleanup.py
           python tests/test_filelocks.py
           python tests/test_web_exports.py
+          python tests/test_web_home.py
           python tests/test_quality.py
 
       # PyAV is left out: faster-whisper only uses it to read audio files, and Clip Radar always hands
