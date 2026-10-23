@@ -51,7 +51,7 @@ h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .btn, .seg button, .rail a, .ibtn, .input, .table tbody tr, .ex-table tbody tr { transition: background-color 120ms, border-color 120ms, color 120ms; }
 @media (prefers-reduced-motion: reduce) {
   .meter.busy i { animation: none; width: 100%; opacity: .35; }
-  .main > section { animation: none; }
+  .main > section, .modal-back { animation: none; }
   .meter i { transition: none; }
 }
 .banner { margin: var(--gap); padding: 8px 12px; border-radius: var(--r); }
@@ -157,6 +157,49 @@ details.adv[open] summary { margin-bottom: 10px; }
 
 /* Touch screens: every control is at least 44 px tall, a fingertip's size. With a mouse the tool stays
    compact (about 30 px controls), as dense work screens are. */
+/* settings: one column of panels, like the original page */
+.settings { padding: 20px 24px 32px; display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
+.settings h2 { font-size: 15px; font-weight: 650; margin: 0; }
+.panel.set { display: flex; flex-direction: column; gap: 12px; }
+.panel.set header.row { align-items: center; }
+.panel.set > p { margin: 0; }
+.more-set { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.more-set p { margin: 0; flex: 1 1 320px; color: var(--tx1); }
+.row.wrap { flex-wrap: wrap; align-items: center; }
+.src-dot.warn { background: var(--warn); }
+.table.static { table-layout: auto; }
+.table.static td { white-space: normal; }
+.table.static td:first-child { white-space: nowrap; width: 1%; padding-right: 16px; }
+.table.static tbody tr { cursor: default; }
+.table.static tbody tr:hover { background: none; }
+.table.compact td { padding: 6px 8px; }
+.table .row, .panel.set > .row { align-items: center; }
+.kbd { font: 600 11px/1 inherit; padding: 2px 6px; margin: 0 4px; border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 4px; color: var(--tx0); }
+.upd-row { align-items: center; flex-wrap: wrap; }
+.upd-title { font-weight: 600; }
+.upd-state { color: var(--tx1); font-size: 13px; margin-top: 2px; }
+.upd-state.ok, .upd-state.new { color: var(--accent); }
+.upd-state.err { color: var(--danger); }
+.upd-notes { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--bg1); border-radius: var(--r); }
+.upd-notes-body, .ver-notes { white-space: pre-wrap; color: var(--tx1); font-size: 12px; max-height: 260px; overflow: auto; }
+.ver-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; }
+.ver-list li { border-top: 1px solid var(--line); padding: 4px 0; }
+.ver-list summary { display: flex; gap: 8px; align-items: center; cursor: pointer; padding: 4px 0; }
+.ver-list li.cur summary b { color: var(--accent); }
+.ver-tag { font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line2); color: var(--tx1); }
+.ver-tag.cur, .ver-tag.new { border-color: var(--accent); color: var(--accent); }
+.btn.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+.btn.danger:hover { background: rgba(240, 90, 94, .12); }
+.modal-back .btn.danger { background: var(--danger); color: #1a0506; font-weight: 600; }
+.modal-back .btn.danger:hover { background: #ff7377; }
+
+/* confirm dialog */
+.modal-back { position: fixed; inset: 0; background: rgba(6, 7, 8, .62); display: grid; place-items: center; z-index: 20; padding: 16px; animation: screen-in 120ms ease-out; }
+.modal { background: var(--bg2); border: 1px solid var(--line2); border-radius: var(--r-lg); padding: 18px 20px; width: min(440px, 100%); display: flex; flex-direction: column; gap: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); }
+.modal h2 { margin: 0; font-size: 16px; font-weight: 650; }
+.modal p { margin: 0; color: var(--tx1); }
+.modal-actions { justify-content: flex-end; margin-top: 6px; }
+
 @media (pointer: coarse) {
   .btn, .btn.sm, .input, select.input, .seg button, .rail a, .ibtn, .link, .table tbody tr td { min-height: 44px; }
   .btn, .btn.sm, .rail a { display: inline-flex; align-items: center; }

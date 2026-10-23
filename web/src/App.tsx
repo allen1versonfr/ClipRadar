@@ -4,6 +4,7 @@ import { Status } from './api/schemas'
 import { usePoll } from './hooks/usePoll'
 import { ExportsView } from './features/exports/ExportsView'
 import { HomeView } from './features/home/HomeView'
+import { SettingsView } from './features/settings/SettingsView'
 import { legacyViewUrl } from './handoff'
 
 // The screens switch by #hash, so the app works the same at /next/ (while the original page stays
@@ -12,7 +13,7 @@ const VIEWS = [
   { id: 'home', label: 'Home', ported: true },
   { id: 'review', label: 'Review', ported: false },
   { id: 'exports', label: 'Exports', ported: true },
-  { id: 'settings', label: 'Settings', ported: false },
+  { id: 'settings', label: 'Settings', ported: true },
 ] as const
 type ViewId = (typeof VIEWS)[number]['id']
 
@@ -55,6 +56,7 @@ export function App() {
       <main className="main">
         {current.id === 'home' ? <HomeView status={status.data} refreshStatus={status.refresh} />
           : current.id === 'exports' ? <ExportsView />
+          : current.id === 'settings' ? <SettingsView status={status.data} refreshStatus={status.refresh} />
           : <NotPorted label={current.label} id={current.id} />}
       </main>
       <footer className="status-bar">

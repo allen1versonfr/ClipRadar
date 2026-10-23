@@ -3,6 +3,16 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- The new UI's **Settings** screen (at `/next/#settings`): Performance, Twitch sign-in, the clip hotkey, Downloads and tools, Updates (including All versions and a private-repository token) and About. The other sections, such as Export format and Storage, open in the current UI. Both UIs use the same settings, so a change in one shows in the other.
+- New UI: actions that can't be undone, like Uninstall, ask first in a dialog that starts on Cancel and closes with Escape.
+
+### Tests
+- `web/`: 42 Vitest tests, including what each Settings panel saves and the confirm dialog's keyboard behaviour.
+- `tests/test_web_settings.py`: the new Settings in a real browser against the real server: choices saved on the server and shown by the current UI, a rejected Twitch token explained, a failed update check, and a 420 px window without sideways scrolling.
+
 ## [4.16.0] - 2026-10-23
 
 A bug-fix release: black TikTok covers from GPU renders, and face-following clips that fell back to a blurred background. It also brings the new electric-green look.

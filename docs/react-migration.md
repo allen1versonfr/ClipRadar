@@ -44,7 +44,8 @@ the fix the React app would show a blank window on some PCs only.
 | Shell (nav, status bar, toasts, `/api/ping`) | Ported |
 | Exports | **Ported**: list with stages and honest progress, Retry / Retry failed / Cancel / Remove, attempt history, preview, Show in folder. TikTok Studio handoff, Discord and campaigns stay in the original page for now. |
 | Home | **Ported** (4.15.0): Find clips with every option, Running now (pause, resume, cancel, open, hide), Recent (one click opens again), live clipping, the missing-tools banner. Choices are shared with the original page (same `vc_*` keys; the render defaults are checked against `app.js` by a test). |
-| Review, Settings | Not yet. Opening a video or live session hands over to the original page's Review (`/legacy/#open=<project>`, `#live=<session>`, `#view=<screen>`), so the whole journey already works from the new UI. Port order: Settings → Review (canvas preview and editor last). |
+| Settings | **Slice 1 ported**: Performance, Twitch sign-in, the clip hotkey, Downloads and tools, Updates (with All versions and the private-repository token) and About (Uninstall). A card names the sections still in the original page and opens its Settings (`/legacy/#view=settings`): Export format and watermark, Campaigns, Caption words, Titles and captions, Hashtags, Content check, Clip ranking, Storage and cleanup. Both pages read and write the same server settings and `vc_*` keys, so a change in one shows in the other. Confirmations use one shared dialog (`components/Confirm.tsx`: focus starts on Cancel for anything destructive, Tab stays inside, Escape cancels). |
+| Review | Not yet. Opening a video or live session hands over to the original page's Review (`/legacy/#open=<project>`, `#live=<session>`, `#view=<screen>`), so the whole journey already works from the new UI. Port order: rest of Settings (Storage first) → Review (canvas preview and editor last). |
 
 ### Working on it
 
@@ -52,9 +53,11 @@ the fix the React app would show a blank window on some PCs only.
 cd web && npm ci            # once
 python src/app.py --browser # the app's server, in another terminal
 npm run dev                 # http://localhost:5173/#exports, hot reload, API proxied to the app
-npm test                    # Vitest: API client, schemas, polling, the Exports screen
+npm test                    # Vitest: API client, schemas, polling, Exports, Home, Settings
 npm run build               # type-checks (tsc --noEmit), then writes src/web
 python tests/test_web_exports.py   # the built Exports screen against real renders in a real browser
+python tests/test_web_home.py      # Home through to Review with a real video
+python tests/test_web_settings.py  # Settings: saved on the server and shown in the original page
 ```
 
 ### Dependencies (and the ones left out on purpose)

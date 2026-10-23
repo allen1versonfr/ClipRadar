@@ -75,7 +75,7 @@ export const Status = z.looseObject({
   twitchdownloader: z.boolean().optional(),
   can_download_tools: z.boolean().optional(),
   live: z.string().default(''),
-  hotkey: z.looseObject({ registered: z.boolean().optional(), keys: z.string().optional() }).optional(),
+  hotkey: z.lazy(() => Hotkey).optional(),
 })
 export type Status = z.infer<typeof Status>
 
@@ -130,7 +130,83 @@ export const RecentItem = z.looseObject({
 export const Recent = z.array(RecentItem)
 export type RecentItem = z.infer<typeof RecentItem>
 
-export const Twitch = z.looseObject({ signed_in: z.boolean().default(false), login: z.string().default(''), turbo: z.boolean().nullable().optional() })
+export const Twitch = z.looseObject({
+  signed_in: z.boolean().default(false),
+  login: z.string().default(''),
+  turbo: z.boolean().nullable().optional(),
+  error: z.string().default(''),
+  /** sign-in in a Twitch window needs the app window; in a browser only a pasted token works */
+  window_login: z.boolean().default(false),
+})
 export const Picked = z.looseObject({ path: z.string().default('') })
 
 export const Ok = z.looseObject({ ok: z.boolean().optional(), retried: z.number().optional() })
+
+/** The clip hotkey (/api/hotkey, and status.hotkey). */
+export const Hotkey = z.looseObject({
+  supported: z.boolean().default(false),
+  enabled: z.boolean().default(true),
+  registered: z.boolean().default(false),
+  keys: z.string().default('Ctrl+Alt+C'),
+  error: z.string().default(''),
+})
+export type Hotkey = z.infer<typeof Hotkey>
+
+/** Updates (/api/update and its actions): the updater's public state. */
+export const Update = z.looseObject({
+  current: z.string().default(''),
+  state: z.enum(['idle', 'checking', 'downloading', 'ready', 'installing', 'error']).catch('idle'),
+  available: z.boolean().default(false),
+  latest: z.string().default(''),
+  notes: z.string().default(''),
+  page: z.string().default(''),
+  progress: z.number().default(0),
+  error: z.string().default(''),
+  /** when it last checked (epoch seconds; 0 = never) */
+  checked: z.number().default(0),
+  can_install: z.boolean().default(false),
+  token: z.boolean().default(false),
+  token_hint: z.string().default(''),
+  auto: z.boolean().default(true),
+})
+export type Update = z.infer<typeof Update>
+
+export const Version = z.looseObject({
+  version: z.string(),
+  published: z.string().default(''),
+  notes: z.string().default(''),
+  page: z.string().default(''),
+  current: z.boolean().default(false),
+  newer: z.boolean().default(false),
+  archive: z.boolean().default(false),
+  installable: z.boolean().default(false),
+})
+export const Versions = z.looseObject({
+  versions: z.array(Version).default([]),
+  error: z.string().default(''),
+  can_install: z.boolean().default(false),
+})
+
+/** This PC, for Settings › Performance (/api/perf). */
+export const Perf = z.looseObject({
+  cpus: z.number().default(0),
+  mem_free: z.number().default(0),
+  mem_total: z.number().default(0),
+  waiting_for_memory: z.boolean().default(false),
+  encoder: z.string().default(''),
+  /** render speed per encoder, × real time */
+  speeds: z.record(z.string(), z.number()).default({}),
+})
+
+/** Only the Performance part of the export settings (/api/export); the rest isn't ported yet. */
+export const ExportPerf = z.looseObject({
+  prefs: z.looseObject({
+    renders: z.number().default(1),
+    downloads: z.number().default(1),
+    lives: z.number().default(2),
+    priority: z.enum(['responsive', 'fast']).catch('responsive'),
+  }),
+})
+export type ExportPerf = z.infer<typeof ExportPerf>
+
+export const Storage = z.looseObject({ uninstaller: z.boolean().default(false) })

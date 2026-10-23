@@ -160,6 +160,7 @@ jobs:
           python tests/test_filelocks.py
           python tests/test_web_exports.py
           python tests/test_web_home.py
+          python tests/test_web_settings.py
           python tests/test_quality.py
 
       # PyAV is left out: faster-whisper only uses it to read audio files, and Clip Radar always hands

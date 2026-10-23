@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../../api/client'
 import { Ref, Twitch, type Status } from '../../api/schemas'
+import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
 import { go, legacyViewUrl, liveUrl } from '../../handoff'
 import { usePoll } from '../../hooks/usePoll'
@@ -10,16 +11,6 @@ import { PRESETS } from './VodCard'
 const MODES: Array<[string, string]> = [['hands', 'Hands-free'], ['review', 'Review each clip']]
 const FREQS: Array<[string, string]> = [['fewer', 'Fewer'], ['normal', 'Normal'], ['more', 'More'], ['lots', 'Lots']]
 const loadTwitch = () => api(Twitch, '/api/twitch')
-
-function Seg({ label, value, options, onChange }: { label: string; value: string; options: Array<[string, string]>; onChange: (v: string) => void }) {
-  return (
-    <div className="seg" role="radiogroup" aria-label={label}>
-      {options.map(([v, l]) => (
-        <button key={v} role="radio" aria-checked={value === v} className={value === v ? 'on' : ''} onClick={() => onChange(v)}>{l}</button>
-      ))}
-    </div>
-  )
-}
 
 export function LiveCard({ status }: { status: Status | undefined }) {
   const toast = useToast()
