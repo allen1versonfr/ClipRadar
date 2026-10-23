@@ -288,9 +288,14 @@ def _remove(paths_: list) -> tuple:
                 break
             except FileNotFoundError:
                 break
-            except OSError:
+            except OSError as e:
                 if attempt == 2:
                     failed.append(os.path.basename(p))
+                    # name who has it open (Windows), so a file that stays busy can be traced
+                    import filelocks
+                    who = filelocks.who_has(p)
+                    print(f"  Couldn't delete {os.path.basename(p)}: {e.strerror or e}"
+                          + (f"; open in {', '.join(who)}" if who else ""), flush=True)
                 else:
                     time.sleep(0.4)
     return freed, failed

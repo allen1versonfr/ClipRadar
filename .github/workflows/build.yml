@@ -145,6 +145,7 @@ jobs:
           python tests/test_media_matrix.py
           python tests/test_render_lifecycle.py
           python tests/test_child_cleanup.py
+          python tests/test_filelocks.py
           python tests/test_web_exports.py
           python tests/test_quality.py
 
