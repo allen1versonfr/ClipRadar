@@ -120,6 +120,25 @@ if shutil.which("ffmpeg") and shutil.which("ffprobe"):
                        R(layout="full", captions=False, hw_encode=False, fps=60), title="", log=lambda m: None)
     check("asking 60 FPS of a 30 FPS stream renders 30, not doubled frames", probe(out)[2] == 30, probe(out))
 
+    # ---- the cover: TikTok takes the frame at 0:00 and ignores the MP4 edit list, so a frame must be
+    # there either way (it sat one frame in before 4.12.2, and covers came out black)
+    def first_pts(path, ignore_editlist):
+        r = subprocess.run(["ffprobe", "-v", "error", *(["-ignore_editlist", "1"] if ignore_editlist else []),
+                            "-select_streams", "v", "-show_entries", "frame=pts_time", "-read_intervals", "%+#1",
+                            "-of", "csv=p=0", path], capture_output=True, text=True).stdout.strip().strip(",")
+        return float(r or -1)
+    out = os.path.join(tmp, "cover.mp4")
+    engine.render_clip(os.path.join(tmp, "src_1280x720.mp4"), 0.7, 2.7, out,
+                       R(layout="split", captions=False, hw_encode=False), title="", log=lambda m: None)
+    check("the first frame is at 0:00, so the TikTok cover isn't black",
+          first_pts(out, False) == 0.0 and first_pts(out, True) == 0.0, (first_pts(out, False), first_pts(out, True)))
+    late = os.path.join(tmp, "late_video.mp4")       # video that starts after the sound (a recording's first second)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-itsoffset", "0.5", "-i", os.path.join(tmp, "src_1280x720.mp4"),
+                    "-i", os.path.join(tmp, "src_1280x720.mp4"), "-map", "0:v", "-map", "1:a", "-c", "copy", late], check=True)
+    out = os.path.join(tmp, "cover_late.mp4")
+    engine.render_clip(late, 0.0, 2.0, out, R(layout="full", captions=False, hw_encode=False), title="", log=lambda m: None)
+    check("a clip whose video starts late still has a frame at 0:00", first_pts(out, True) == 0.0, first_pts(out, True))
+
     # ---- watermark: on the export only, where you put it, inside the frame
     import hashlib
     import numpy as np

@@ -3,6 +3,11 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.12.2] - 2026-10-23
+
+### Fixed
+- TikTok covers came out black. TikTok takes the cover from the frame at 0:00 and ignores the MP4 edit list, and without it the first frame sat one frame in. Exports now have a frame at exactly 0:00 either way, and a clip whose video starts a moment after its sound repeats the first frame from 0:00 instead of opening on nothing. Clips already exported keep the black cover: pick a cover in TikTok, or render them again.
+
 ## [4.12.1] - 2026-10-23
 
 ### Fixed

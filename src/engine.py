@@ -2036,7 +2036,9 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
     z = max(1.0, o.game_zoom)
     W, H = out_size(o)
     layout = effective_layout(o)
-    fr = output_fps(info, o)
+    # start_time=0: the first frame is repeated from 0:00 when the source's video starts a moment late,
+    # so the file never opens on an empty (black) frame, which TikTok takes as the cover
+    fr = f"{output_fps(info, o)}:start_time=0"
 
     def safe_cam_crop(rect: tuple) -> tuple:
         """Clamp user-edited facecam rectangles to a valid, even-sized source crop."""
@@ -2939,7 +2941,9 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             cmd += ["-map", "0:a:0", *acodec, "-af", audio_filter(o), "-ar", "48000"]
         cmd += [*enc_args, "-pix_fmt", "yuv420p", "-r", str(output_fps(info, o))]
         if cont != "webm":
-            cmd += ["-movflags", "+faststart"]
+            # negative_cts_offsets: the first frame shows at exactly 0:00 even where the edit list is ignored
+            # (TikTok's cover picker does; without it the first frame sits one frame in and the cover is black)
+            cmd += ["-movflags", "+faststart+negative_cts_offsets"]
         cmd += [*RENDER_THREADS, tmp_name]
         p = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
