@@ -173,10 +173,12 @@ scripts\build_exe.bat                                # Windows: exe + installer 
 1. **Not measured on the target PC.** AMF (RX 7600 XT) against x264 is the most useful number still
    missing. The encoder probe picks AMF automatically when it works, and a failed GPU encode falls back
    to the CPU. Run `scripts/bench_pipeline.py --presets` on that PC to get the trade-off.
-2. **FFmpeg can outlive a crashed app on Windows.** The child process isn't tied to the parent. The
-   fix is a Windows Job Object with kill-on-close, which needs a breakaway flag for the updater's
-   installer, or the installer dies with the app. It wasn't done blind; it needs the Windows e2e
-   update test to prove it.
+2. ~~FFmpeg can outlive a crashed app on Windows.~~ **Fixed in 4.13.1** (`src/procjob.py`). FFmpeg,
+   yt-dlp and TwitchDownloader are put in a job object that Windows closes when the app ends, however
+   it ends. The app itself is not in the job, so the update installer, Explorer and browser windows it
+   opens are unaffected. `tests/test_child_cleanup.py` kills a stand-in app with TerminateProcess on
+   Windows CI and checks that its FFmpeg ends; a control run without the job shows FFmpeg would have
+   survived.
 3. **Preparation stages have no percentage** (by design). Whisper and face framing report their stage
    and elapsed time only.
 4. **React port, project/editor model work, autoframing and auto-effects** from the brief haven't been

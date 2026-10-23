@@ -24,6 +24,7 @@ from typing import Callable, Optional
 import numpy as np
 
 import paths
+import procjob
 
 SR = 32000
 N_FFT = 1024
@@ -272,6 +273,7 @@ def scan_file(video: str, duration: float, start: float = 0.0, progress=_noop, c
     cmd += ["-i", video, "-map", "0:a:0", "-vn", "-sn", "-dn", "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                          creationflags=engine.CREATE_NO_WINDOW)
+    procjob.adopt(p)      # ends with Clip Radar, even if it crashes (Windows)
     sc = Scanner()
     got = 0
     try:

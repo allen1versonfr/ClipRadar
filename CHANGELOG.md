@@ -3,6 +3,11 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.13.1] - 2026-10-23
+
+### Fixed
+- If Clip Radar crashed or was ended from Task Manager on Windows, FFmpeg, yt-dlp and TwitchDownloader kept running: a render went on writing a file nobody would use, a live recording kept the drive busy, and the leftovers couldn't be cleaned up on the next start. They now end with Clip Radar, however it ends. The update installer, File Explorer and browser windows Clip Radar opens are not affected. Tested by `tests/test_child_cleanup.py` on Windows.
+
 ## [4.13.0] - 2026-10-23
 
 Renders you can trust and diagnose. See `docs/audits/engineering-overhaul-2026-10-23.md`.

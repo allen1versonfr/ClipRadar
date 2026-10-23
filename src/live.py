@@ -44,6 +44,7 @@ from typing import Callable, Optional
 import numpy as np
 
 import engine
+import procjob
 
 SEG_SECONDS = 10
 SR = 8000
@@ -759,6 +760,7 @@ class LiveSession:
         self.log("Recording" if self._run == 1 else "Reconnected")
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                              creationflags=engine.CREATE_NO_WINDOW)
+        procjob.adopt(p)      # ends with Clip Radar, even if it crashes (Windows)
         self._proc = p
         if self._anchor is None:
             self._anchor = (_now(), self._media)
@@ -1233,6 +1235,7 @@ class LiveSession:
             try:
                 self._yt_proc = p = subprocess.Popen(cmd + [self.source], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                                      stderr=subprocess.DEVNULL, creationflags=engine.CREATE_NO_WINDOW)
+                procjob.adopt(self._yt_proc)      # ends with Clip Radar, even if it crashes (Windows)
             except OSError as e:
                 self.log(f"Couldn't start YouTube chat ({str(e)[:60]}).")
                 return

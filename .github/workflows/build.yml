@@ -135,6 +135,7 @@ jobs:
           $env:PATH = "$PWD\tools;$env:PATH"
           python tests/test_media_matrix.py
           python tests/test_render_lifecycle.py
+          python tests/test_child_cleanup.py
           python tests/test_quality.py
 
       # PyAV is left out: faster-whisper only uses it to read audio files, and Clip Radar always hands

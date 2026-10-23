@@ -29,6 +29,7 @@ from typing import Callable, Optional
 import numpy as np
 
 import paths
+import procjob
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -659,6 +660,7 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                              stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace",
                              creationflags=CREATE_NO_WINDOW)
+        procjob.adopt(p)      # ends with Clip Radar, even if it crashes (Windows)
         tail = []
         try:
             for line in p.stdout:
@@ -765,6 +767,7 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                          text=True, encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW,
                          **({} if os.name == "nt" else {"start_new_session": True}))
+    procjob.adopt(p)      # ends with Clip Radar, even if it crashes (Windows)
     last_output = [time.monotonic()]
     last_line = [time.monotonic()]
     stalled = [False]
@@ -1123,6 +1126,7 @@ def measure_audio(video: str, duration: float, events: bool = False, progress: P
            "-ac", "1", "-ar", str(sr), "-f", fmt, "-"]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
+    procjob.adopt(p)      # ends with Clip Radar, even if it crashes (Windows)
     blk = sr // FINE_HZ
     pows: list = []
     rest = np.zeros(0, dtype=np.float32)
@@ -2967,6 +2971,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         p = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
                              creationflags=CREATE_NO_WINDOW | RENDER_PRIORITY[0])
+        procjob.adopt(p)      # ends with Clip Radar, even if it crashes (Windows)
         # read errors on the side: a full stderr pipe would otherwise freeze ffmpeg mid-render
         err_lines: list = []
         last_output = [time.monotonic()]
