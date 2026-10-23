@@ -1967,7 +1967,7 @@ def _attempt_end(it: dict, outcome: str, kind: str = "", error: str = "", diag: 
     if error:
         a["error"] = error[:300]
     d = diag or {}
-    for k in ("encoder", "exit", "fallback"):
+    for k in ("encoder", "exit", "fallback", "black_start"):
         if d.get(k) not in (None, ""):
             a[k] = d[k]
     if outcome != "done":

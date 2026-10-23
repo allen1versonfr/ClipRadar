@@ -3,6 +3,14 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.15.1] - 2026-10-23
+
+### Fixed
+- TikTok covers could still come out black on PCs that render on the GPU (seen with an AMD graphics card). The fix in 4.12.2 was only ever tested on the CPU encoder. Every render now checks its own first frame, read the way TikTok reads it. If it's black while the picture right after it isn't, that clip is rendered again on the CPU, and the GPU encoder isn't used for the rest of the session. The clip's details in Exports say when this happened. If a first frame is still black after that, Exports warns you, so you can pick a cover when you upload.
+
+### Tests
+- `tests/test_black_cover.py`: a stand-in GPU encoder that blacks the first frame is caught and the clip re-rendered on the CPU; a GPU encoder that works is left alone; a clip that really opens on black isn't touched.
+
 ## [4.15.0] - 2026-10-23
 
 ### Added

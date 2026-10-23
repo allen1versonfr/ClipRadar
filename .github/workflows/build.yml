@@ -153,6 +153,7 @@ jobs:
           $env:PATH = "$PWD\tools;$env:PATH"
           python tests/test_media_matrix.py
           python tests/test_render_lifecycle.py
+          python tests/test_black_cover.py
           python tests/test_child_cleanup.py
           python tests/test_filelocks.py
           python tests/test_web_exports.py

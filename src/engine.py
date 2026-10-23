@@ -2794,6 +2794,37 @@ def _crop_failed(err: str) -> bool:
     return "parsed_crop" in low and ("failed to configure input pad" in low or "invalid too big" in low)
 
 
+def _frame_luma(path: str, at: float = 0.0, ignore_editlist: bool = False) -> Optional[float]:
+    """Average brightness (0-255) of the frame at `at` seconds, or None if it can't be read.
+    ignore_editlist reads the file the way tools that skip MP4 edit lists do (TikTok's cover picker)."""
+    cmd = [ffmpeg(), "-v", "error", "-nostdin"]
+    if ignore_editlist:
+        cmd += ["-ignore_editlist", "1"]
+    if at > 0:
+        cmd += ["-ss", f"{at:.3f}"]
+    cmd += ["-i", path, "-frames:v", "1", "-vf", "scale=32:32,format=gray", "-f", "rawvideo", "-"]
+    try:
+        p = subprocess.run(cmd, capture_output=True, timeout=30, stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if p.returncode != 0 or len(p.stdout) < 1024:
+        return None
+    return sum(p.stdout[:1024]) / 1024
+
+
+def black_start(path: str, length: float) -> bool:
+    """The clip opens on a black frame although the picture right after it isn't black: what TikTok
+    shows as a black cover. Checked both as players read the file and with its edit list ignored."""
+    ref = _frame_luma(path, min(0.4, max(0.1, length / 4)))
+    if ref is None or ref < 40:
+        return False                    # the clip really starts dark (or can't be read): nothing to fix
+    firsts = [_frame_luma(path)]
+    if path.lower().endswith((".mp4", ".mov", ".m4v")):
+        firsts.append(_frame_luma(path, ignore_editlist=True))
+    first = min((f for f in firsts if f is not None), default=None)
+    return first is not None and first < 24 and ref - first > 25
+
+
 def _ffmpeg_reason(err: str) -> str:
     """The end of FFmpeg's errors, plus the filter lines that say why (they come before the
     generic 'Error reinitializing filters' and encoder lines, so the last few alone lose them)."""
@@ -3048,6 +3079,22 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             if code == 0:
                 warn("This clip's layout couldn't be built from the video, so it shows the whole picture "
                      "on a blurred background. Press Reset in the Layout tab and Retry for the chosen layout.")
+        if code == 0 and black_start(tmp_path, length):
+            # TikTok takes the frame at 0:00 as the cover: a black one there is a black cover
+            used = diag.get("encoder", enc_name)
+            if used != "libx264" and o.vcodec in ("h264", "") and cont != "webm":
+                log(f"The GPU encoder ({used}) made a black first frame; rendering on the CPU instead.")
+                _encoder_cache["hw"] = None                 # and for the rest of this session
+                _encoder_cache["black_start"] = used
+                enc_args = video_encoder(RenderOpts(hw_encode=False, crf=o.crf, vbitrate=getattr(o, "vbitrate", 0),
+                                                    speed=getattr(o, "speed", "balanced")))[1]
+                diag.update(encoder="libx264", fallback=(diag.get("fallback", "") + "; " if diag.get("fallback") else "")
+                            + f"{used} made a black first frame, used the CPU")
+                code, err = encode(enc_args)
+            diag["black_start"] = code == 0 and black_start(tmp_path, length)
+            if diag["black_start"]:
+                warn("This clip's first frame came out black, so TikTok may show a black cover. Pick a cover "
+                     "when you upload, and tell us: Exports › the clip › details has what's needed to fix it.")
         if code != 0:
             raise RuntimeError("ffmpeg render failed:\n" + _ffmpeg_reason(err))
         os.replace(tmp_path, out_path)
