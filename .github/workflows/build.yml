@@ -112,17 +112,6 @@ jobs:
           python tests/test_campaigns.py
           python tests/test_captions_anim.py
           python tests/test_api_contract.py
-          python tests/test_ui.py
-
-      # The same smoke test against the React UI. It talks to the page only through data-testid
-      # attributes and window.ClipRadarTest (docs/react-migration.md), so it follows the new UI's
-      # screens and its hand-over to the original page's Review while that isn't ported. A gate since
-      # 4.15.0: the whole journey (find clips, keep, render, skip) must work from the new UI.
-      - name: UI smoke test (React UI)
-        if: steps.web.outputs.present == 'True'
-        env:
-          CLIPRADAR_UI: web
-        run: python tests/test_ui.py
 
       - name: Get ffmpeg, TwitchDownloader and yt-dlp
         env:
@@ -133,6 +122,26 @@ jobs:
           foreach ($t in "ffmpeg.exe","ffprobe.exe","TwitchDownloaderCLI.exe","yt-dlp.exe") {
             if (-not (Test-Path "tools\$t")) { Write-Host "::error title=FAIL tool download::$t missing"; exit 1 }
           }
+
+      # The UI smoke test, once with each UI, with the app's FFmpeg on PATH: without it the test only
+      # checks that each screen lays out, and skips the journey (open a video, keep the top 3, render,
+      # skip by score). Both talk to the page only through data-testid attributes and
+      # window.ClipRadarTest (docs/react-migration.md); the React run follows its hand-over to the
+      # original page's Review while that isn't ported.
+      - name: UI smoke test
+        shell: pwsh
+        run: |
+          $env:PATH = "$PWD\tools;$env:PATH"
+          python tests/test_ui.py
+
+      - name: UI smoke test (React UI)
+        if: steps.web.outputs.present == 'True'
+        shell: pwsh
+        env:
+          CLIPRADAR_UI: web
+        run: |
+          $env:PATH = "$PWD\tools;$env:PATH"
+          python tests/test_ui.py
 
       # Real-media render checks with the FFmpeg the app ships, not whatever the runner has: every layout
       # and export format against portrait, odd-size, silent, variable-frame-rate, rotated, HEVC and VP9
