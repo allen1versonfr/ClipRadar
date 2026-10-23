@@ -3,7 +3,7 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.12.1] - 2026-10-23
 
 ### Fixed
 - Hashtags in exported file names are separated by spaces, not underscores: `Chat lost it #KaiCenat #Mafia #TwitchClips.mp4`.
