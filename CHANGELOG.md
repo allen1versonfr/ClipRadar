@@ -3,7 +3,9 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.17.0] - 2026-10-23
+
+Most of Settings in the new UI. Nothing changes unless you open the new UI (`/next/`).
 
 ### Added
 - The new UI's **Settings** screen (at `/next/#settings`): Performance, Twitch sign-in, the clip hotkey, Downloads and tools, Storage (folders, Delete VODs and clips, automatic cleanup), Updates (including All versions and a private-repository token) and About. The other sections, such as Export format and Hashtags, open in the current UI. Both UIs use the same settings, so a change in one shows in the other.
