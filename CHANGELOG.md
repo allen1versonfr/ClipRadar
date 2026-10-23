@@ -3,6 +3,22 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.14.0] - 2026-10-23
+
+The first screen of the new UI, to try alongside the current one. Nothing changes unless you open it.
+
+### Added
+- **Try the new Exports** (a button in Exports): the render list in the new UI, being rebuilt screen by screen in React. It shows each render's stage, a percentage only while FFmpeg is encoding, every attempt of a failed render with what went wrong, and Retry, Retry failed, Cancel, Remove and Show in folder. Home, Review and Settings link back to the current UI for now. Posting to TikTok Studio and Discord stays in the current UI.
+- The new UI checks every answer from Clip Radar before showing it, and says so plainly if it can't reach Clip Radar or gets an answer it doesn't understand.
+
+### Changed
+- The new UI is opt-in until it covers every screen: the current UI stays at `/`, the new one is at `/next/`. `CLIPRADAR_UI=web` puts it at `/`; `CLIPRADAR_UI=legacy` turns it off. `/api/status` reports `next`.
+
+### Tests
+- `web/`: 21 Vitest tests (API client, answer checks, polling that drops out-of-order answers, the Exports screen).
+- `tests/test_web_exports.py`: the built Exports screen in a real browser against real renders: stages through to Ready, no percentage outside encoding, a real FFmpeg failure explained and retried, a reload showing the same clips once each.
+- CI runs the Vitest tests before building the UI, and the browser test with the bundled FFmpeg.
+
 ## [4.13.1] - 2026-10-23
 
 ### Fixed

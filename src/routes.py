@@ -164,6 +164,11 @@ class Handler(BaseHTTPRequestHandler):
             if mode == "missing":
                 return self._err("The new UI isn't built (run npm run build in web/), or unset CLIPRADAR_UI.", 503)
             return self._send_file(legacy_index, "text/html; charset=utf-8")
+        if p in ("/next", "/next/", "/next/index.html") or (p.startswith("/next/") and "." not in p.rsplit("/", 1)[-1]):
+            # the React UI, to try while the original page stays at / (its screens switch by #hash)
+            if S.web_available():
+                return self._send_file(str(S.WEB_DIR / "index.html"), "text/html; charset=utf-8")
+            return self._err("The new UI isn't in this build.", 404)
         if p == "/favicon.ico":
             return self._send_file(str(S.HERE / "ui" / "icon.svg"), "image/svg+xml", cache=True)
         if mode == "web" and not p.startswith(S._UI_PREFIXES):
@@ -179,7 +184,7 @@ class Handler(BaseHTTPRequestHandler):
             if "." not in p.rsplit("/", 1)[-1]:
                 return self._send_file(str(S.WEB_DIR / "index.html"), "text/html; charset=utf-8")
             return self._err("not found", 404)
-        if p.startswith("/assets/") and mode == "web":
+        if p.startswith("/assets/") and S.web_available():
             base = os.path.realpath(S.WEB_DIR / "assets")
             path = os.path.realpath(os.path.join(base, p[len("/assets/"):]))
             if path.startswith(base + os.sep):
@@ -215,7 +220,7 @@ class Handler(BaseHTTPRequestHandler):
                 "frozen": paths.FROZEN,
                 "version": VERSION,
                 "api": S.API_VERSION,
-                "ui": S.ui_mode(),
+                "ui": S.ui_mode(), "next": S.web_available(),
                 "running": S.busy(),
                 "live": (S.live_active().id if S.live_active() else ""),
                 "lives": [{"id": x.id, "title": x.title, "status": x.status} for x in S.live_list()],

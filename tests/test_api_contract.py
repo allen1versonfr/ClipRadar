@@ -138,6 +138,8 @@ try:
     check("a JSON body that isn't an object is a 400", code == 400, (code, data[:80]))
 
     # ---------------------------------------------------------------- serving a React build
+    old_web = server.WEB_DIR
+    server.WEB_DIR = Path(tempfile.mkdtemp(prefix="vc_noweb_"))       # first, as if it was never built
     code, h, data = req("GET", "/")
     check("with no React build, / is the original page", code == 200 and b"/ui/app.js" in data, code)
     code, _, data = req("GET", "/review")
@@ -150,11 +152,23 @@ try:
     (web / "assets" / "index-a1b2c3.js").write_text("console.log('hi')", encoding="utf-8")
     (web / "assets" / "index-a1b2c3.css").write_text("body{}", encoding="utf-8")
     (web / "robots.txt").write_text("User-agent: *", encoding="utf-8")
-    old_web = server.WEB_DIR
     server.WEB_DIR = web
     try:
+        # until the React UI covers every screen, it's opt-in: the original page stays at /
         code, h, data = req("GET", "/")
-        check("with a React build, / is the new app", code == 200 and b'id="root"' in data, (code, data[:60]))
+        check("with a React build, / is still the original page by default", code == 200 and b"/ui/app.js" in data, code)
+        code, h, data = req("GET", "/next/")
+        check("and the new UI is at /next/ to try", code == 200 and b'id="root"' in data, (code, data[:60]))
+        code, h, _ = req("GET", "/assets/index-a1b2c3.js")
+        check("with its bundles", code == 200 and "immutable" in h.get("cache-control", ""), code)
+        st = json.loads(req("GET", "/api/status")[2])
+        check("status says which UI is at / and that /next/ works", st.get("ui") == "legacy" and st.get("next") is True, st)
+        code, _, _ = req("GET", "/review")
+        check("client-side paths stay the original page's 404s", code == 404, code)
+
+        os.environ["CLIPRADAR_UI"] = "web"
+        code, h, data = req("GET", "/")
+        check("with CLIPRADAR_UI=web, / is the new app", code == 200 and b'id="root"' in data, (code, data[:60]))
         check("its index.html is never cached (updates show up)", h.get("cache-control") == "no-cache", h.get("cache-control"))
         code, h, data = req("GET", "/assets/index-a1b2c3.js")
         check("a hashed bundle is served", code == 200 and data == b"console.log('hi')", code)
@@ -193,13 +207,17 @@ try:
         check("CLIPRADAR_UI=legacy brings the original page back", code == 200 and b"/ui/app.js" in data, code)
         code, _, _ = req("GET", "/assets/index-a1b2c3.js")
         check("and the build's bundles aren't served then", code == 404, code)
+        code, _, _ = req("GET", "/next/")
+        check("nor the new UI at /next/", code == 404, code)
     finally:
         server.WEB_DIR = old_web
         os.environ.pop("CLIPRADAR_UI", None)
 
     os.environ["CLIPRADAR_UI"] = "web"
+    server.WEB_DIR = Path(tempfile.mkdtemp(prefix="vc_noweb_"))       # no build there, whatever src/web holds
     code, _, data = req("GET", "/")
     check("CLIPRADAR_UI=web with no build says so instead of showing the old page", code == 503, (code, data[:80]))
+    server.WEB_DIR = old_web
     os.environ.pop("CLIPRADAR_UI", None)
 finally:
     server.SHUTTING_DOWN[0] = True

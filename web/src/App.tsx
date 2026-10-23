@@ -1,0 +1,72 @@
+import { useEffect, useState } from 'react'
+import { api } from './api/client'
+import { Status } from './api/schemas'
+import { usePoll } from './hooks/usePoll'
+import { ExportsView } from './features/exports/ExportsView'
+
+// The screens switch by #hash, so the app works the same at /next/ (while the original page stays
+// at /) and at / (CLIPRADAR_UI=web), and a reload keeps the screen.
+const VIEWS = [
+  { id: 'home', label: 'Home', ported: false },
+  { id: 'review', label: 'Review', ported: false },
+  { id: 'exports', label: 'Exports', ported: true },
+  { id: 'settings', label: 'Settings', ported: false },
+] as const
+type ViewId = (typeof VIEWS)[number]['id']
+
+function viewFromHash(): ViewId {
+  const h = location.hash.replace(/^#\/?/, '')
+  return VIEWS.find(v => v.id === h)?.id ?? 'exports'
+}
+
+const loadStatus = () => api(Status, '/api/status')
+
+export function App() {
+  const [view, setView] = useState<ViewId>(viewFromHash)
+  const status = usePoll(loadStatus, 5000)
+
+  useEffect(() => {
+    const onHash = () => setView(viewFromHash())
+    addEventListener('hashchange', onHash)
+    return () => removeEventListener('hashchange', onHash)
+  }, [])
+  useEffect(() => {
+    // browser mode quits after 20 idle minutes without this, so it runs even while hidden
+    const t = setInterval(() => { fetch('/api/ping').catch(() => {}) }, 60_000)
+    return () => clearInterval(t)
+  }, [])
+
+  const current = VIEWS.find(v => v.id === view) ?? VIEWS[2]
+  return (
+    <div className="app">
+      <header className="top">
+        <span className="brand">Clip Radar</span>
+        <span className="preview-tag">New UI preview</span>
+        <a className="btn ghost sm" href="/legacy/">Back to the current UI</a>
+      </header>
+      <nav className="rail" aria-label="Screens">
+        {VIEWS.map(v => (
+          <a key={v.id} href={`#${v.id}`} data-testid={`nav-${v.id}`} aria-current={v.id === view ? 'page' : undefined}
+             className={v.id === view ? 'on' : ''}>{v.label}</a>
+        ))}
+      </nav>
+      <main className="main">
+        {current.ported ? <ExportsView /> : <NotPorted label={current.label} id={current.id} />}
+      </main>
+      <footer className="status-bar">
+        {status.error ? <span className="err-tx">{status.error}</span>
+          : status.data ? <span className="muted">Clip Radar {status.data.version}</span> : null}
+      </footer>
+    </div>
+  )
+}
+
+function NotPorted({ label, id }: { label: string; id: string }) {
+  return (
+    <section className="not-ported" data-testid={`not-ported-${id}`}>
+      <h1>{label}</h1>
+      <p>{label} isn't in the new UI yet. It works as before in the current UI.</p>
+      <a className="btn primary" href={`/legacy/`}>Open {label} in the current UI</a>
+    </section>
+  )
+}

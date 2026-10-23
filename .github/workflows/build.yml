@@ -65,6 +65,7 @@ jobs:
         working-directory: web
         run: |
           npm ci
+          npm test
           npm run build
           if (-not (Test-Path ../src/web/index.html)) { Write-Host "::error title=web::npm run build didn't write src/web/index.html"; exit 1 }
 
@@ -144,6 +145,7 @@ jobs:
           python tests/test_media_matrix.py
           python tests/test_render_lifecycle.py
           python tests/test_child_cleanup.py
+          python tests/test_web_exports.py
           python tests/test_quality.py
 
       # PyAV is left out: faster-whisper only uses it to read audio files, and Clip Radar always hands

@@ -74,10 +74,13 @@ API_VERSION = 1
 MAX_BODY = 16 << 20       # largest POST body accepted (requests carry paths and settings, never files)
 
 # Two UIs can ship side by side while the React rewrite lands:
-#   src/ui   the original page (index.html + app.js), always served at /legacy/
-#   src/web  the React build (`npm run build` in web/ writes it here), served at / when present
-# CLIPRADAR_UI=legacy forces the original page at /, CLIPRADAR_UI=web refuses to fall back.
+#   src/ui   the original page (index.html + app.js): at / and always at /legacy/
+#   src/web  the React build (`npm run build` in web/ writes it here): at /next/ to try, and at /
+#            only with CLIPRADAR_UI=web, until it covers every screen and REACT_IS_DEFAULT is flipped
+# CLIPRADAR_UI=legacy turns the React build off entirely; CLIPRADAR_UI=web serves it at / and refuses
+# to fall back to the original page.
 WEB_DIR = HERE / "web"
+REACT_IS_DEFAULT = False
 # mimetypes reads the Windows registry, where .js is sometimes text/plain: module scripts (what a
 # Vite build emits) are then refused by the browser. Pin the types the UI depends on.
 for _ext, _type in ((".js", "text/javascript"), (".mjs", "text/javascript"), (".css", "text/css"),
@@ -85,16 +88,23 @@ for _ext, _type in ((".js", "text/javascript"), (".mjs", "text/javascript"), (".
                     (".woff2", "font/woff2"), (".ttf", "font/ttf"), (".otf", "font/otf"),
                     (".wasm", "application/wasm"), (".map", "application/json"), (".webp", "image/webp")):
     mimetypes.add_type(_type, _ext)
-_UI_PREFIXES = ("/api/", "/ui/", "/files/", "/vod/", "/export/", "/wmimg/", "/assets/", "/legacy/")
+_UI_PREFIXES = ("/api/", "/ui/", "/files/", "/vod/", "/export/", "/wmimg/", "/assets/", "/legacy/", "/next/")
 
 
 def ui_mode() -> str:
+    """Which UI is at /: "web", "legacy", or "missing" (CLIPRADAR_UI=web without a build)."""
     want = os.environ.get("CLIPRADAR_UI", "auto").strip().lower()
     if want == "legacy":
         return "legacy"
-    if (WEB_DIR / "index.html").is_file():
-        return "web"
-    return "missing" if want == "web" else "legacy"
+    built = (WEB_DIR / "index.html").is_file()
+    if want == "web":
+        return "web" if built else "missing"
+    return "web" if built and REACT_IS_DEFAULT else "legacy"
+
+
+def web_available() -> bool:
+    """The React build can be served (at /next/, or at / in web mode)."""
+    return os.environ.get("CLIPRADAR_UI", "auto").strip().lower() != "legacy" and (WEB_DIR / "index.html").is_file()
 import locations  # noqa: E402
 WORKROOT = locations.path("projects")        # where new projects go (Settings › Storage › Projects)
 PORT = int(os.environ.get("CLIPRADAR_PORT", "7860"))

@@ -8,65 +8,66 @@ tests, the app window and updates keep working. Written alongside
 
 | Path | What |
 |---|---|
-| `web/` | The React app's source (Vite). Not created yet. |
+| `web/` | The React app's source: Vite, React 19, TypeScript (strict), Zod. Unit tests with Vitest (`npm test`). |
 | `src/web/` | Its build output (`npm run build`). Git-ignored; CI and `build_exe.bat` build it. |
 | `src/ui/` | The original page. Stays shipped and is always served at `/legacy/`. |
-| `src/ui/fonts/`, `src/ui/icon.*` | Shared: the React app loads caption fonts from `/ui/fonts/captions/…` instead of bundling a second copy. |
+| `src/ui/fonts/`, `src/ui/icon.*` | Shared: the React app loads Inter and caption fonts from `/ui/fonts/…` instead of bundling a second copy. |
 
-The server picks the UI at `/` on every request:
+### Which UI is where
 
-- `src/web/index.html` exists → the React app. Otherwise → the original page.
-- `CLIPRADAR_UI=legacy` forces the original page; `CLIPRADAR_UI=web` shows an error instead of
-  falling back (useful in CI so a broken build can't hide behind the old page).
-- `/api/status` reports which one is served (`"ui": "web" | "legacy"`) and the API version (`"api": 1`).
+Until the React app covers every screen, **the original page stays at `/`** and the React app is opt-in:
 
-With the React build present, the server answers:
+- `/next/` serves the React app whenever it's built (the original Exports screen links to it as "Try the new Exports").
+- `CLIPRADAR_UI=web` serves it at `/` and refuses to fall back to the original page (useful in CI).
+- `CLIPRADAR_UI=legacy` turns the React build off entirely, `/next/` included.
+- When it covers everything, set `REACT_IS_DEFAULT = True` in `src/server.py` to make it the default at `/`.
+- `/api/status` reports `"ui"` (what's at `/`: `"web"` or `"legacy"`), `"next"` (whether `/next/` works) and `"api": 1`.
+
+Screens switch by `#hash` (`/next/#exports`), so the app needs no router and works the same at `/next/` and
+at `/`, and a reload keeps the screen.
+
+When the build is served, the server answers:
 
 - `/assets/*` from `src/web/assets/`, cached forever (`immutable`): Vite's file names are content hashes.
-- Other files at the top of `src/web/` as they are (favicon, manifest, robots.txt).
-- Any other path without a file extension (`/review`, `/settings/campaigns`) with `index.html`,
-  so client-side routing (React Router's `BrowserRouter`) works, including a reload on a deep link.
+- In web mode, other files at the top of `src/web/` as they are, and any other path without a file extension
+  with `index.html`.
 - `/api/*`, `/files/*`, `/vod/*`, `/export/*`, `/wmimg/*`, `/ui/*`, `/legacy/*` exactly as before.
 
 `.js`/`.mjs`/`.css`/fonts/`.wasm` are served with fixed content types. Windows' registry sometimes
 maps `.js` to `text/plain`, and browsers refuse to run a module script with that type: without
 the fix the React app would show a blank window on some PCs only.
 
-## Setting up `web/`
+### Progress
+
+| Screen | State |
+|---|---|
+| Shell (nav, status bar, toasts, `/api/ping`) | Ported |
+| Exports | **Ported**: list with stages and honest progress, Retry / Retry failed / Cancel / Remove, attempt history, preview, Show in folder. TikTok Studio handoff, Discord and campaigns stay in the original page for now. |
+| Home, Review, Settings | Not yet: each links to the original page. Port order: Home → Settings → Review (canvas preview and editor last). |
+
+### Working on it
 
 ```sh
-npm create vite@latest web -- --template react-ts
+cd web && npm ci            # once
+python src/app.py --browser # the app's server, in another terminal
+npm run dev                 # http://localhost:5173/#exports, hot reload, API proxied to the app
+npm test                    # Vitest: API client, schemas, polling, the Exports screen
+npm run build               # type-checks (tsc --noEmit), then writes src/web
+python tests/test_web_exports.py   # the built Exports screen against real renders in a real browser
 ```
 
-`web/vite.config.ts`:
+### Dependencies (and the ones left out on purpose)
 
-```ts
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+- **react, react-dom** (19): the UI.
+- **zod** (4): every answer from the server is checked against `web/src/api/schemas.ts` before a screen
+  uses it. Shapes are "loose" (extra fields pass), so a newer server doesn't break an older screen,
+  and a wrong shape shows a clear message instead of a broken screen.
+- Dev only: **vite**, **@vitejs/plugin-react**, **typescript**, **vitest**, **jsdom**, **@testing-library/react**.
+- **Not added:** a router (hash switching is enough), Zustand and TanStack Query (the server owns
+  all state; `usePoll` refetches it and drops out-of-order answers; that's the whole data layer the
+  ported screens need). Revisit Zustand when the Review editor's undo/redo state is ported.
 
-const app = 'http://127.0.0.1:7860'          // python src/app.py --browser (or CLIPRADAR_PORT)
-const toApp = { target: app, changeOrigin: false }
-
-export default defineConfig({
-  plugins: [react()],
-  base: '/',
-  build: { outDir: '../src/web', emptyOutDir: true },
-  server: {
-    port: 5173,
-    // the app's server only answers requests for localhost / 127.0.0.1 (DNS-rebinding guard):
-    // keep changeOrigin off so it sees Host: localhost:5173, which it accepts.
-    proxy: {
-      '/api': toApp, '/files': toApp, '/vod': toApp, '/export': toApp,
-      '/wmimg': toApp, '/ui': toApp, '/legacy': toApp,
-    },
-  },
-})
-```
-
-Run `python src/app.py --browser` and `npm run dev` in `web/`, then open http://localhost:5173.
-POSTs from the dev server are allowed (`Origin: http://localhost:5173` is local).
-
-Commit `web/package-lock.json`: CI runs `npm ci` and caches on it.
+Versions are pinned exactly in `web/package.json`; `web/package-lock.json` is committed and CI runs `npm ci`.
 
 ## The API
 

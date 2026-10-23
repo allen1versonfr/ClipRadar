@@ -1,0 +1,34 @@
+/* The design tokens of the original page (src/ui/app.css), so both UIs look like one app.
+   Fonts load from the original page's folder rather than a second copy in the build. */
+@font-face { font-family: "Inter"; font-weight: 400; font-display: block; src: url(/ui/fonts/Inter-Regular.woff) format("woff"); }
+@font-face { font-family: "Inter"; font-weight: 500; font-display: block; src: url(/ui/fonts/Inter-Medium.woff) format("woff"); }
+@font-face { font-family: "Inter"; font-weight: 600; font-display: block; src: url(/ui/fonts/Inter-SemiBold.woff) format("woff"); }
+@font-face { font-family: "Inter"; font-weight: 700; font-display: block; src: url(/ui/fonts/Inter-Bold.woff) format("woff"); }
+
+:root {
+  --bg0: #0e0f11;      /* app chrome: top bar, rail, status bar */
+  --bg1: #141518;      /* main surfaces */
+  --bg2: #1a1b1f;      /* panels, inputs */
+  --bg3: #222328;      /* hover, selected */
+  --bg4: #2a2b31;
+  --line: #26272c;
+  --line2: #33353c;
+  --tx0: #e9eaed;
+  --tx1: #a3a6ae;
+  --tx2: #6d7079;
+  --accent: #ffd21f;   /* signature yellow, used sparingly: primary actions, selection, progress */
+  --accent-2: #f2c200;
+  --accent-soft: rgba(255, 210, 31, .12);
+  --on-accent: #141414;
+  --ok: #3ec28f;
+  --warn: #e3a33b;
+  --danger: #f05a5e;
+  --r: 6px;
+  --r-lg: 8px;
+  --gap: 12px;
+  color-scheme: dark;
+  font-family: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  font-size: 13px;
+  font-feature-settings: "cv11", "calt";
+  -webkit-font-smoothing: antialiased;
+}
