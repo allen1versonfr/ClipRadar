@@ -3,6 +3,26 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.13.0] - 2026-10-23
+
+Renders you can trust and diagnose. See `docs/audits/engineering-overhaul-2026-10-23.md`.
+
+### Changed
+- Exports show where each render is: checking the source, getting captions ready, rendering, checking the file. The percentage is FFmpeg's own progress and appears only while it encodes; the other steps show how long they've taken, so a long Whisper run no longer looks like a render stuck at 5%.
+- A failed render's details list every attempt: how it ended, how far it got, the encoder, FFmpeg's exit code, any fallback, and for failures FFmpeg's command and last messages (sign-in tokens removed, your user folder shown as ~).
+- Failures are sorted by cause. Only a stalled FFmpeg is tried again by itself, and only once. A layout, encoder, caption or damaged-source failure would fail the same way again, so it waits for you, with what to change.
+
+### Fixed
+- A clip starting after the end of its video (a recording replaced by a shorter one) "rendered" into an empty file, was retried, and then reported "came out broken twice". It now fails at once and says why.
+- Before rendering, Clip Radar checks that the source can be read, the clip lies inside it, and the clips folder can be written to.
+- A finished file must also have sound when the source has it and play to its last frame. A broken file is deleted, never shown as ready.
+- A clip that was rendering when Clip Radar crashed or was closed twice in a row is no longer restarted on every launch; it waits for Retry.
+
+### Tests
+- `tests/test_media_matrix.py`: 73 real renders across portrait, odd-size, tiny, silent, variable-frame-rate, HEVC 10-bit, VP9, rotated and size-changing sources, every layout and export format, plus damaged files.
+- `tests/test_render_lifecycle.py`: stages, attempt records, failure kinds, automatic retry limits, cancelling (FFmpeg stops, nothing left behind), broken-output refusal, crash-loop guard, token redaction.
+- CI runs both with the FFmpeg the Windows app ships, and lints with Ruff.
+
 ## [4.12.2] - 2026-10-23
 
 ### Fixed
