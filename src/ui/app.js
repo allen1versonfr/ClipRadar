@@ -2137,14 +2137,18 @@ function renderDetail(force) {
   $('#exLink').hidden = !q.link; $('#exLink').dataset.link = q.link || '';
   $('#exFile').textContent = q.name || (q.status === 'error' ? 'Not rendered' : q.status === 'queued' ? 'Waiting to render' : 'Rendering…');
   $('#exErrBox').hidden = q.status !== 'error';
+  // every attempt, so "Retry keeps failing" shows whether it failed the same way each time
+  const tries = (q.history || []).map(a => `Attempt ${a.n}: ${a.outcome}${a.kind ? ' (' + a.kind + ')' : ''}`
+    + (a.stage && a.outcome !== 'done' ? `, during ${a.stage}` : '') + (a.encoder ? `, ${a.encoder}` : '')
+    + (a.exit !== undefined ? `, exit ${a.exit}` : '') + (a.fallback ? `, ${a.fallback}` : '')).join('\n');
   if (q.status === 'error') {
-    // every attempt, so "Retry keeps failing" shows whether it failed the same way each time
-    const tries = (q.history || []).map(a => `Attempt ${a.n}: ${a.outcome}${a.kind ? ' (' + a.kind + ')' : ''}`
-      + (a.stage && a.outcome !== 'done' ? `, during ${a.stage}` : '') + (a.encoder ? `, ${a.encoder}` : '')
-      + (a.exit !== undefined ? `, exit ${a.exit}` : '') + (a.fallback ? `, ${a.fallback}` : '')).join('\n');
     $('#exErrMsg').textContent = q.error; $('#exErrDetail').textContent = (q.detail || q.error) + (tries ? '\n\n' + tries : '');
     $('#exErrMore').hidden = (!q.detail || q.detail === q.error) && !tries;
   }
+  // a clip that came out with a warning (a layout that fell back): what failed first, for a bug report
+  const ff = q.status === 'done' && q.warning ? ((q.history || []).slice(-1)[0] || {}).first_failure : null;
+  $('#exWarnMore').hidden = !ff;
+  if (ff) $('#exWarnDetail').textContent = `${tries}\n\n${ff.layout} failed, exit ${ff.exit}:\n${ff.reason}\n\nFilter graph:\n${ff.filter}`;
   const sf = q.safety;
   $('#exSafe').innerHTML = !sf ? '' : !sf.flags.length ? `<span class="safe ok">${icon('check')}Content check: nothing flagged</span>`
     : `<span class="safe ${sf.level}">${icon('alert')}Content check: ${esc([...new Set(sf.flags.map(f => f.label))].join(', '))}</span>${q.censored ? ` · ${plural(q.censored, 'word')} censored` : ''}`;

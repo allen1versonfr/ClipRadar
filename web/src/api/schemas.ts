@@ -18,6 +18,14 @@ export const Attempt = z.looseObject({
   encoder: z.string().optional(),
   exit: z.number().optional(),
   fallback: z.string().optional(),
+  layout_used: z.string().optional(),
+  // the layout's own failure, kept when a fallback layout made the clip
+  first_failure: z.looseObject({
+    layout: z.string().default(''),
+    exit: z.number().nullable().optional(),
+    reason: z.string().default(''),
+    filter: z.string().default(''),
+  }).optional(),
 })
 export type Attempt = z.infer<typeof Attempt>
 

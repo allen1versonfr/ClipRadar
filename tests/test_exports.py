@@ -107,16 +107,24 @@ engine.write_srt(W("one two three four five six seven eight"), engine.RenderOpts
 txt = open(path, encoding="utf-8").read()
 check("srt file: numbered cues with times", txt.startswith("1\n00:00:00,000 --> ") and "\n2\n" in txt and "one two" in txt, txt[:120])
 
-# Crop rectangles edited to the far bottom-right must never create a zero/negative crop.
+# Crop rectangles edited to the far bottom-right, or hanging off it, must never create a crop outside
+# the picture; an empty box is a setting to fix, said in those words (not a 2x2 crop blown up).
+import re  # noqa: E402
 for layout in ("split", "cam"):
-    filt, _ = engine.build_filter({"width": 1920, "height": 1080}, engine.RenderOpts(
-        layout=layout, cam=(1.0, 1.0, 0.0, 0.0)))
-    import re
-    crops = [tuple(map(int, m)) for m in re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", filt)]
-    first = crops[0] if crops else None
-    check(f"{layout} crop remains valid at source boundary",
-          bool(crops) and all(w >= 2 and h >= 2 and x >= 0 and y >= 0 for w, h, x, y in crops)
-          and first[0] + first[2] <= 1920 and first[1] + first[3] <= 1080, crops)
+    for box in ((0.75, 0.75, 0.25, 0.25), (0.9, 0.9, 0.5, 0.5), (0.0, 0.0, 1.0, 1.0)):
+        filt, _ = engine.build_filter({"width": 1920, "height": 1080}, engine.RenderOpts(layout=layout, cam=box))
+        crops = [tuple(map(int, m)) for m in re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", filt)]
+        first = crops[0] if crops else None
+        check(f"{layout} crop {box} stays inside the picture",
+              bool(crops) and all(w >= 2 and h >= 2 and x >= 0 and y >= 0 for w, h, x, y in crops)
+              and first[0] + first[2] <= 1920 and first[1] + first[3] <= 1080, crops)
+    for box in ((1.0, 1.0, 0.0, 0.0), (0.5, 0.5, 0.001, 0.2), (0.2, "x", 0.3, 0.3), (float("nan"), 0, 0.3, 0.3), (0.1, 0.1)):
+        try:
+            engine.build_filter({"width": 1920, "height": 1080}, engine.RenderOpts(layout=layout, cam=box))
+            check(f"{layout} facecam box {box} is named as a setting to fix", False, "built a layout")
+        except engine.RenderInputError as e:
+            check(f"{layout} facecam box {box} is named as a setting to fix",
+                  e.kind == "layout_settings" and "facecam box" in str(e) and "Layout tab" in str(e), (e.kind, str(e)))
 
 speed_k = exports.speed_key("libx264", exports.settings())
 exports.record_speed(speed_k, 2.0)

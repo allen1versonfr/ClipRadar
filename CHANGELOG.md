@@ -5,6 +5,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [4.16.0] - 2026-10-23
 
+A bug-fix release: black TikTok covers from GPU renders, and face-following clips that fell back to a blurred background. It also brings the new electric-green look.
+
+### Fixed
+- TikTok covers could still come out black on a PC that renders on the GPU (AMD). The fix in 4.12.2 had only been tested on the CPU encoder, so as a safeguard every render now checks its own first frame, read the way TikTok reads it. If it's black while the picture right after it isn't, that clip is rendered again on the CPU, and the GPU encoder isn't used for the rest of the session. The clip's details in Exports say when this happened. If a first frame is still black after that, Exports warns you, so you can pick a cover when you upload. If your clips' first frames look right in a video player but TikTok Studio still shows a black cover, try uploading from a private browser window: a browser extension can block the cover upload.
+- Clips in the **Whole frame** layout that follow the streamer's face came out as the whole picture on a blurred background, with "This clip's layout couldn't be built from the video", whenever the clip was longer than about 48 seconds. The cause was the crop that follows the face. It was one long FFmpeg expression with a step every half second, and the FFmpeg builds Clip Radar now downloads refuse expressions nested more than about 100 levels deep. The expression now picks its step by halving the clip (a few levels even for an hour-long clip) and keeps the crop inside the picture on every frame. Retry a clip that showed the warning to get it in its layout.
+- Every crop a layout makes is checked before FFmpeg runs: inside the picture, with an even size, and a face-following crop held inside it for the whole clip. A crop that doesn't fit is reported as a Clip Radar bug instead of quietly falling back to blur-fit. Face paths with repeated times, missing or broken values are cleaned first.
+- A facecam box that's empty or unreadable (from older or edited settings) now fails with "The facecam box in the Layout tab is empty…", which says what to fix, instead of rendering a few blown-up pixels. A zoom, focus or camera size saved as something other than a number falls back to the default; zoom is held to 4x.
+- When FFmpeg still refuses a layout whose crop fits, a Whole frame clip first tries again without following the face, and only then uses blur-fit. The warning names the layout. The clip's attempt keeps the first failure (the layout, FFmpeg's exit code and reason, the filter graph), so it's no longer replaced by the fallback's. A finished clip with a warning shows these under Technical details in Exports. If blur-fit fails too, the error says both failed.
+- A filter graph FFmpeg can't build no longer counts as a GPU encoder failure. Before, the same graph was run again on the CPU, and the GPU encoder was turned off for the rest of the session.
+- Opening a screen of the current UI from the new UI, or from a link that only changes the `#`, now always lands on that screen.
+
 ### Changed
 - **New look: electric green.** Clip Radar's accent is now electric green instead of yellow, in both the current and the new UI. As before, it marks only the main action on a screen, what's selected and progress. Ready and done states use the same green. The design direction is written down in `DESIGN.md`.
 - Dim text is brighter, so labels and hints meet the WCAG AA contrast minimum on every panel. They were below it before.
@@ -13,16 +24,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Home has one main action: **Find clips** stays green and **Start live clipping** is now an outlined button, so the two no longer compete.
 - New UI: bigger type (14 px body, bolder screen titles) and short transitions when you switch screens, which turn off when Windows is set to reduce motion.
 
-### Fixed
-- Opening a screen of the current UI from the new UI, or from a link that only changes the `#`, now always lands on that screen.
-
-## [4.15.1] - 2026-10-23
-
-### Fixed
-- TikTok covers could still come out black on PCs that render on the GPU (seen with an AMD graphics card). The fix in 4.12.2 was only ever tested on the CPU encoder. Every render now checks its own first frame, read the way TikTok reads it. If it's black while the picture right after it isn't, that clip is rendered again on the CPU, and the GPU encoder isn't used for the rest of the session. The clip's details in Exports say when this happened. If a first frame is still black after that, Exports warns you, so you can pick a cover when you upload.
-
 ### Tests
 - `tests/test_black_cover.py`: a stand-in GPU encoder that blacks the first frame is caught and the clip re-rendered on the CPU; a GPU encoder that works is left alone; a clip that really opens on black isn't touched.
+- `tests/test_layout_geometry.py` (real FFmpeg, generated videos): every layout and shape on landscape, portrait, square, odd, tiny, 59.94 fps VFR, rotated and size-changing sources, checked to render in the chosen layout; facecam boxes at every edge, tiny, empty and malformed; face paths from first to last frame, with repeated times, long gaps, the picture's edges and broken keyframes, with the crop's position read from the pixels; a 54.5 s 1:1 clip following a face; the original failure, then the corrected render; an invalid crop reported before FFmpeg; blur-fit when FFmpeg refuses a crop; no GPU retry for a broken graph; nothing left behind after success, cancel or failure.
+- `tests/test_media_matrix.py` now fails a row that fell back to blur-fit (the output is the same size, so before it passed). `tests/test_render_lifecycle.py` checks a fallback's attempt record, and a facecam box that's a setting to fix.
 
 ## [4.15.0] - 2026-10-23
 

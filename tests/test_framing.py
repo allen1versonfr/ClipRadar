@@ -143,7 +143,15 @@ check("and never whips across", max(abs(b - a) for (_, a), (_, b) in zip(r["path
 
 # ---------------------------------------------------------------- ffmpeg expression and paths
 e = framing.x_expr([(0, 0.5), (1, 0.6), (2, 0.6)], 1920, 608)
-check("crop expression moves between keyframes", e.startswith("'gte(t,0)*lt(t,1)*(656.0+192.000*(t-0))") and "gte(t,2)*848.0" in e, e)
+check("crop expression moves between keyframes, held after the last, inside the frame",
+      "656.0+192.0000*(t-0.000)" in e and "if(gte(t,2.000),848.0" in e and e.startswith("'clip(") and e.endswith(",0,1312)'"), e)
+# FFmpeg 8+ refuses expressions nested over ~100 levels: an hour of keyframes stays far below that
+long_e = framing.x_expr([(i * 0.5, 0.5 + 0.4 * ((i % 7) / 7 - 0.5)) for i in range(7200)], 1920, 608)
+check("a long path's expression stays shallow", framing.expr_depth(long_e) <= 20, framing.expr_depth(long_e))
+check("malformed keyframes are dropped", framing.clean_path([(0, 0.5), (1, None), ("x", 1), (2, float("nan")), (3,),
+                                                             (float("inf"), 0.2), (4, 1.7), (4, 0.9)]) == [(0.0, 0.5), (4.0, 0.9)])
+check("a path with nothing usable: no expression", framing.x_expr([(0, float("nan"))], 1920, 608) is None)
+check("repeated times don't divide by zero", "inf" not in framing.x_expr([(0, 0.2), (0, 0.4), (1, 0.6), (1, 0.6)], 1920, 608))
 check("one keyframe: a fixed crop", framing.x_expr([(0, 0.5)], 1920, 608) == "656")
 p = [(0, 0.2), (2, 0.4), (4, 0.4)]
 check("position at a time", abs(framing.path_at(p, 1) - 0.3) < 1e-9 and framing.path_at(p, 9) == 0.4)
@@ -151,7 +159,7 @@ sh = framing.shift(p, 1.0, 2.0)
 check("part of a path, from 0", sh[0] == (0.0, 0.3) and sh[-1][0] == 2.0 and abs(sh[-1][1] - 0.4) < 1e-9, sh)
 o = engine.RenderOpts(layout="full")
 f, _ = engine.build_filter({"width": 1920, "height": 1080}, o, [(0, 0.3), (1, 0.4)])
-check("the render crops along the path", "crop=608:1080:'gte(t,0)" in f, f[:80])
+check("the render crops along the path", "crop=608:1080:'clip(if(" in f, f[:80])
 f, _ = engine.build_filter({"width": 1920, "height": 1080}, engine.RenderOpts(layout="cam", cam=(0.8, 0.0, 0.2, 0.35)))
 check("facecam only fills the frame with the camera", f.startswith("[0:v]scale=1920:1080,crop=384:378:1536:0,scale=1080:1920"), f[:60])
 # a live recording that crosses a Twitch ad break changes resolution part-way: every layout first brings
