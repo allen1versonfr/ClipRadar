@@ -154,3 +154,12 @@ details.adv[open] summary { margin-bottom: 10px; }
 .table td { padding: 7px 8px; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table tbody tr { cursor: pointer; }
 .table tbody tr:hover, .table tbody tr:focus-visible { background: var(--bg3); }
+
+/* Touch screens: every control is at least 44 px tall, a fingertip's size. With a mouse the tool stays
+   compact (about 30 px controls), as dense work screens are. */
+@media (pointer: coarse) {
+  .btn, .btn.sm, .input, select.input, .seg button, .rail a, .ibtn, .link, .table tbody tr td { min-height: 44px; }
+  .btn, .btn.sm, .rail a { display: inline-flex; align-items: center; }
+  .chk { min-height: 44px; align-items: center; }
+  .chk input { width: 22px; height: 22px; margin-top: 0; }
+}
