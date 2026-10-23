@@ -4,7 +4,7 @@ renders in the layout that was chosen (not blur-fit), and a face-following crop 
 picture for the whole clip, however long. Blur-fit is only what's left when FFmpeg refuses a crop
 that fits; then the clip says so and keeps the first failure for a bug report.
 
-The fault this guards (4.15.2): FFmpeg 8 and later refuse an expression nested deeper than about 100
+The fault this guards (fixed in 4.16.0): FFmpeg 8 and later refuse an expression nested deeper than about 100
 levels, and the face-following crop used one flat sum with a term per half second, so every
 Whole-frame clip over about 48 s with a face in it fell back to blur-fit.
 
@@ -283,7 +283,7 @@ check(f"a 54.5 s 1:1 clip following a face renders in its layout, the crop on th
 # expression is the real fault; on one without it, FFmpeg is handed an expression it can't parse.
 
 
-def old_x_expr(path, sw, cw):                  # 4.15.1's expression: one flat sum, a level per keyframe
+def old_x_expr(path, sw, cw):                  # the expression before 4.16.0: one flat sum, a level per keyframe
     pts = [(t, min(max(c * sw - cw / 2, 0), sw - cw)) for t, c in path]
     terms = [f"gte(t,{t0:g})*lt(t,{t1:g})*({a:.1f}+{(b - a) / (t1 - t0):.3f}*(t-{t0:g}))"
              for (t0, a), (t1, b) in zip(pts, pts[1:]) if t1 > t0]
