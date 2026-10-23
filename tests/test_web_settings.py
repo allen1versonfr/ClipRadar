@@ -1,7 +1,8 @@
 """
 The new UI's Settings screen against the real server, in a real browser. What you change there is
 what the server and the current UI use: how many clips render at once, render priority, download
-quality and the update settings. A Twitch token Twitch can't accept is explained, an update check that
+quality and the update settings. Storage counts the VODs and clips, and Delete VODs asks first and
+then deletes only the VODs. A Twitch token Twitch can't accept is explained, an update check that
 can't reach GitHub says so, the sections not ported yet open the current UI's Settings, and the
 screen fits a narrow window without sideways scrolling.
 
@@ -23,7 +24,18 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
-os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
+WORK = os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
+VODS = []
+for name in ("stream_one", "stream_two"):           # two projects, each with a VOD and a rendered clip
+    d = os.path.join(WORK, name)
+    os.makedirs(os.path.join(d, "tiktok"))
+    with open(os.path.join(d, "meta.json"), "w") as f:
+        f.write("{}")
+    VODS.append(os.path.join(d, "vod.mp4"))
+    with open(VODS[-1], "wb") as f:
+        f.write(os.urandom(3_000_000))
+    with open(os.path.join(d, "tiktok", "clip.mp4"), "wb") as f:
+        f.write(os.urandom(800_000))
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"     # nothing listens: checks fail, quickly
 os.environ.pop("CLIPRADAR_UI", None)
 sys.path.insert(0, HERE)
@@ -44,6 +56,7 @@ except ImportError:
     print("SKIPPED: Playwright isn't installed (pip install playwright)")
     sys.exit(0)
 
+import cleanup  # noqa: E402
 import exports  # noqa: E402
 import server  # noqa: E402
 import updater  # noqa: E402
@@ -114,6 +127,27 @@ with sync_playwright() as pw:
     page.wait_for_timeout(500)
     check("automatic update checks can be turned off", updater.view().get("auto") is False, updater.view().get("auto"))
     check("the clip hotkey says whether it works here", page.locator("[data-testid=hk-state]").inner_text() != "")
+
+    # Storage: the space VODs and clips use; Delete VODs asks first, then deletes only the VODs
+    st = page.locator("[data-testid=set-storage]")
+    page.wait_for_function("document.querySelector('[data-testid=vod-use]').textContent.includes('2 streams')", timeout=10000)
+    check("Storage counts the VODs and clips", st.locator("[data-testid=clip-use]").inner_text().startswith("2 clips"),
+          st.locator("[data-testid=clip-use]").inner_text())
+    check("and lists every folder", st.locator("[data-testid=loc-list] li").count() >= 4)
+    st.get_by_role("button", name="Delete VODs").click()
+    dialog = page.get_by_role("alertdialog", name="Delete 2 downloaded streams?")
+    dialog.get_by_role("button", name="Cancel").click()
+    check("Cancel keeps the VODs", all(os.path.exists(v) for v in VODS))
+    st.get_by_role("button", name="Delete VODs").click()
+    page.get_by_role("alertdialog").get_by_role("button", name="Delete VODs").click()
+    page.wait_for_function("document.querySelector('[data-testid=vod-use]').textContent === 'None'", timeout=15000)
+    check("Delete VODs deletes the VODs and keeps the clips", not any(os.path.exists(v) for v in VODS)
+          and all(os.path.exists(os.path.join(WORK, n, "tiktok", "clip.mp4")) for n in ("stream_one", "stream_two")))
+    check("and says so", "Deleted 2 streams" in page.locator("[data-testid=toasts]").inner_text())
+    auto = st.get_by_label("Delete a VOD when you're finished with it")
+    auto.click()
+    page.get_by_role("alertdialog").get_by_role("button", name="Cancel").click()
+    check("deleting finished VODs automatically stays off after Cancel", not auto.is_checked() and not cleanup.load()["vods"])
 
     # narrow window: no sideways scrolling
     page.set_viewport_size({"width": 420, "height": 860})

@@ -210,3 +210,53 @@ export const ExportPerf = z.looseObject({
 export type ExportPerf = z.infer<typeof ExportPerf>
 
 export const Storage = z.looseObject({ uninstaller: z.boolean().default(false) })
+
+/** Settings › Storage: where each kind of file goes (/api/locations). */
+export const Location = z.looseObject({
+  key: z.string(),
+  label: z.string(),
+  path: z.string().default(''),
+  /** the folder, or a description such as "Inside each project folder" */
+  where: z.string().default(''),
+  set: z.boolean().default(false),
+  ok: z.boolean().default(true),
+  problem: z.string().default(''),
+  free: z.number().nullable().default(null),
+  low: z.boolean().default(false),
+  bytes: z.number().nullable().default(null),
+})
+export const Locations = z.looseObject({
+  locations: z.array(Location).default([]),
+  errors: z.record(z.string(), z.string()).default({}),
+})
+export const Cleared = z.looseObject({ freed: z.number().default(0), locations: z.array(Location).default([]) })
+
+const Count = z.looseObject({ count: z.number().default(0), bytes: z.number().default(0) })
+export const StorageUse = z.looseObject({
+  vods: Count,
+  clips: Count,
+  workroot: z.string().default(''),
+  uninstaller: z.boolean().default(false),
+})
+export const Deleted = z.looseObject({
+  deleted: z.number().default(0),
+  freed: z.number().default(0),
+  failed: z.array(z.string()).default([]),
+})
+
+/** Settings › Storage › Clean up automatically (/api/cleanup). */
+export const Cleanup = z.looseObject({
+  config: z.looseObject({
+    temp: z.boolean().default(true),
+    skipped: z.boolean().default(false),
+    vods: z.boolean().default(false),
+    vod_days: z.number().default(7),
+  }),
+  last: z.looseObject({
+    at: z.number().default(0),
+    freed: z.number().default(0),
+    removed: z.array(z.string()).default([]),
+    failed: z.array(z.string()).default([]),
+  }).default({ at: 0, freed: 0, removed: [], failed: [] }),
+})
+export type Cleanup = z.infer<typeof Cleanup>
