@@ -1,5 +1,5 @@
 """
-List Clip Radar's HTTP routes (read from src/server.py) and the API paths a UI calls.
+List Clip Radar's HTTP routes (read from src/routes.py) and the API paths a UI calls.
 
   python scripts/api_routes.py              routes as a Markdown table (docs/api-routes.md)
   python scripts/api_routes.py --ui         every API path the UIs call, and whether it exists
@@ -15,13 +15,13 @@ import re
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-SERVER = os.path.join(ROOT, "src", "server.py")
+ROUTES = os.path.join(ROOT, "src", "routes.py")       # the request handler
 # where UI code lives: the original page and the React app's sources (when it exists)
 UI_SOURCES = [os.path.join(ROOT, "src", "ui"), os.path.join(ROOT, "web", "src")]
 UI_EXT = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".html")
 
 
-def server_routes(path: str = SERVER) -> list[dict]:
+def server_routes(path: str = ROUTES) -> list[dict]:
     """[{method, path, pattern}] in the order the handler checks them. `pattern` is a regex for
     routes with an id in them (/api/job/(\\w+)), else None."""
     src = open(path, encoding="utf-8").read().splitlines()

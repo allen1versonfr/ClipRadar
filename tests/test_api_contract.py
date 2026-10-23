@@ -72,7 +72,7 @@ def post(path, obj, headers=None):
 try:
     # ---------------------------------------------------------------- UI ↔ server paths
     routes = api_routes.server_routes()
-    check("the route list was read from server.py", len(routes) > 60, len(routes))
+    check("the route list was read from routes.py", len(routes) > 60, len(routes))
     calls = sorted(set(api_routes.ui_calls()))
     check("UI sources were scanned", len(calls) > 40, len(calls))
     missing = [(f, p) for f, p in calls if not api_routes.route_for(p, routes)]
@@ -107,6 +107,14 @@ try:
     st = json.loads(req("GET", "/api/status")[2])
     check("status reports the API version", st.get("api") == server.API_VERSION, st.get("api"))
     check("status reports which UI is served (legacy here)", st.get("ui") == "legacy", st.get("ui"))
+
+    # ---------------------------------------------------------------- jobs: only their public fields
+    code, _, data = post("/api/analyze", {"source": os.path.join(tempfile.gettempdir(), "no_such_video_x.mp4")})
+    jid = json.loads(data).get("job", "")
+    code, _, data = req("GET", f"/api/job/{jid}")
+    j = json.loads(data) if code == 200 else {}
+    check("a job comes back with exactly its public fields", set(j) == set(server.JOB_PUBLIC), sorted(j))
+    check("and not the request it was started with or its cancel flag", "body" not in j and "cancel" not in j, sorted(j))
 
     # ---------------------------------------------------------------- POST hardening
     code, _, data = post("/api/nosuchroute", {})

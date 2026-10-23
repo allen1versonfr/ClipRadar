@@ -1,6 +1,6 @@
 # HTTP routes
 
-Generated from `src/server.py` by `python scripts/api_routes.py`. Regenerate after adding a route;
+Generated from `src/routes.py` by `python scripts/api_routes.py`. Regenerate after adding a route;
 `tests/test_api_contract.py` checks that every path a UI calls is in this set.
 
 `{id}` is a project, job, live session or queue item id (`\w+`). All `/api/*` answers are JSON

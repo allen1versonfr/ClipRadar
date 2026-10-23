@@ -3,7 +3,7 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.12.0] - 2026-10-22
 
 Groundwork for the new React UI. Nothing changes on screen.
 
@@ -13,11 +13,14 @@ Groundwork for the new React UI. Nothing changes on screen.
 - `tests/test_api_contract.py`: every API path a UI calls exists, every GET answers JSON, and the server's request checks and file serving behave. `scripts/api_routes.py` lists the routes (`docs/api-routes.md`).
 
 ### Changed
+- The app server's request handling (every route) moved from `server.py` to `routes.py`. Routes and answers are unchanged.
+- `/api/job/{id}` returns only a job's progress and outcome (`id`, `kind`, `status`, `step`, `progress`, `eta`, `log`, `result`, `error`, `started`), not the app's internal flags or the request it started from.
 - `tests/test_ui.py` talks to the page only through `data-testid` attributes and `window.ClipRadarTest`, so it runs unchanged against the new UI. Its skip-by-score check no longer depends on where clips sit in the list.
 
 ### Fixed
 - JavaScript, CSS and font files are served with fixed content types. Windows sometimes reports `.js` as plain text, which would stop a React build from loading on those PCs.
 - Requests to the app's server must send JSON and stay under 16 MB; larger or other bodies are refused without being read.
+- A test of the render queue's "ready" sound could fail now and then because it checked a moment too early.
 
 ## [4.11.1] - 2026-10-22
 

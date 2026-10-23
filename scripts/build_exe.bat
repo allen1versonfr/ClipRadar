@@ -88,7 +88,7 @@ set "PYTHONPATH=src\stubs"
   --paths src --paths src\stubs --exclude-module hf_xet ^
   --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime ^
   --collect-all webview --collect-submodules yt_dlp --collect-data certifi ^
-  --hidden-import av --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog ^
+  --hidden-import av --hidden-import routes --hidden-import clr --hidden-import tkinter --hidden-import tkinter.filedialog ^
   src\app.py
 if errorlevel 1 ( echo. & echo   Packaging failed. Scroll up for the error. & pause & exit /b 1 )
 set "PYTHONPATH="

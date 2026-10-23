@@ -126,20 +126,28 @@ Until `web/` exists, all of these are no-ops and the build is identical to today
 - **N-3 Polling.** Five pollers work and don't need to change for parity. A single `usePoll` hook that
   pauses when hidden reproduces them; a combined `/api/poll` or SSE stream is a later optimisation.
   `/api/ping` must keep running while hidden (browser mode quits after 20 idle minutes).
-- **N-4 `/api/job/{id}` returns the raw job dict**, including internal fields (`cancel`, `pause`,
-  `body`). Don't build on those; read `status/step/progress/log/result/error`. A public projection
-  can come later (the original page would need checking against it).
-- **N-5 `server.py` is 3.5k lines.** Splitting route handling from queue/render orchestration (prior
-  audit) is safer now that the contract test pins the routes, but doing it during the UI rewrite would
-  move both halves at once. Do it before or after, not during.
-- **N-6 FYI:** the updater, model download, installer URLs and CI mocks point at
-  `allen1versonfr/vodclipper`, while this clone's remote is `ali1qbal/vodclipper`. If that's an
-  account rename, GitHub's redirect keeps updates working (the updater follows same-host redirects);
-  worth updating `updater.REPO` in a release so updates don't depend on the redirect. Left as is.
+- **N-4 `/api/job/{id}` returned the raw job dict** — **done in 4.12.0.** It now sends only
+  `id kind status step progress eta log result error started` (`server.job_public`); the cancel/pause
+  flags, the original request body and timing internals stay in the app. Every caller (the page,
+  `tests/e2e.py`, the bench scripts) only read public fields. Pinned by the contract test.
+- **N-5 `server.py` was 3.5k lines** — **done in 4.12.0, before the UI rewrite.** The request handler
+  (all 97 routes, 1,086 lines) moved to `src/routes.py`. It was moved mechanically: every name the
+  handler used from `server.py` became `S.<name>` (read at request time), so tests that swap server
+  functions still reach the handler, and a symbol-table check confirmed no unresolved names. The
+  generated route list is identical before and after. `python src/server.py` aliases itself as
+  `server` so the routes don't load a second copy with separate state. Splitting the render queue out
+  of `server.py` is a possible next step; it wasn't needed for the UI.
+- **N-6 (corrected):** this clone's remote `ali1qbal/vodclipper` is the old name. GitHub redirects it
+  to a repository ID, and PR #28 came from a branch of `allen1versonfr/vodclipper`, so that's the
+  current name and the updater, model download and installer URLs are already right. No change.
+- **N-1 to N-3 are the React port itself** (porting the preview renderer, the screens, and the
+  polling hook). They need npm, which this session couldn't reach. The contract they must meet is in
+  [react-migration.md](../react-migration.md).
 
 ## Files changed
 
-- `src/server.py`: UI selection, React build serving, pinned MIME types, body limit and JSON-only POSTs, `api`/`ui` in status.
+- `src/server.py`: UI selection, pinned MIME types, body limit, `api`/`ui` in status, `job_public`; the request handler moved out.
+- `src/routes.py` (new): the request handler, including React build serving and the JSON-only POST checks.
 - `src/ui/index.html`, `src/ui/app.js`: `data-testid`s and `window.ClipRadarTest` (no visible change).
 - `tests/test_ui.py`: uses only the test contract; deterministic skip-by-score check.
 - `tests/test_retry.py`: waits for the "ready" sound instead of racing it (failed 1 run in 5 here; the item shows done a moment before the sound is logged).
