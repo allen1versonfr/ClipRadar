@@ -445,7 +445,7 @@ def export_checks(ctx):
                                                              start=base["start"] + 1), "opts": opts})
         dt = _wait_item(tg.get("id"), 240)
         tname = (dt or {}).get("name", "")
-        rec("hashtags are in the rendered file's name", dt and dt["status"] == "done" and "_#TwitchClips" in tname
+        rec("hashtags are in the rendered file's name", dt and dt["status"] == "done" and " #TwitchClips" in tname
             and "Tagged é 名前" in tname and tname.count("#Gaming") == 1 and not any(ch in tname for ch in ':?')
             and os.path.isfile(os.path.join(dt["folder"], tname)),
             {"name": ascii(tname), "status": (dt or {}).get("status"), "error": (dt or {}).get("error"),

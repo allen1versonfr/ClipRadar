@@ -260,7 +260,7 @@ POSTING TO TIKTOK
 HASHTAGS
   Settings > Hashtags has two separate lists:
     In file names: the real tag text, # included, added to each exported
-    file's name, like Chat lost it_#KaiCenat_#Mafia_#TwitchClips.mp4. The
+    file's name, like Chat lost it #KaiCenat #Mafia #TwitchClips.mp4. The
     streamer's own tag, your tags for that streamer (one per line,
     "Kai Cenat: #KaiCenat #Mafia"), then your general tags, no repeats, up
     to the number you set. Long names drop tags from the end first. A retry

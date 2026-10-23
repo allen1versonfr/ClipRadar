@@ -2,7 +2,7 @@
 Hashtags, two separate lists (Settings › Hashtags):
 
   file names    the actual tag text, '#' included, added to each exported file's name:
-                KaiCenat_Chat lost it_#KaiCenat_#Mafia_#TwitchClips.mp4
+                Chat lost it #KaiCenat #Mafia #TwitchClips.mp4
   post captions the tags under the caption you copy for TikTok, Shorts, Reels or X
 
 Each has its own general list and its own per-streamer list, so a streamer's community tags
@@ -146,7 +146,7 @@ def file_tags(streamer: str, cfg: Optional[dict] = None, platform: str = "") -> 
 
 
 def with_tags(base: str, file_tags_: list, limit: int = NAME_LIMIT) -> str:
-    """'Title' + ['#A', '#B'] -> 'Title_#A_#B', within `limit` characters: tags drop off the end
+    """'Title' + ['#A', '#B'] -> 'Title #A #B', within `limit` characters: tags drop off the end
     first, and the title is only shortened (never below MIN_BASE) when even one tag won't fit."""
     base = _BAD.sub("", base or "").strip().rstrip(". ") or "clip"
     have = {t.lower() for t in re.findall(r"#\w+", base)}
@@ -156,7 +156,7 @@ def with_tags(base: str, file_tags_: list, limit: int = NAME_LIMIT) -> str:
             base = base[:max(MIN_BASE, limit - len(extra[0]) - 1)].rstrip(" ._-")
             break
         extra.pop()
-    name = "_".join([base] + extra)
+    name = " ".join([base] + extra)
     return name[:limit].rstrip(" .")
 
 

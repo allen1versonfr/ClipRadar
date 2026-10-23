@@ -2724,7 +2724,7 @@ function renderHashtags(v) {
   $('#htPostMax').value = String(p.max);
   const have = new Set(f.general.map(t => t.toLowerCase()));
   $('#htSuggest').innerHTML = v.suggestions.filter(t => !have.has(t.toLowerCase())).map(t => `<button data-tag="${esc(t)}">+ ${esc(t)}</button>`).join('');
-  $('#htFilePrev').textContent = f.enabled ? v.preview.file : v.preview.file.replace(/_#\S+/g, '') + ' (no tags)';
+  $('#htFilePrev').textContent = f.enabled ? v.preview.file : v.preview.file.replace(/(?: #[^\s.]+)+(?=\.\w+$)/, '') + ' (no tags)';
   const names = { tiktok: 'TikTok', shorts: 'Shorts', reels: 'Reels', x: 'X' };
   $('#htPostPrev').innerHTML = v.preview.post_on
     ? Object.entries(v.preview.post).map(([k, t]) => `${names[k]}: <code>${esc(t.join(' ') || '(none)')}</code>`).join('<br>')
