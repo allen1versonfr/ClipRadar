@@ -131,16 +131,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command == "HEAD":
             return
+        # The file is opened for each chunk and closed before the chunk is sent. A <video> asks for the
+        # whole file, then stops reading once it has buffered enough, which blocks the write; holding the
+        # file open meanwhile made it impossible to delete on Windows (Delete VODs, cleanup) for as long
+        # as the page kept the video loaded.
         try:
-            with open(path, "rb") as f:
-                f.seek(start)
-                left = length
-                while left > 0:
+            pos, left = start, length
+            while left > 0:
+                with open(path, "rb") as f:
+                    f.seek(pos)
                     chunk = f.read(min(1 << 20, left))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    left -= len(chunk)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                pos += len(chunk)
+                left -= len(chunk)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             self.close_connection = True
 
