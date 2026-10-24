@@ -153,6 +153,34 @@ with sync_playwright() as p:
         check("the watermark shows in the clip preview", bool(r), r)
         check("and a layer dragged there is saved where it was dropped", m["pos"] == "free" and 0.45 < m["y"] < 0.7, m)
 
+        # preview volume: a level slider beside mute; mute keeps the level, and the level is remembered
+        vol = pg.locator("#volSlider")
+        vol.fill("30")                                      # a range input: sets it and fires input/change
+        pg.wait_for_timeout(200)
+        v = pg.evaluate("({vol: document.querySelector('#vod').volume, muted: document.querySelector('#vod').muted,"
+                        " icon: document.querySelector('#muteIcon').getAttribute('href'), ex: document.querySelector('#exVideo').volume})")
+        check("the volume slider sets the preview's level", abs(v["vol"] - 0.3) < 0.01 and not v["muted"], v)
+        check("the speaker shows a low level", v["icon"] == "#i-vol-low", v)
+        check("the Exports preview plays at the same level", abs(v["ex"] - 0.3) < 0.01, v)
+        pg.click("#muteBtn")
+        m = pg.evaluate("({muted: document.querySelector('#vod').muted, slider: document.querySelector('#volSlider').value,"
+                        " text: document.querySelector('#volSlider').getAttribute('aria-valuetext')})")
+        check("mute silences it and the slider says so", m["muted"] and m["slider"] == "0" and m["text"] == "Muted (30%)", m)
+        pg.click("#muteBtn")
+        u = pg.evaluate("({vol: document.querySelector('#vod').volume, muted: document.querySelector('#vod').muted})")
+        check("unmuting comes back to the same level", abs(u["vol"] - 0.3) < 0.01 and not u["muted"], u)
+        vol.focus()
+        pg.keyboard.press("ArrowRight")
+        pg.keyboard.press("ArrowRight")
+        check("the arrow keys move it", pg.evaluate("document.querySelector('#volSlider').value") == "32")
+        pg.locator("#volBox").hover()
+        pg.mouse.wheel(0, -100)
+        pg.wait_for_timeout(150)
+        check("the mouse wheel turns it up", abs(pg.evaluate("document.querySelector('#vod').volume") - 0.37) < 0.011,
+              pg.evaluate("document.querySelector('#vod').volume"))
+        check("and the level is remembered", abs(float(pg.evaluate("localStorage.getItem('vc_volume')")) - 0.37) < 0.011,
+              pg.evaluate("localStorage.getItem('vc_volume')"))
+
         # skip many at once: only clips under the score picked, then everything left; Undo brings them back
         n_todo = pg.evaluate("ClipRadarTest.clips().filter(c => c.state === 'todo' && !c.gem).length")
         # alternate low and high, starting low, so at least one clip is under the threshold

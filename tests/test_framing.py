@@ -165,9 +165,12 @@ check("facecam only fills the frame with the camera", f.startswith("[0:v]scale=1
 # a live recording that crosses a Twitch ad break changes resolution part-way: every layout first brings
 # frames back to the size its crops were worked out for, or the render fails ("Error reinitializing filters")
 lay = {k: engine.build_filter({"width": 1920, "height": 1080}, engine.RenderOpts(layout=k), [(0, 0.3), (1, 0.4)] if k == "full" else None)[0]
-       for k in ("split", "full", "cam", "blur")}
+       for k in ("split", "full", "cam", "blur", "square")}
 check("every layout scales frames to the probed size first", all(v.startswith("[0:v]scale=1920:1080,") and v.count("[0:v]") == 1
                                                                  for v in lay.values()), {k: v[:40] for k, v in lay.items()})
+f, _ = engine.build_filter({"width": 1920, "height": 1080}, engine.RenderOpts(layout="square", game_x=0.5))
+check("Square blur crops a centred square and lays it on the blurred copy", "crop=1080:1080:420:0,scale=1080:1080" in f
+      and "boxblur" in f and "overlay=(W-w)/2:(H-h)/2" in f, f)
 check("crop width for the shape", abs(framing.crop_frac({"width": 1920, "height": 1080}, o) - 0.3164) < 0.001)
 
 # ---------------------------------------------------------------- facecam and captions

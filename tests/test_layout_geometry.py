@@ -201,7 +201,8 @@ def off_path(path, got, t, sw, cw, tol=6):
 LAYOUTS = [("Cam + game", dict(layout="split", cam=(0.7, 0.0, 0.3, 0.3))), ("Whole frame", dict(layout="full")),
            ("Facecam only", dict(layout="cam", cam=(0.0, 0.6, 0.4, 0.4))), ("Blur-fit", dict(layout="blur")),
            ("zoomed in all the way, at the edge", dict(layout="full", game_zoom=2.0, game_x=1.0)),
-           ("zoomed blur-fit", dict(layout="blur", game_zoom=2.0, game_x=0.0))]
+           ("zoomed blur-fit", dict(layout="blur", game_zoom=2.0, game_x=0.0)),
+           ("Square blur", dict(layout="square")), ("zoomed square blur, at the edge", dict(layout="square", game_zoom=2.0, game_x=1.0))]
 SOURCES = [("landscape", LAND), ("portrait", PORT), ("square", SQUARE), ("odd 853x479", ODD), ("tiny 35x21", TINY),
            ("59.94 fps VFR", VFR), ("rotated phone video", ROT), ("size change mid-clip", MIXED)]
 for sname, path in SOURCES:
@@ -221,6 +222,40 @@ for sname, path in SOURCES:
             if not err and (diag.get("fallback") or warned or diag.get("layout_used") != want):
                 bad.append(f"layout used {diag.get('layout_used')!r} (wanted {want!r}), fallback {diag.get('fallback')!r}")
             check(f"{sname} / {aspect} / {lname} ({time.time() - t0:.1f}s)", not bad, "; ".join(bad))
+
+# Square blur: a sharp square in the middle of the frame, over the blurred picture. Read off the
+# gradient source (brightness = x * 255 / width) with Focus at the far left: in the square the left edge
+# is the picture's left edge (~0) and the right edge ~143 (a 1080-wide square of a 1920-wide picture);
+# outside it is the blurred, darkened copy, which doesn't jump to the picture's edge there
+def row(path, t, width, y):
+    p = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-ss", f"{t:.3f}", "-i", path, "-frames:v", "1",
+                        "-pix_fmt", "yuv420p", "-f", "rawvideo", "-"], capture_output=True, timeout=60)
+    r = p.stdout[width * y: width * (y + 1)]
+    return (sum(r[2:6]) / 4, sum(r[-6:-2]) / 4) if len(r) == width else None
+
+
+for aspect, (ow, oh) in (("9:16", (1080, 1920)), ("16:9", (1920, 1080))):
+    out, diag, warned, err = render(GRAD, 1.0, 2.0, layout="square", game_x=0.0, aspect=aspect)
+    bad = [f"render failed: {str(err)[-300:]}"] if err else verify(out, (ow, oh), 2.0)
+    if not bad:
+        side = min(ow, oh)
+        x0 = (ow - side) // 2
+        mid = row(out, 1.0, ow, oh // 2)
+        if aspect == "9:16":
+            band = row(out, 1.0, ow, (oh - side) // 4)           # above the square
+            if not (mid and band and mid[0] < 15 and 128 < mid[1] < 158 and band[0] > 30):
+                bad.append(f"square row {mid}, band above {band}")
+        else:                                                   # 16:9: the square sits between blurred sides
+            p = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-ss", "1", "-i", out, "-frames:v", "1",
+                                "-pix_fmt", "yuv420p", "-f", "rawvideo", "-"], capture_output=True, timeout=60)
+            r = p.stdout[ow * (oh // 2): ow * (oh // 2 + 1)]
+            edge_l, edge_r = sum(r[x0 + 2:x0 + 6]) / 4, sum(r[x0 + side - 6:x0 + side - 2]) / 4
+            outside = sum(r[x0 - 8:x0 - 4]) / 4                # the blurred copy just left of the square
+            if not (edge_l < 12 and 128 < edge_r < 158 and outside > 15):
+                bad.append(f"square edges {edge_l:.0f}..{edge_r:.0f}, just outside {outside:.0f}")
+    if not err and (diag.get("fallback") or diag.get("layout_used") != "Square blur"):
+        bad.append(f"layout used {diag.get('layout_used')!r}, fallback {diag.get('fallback')!r}")
+    check(f"Square blur {aspect}: a square of the picture, centred on the blurred copy", not bad, "; ".join(bad))
 
 # 6. facecam boxes touching each edge, a tiny one, the whole frame; empty and malformed ones are settings to fix
 for name, box in (("top-left corner", (0, 0, 0.25, 0.25)), ("top-right corner", (0.75, 0, 0.25, 0.25)),

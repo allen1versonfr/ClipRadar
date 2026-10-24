@@ -50,7 +50,7 @@ function ask({ title, body, ok = 'OK', danger = false }) {
 async function copyText(t, what = 'Caption') {
   try { await navigator.clipboard.writeText(t); }
   catch { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
-  toast(`${what} copied.`, '', 2200);
+  if (what) toast(`${what} copied.`, '', 2200);        // what = null: copied quietly
 }
 const openUrl = url => api('/api/open_url', { url }).catch(e => toast(e.message, 'err'));
 document.addEventListener('click', e => { const a = e.target.closest('a[data-url]'); if (a) { e.preventDefault(); openUrl(a.dataset.url); } });
@@ -1008,7 +1008,7 @@ async function propose(c, fp, kind) {
   renderCheck(c);
 }
 // previewing a fix: the player plays the part it changes, muted or bleeped where it would be
-let pv = null, actx = null, osc = null;
+let pv = null, actx = null, osc = null, bleepGain = null;
 function togglePreview(c) {
   const p = c._prop; if (!p) return;
   if (p.playing) { stopPreview(); renderCheck(c); return; }
@@ -1032,7 +1032,7 @@ function stopPreview() {
 }
 function beep(on) {
   if (on && !osc) {
-    try { actx = actx || new AudioContext(); osc = actx.createOscillator(); const g = actx.createGain(); g.gain.value = 0.06; osc.frequency.value = 1000; osc.connect(g).connect(actx.destination); osc.start(); }
+    try { actx = actx || new AudioContext(); osc = actx.createOscillator(); bleepGain = actx.createGain(); bleepGain.gain.value = 0.06 * userVol; osc.frequency.value = 1000; osc.connect(bleepGain).connect(actx.destination); osc.start(); }
     catch { osc = null; }
   } else if (!on && osc) { try { osc.stop(); } catch {} osc = null; }
 }
@@ -1282,15 +1282,50 @@ vod.addEventListener('loadedmetadata', () => {
 });
 ['play', 'pause', 'seeked', 'loadeddata'].forEach(ev => vod.addEventListener(ev, () => { dirty = true; updatePlayIcon(); }));
 vod.addEventListener('error', () => { if (vod.dataset.src) { vodOk = false; dirty = true; } });
+// preview volume: a level (remembered) and mute on top of it, so unmuting comes back to the same level.
+// Only the preview: what a clip renders at is its own Volume setting.
 let userMuted = store.get('muted', false);
-vod.muted = userMuted;
+let userVol = Math.min(1, Math.max(0, Number(store.get('volume', 1)) || 0));
+vod.muted = userMuted; vod.volume = userVol;
 function updatePlayIcon() { $('#playIcon').setAttribute('href', vod.paused ? '#i-play' : '#i-pause'); }
-function updateMute() { $('#muteIcon').setAttribute('href', userMuted ? '#i-mute' : '#i-vol'); }
+function updateMute() {
+  const silent = userMuted || userVol === 0, pct = Math.round(userVol * 100);
+  $('#muteIcon').setAttribute('href', silent ? '#i-mute' : userVol < 0.5 ? '#i-vol-low' : '#i-vol');
+  $('#muteBtn').title = userMuted ? 'Unmute (M)' : 'Mute (M)';
+  $('#muteBtn').setAttribute('aria-label', userMuted ? 'Unmute' : 'Mute');
+  const sl = $('#volSlider');
+  sl.value = String(userMuted ? 0 : pct);
+  sl.setAttribute('aria-valuetext', userMuted ? `Muted (${pct}%)` : `${pct}%`);
+  sl.style.setProperty('--v', (userMuted ? 0 : pct) + '%');
+  const ev = $('#exVideo'); if (ev) { ev.volume = userVol; ev.muted = userMuted; }   // the Exports preview plays at the same level
+}
+function setVolume(v, save = true) {
+  userVol = Math.min(1, Math.max(0, Math.round(v * 100) / 100));
+  if (userVol > 0 && userMuted) userMuted = false;       // turning it up unmutes
+  vod.volume = userVol; vod.muted = userMuted;
+  if (osc && bleepGain) bleepGain.gain.value = 0.06 * userVol;
+  if (save) { store.set('volume', userVol); store.set('muted', userMuted); }
+  updateMute();
+}
+$('#exVideo').addEventListener('volumechange', e => {      // its own controls set the same level
+  const ev = e.target;
+  if (Math.abs(ev.volume - userVol) < 0.005 && ev.muted === userMuted) return;
+  userVol = Math.round(ev.volume * 100) / 100; userMuted = ev.muted;
+  vod.volume = userVol; vod.muted = userMuted;
+  store.set('volume', userVol); store.set('muted', userMuted); updateMute();
+});
+$('#volSlider').addEventListener('input', e => setVolume(Number(e.target.value) / 100, false));
+$('#volSlider').addEventListener('change', e => setVolume(Number(e.target.value) / 100));
+$('#volBox').addEventListener('wheel', e => { e.preventDefault(); setVolume((userMuted ? 0 : userVol) + (e.deltaY < 0 ? 0.05 : -0.05)); }, { passive: false });
 updateMute();
 function togglePlay() { if (vod.paused) vod.play().catch(() => {}); else vod.pause(); }
 $('#playBtn').onclick = togglePlay;
 phone.addEventListener('click', () => { if (suppressClick) { suppressClick = false; return; } togglePlay(); });
-$('#muteBtn').onclick = () => { userMuted = !userMuted; vod.muted = userMuted; store.set('muted', userMuted); updateMute(); };
+$('#muteBtn').onclick = () => {
+  if (userMuted || userVol === 0) { userMuted = false; if (userVol === 0) userVol = 0.5; }   // unmuting at 0 comes back at half
+  else userMuted = true;
+  vod.muted = userMuted; vod.volume = userVol; store.set('muted', userMuted); store.set('volume', userVol); updateMute();
+};
 $('#scrub').addEventListener('pointerdown', e => {
   const c = curClip(); if (mode !== 'clip' || !c) return;
   const seek = ev => { const r = $('#scrub').getBoundingClientRect(); const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)); vod.currentTime = c.start + f * (c.end - c.start); dirty = true; };
@@ -1366,11 +1401,17 @@ function layoutDraw(g, src, sw, sh, Wd, Ht) {
     }
     return Ht * .7;
   }
+  // blurred, darkened copy of the picture filling the frame (Blur fit and Square blur)
   const b = bgCanvas.getContext('2d'), bw = Math.min(sw, sh * Wd / Ht), bh = bw * Ht / Wd;
   bgCanvas.width = 36; bgCanvas.height = Math.max(8, Math.round(36 * Ht / Wd));
   b.drawImage(src, (sw - bw) / 2, (sh - bh) / 2, bw, bh, 0, 0, bgCanvas.width, bgCanvas.height);
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
   g.drawImage(bgCanvas, 0, 0, Wd, Ht); g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, 0, Wd, Ht);
+  if (lay === 'square') {             // a square crop (Focus and Zoom pick which part), centred
+    const s = Math.min(Wd, Ht), [gx, gy, gw, gh] = gameCrop(s, s);
+    g.drawImage(src, gx, gy, gw, gh, (Wd - s) / 2, (Ht - s) / 2, s, s);
+    return Math.min(Ht / 2 + s / 2 + Ht * 170 / OUT()[1], Ht * .8);
+  }
   const fh = Wd * sh / sw;
   if (z > 1) { const [gx, gy, gw, gh] = gameCrop(Wd, fh); g.drawImage(src, gx, gy, gw, gh, 0, (Ht - fh) / 2, Wd, fh); }
   else g.drawImage(src, 0, (Ht - fh) / 2, Wd, fh);
@@ -2088,7 +2129,7 @@ function renderExports() {
     else st = '<span class="st-wait">Waiting</span>' + (q.warning ? `<span class="err-why warn" title="${esc(q.warning)}">${esc(q.warning)}</span>` : '');
     // Clip Radar only knows it opened TikTok Studio, never whether the clip got posted
     const old = q.tiktok && q.tiktok.state === 'done';
-    const tt = q.handoff ? `<span class="tt-cell" title="Opened TikTok Studio ${esc(new Date(q.handoff.at * 1000).toLocaleString())}">Opened in Studio</span>`
+    const tt = q.handoff ? handoffCell(q.handoff)
       : old ? `<span class="tt-cell ok" title="Posted with an older version of Clip Radar">${q.tiktok.mode === 'draft' ? 'Sent to drafts' : 'Posted'}</span>`
       : '<span class="tt-cell">Not yet</span>';
     const dc = q.discord && !q.discord.error ? `<span class="tt-cell ok" title="Sent to ${esc((q.campaign || {}).name || 'the campaign')}'s Discord">Discord ✓</span>` : '';
@@ -2206,8 +2247,25 @@ $('#subSend').onclick = async () => {
 $('#exShow').onclick = () => { const q = queueItems.find(x => x.id === exSel); if (q) api('/api/open_folder', { folder: q.folder }).catch(e => toast(e.message, 'err')); };
 $('#exCopy').onclick = () => { const q = queueItems.find(x => x.id === exSel); if (q) copyText(q.post || q.title || ''); };
 
-/* TikTok Studio handoff: the caption is copied, the file shown in File Explorer, Studio's upload page
-   opened. Clip Radar can't see the browser, so it never says a clip was posted. */
+/* TikTok Studio handoff. Upload to TikTok (4.18) drives TikTok Studio in Clip Radar's own browser window:
+   the video goes in, the caption is typed, and Post is pressed only when "Press Post for me" is on.
+   Open TikTok Studio is the manual way: the caption copied, the file shown in File Explorer, the page
+   opened. Clip Radar only says a clip was posted when TikTok confirmed it in its window. */
+let studioState = { available: false, press_post: false };
+async function loadStudio() {
+  try { studioState = await api('/api/studio'); } catch { return; }
+  $('#ttPress').checked = !!studioState.press_post; ttPressHint();
+  const q = queueItems.find(x => x.id === exSel); if (q && q.status === 'done') renderTTStatus(q);
+}
+function ttPressHint() {
+  $('#ttPressHint').textContent = $('#ttPress').checked
+    ? "On: once the video is in, Clip Radar presses Post. It posts straight to your account, so check the caption first. TikTok's terms don't allow automated posting, so heavy use could get an account flagged."
+    : 'Off: you check the post in TikTok Studio and press Post yourself.';
+}
+$('#ttPress').onchange = async e => {
+  try { studioState = await api('/api/studio', { press_post: e.target.checked }); } catch (err) { toast(err.message, 'err'); }
+  $('#ttPress').checked = !!studioState.press_post; ttPressHint();
+};
 function prepareHandoff(q) {
   $('#ttErr').textContent = '';
   $('#ttCaption').value = q.post || q.title || '';
@@ -2215,10 +2273,41 @@ function prepareHandoff(q) {
 }
 function ttCount() { const n = $('#ttCaption').value.length; $('#ttCount').textContent = `${n} / 2200`; }
 $('#ttCaption').addEventListener('input', ttCount);
+const ttJobs = {};          // item id -> the step the upload is on, while it runs
+const TT_STEP = { browser: 'opening the browser', 'sign-in': 'waiting for you to sign in', 'file box': 'putting the video in',
+  'caption box': 'typing the caption', caption: 'typing the caption', upload: 'TikTok was taking the video in', file: 'finding the clip' };
+function handoffCell(h) {
+  if (!h) return '';
+  const when = esc(new Date(h.at * 1000).toLocaleString());
+  return h.auto === 'posted' ? `<span class="tt-cell ok" title="TikTok confirmed it ${when}">Posted</span>`
+    : h.auto === 'working' ? '<span class="tt-cell">Uploading…</span>'
+    : h.auto === 'ready' ? `<span class="tt-cell" title="Video and caption put in TikTok Studio ${when}">In Studio, press Post</span>`
+    : h.auto === 'pressed' ? `<span class="tt-cell" title="Clip Radar pressed Post ${when}; TikTok hadn't confirmed yet">Post pressed</span>`
+    : h.auto === 'failed' ? `<span class="tt-cell err" title="${esc(h.error || '')}">Upload stopped</span>`
+    : `<span class="tt-cell" title="Opened TikTok Studio ${when}">Opened in Studio</span>`;
+}
 function renderTTStatus(q) {
-  const el = $('#ttStatus'), h = q.handoff;
-  el.hidden = !h;
-  if (h) el.innerHTML = `<span>${icon('check')}Opened TikTok Studio ${esc(new Date(h.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}.</span>`
+  const el = $('#ttStatus'), h = q.handoff, step = ttJobs[q.id];
+  $('#ttAuto').hidden = !studioState.available;
+  $('#ttStudio').classList.toggle('primary', !studioState.available);   // without a browser to drive, the manual way is the main one
+  $('#ttPressRow').hidden = $('#ttPressHint').hidden = !studioState.available;
+  $('#ttIntro').textContent = studioState.available
+    ? "Upload to TikTok opens TikTok Studio in Clip Radar's own browser window, puts the video in and types the caption. Sign in to TikTok there the first time."
+    : 'Clip Radar gets it ready; you post it in TikTok Studio. The caption is copied, the video is selected in File Explorer to drag in, and TikTok Studio\'s upload page opens in your browser.';
+  $('#ttAuto').disabled = !!step;
+  el.hidden = !h && !step;
+  const at = h ? esc(new Date(h.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : '';
+  if (step) el.innerHTML = `<span class="tt-step"><span class="meter busy"><i></i></span>${esc(step)}</span>`;
+  else if (!h) el.innerHTML = '';
+  else if (h.auto === 'posted') el.innerHTML = `<span class="ok">${icon('check')}Posted at ${at}. TikTok confirmed it in Clip Radar's TikTok window.</span>`;
+  else if (h.auto === 'ready') el.innerHTML = `<span class="ok">${icon('check')}The video and caption are in TikTok Studio (${at}).</span>`
+    + '<span class="muted">Check them in Clip Radar\'s TikTok window and press Post there.</span>';
+  else if (h.auto === 'pressed') el.innerHTML = `<span>Clip Radar pressed Post at ${at}, but TikTok hadn't confirmed it yet.</span>`
+    + '<span class="muted">Look in Clip Radar\'s TikTok window to see whether it went through.</span>';
+  else if (h.auto === 'failed') el.innerHTML = `<span class="st-err">${icon('alert')}The upload stopped while ${esc(TT_STEP[h.step] || 'working in TikTok Studio')}.</span>`
+    + `<span class="muted">${esc(h.error || '')} The video is selected in File Explorer, so you can drag it in and finish there.</span>`;
+  else if (h.auto === 'working') el.innerHTML = '<span class="muted">An upload was started but Clip Radar was closed before it finished. Upload again, or finish it in the TikTok window.</span>';
+  else el.innerHTML = `<span>${icon('check')}Opened TikTok Studio ${at}.</span>`
     + '<span class="muted">Finish uploading and posting there. Clip Radar can\'t see your browser, so it doesn\'t know whether the clip was posted.</span>';
 }
 $('#ttCopy').onclick = () => copyText($('#ttCaption').value, 'Caption');
@@ -2228,11 +2317,30 @@ $('#ttStudio').onclick = async () => {
   const text = $('#ttCaption').value.trim();
   if (text) copyText(text, 'Caption');
   try {
-    await api('/api/handoff', { item: q.id });
-    q.handoff = { at: Date.now() / 1000 };
+    await api('/api/handoff', { item: q.id, caption: text });
+    q.handoff = { at: Date.now() / 1000 }; q.post = text;
     renderTTStatus(q); renderExports();
     toast('TikTok Studio is opening. The caption is copied and the video is selected in File Explorer.', '', 6000);
   } catch (e) { $('#ttErr').textContent = e.message; }
+};
+$('#ttAuto').onclick = async () => {
+  const q = queueItems.find(x => x.id === exSel); if (!q || ttJobs[q.id]) return;
+  $('#ttErr').textContent = '';
+  const text = $('#ttCaption').value.trim();
+  if (text) copyText(text, null);            // copied too, in case a step has to be finished by hand
+  let r;
+  try { r = await api('/api/handoff', { item: q.id, caption: text, auto: true }); }
+  catch (e) { $('#ttErr').textContent = e.message; return; }
+  q.post = text; ttJobs[q.id] = 'Opening TikTok Studio'; renderTTStatus(q);
+  const j = await waitJob(r.job, jj => { ttJobs[q.id] = jj.step; if (exSel === q.id) renderTTStatus(q); });
+  delete ttJobs[q.id];
+  await refreshQueue();
+  const fresh = queueItems.find(x => x.id === q.id) || q;
+  if (exSel === q.id) renderTTStatus(fresh);
+  const res = j && j.result;
+  if (j && j.status === 'done') toast(res && res.posted ? 'Posted on TikTok.' : res && res.pressed ? 'Clip Radar pressed Post. Check the TikTok window.'
+    : 'The video and caption are in TikTok Studio. Press Post there.', '', 6000);
+  else if (j && j.error) toast(j.error, 'err', 9000);
 };
 
 /* =============================================================== settings */
@@ -3602,7 +3710,7 @@ document.addEventListener('keydown', e => {
   e.preventDefault();
 });
 
-loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); loadUpdate(); loadSafety(); loadTwitch();
+loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); loadUpdate(); loadSafety(); loadTwitch(); loadStudio();
 
 // the new UI (/next/) hands over to this page for the screens it doesn't have yet:
 // /legacy/#open=<project id> opens that video in Review, #live=<session id> a live session, #view=<name> a screen

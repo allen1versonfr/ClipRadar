@@ -20,6 +20,7 @@
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
   <symbol id="i-vol" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></symbol>
+  <symbol id="i-vol-low" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></symbol>
   <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
@@ -207,7 +208,10 @@
               <button class="ibtn" id="nextBtn" title="Next clip (Down arrow)"><svg class="ic"><use href="#i-down"/></svg></button>
               <div class="scrub" id="scrub"><i id="scrubFill"></i></div>
               <span class="tnum time" id="timeText">0:00 / 0:00</span>
-              <button class="ibtn" id="muteBtn" title="Mute (M)"><svg class="ic"><use id="muteIcon" href="#i-vol"/></svg></button>
+              <div class="vol" id="volBox">
+                <button class="ibtn" id="muteBtn" title="Mute (M)" aria-label="Mute"><svg class="ic"><use id="muteIcon" href="#i-vol"/></svg></button>
+                <input type="range" id="volSlider" min="0" max="100" step="1" value="100" aria-label="Preview volume" title="Preview volume (only the preview: clips render at their own level)">
+              </div>
             </div>
             <div class="editor" id="editor" hidden>
               <div class="ed-bar">
@@ -364,7 +368,7 @@
                   <span class="hint" id="shapeHint"></span>
                 </div>
                 <div class="fld">Layout
-                  <div class="seg" id="layoutSeg"><button data-v="split" class="on" title="Facecam on top, gameplay below">Cam + game</button><button data-v="full" title="Crop of the whole frame">Whole frame</button><button data-v="cam" title="Just the facecam, filling the frame">Cam only</button><button data-v="blur" title="The whole frame, fitted, over a blurred copy">Blur fit</button></div>
+                  <div class="seg" id="layoutSeg"><button data-v="split" class="on" title="Facecam on top, gameplay below">Cam + game</button><button data-v="full" title="Crop of the whole frame">Whole frame</button><button data-v="cam" title="Just the facecam, filling the frame">Cam only</button><button data-v="blur" title="The whole frame, fitted, over a blurred copy">Blur fit</button><button data-v="square" title="A square crop of the frame, centred over a blurred copy. Focus and Zoom pick which part">Square blur</button></div>
                   <div class="row auto-frame"><button class="btn sm" id="autoFrame" title="Look for a facecam or a person and pick the layout that fits">Auto-frame</button><span class="hint" id="autoFrameNote"></span></div>
                 </div>
                 <div id="trackBlock">
@@ -448,14 +452,17 @@
 
             <div class="tt" id="ttPanel">
               <div class="tt-head"><svg class="ic"><use href="#i-tiktok"/></svg><h3>Post on TikTok</h3></div>
-              <p class="muted small">Clip Radar gets it ready; you post it in TikTok Studio. The caption is copied, the video is selected in File Explorer to drag in, and TikTok Studio's upload page opens in your browser.</p>
+              <p class="muted small" id="ttIntro">Upload to TikTok opens TikTok Studio in Clip Radar's own browser window, puts the video in and types the caption. Sign in to TikTok there the first time.</p>
               <label class="fld">Caption<textarea class="input" id="ttCaption" rows="4" maxlength="2200"></textarea><span class="hint tnum" id="ttCount"></span></label>
+              <label class="fld switch-label sm" id="ttPressRow">Press Post for me<span class="switch"><input type="checkbox" id="ttPress"><i></i></span></label>
+              <span class="hint" id="ttPressHint">Off: you check the post in TikTok Studio and press Post yourself.</span>
               <div class="err" id="ttErr"></div>
-              <div class="row end">
-                <button class="btn" id="ttCopy"><svg class="ic"><use href="#i-copy"/></svg>Copy caption</button>
-                <button class="btn primary" id="ttStudio"><svg class="ic"><use href="#i-upload"/></svg>Open in TikTok Studio</button>
+              <div class="row end wrap">
+                <button class="btn ghost" id="ttCopy"><svg class="ic"><use href="#i-copy"/></svg>Copy caption</button>
+                <button class="btn" id="ttStudio" title="Copies the caption, selects the video in File Explorer and opens TikTok Studio's upload page in your browser">Open TikTok Studio</button>
+                <button class="btn primary" id="ttAuto"><svg class="ic"><use href="#i-upload"/></svg>Upload to TikTok</button>
               </div>
-              <div class="tt-status" id="ttStatus" hidden></div>
+              <div class="tt-status" id="ttStatus" aria-live="polite" hidden></div>
             </div>
 
             <div class="tt" id="subPanel" hidden>

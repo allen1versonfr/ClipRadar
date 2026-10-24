@@ -149,6 +149,7 @@ LAYOUTS = [
     ("full", dict(layout="full")),
     ("cam", dict(layout="cam", cam=(0.0, 0.6, 0.4, 0.4))),
     ("blur", dict(layout="blur")),
+    ("square", dict(layout="square")),
     ("full zoomed", dict(layout="full", game_zoom=1.6, game_x=0.9)),
     ("split, crop in the corner", dict(layout="split", cam=(0.75, 0.75, 0.25, 0.25))),
 ]

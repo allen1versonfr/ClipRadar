@@ -3,6 +3,23 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.18.0] - 2026-10-24
+
+Upload to TikTok for you, a Square blur layout, and a volume slider for the preview.
+
+### Added
+- **Upload to TikTok** (Exports): Clip Radar opens TikTok Studio in a browser window of its own (Edge, or Chrome), puts the video in and types the caption, so there's nothing to drag in. Sign in to TikTok in that window the first time; it remembers you, apart from your everyday browser. You check the post and press Post yourself, or turn on **Press Post for me** (off by default) and Clip Radar presses it too, confirming TikTok's "Post now" if it asks. Exports shows each step while it works, then "In Studio, press Post", or "Posted" only once TikTok confirmed it. TikTok's page isn't made for this: if a step stops working (when TikTok changes its page, for example), Clip Radar says which step, selects the video in File Explorer and copies the caption so you can finish by hand. TikTok's terms don't allow automated use, so heavy use with Press Post on could get an account flagged. **Open TikTok Studio** still does it the manual way.
+- **Square blur** layout (Review › Layout): a square crop of the picture, centred on a blurred copy of itself, in a 9:16 frame (or any shape). Focus and Zoom pick which part of the picture goes in the square.
+- A **volume slider** for the preview in Review, beside the speaker: drag it, use the arrow keys, or scroll over it. The speaker shows the level, mute keeps it (unmuting comes back to the same level), and it's remembered. The Exports preview plays at the same level. Only the preview: a clip renders at its own Volume setting.
+
+### Changed
+- The caption you edit in Exports is kept with the clip, and is the one TikTok gets.
+
+### Tests
+- `tests/test_studio_auto.py`: the TikTok upload against a stand-in for TikTok Studio's page in a real browser (Edge on Windows CI): waiting for you to sign in, the clip's own file going in, the caption replacing TikTok's, Post left for you or pressed and confirmed, and a changed page named as the step that stopped.
+- `tests/test_studio_handoff.py`: Upload to TikTok from Exports, end to end, through the real server and the current UI.
+- Square blur renders in every shape from every source in `tests/test_layout_geometry.py` and the media matrix, with its square's position read from the pixels; the smoke test covers the volume slider.
+
 ## [4.17.0] - 2026-10-23
 
 Most of Settings in the new UI. Nothing changes unless you open the new UI (`/next/`).

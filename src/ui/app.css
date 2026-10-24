@@ -261,6 +261,15 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .phone-empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--tx2);background:var(--bg0)}
 .transport{display:flex;align-items:center;gap:6px;padding:8px 14px;border-top:1px solid var(--line);background:var(--bg1)}
 .transport .time{color:var(--tx1);font-size:12px;min-width:86px;text-align:right}
+/* preview volume: the speaker (mute) and a level slider, filled in the accent up to the level */
+.vol{display:flex;align-items:center;gap:2px}
+#volSlider{-webkit-appearance:none;appearance:none;width:84px;height:20px;background:transparent;margin:0;cursor:pointer}
+#volSlider::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(to right,var(--accent) var(--v,100%),var(--bg4) var(--v,100%))}
+#volSlider::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--tx0);margin-top:-4px;border:0;transition:transform .12s}
+#volSlider:hover::-webkit-slider-thumb,#volSlider:focus-visible::-webkit-slider-thumb{transform:scale(1.2)}
+#volSlider:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+@media (pointer:coarse){#volSlider{width:110px;height:44px}#volSlider::-webkit-slider-thumb{width:20px;height:20px;margin-top:-8px}}
+@media (prefers-reduced-motion:reduce){#volSlider::-webkit-slider-thumb{transition:none}}
 .scrub{flex:1;height:18px;position:relative;cursor:pointer;margin:0 8px}
 .scrub::before{content:"";position:absolute;left:0;right:0;top:8px;height:3px;border-radius:2px;background:var(--bg4)}
 .scrub i{position:absolute;left:0;top:8px;height:3px;border-radius:2px;background:var(--tx0);width:0}
@@ -343,6 +352,9 @@ tr:hover .row-x,tr.sel .row-x{opacity:1}
 .declare{font-size:12px;color:var(--tx1);margin:0;line-height:1.5}
 .tt-status{display:flex;flex-direction:column;gap:8px;font-size:12.5px}
 .tt-status .ok{color:var(--ok);display:flex;gap:6px;align-items:center}
+.tt-step{display:flex;gap:10px;align-items:center;color:var(--tx1)}
+.tt-step .meter{width:56px;flex:none}
+.row.end.wrap{flex-wrap:wrap}
 
 /* ------------------------------------------------------------------ settings */
 .settings{max-width:820px;margin:0 auto;padding:28px 28px 48px;display:flex;flex-direction:column;gap:16px}

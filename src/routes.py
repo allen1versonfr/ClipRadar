@@ -41,6 +41,7 @@ import paths
 import persist
 import safety
 import studio
+import studio_auto
 import tools_setup
 import twitchauth
 import updater
@@ -239,6 +240,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(safety.public_config())
         if p == "/api/hotkey":
             return self._json(hotkey.status())
+        if p == "/api/studio":
+            return self._json(dict(studio_auto.describe(), **studio_auto.load_settings()))
         if p == "/api/ping":
             S.last_ping[0] = time.time()
             return self._json({"ok": True})
@@ -729,6 +732,37 @@ class Handler(BaseHTTPRequestHandler):
                 it = next((x for x in S.queue if x["id"] == body.get("item")), None)
             if not it or it["status"] != "done":
                 return self._err("That clip isn't rendered yet.")
+            if isinstance(body.get("caption"), str):
+                it["post"] = body["caption"].strip()[:2200]       # the caption you wrote is kept with the clip
+            if body.get("auto"):
+                # Clip Radar's own TikTok window: the video put in and the caption typed for you, and
+                # Post pressed when Settings › TikTok says so. A step that fails leaves it to you.
+                if not studio_auto.available():
+                    return self._err("Clip Radar needs Microsoft Edge or Google Chrome to upload for you.")
+                press = studio_auto.load_settings()["press_post"]
+                job = S.new_job("studio")
+                it["handoff"] = {"at": time.time(), "url": studio.STUDIO_URL, "auto": "working", "job": job["id"]}
+                S.save_queue_soon()
+
+                def go():
+                    try:
+                        r = studio_auto.upload(it.get("path", ""), studio.caption(it.get("title", ""), it.get("post", "")),
+                                               press, studio.STUDIO_URL, S.job_step(job), S.job_check(job))
+                    except studio_auto.StudioError as e:
+                        studio.reveal(it.get("path", ""))           # finish it by hand: the file, shown
+                        it["handoff"].update(auto="failed", step=e.step, error=str(e))
+                        S.save_queue_soon()
+                        raise RuntimeError(f"{e} The video is selected in File Explorer and the caption is copied, "
+                                           "so you can finish in the TikTok window.") from None
+                    it["handoff"].update(auto="posted" if r["posted"] else "pressed" if r["pressed"] else "ready")
+                    S.save_queue_soon()
+                    return r
+                S.run_job(job, go)
+                try:
+                    S.record_feedback(it["pid"], it.get("clip_id"), "post")
+                except Exception:
+                    pass
+                return self._json({"job": job["id"], "press_post": press})
             try:
                 r = studio.handoff(it.get("path", ""), it.get("title", ""), it.get("post", ""),
                                    reveal_file=body.get("reveal", True) is not False)
@@ -741,6 +775,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             return self._json(r)
+
+        if p == "/api/studio":
+            if "press_post" in body:
+                studio_auto.save_settings(press_post=bool(body["press_post"]))
+            return self._json(dict(studio_auto.describe(), **studio_auto.load_settings()))
 
         if p == "/api/open_url":
             url = str(body.get("url", ""))

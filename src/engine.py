@@ -1909,7 +1909,7 @@ def make_thumb(video: str, t: float, out: str, width: int = 480) -> str:
 
 @dataclass
 class RenderOpts:
-    layout: str = "split"           # split (cam + game) | full (whole frame) | blur | cam (facecam only)
+    layout: str = "split"           # split (cam + game) | full (whole frame) | blur | square (square crop on blur) | cam (facecam only)
     cam: tuple = (0.0, 0.0, 0.25, 0.25)   # facecam crop x, y, w, h as fractions of source
     cam_height: float = 0.33        # fraction of output height used by facecam in split
     game_zoom: float = 1.0          # >1 zooms gameplay in
@@ -2167,6 +2167,16 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
              f"eq=brightness=-0.12,scale={W}:{H},setsar=1[bg];"
              f"[b]{fg}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
         cap_y = min(H / 2 + fg_h / 2 + 170, H * 0.8)
+    elif layout == "square":
+        # a square crop of the picture (Focus and Zoom pick which part), centred in the frame on a
+        # blurred, darkened copy of the picture: the square gameplay look, in a 9:16 (or any) frame
+        side = _even(min(W, H))
+        bw, bh = max(2, _even(W / 4)), max(2, _even(H / 4))
+        f = (f"[0:v]split=2[a][b];"
+             f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=12:2,"
+             f"eq=brightness=-0.12,scale={W}:{H},setsar=1[bg];"
+             f"[b]{game_crop(side, side)}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
+        cap_y = min(H / 2 + side / 2 + 170, H * 0.8)
     else:
         raise ValueError(f"unknown layout {o.layout}")
     # every frame at the size the layout was worked out for: a source that changes resolution part-way
@@ -2851,7 +2861,8 @@ def _graph_failed(err: str) -> bool:
         "[parsed_" in low and "failed to configure" in low)
 
 
-LAYOUT_NAMES = {"split": "Cam + game", "full": "Whole frame", "cam": "Facecam only", "blur": "Blur-fit"}
+LAYOUT_NAMES = {"split": "Cam + game", "full": "Whole frame", "cam": "Facecam only", "blur": "Blur-fit",
+                "square": "Square blur"}
 
 
 def _first_reason(err: str) -> str:
