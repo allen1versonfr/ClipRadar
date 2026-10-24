@@ -147,12 +147,17 @@ async function loadStatus() {
     $('#toolsText').innerHTML = '<b>FFmpeg is missing.</b> Install FFmpeg and add it to your PATH, then restart Clip Radar.';
     $('#getTools').hidden = true; $('#toolsBanner').hidden = false;
   } else $('#toolsBanner').hidden = true;
-  if (status.live && (!W || (W.kind === 'live' && W.sid !== status.live))) {
-    // live clipping is running (the page was reloaded, or 'keep watching' moved on to the next stream)
-    const prev = W && W.kind === 'live' ? W : null;
+  if (status.live && !W) {
+    // live clipping is running and nothing is open (the page was reloaded): show it
+    try { openLive(await api('/api/live/' + status.live), false); } catch {}
+  } else if (W && W.kind === 'live' && W.live && W.live.next && W.live.next !== W.sid) {
+    // the stream you're looking at ended and 'Keep watching' started the channel's next one: follow it.
+    // Only that: with several streams running, the one you picked stays open (it used to jump back
+    // to the first running stream every few seconds).
+    const prev = W;
     try {
-      openLive(await api('/api/live/' + status.live), false);
-      if (prev) toast(`Stream ended with ${plural(prev.clips.length, 'clip')}. They're in Exports. Waiting for the next stream.`, '', 8000);
+      openLive(await api('/api/live/' + prev.live.next), false);
+      toast(`Stream ended with ${plural(prev.clips.length, 'clip')}. They're in Exports. Waiting for the next stream.`, '', 8000);
     } catch {}
   }
   if (view === 'settings') renderTools();
@@ -3372,6 +3377,7 @@ loadStatus().then(() => { updateStatusBar(); });
    Plain data in and out: Playwright passes JSON, not functions. See docs/react-migration.md. */
 window.ClipRadarTest = {
   clips: () => (W && W.clips || []).map(c => ({ state: c.state, quality: c.quality, gem: !!isGem(c) })),
+  open: () => (W ? { kind: W.kind, id: W.kind === 'live' ? W.sid : W.pid } : null),   // what Review has open
   setOption: (k, v) => { opts[k] = v; },
   setTodoQualities: qs => {          // qs[i] is the score for the i-th clip still to review (gems excluded)
     let i = 0;

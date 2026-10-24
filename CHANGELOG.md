@@ -3,6 +3,14 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.18.2] - 2026-10-24
+
+### Fixed
+- With two streams being clipped at once, opening the second one (from Running now) jumped back to the first after a few seconds, so its clips couldn't be reviewed. The page took "a live stream is running and you're on another one" to mean that Keep watching had moved on to a new stream. Now the stream you open stays open; the page only moves on when the stream you're looking at ends and Keep watching starts its next one.
+
+### Tests
+- `tests/test_live_switch.py`: two streams running at once in a real browser: the second one, once opened, stays open through several status checks, switching back works, and Keep watching's next stream is still followed.
+
 ## [4.18.1] - 2026-10-24
 
 ### Fixed

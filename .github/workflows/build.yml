@@ -164,6 +164,7 @@ jobs:
           python tests/test_studio_auto.py
           python tests/test_studio_handoff.py
           python tests/test_preview_fallback.py
+          python tests/test_live_switch.py
           python tests/test_quality.py
 
       # PyAV is left out: faster-whisper only uses it to read audio files, and Clip Radar always hands
