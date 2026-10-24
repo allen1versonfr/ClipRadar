@@ -3,6 +3,16 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.18.1] - 2026-10-24
+
+### Fixed
+- **The Review preview didn't play some videos**: it showed a still frame ("this video can't play in the preview"), or played the sound without the picture. Twitch's enhanced streams send HEVC or AV1 video, and so do OBS recordings made with NVENC or AV1, which the app window can only play with Windows' own codec for it. Rendering was never affected. Now:
+  - Live clipping asks Twitch for H.264 first (as VOD downloads already did), so live recordings play in the preview. Only a stream that has nothing else uses HEVC or AV1.
+  - When the preview can't play a video, Clip Radar makes a copy it can play (480p H.264, made once, in its temporary files) and switches to it at the same moment, showing its progress meanwhile. Clips still render from the original, at full quality.
+
+### Tests
+- `tests/test_preview_fallback.py`: a video no browser plays (MPEG-4 in an AVI) gets a preview copy that plays, without asking; the copy is made once, in the temp files, never larger than the source; clips still render from the original; a video that can't be read fails with a reason.
+
 ## [4.18.0] - 2026-10-24
 
 Upload to TikTok for you, a Square blur layout, and a volume slider for the preview.

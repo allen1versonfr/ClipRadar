@@ -432,7 +432,9 @@ class LiveSession:
         if test:
             info = {"live_status": "is_live", "url": test, "title": "Test livestream", "uploader": "testchannel"}
         else:
-            fmt = f"best[height<={self.max_height}][protocol^=m3u8]/best[height<={self.max_height}]/best"
+            h = self.max_height                     # H.264 first: the preview plays it everywhere (4.18.1)
+            fmt = (f"best[height<={h}][vcodec^=avc1][protocol^=m3u8]/best[height<={h}][protocol^=m3u8]/"
+                   f"best[height<={h}][vcodec^=avc1]/best[height<={h}]/best")
             exe = engine.which("yt-dlp")
             info, err = None, ""
             if exe:
@@ -502,7 +504,9 @@ class LiveSession:
             return self.source
         import twitchauth
         url = f"https://www.twitch.tv/{self.channel}"
-        fmt = f"best[height<={self.max_height}]/best"
+        # H.264 first: Twitch's enhanced broadcasts also offer HEVC and AV1, which the app window can't
+        # always play in the preview (renders are fine either way)
+        fmt = f"best[height<={self.max_height}][vcodec^=avc1]/best[height<={self.max_height}]/best"
         exe = engine.which("yt-dlp")
         err = ""
         with twitchauth.cookie_file() as cookie:

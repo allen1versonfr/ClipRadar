@@ -334,7 +334,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_file(it.get("path", ""))
         m = re.fullmatch(r"/vod/(\w+)", p)
         if m and m.group(1) in S.projects:
-            return self._send_file(S.projects[m.group(1)]["video"])
+            pr = S.projects[m.group(1)]
+            if q.get("preview") and os.path.isfile(S.preview_path(pr)):
+                return self._send_file(S.preview_path(pr), "video/mp4")   # the copy the window can play
+            return self._send_file(pr["video"])
         m = re.fullmatch(r"/api/frame/(\w+)", p)
         if m and m.group(1) in S.projects:
             pr = S.projects[m.group(1)]
@@ -775,6 +778,13 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             return self._json(r)
+
+        if p == "/api/preview":
+            # the window can't play this video: make (or reuse) a copy it can play, for the preview only
+            pid = str(body.get("pid") or "")
+            if pid not in S.projects:
+                return self._err("This session expired. Press Find clips again.", 404)
+            return self._json(S.start_preview(pid))
 
         if p == "/api/studio":
             if "press_post" in body:

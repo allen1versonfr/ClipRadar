@@ -86,6 +86,50 @@ def ffprobe() -> str:
     return exe
 
 
+def make_preview(src: str, out: str, duration: float, progress: Callable = lambda x: None,
+                 check: Callable = lambda: None) -> str:
+    """A copy of a video that the app window can always play, for the Review preview only: H.264 and
+    AAC in an MP4, 480p, at most 30 fps, encoded fast. Made when the window can't play the original
+    (HEVC or AV1 from Twitch's enhanced streams or from OBS, or a container it can't read). Clips still
+    render from the original. Written next to it, then moved into place, so a half-made copy never plays."""
+    tmp = out + ".part.mp4"
+    cmd = [ffmpeg(), "-v", "error", "-y", "-nostdin", "-i", src, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
+           "-vf", "scale=-2:'min(480,ih)':flags=bilinear",
+           "-r", "30", *(["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-b:v", "600k",
+                          "-c:a", "libopus"] if os.environ.get("CLIPRADAR_PREVIEW_VP9") == "1" else   # tests' browsers lack H.264
+                         ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "fastdecode", "-crf", "30", "-c:a", "aac"]),
+           "-g", "60", "-pix_fmt", "yuv420p", "-b:a", "96k", "-ac", "2",
+           "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", tmp]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                         text=True, encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW)
+    procjob.adopt(p)
+    err: list = []
+    threading.Thread(target=lambda: err.extend(p.stderr), daemon=True).start()
+    try:
+        for line in p.stdout:
+            if line.startswith("out_time_us=") and duration > 0:
+                try:
+                    progress(min(1.0, max(0.0, int(line.split("=")[1]) / 1e6 / duration)))
+                except ValueError:
+                    pass
+            try:
+                check()
+            except Cancelled:
+                p.kill()
+                raise
+    finally:
+        p.wait()
+    if p.returncode != 0 or not os.path.isfile(tmp) or os.path.getsize(tmp) < 1024:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        tail = "".join(err).strip().splitlines()[-4:]
+        raise RuntimeError("Couldn't make a preview copy of this video" + (f": {' '.join(tail)[-300:]}" if tail else "."))
+    os.replace(tmp, out)
+    return out
+
+
 def run(cmd: list, cwd: Optional[str] = None, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
     try:
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout,

@@ -1264,11 +1264,15 @@ $('#addHere').onclick = async () => {
 /* =============================================================== player */
 const vod = $('#vod'), phone = $('#phone'), pg = phone.getContext('2d');
 let dirty = true, vodOk = true, pendingSeek = null, pendingPlay = false;
+// A video the window can't play (HEVC or AV1 without Windows' codec, an odd container) gets a preview
+// copy it can play, made once by Clip Radar (/api/preview); renders still use the original.
+const previewOf = {};        // source url -> 'making' | 'ready' | 'failed'
+let previewPct = 0;
 function loadSource(url, t, play) {
   if (vod.dataset.src !== url) {
-    vod.dataset.src = url; vodOk = true;
+    vod.dataset.src = url; vodOk = previewOf[url] !== 'failed';
     pendingSeek = t; pendingPlay = play;
-    vod.src = url; vod.load();
+    vod.src = previewOf[url] === 'ready' ? url + '?preview=1' : url; vod.load();
   } else {
     try { vod.currentTime = t; } catch {}
     if (play) vod.play().catch(() => {});
@@ -1281,7 +1285,45 @@ vod.addEventListener('loadedmetadata', () => {
   pendingPlay = false; dirty = true;
 });
 ['play', 'pause', 'seeked', 'loadeddata'].forEach(ev => vod.addEventListener(ev, () => { dirty = true; updatePlayIcon(); }));
-vod.addEventListener('error', () => { if (vod.dataset.src) { vodOk = false; dirty = true; } });
+vod.addEventListener('error', () => {
+  const url = vod.dataset.src; if (!url) return;
+  vodOk = false; dirty = true;
+  if (!previewOf[url]) makePreview(url, vod.currentTime || pendingSeek || 0, pendingPlay || !vod.paused);
+  else if (previewOf[url] === 'ready') previewOf[url] = 'failed';          // the copy didn't play either: still frames
+});
+// no error, but no picture: the sound plays and the video doesn't (a codec the window lacks)
+function noPicture() {
+  const url = vod.dataset.src;
+  if (!url || previewOf[url] === 'making' || previewOf[url] === 'failed' || vod.src.includes('preview=1')) return;
+  vodOk = false; dirty = true;
+  makePreview(url, vod.currentTime, !vod.paused);
+}
+vod.addEventListener('loadeddata', () => { if (!vod.videoWidth) noPicture(); });
+vod.addEventListener('playing', () => {
+  const at = vod.currentTime;
+  setTimeout(() => {
+    const q = vod.getVideoPlaybackQuality && vod.getVideoPlaybackQuality();
+    if (!vod.paused && vod.currentTime > at + 0.5 && q && q.totalVideoFrames === 0) noPicture();
+  }, 1500);
+});
+async function makePreview(url, t, play) {
+  const pid = (url.match(/\/vod\/(\w+)/) || [])[1]; if (!pid) return;
+  previewOf[url] = 'making'; previewPct = 0; dirty = true;
+  let r;
+  try {
+    r = await api('/api/preview', { pid });
+    if (!r.ready) {
+      const j = await waitJob(r.job, jj => { previewPct = jj.progress || 0; dirty = true; });
+      if (!j || j.status !== 'done') throw new Error((j && j.error) || 'The preview copy stopped.');
+    }
+  } catch (e) { previewOf[url] = 'failed'; dirty = true; toast(e.message, 'err', 7000); return; }
+  previewOf[url] = 'ready';
+  if (vod.dataset.src === url) {                // still on this video: switch to the copy, at the same moment
+    const at = vod.dataset.src === url && vod.currentTime ? vod.currentTime : t;
+    vodOk = true; pendingSeek = at; pendingPlay = play;
+    vod.src = url + '?preview=1'; vod.load();
+  }
+}
 // preview volume: a level (remembered) and mute on top of it, so unmuting comes back to the same level.
 // Only the preview: what a clip renders at is its own Volume setting.
 let userMuted = store.get('muted', false);
@@ -1638,7 +1680,9 @@ function renderPhone() {
       const sel = dragState ? dragState.what : hoverWhat;
       if (sel) drawSelection(g, hit[sel], !!dragState);
     }
-    if (!vodOk) badge = 'Still frame: this video can\'t play in the preview';
+    if (!vodOk) badge = previewOf[vod.dataset.src] === 'making'
+      ? `Making a version the preview can play… ${Math.round(previewPct * 100)}%`
+      : 'Still frame: this video can\'t play in the preview';
   }
   if (mode === 'free') badge = badge || 'Preview';
   $('#phoneBadge').textContent = badge;

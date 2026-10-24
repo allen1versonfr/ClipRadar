@@ -188,6 +188,41 @@ def new_job(kind: str) -> dict:
 JOB_PUBLIC = ("id", "kind", "status", "step", "progress", "eta", "log", "result", "error", "started")
 
 
+def preview_path(pr: dict) -> str:
+    """Where a project's preview copy goes (engine.make_preview): in Clip Radar's temporary files, named
+    after the video and its size and date, so it's made once per video and cleared with the old temp files."""
+    v = pr.get("video", "")
+    try:
+        st = os.stat(v)
+        sig = f"{os.path.abspath(v)}|{st.st_size}|{int(st.st_mtime)}"
+    except OSError:
+        sig = os.path.abspath(v)
+    d = os.path.join(locations.path("temp"), "previews")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, hashlib.sha1(sig.encode()).hexdigest()[:16] + ".mp4")
+
+
+def start_preview(pid: str) -> dict:
+    """{"ready": True} when the project's preview copy is there; otherwise the job making it."""
+    pr = projects[pid]
+    out = preview_path(pr)
+    if os.path.isfile(out):
+        return {"ready": True}
+    old = jobs.get(pr.get("preview_job", ""))
+    if old and old["status"] == "running":
+        return {"job": old["id"]}
+    job = new_job("preview")
+    pr["preview_job"] = job["id"]
+
+    def go():
+        job_step(job)("Making a version the preview can play")
+        engine.make_preview(pr["video"], out, float((pr.get("info") or {}).get("duration") or 0),
+                            job_progress(job, 0, 1), job_check(job))
+        return {"ready": True}
+    run_job(job, go)
+    return {"job": job["id"]}
+
+
 def job_public(job: dict) -> dict:
     """What /api/job/{id} sends: the job's progress and outcome. The rest (cancel and pause flags,
     the request it was started with, timing internals) stays in the app."""
