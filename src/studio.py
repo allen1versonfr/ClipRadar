@@ -4,7 +4,7 @@ TikTok Studio handoff (replaces posting through TikTok's developer API, removed 
 Clip Radar gets a finished clip ready and hands it over; you post it in TikTok Studio yourself:
 
   1. the caption (title or description, plus the post hashtags) is copied, ready to paste
-  2. Finder or File Explorer opens with the video selected, so it can be dragged into the upload page
+  2. File Explorer opens with the video selected, so it can be dragged into the upload page
   3. TikTok Studio's upload page opens in your browser
 
 Clip Radar can't see what happens in the browser, so it only ever records that it opened TikTok
@@ -31,7 +31,7 @@ def _quiet() -> bool:
 
 
 def reveal(path: str) -> bool:
-    """Show the file selected in Finder or File Explorer, depending on the platform."""
+    """Show the file selected in File Explorer (Windows), or open its folder elsewhere."""
     if not path or not os.path.exists(path):
         return False
     if _quiet():

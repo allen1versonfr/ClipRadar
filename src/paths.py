@@ -8,7 +8,6 @@ from pathlib import Path
 
 FROZEN = bool(getattr(sys, "frozen", False))
 IS_WIN = sys.platform == "win32"
-IS_MAC = sys.platform == "darwin"
 
 # Clip Radar was called VodClipper before 4.0. Settings made for the old name keep working.
 OLD_NAME, DATA_NAME, CLIPS_NAME = "VodClipper", "ClipRadar", "Clip Radar"
@@ -48,11 +47,6 @@ def _rename_target(base: Path, new_name: str) -> Path:
 RES_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 # folder containing ClipRadar.exe (or the source files)
 APP_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
-# PyInstaller's macOS executable lives in Contents/MacOS; updates replace the
-# containing .app bundle, while APP_DIR continues to mean the executable folder.
-_EXECUTABLE = Path(sys.executable).resolve()
-APP_BUNDLE = (_EXECUTABLE.parents[2] if FROZEN and IS_MAC and len(_EXECUTABLE.parents) >= 3
-              and _EXECUTABLE.parents[2].suffix == ".app" else None)
 
 
 def _data_dir() -> Path:
@@ -62,8 +56,6 @@ def _data_dir() -> Path:
         return APP_DIR
     if IS_WIN:
         base = os.environ.get("LOCALAPPDATA") or os.path.join(Path.home(), "AppData", "Local")
-    elif IS_MAC:
-        base = Path.home() / "Library" / "Application Support"
     else:
         base = os.path.join(Path.home(), ".local", "share")
     return _rename_target(Path(base), DATA_NAME)
@@ -82,15 +74,14 @@ if FROZEN:
 def tools_dirs() -> list:
     out = []
     extra = [] if FROZEN else [APP_DIR.parent / "tools"]      # repo-root tools/ when run from source
-    system = [Path(p) for p in ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin")] if IS_MAC else []
-    for d in [TOOLS_WRITE, APP_DIR / "tools", RES_DIR / "tools", *extra, *system]:
+    for d in [TOOLS_WRITE, APP_DIR / "tools", RES_DIR / "tools", *extra]:
         if d not in out:
             out.append(d)
     return out
 
 
 def _videos_folder() -> Path:
-    """The user's media folder (Windows Videos, macOS Movies)."""
+    """The user's real Videos folder (it may be moved, e.g. into OneDrive)."""
     if IS_WIN:
         try:
             import ctypes
@@ -111,7 +102,7 @@ def _videos_folder() -> Path:
                     return Path(path)
         except Exception:
             pass
-    return Path.home() / ("Movies" if IS_MAC else "Videos")
+    return Path.home() / "Videos"
 
 
 def _work_root() -> Path:
@@ -121,11 +112,6 @@ def _work_root() -> Path:
     if not FROZEN:
         return APP_DIR / "projects"
     videos = _videos_folder()
-    if IS_MAC:
-        try:
-            videos.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            videos = Path.home()
     return _rename_target(videos if videos.is_dir() else Path.home(), CLIPS_NAME)
 
 

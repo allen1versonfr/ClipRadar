@@ -84,7 +84,7 @@ export function TwitchPanel() {
       {!t?.signed_in && (
         <details className="adv" open={(t && !t.window_login) || undefined}>
           <summary>Paste a sign-in token instead</summary>
-          <p className="fine">On twitch.tv, signed in, press F12, open Application › Cookies › https://www.twitch.tv and copy the value of <b>auth-token</b>. It's stored securely for your account and only sent to Twitch. Also used for subscriber-only VODs.</p>
+          <p className="fine">On twitch.tv, signed in, press F12, open Application › Cookies › https://www.twitch.tv and copy the value of <b>auth-token</b>. It's stored encrypted for your Windows account and only sent to Twitch. Also used for subscriber-only VODs.</p>
           <div className="row">
             <input className="input grow" type="password" placeholder="auth-token value" autoComplete="off" spellCheck={false} aria-label="Twitch sign-in token"
                    value={token} onChange={e => setToken(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && token.trim()) void saveToken() }} />

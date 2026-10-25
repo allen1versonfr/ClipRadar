@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 4.18.2" src="https://img.shields.io/badge/version-4.18.2-ffd21f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/vodclipper/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/vodclipper/build.yml?branch=main&style=flat-square&label=build"></a>
-  <img alt="Windows and macOS" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20%7C%20macOS%20Apple%20Silicon-1f2329?style=flat-square">
+  <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-keep%20a%20changelog-1f2329?style=flat-square"></a>
 </p>
@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/allen1versonfr/vodclipper/releases/latest/download/ClipRadar-Setup.exe"><b>Download for Windows</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest/download/ClipRadar-macOS-arm64.zip"><b>Download for macOS (Apple Silicon)</b></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar_macOs"><b>macOS port and downloads</b></a>
   &nbsp;·&nbsp;
   <a href="#features">Features</a>
   &nbsp;·&nbsp;
@@ -95,10 +95,6 @@ Prefer not to install? Use [ClipRadar-portable.zip](https://github.com/allen1ver
 > The app isn't code-signed yet, so Windows SmartScreen may warn you the first time. Choose **More info › Run anyway**.
 
 **Requirements:** Windows 10 or 11 (64-bit). An NVIDIA, Intel or AMD GPU speeds up rendering but isn't required. Captions download a Whisper model (a few hundred MB) the first time you use them.
-
-### macOS (Apple Silicon)
-
-Download and unzip **[ClipRadar-macOS-arm64.zip](https://github.com/allen1versonfr/vodclipper/releases/latest/download/ClipRadar-macOS-arm64.zip)**, then drag Clip Radar to Applications. The app needs permission to write beside itself for in-app updates; if Applications is protected on your Mac, install it in `~/Applications`. In-app updates download a replacement app bundle and reopen Clip Radar after the update. The macOS build is ad-hoc signed and not notarized yet, so macOS may ask you to confirm the first launch. This port shares the Windows app's Python engine and interface. TikTok Studio automation works with an installed Chromium browser; the live clip hotkey uses Ctrl+Option+C and needs Accessibility permission.
 
 ## Usage
 

@@ -65,11 +65,9 @@ def _noop(*_a, **_k):
 
 def which(name: str) -> Optional[str]:
     """Find a tool in Clip Radar's tools folders first, then on PATH."""
-    suffixes = (".exe", "") if paths.IS_WIN else ("",)
     for d in paths.tools_dirs():
-        for suffix in suffixes:
-            cand = d / (name + suffix)
-            if cand.is_file() and (paths.IS_WIN or os.access(cand, os.X_OK)):
+        for cand in (d / (name + ".exe"), d / name):
+            if cand.is_file():
                 return str(cand)
     return shutil.which(name)
 
@@ -77,16 +75,14 @@ def which(name: str) -> Optional[str]:
 def ffmpeg() -> str:
     exe = which("ffmpeg")
     if not exe:
-        hint = "Run install.bat, or put ffmpeg.exe in the tools folder." if paths.IS_WIN else "Install FFmpeg and make it available on PATH."
-        raise RuntimeError("ffmpeg isn't installed. " + hint)
+        raise RuntimeError("ffmpeg isn't installed. Run install.bat, or put ffmpeg.exe in the tools folder.")
     return exe
 
 
 def ffprobe() -> str:
     exe = which("ffprobe")
     if not exe:
-        hint = "Run install.bat, or put ffprobe.exe in the tools folder." if paths.IS_WIN else "Install FFmpeg and make ffprobe available on PATH."
-        raise RuntimeError("ffprobe isn't installed. " + hint)
+        raise RuntimeError("ffprobe isn't installed. Run install.bat, or put ffprobe.exe in the tools folder.")
     return exe
 
 
@@ -2779,9 +2775,8 @@ def _rate_args(o: RenderOpts) -> list:
 
 
 def video_encoder(o: RenderOpts) -> tuple:
-    """(name, args). H.264 probes a supported hardware encoder once (VideoToolbox on macOS)
-    and falls back to x264. H.265 and VP9 (for .webm) use the CPU encoders. A bitrate from the
-    preset replaces constant quality."""
+    """(name, args). H.264 tries GPU encoders once (fast) and falls back to x264. H.265 and VP9
+    (for .webm) use the CPU encoders. A bitrate from the preset replaces constant quality."""
     vc = getattr(o, "vcodec", "h264")
     if vc == "vp9" or getattr(o, "container", "mp4") == "webm":
         kb = int(getattr(o, "vbitrate", 0) or 0)
@@ -2800,18 +2795,11 @@ def video_encoder(o: RenderOpts) -> tuple:
         return x264
     if "hw" not in _encoder_cache:
         _encoder_cache["hw"] = None
-        hw_failures = []
         try:
             listing = run([ffmpeg(), "-hide_banner", "-encoders"], timeout=20).stdout
         except Exception:
             listing = ""
-        candidates = _HW
-        if paths.IS_MAC:
-            # Keep rendering filters on the CPU. VideoToolbox receives the completed filtered
-            # frames only at encode time, avoiding CPU/GPU filter transfers.
-            candidates = [("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-allow_sw", "0",
-                                                   "-q:v", "70", "-profile:v", "high"]), *_HW]
-        for name, args in candidates:
+        for name, args in _HW:
             if name not in listing:
                 continue
             try:
@@ -2819,20 +2807,12 @@ def video_encoder(o: RenderOpts) -> tuple:
                      "-pix_fmt", "yuv420p", *args, "-f", "null", "-"], timeout=30)
                 _encoder_cache["hw"] = (name, args)
                 break
-            except Exception as exc:
-                if name == "h264_videotoolbox":
-                    lines = str(exc).strip().splitlines()
-                    detail = next((line for line in reversed(lines)
-                                   if "compression session" in line.lower() or "videotoolbox" in line.lower()
-                                   or "failed" in line.lower() or "error" in line.lower()),
-                                  lines[-1] if lines else "VideoToolbox encoder smoke test failed")
-                    hw_failures.append(detail[:180])
+            except Exception:
                 continue
-        _encoder_cache["hw_error"] = "; ".join(hw_failures)
     hw = _encoder_cache["hw"]
-    if hw and rate:          # a target bitrate replaces the hardware encoder's quality setting
+    if hw and rate:          # a target bitrate: swap the GPU encoder's quality setting for it
         name, args = hw
-        keep, skip = [], {"-cq", "-global_quality", "-qp_i", "-qp_p", "-qp_b", "-q:v", "-b:v", "-rc"}
+        keep, skip = [], {"-cq", "-global_quality", "-qp_i", "-qp_p", "-qp_b", "-b:v", "-rc"}
         i = 0
         while i < len(args):
             if args[i] in skip:
@@ -2841,12 +2821,6 @@ def video_encoder(o: RenderOpts) -> tuple:
             keep.append(args[i])
             i += 1
         return name, keep + rate
-    if hw and hw[0] == "h264_videotoolbox":
-        quality = max(45, min(90, round(100 - float(o.crf) * 1.3)))
-        args = list(hw[1])
-        if "-q:v" in args:
-            args[args.index("-q:v") + 1] = str(quality)
-        return hw[0], args
     if hw and hw[0] == "h264_nvenc":       # the effort setting picks NVENC's preset too (p3 / p5 / p7)
         return hw[0], [_nv if a == "p5" else a for a in hw[1]]
     return hw or x264
@@ -3216,9 +3190,6 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         return code, err
 
     enc_name, enc_args = video_encoder(o)
-    if paths.IS_MAC and o.hw_encode and enc_name == "libx264":
-        problem = _encoder_cache.get("hw_error") or "this FFmpeg build has no compatible hardware encoder"
-        log(f"VideoToolbox isn't available ({problem}); rendering with software H.264.")
     layout = effective_layout(o)
     following = layout == "full" and "'clip(" in vf          # a crop that moves (framing.x_expr)
     chosen = LAYOUT_NAMES.get(layout, layout) + (", following the face" if following else "")
@@ -3226,7 +3197,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     try:
         code, err = encode(enc_args)
         if code != 0 and enc_name != "libx264" and not _graph_failed(err):
-            log(f"Hardware encoder ({enc_name}) failed, re-encoding on the CPU.")
+            log(f"GPU encoder ({enc_name}) failed, re-encoding on CPU.")
             _encoder_cache["hw"] = None
             enc_args = video_encoder(RenderOpts(hw_encode=False, crf=o.crf, vbitrate=getattr(o, "vbitrate", 0)))[1]
             diag.update(encoder="libx264", fallback=f"{enc_name} failed, used the CPU")
@@ -3272,7 +3243,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             # TikTok takes the frame at 0:00 as the cover: a black one there is a black cover
             used = diag.get("encoder", enc_name)
             if used != "libx264" and o.vcodec in ("h264", "") and cont != "webm":
-                log(f"The hardware encoder ({used}) made a black first frame; rendering on the CPU instead.")
+                log(f"The GPU encoder ({used}) made a black first frame; rendering on the CPU instead.")
                 _encoder_cache["hw"] = None                 # and for the rest of this session
                 _encoder_cache["black_start"] = used
                 enc_args = video_encoder(RenderOpts(hw_encode=False, crf=o.crf, vbitrate=getattr(o, "vbitrate", 0),

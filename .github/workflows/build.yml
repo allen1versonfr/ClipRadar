@@ -695,7 +695,7 @@ jobs:
           $log = Get-Content CHANGELOG.md -Raw
           $m = [regex]::Match($log, "(?ms)^## \[$([regex]::Escape($ver))\][^\n]*\n(.*?)(?=^## \[|^\[[0-9]|\z)")
           if (-not $m.Success) { Write-Host "::error title=Changelog::no section for $ver in CHANGELOG.md"; exit 1 }
-          $notes = $m.Groups[1].Value.Trim() + "`n`n---`n**Download:** ``ClipRadar-Setup.exe`` (Windows installer, recommended), ``ClipRadar-portable.zip`` (Windows, no install), or ``ClipRadar-macOS-arm64.zip`` (macOS, Apple Silicon). The macOS build attaches its download after the Windows release checks pass."
+          $notes = $m.Groups[1].Value.Trim() + "`n`n---`n**Download:** ``ClipRadar-Setup.exe`` (installer, recommended) or ``ClipRadar-portable.zip`` (no install). Windows 10 or 11, 64-bit."
           Set-Content -Path notes.md -Value $notes -Encoding utf8
           Compress-Archive -Path dist/ClipRadar -DestinationPath dist/ClipRadar-portable.zip -Force
           # the same installer under the old name too: VodClipper's built-in updater looks for that file

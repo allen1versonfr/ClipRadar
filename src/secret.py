@@ -25,17 +25,8 @@ def ssl_context() -> ssl.SSLContext:
 
 
 def protect(data: bytes) -> bytes:
-    if sys.platform == "darwin":
-        # Store only a random reference in Clip Radar's files. The secret itself stays in
-        # the user's login Keychain via keyring's Security.framework backend.
-        import uuid
-        keyring = _mac_keyring()
-
-        account = uuid.uuid4().hex
-        keyring.set_password("com.clipradar.credentials", account, base64.b64encode(data).decode("ascii"))
-        return b"keychain:" + account.encode("ascii")
     if sys.platform != "win32":
-        raise RuntimeError("Secure credential storage is unavailable on this platform.")
+        return b"plain:" + base64.b64encode(data)
     import ctypes
     from ctypes import wintypes
 
@@ -54,13 +45,6 @@ def protect(data: bytes) -> bytes:
 
 def unprotect(blob: bytes) -> bytes:
     kind, _, b64 = blob.partition(b":")
-    if kind == b"keychain":
-        keyring = _mac_keyring()
-
-        value = keyring.get_password("com.clipradar.credentials", b64.decode("ascii"))
-        if value is None:
-            raise RuntimeError("This Clip Radar credential is missing from the macOS Keychain. Sign in again in Settings.")
-        return base64.b64decode(value)
     raw = base64.b64decode(b64)
     if kind == b"plain":
         return raw
@@ -78,24 +62,3 @@ def unprotect(blob: bytes) -> bytes:
         return ctypes.string_at(out.pbData, out.cbData)
     finally:
         ctypes.windll.kernel32.LocalFree(out.pbData)
-
-
-def delete(blob: bytes) -> None:
-    """Remove a macOS Keychain value referenced by a credential file, if present."""
-    kind, _, account = blob.partition(b":")
-    if kind != b"keychain":
-        return
-    keyring = _mac_keyring()
-    try:
-        keyring.delete_password("com.clipradar.credentials", account.decode("ascii"))
-    except keyring.errors.PasswordDeleteError:
-        pass
-
-
-def _mac_keyring():
-    import keyring
-
-    backend = keyring.get_keyring()
-    if not backend.__class__.__module__.startswith("keyring.backends.macOS"):
-        raise RuntimeError("Clip Radar needs the macOS Keychain to store credentials securely. Install its macOS dependencies and restart.")
-    return keyring

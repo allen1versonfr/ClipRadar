@@ -5,26 +5,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [4.18.2] - 2026-10-24
 
-### Added
-- Apple Silicon macOS app download, with an in-app updater that finds the macOS ZIP, checks its size and GitHub checksum, safely stages the app bundle, and reopens Clip Radar after updating.
-- System-wide Ctrl+Option+C live clip shortcut, with macOS Accessibility permission guidance, and TikTok Studio browser discovery for Edge, Chrome, Brave and Chromium on macOS.
-- Performance settings report available macOS unified memory for queue throttling and show Mac-specific system labels.
-- The Apple Silicon release workflow builds the macOS app ZIP and optional DMG, then attaches them to this same version's GitHub release after the Windows checks pass.
-- macOS installation and update instructions in the README.
-
-### Changed
-- Update availability selects the release asset for the current operating system. The existing Windows Setup update flow remains in place.
-- Private-repository token guidance describes secure account storage without assuming Windows.
-
 ### Fixed
 - With two streams being clipped at once, opening the second one (from Running now) jumped back to the first after a few seconds, so its clips couldn't be reviewed. The page took "a live stream is running and you're on another one" to mean that Keep watching had moved on to a new stream. Now the stream you open stays open; the page only moves on when the stream you're looking at ends and Keep watching starts its next one.
 
 ### Tests
 - `tests/test_live_switch.py`: two streams running at once in a real browser: the second one, once opened, stays open through several status checks, switching back works, and Keep watching's next stream is still followed.
-- macOS updater tests cover release asset selection, integrity checks, safe app staging, path rejection, and refusing to install before the Mac asset is attached. Platform tests cover memory reporting, browser discovery, and hotkey permission handling.
-
-### Known limitations
-- The macOS build is ad-hoc signed and not notarized. The real Accessibility permission prompt, a GitHub-hosted release attachment, and a second-version in-app replacement still need end-to-end verification.
 
 ## [4.18.1] - 2026-10-24
 

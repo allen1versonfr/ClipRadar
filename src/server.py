@@ -2446,9 +2446,11 @@ _update_running = threading.Lock()
 
 
 def _install_update():
-    """Download the platform update if needed, start replacement, then close the app."""
+    """Download the new installer if needed, start it, then close so it can replace the app."""
     try:
-        path = updater.downloaded_for(updater.state["latest"]) or updater.download(log=_say)
+        f = updater._file[0]
+        path = f if f and os.path.isfile(f) and f.endswith(f"-{updater.state['latest']}.exe") \
+            else updater.download(log=_say)
         if busy():
             raise RuntimeError("Something started while the update downloaded. Update again when it's finished.")
         updater.launch_installer(path, log=_say)

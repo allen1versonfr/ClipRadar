@@ -11,12 +11,9 @@ just to get newer tools. Can also be run directly:  python tools_setup.py
 from __future__ import annotations
 
 import json
-import hashlib
 import os
-import platform
 import shutil
 import ssl
-import subprocess
 import sys
 import tempfile
 import time
@@ -36,17 +33,6 @@ FFMPEG_ZIP_MIRROR = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/la
                      "ffmpeg-master-latest-win64-gpl.zip")
 TDL_API = "https://api.github.com/repos/lay295/TwitchDownloader/releases/latest"
 YTDLP_EXE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-YTDLP_MAC = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
-FFMPEG_MAC_RELEASE = "9.0.2"
-FFMPEG_MAC_URLS = {
-    "ffmpeg": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip",
-    "ffprobe": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip",
-}
-FFMPEG_MAC_SHA256 = {
-    "ffmpeg": "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924",
-    "ffprobe": "fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6",
-}
-FFMPEG_MAC_TEAM_ID = "KU3N25YGLU"
 UA = {"User-Agent": "ClipRadar/1.0 (+https://github.com)"}
 
 
@@ -121,8 +107,6 @@ def extract_named(zip_path: str, names: list, out_dir: str) -> list:
                 with z.open(info) as src, open(target + ".new", "wb") as dst:
                     shutil.copyfileobj(src, dst)
                 os.replace(target + ".new", target)
-                if sys.platform == "darwin":
-                    os.chmod(target, os.stat(target).st_mode | 0o111)
                 found.append(base.lower())
                 wanted.discard(base.lower())
     if wanted:
@@ -140,88 +124,11 @@ def status() -> dict:
         "ffmpeg": bool(have("ffmpeg") and have("ffprobe")),
         "twitchdownloader": bool(have("TwitchDownloaderCLI")),
         "ytdlp_exe": bool(have("yt-dlp")),
-        "can_download": paths.IS_WIN or paths.IS_MAC,
+        "can_download": paths.IS_WIN,
     }
 
 
-def _sha256(path: str) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def _check_macos_signature(path: str) -> None:
-    """Require the FFmpeg vendor's Developer ID signature before installing a binary."""
-    verify = subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", path],
-                            capture_output=True, text=True, timeout=30)
-    if verify.returncode:
-        raise RuntimeError(f"macOS rejected the FFmpeg signature for {os.path.basename(path)}.")
-    details = subprocess.run(["/usr/bin/codesign", "-dv", "--verbose=4", path],
-                             capture_output=True, text=True, timeout=30)
-    identity = (details.stdout or "") + (details.stderr or "")
-    if details.returncode or f"TeamIdentifier={FFMPEG_MAC_TEAM_ID}" not in identity:
-        raise RuntimeError(f"FFmpeg has an unexpected signing identity for {os.path.basename(path)}.")
-
-
-def _twitchdownloader_asset(assets: list, is_mac: bool, machine: str) -> Optional[dict]:
-    if is_mac:
-        suffix = "MacOSArm64" if machine.lower() in ("arm64", "aarch64") else "MacOS-x64"
-        return next((a for a in assets if a.get("name", "").startswith("TwitchDownloaderCLI")
-                     and a.get("name", "").endswith(f"-{suffix}.zip")), None)
-    return next((a for a in assets if a.get("name", "").startswith("TwitchDownloaderCLI")
-                 and "Windows-x64" in a.get("name", "") and a.get("name", "").endswith(".zip")), None)
-
-
 def get_ffmpeg(log: Log = _noop, progress: Progress = _noop, check: Check = _noop):
-    if paths.IS_MAC:
-        if platform.machine().lower() not in ("arm64", "aarch64"):
-            raise RuntimeError("Automatic FFmpeg setup currently supports Apple Silicon Macs. Install a native FFmpeg build on this Intel Mac.")
-        log(f"Downloading signed FFmpeg {FFMPEG_MAC_RELEASE} for Apple Silicon...")
-        out = str(paths.TOOLS_WRITE)
-        os.makedirs(out, exist_ok=True)
-        with tempfile.TemporaryDirectory() as td:
-            names = list(FFMPEG_MAC_URLS)
-            verified = {}
-            for i, name in enumerate(names):
-                archive = os.path.join(td, f"{name}.zip")
-                lo, hi = i / len(names), (i + 1) / len(names)
-                download(FFMPEG_MAC_URLS[name], archive,
-                         lambda f, a=lo, b=hi: progress(a + (b - a) * f), check)
-                if _sha256(archive) != FFMPEG_MAC_SHA256[name]:
-                    raise RuntimeError(f"The downloaded {name} failed its SHA-256 check. Please try again.")
-                extracted = os.path.join(td, "verified")
-                extract_named(archive, [name], extracted)
-                binary = os.path.join(extracted, name)
-                _check_macos_signature(binary)
-                try:
-                    p = subprocess.run([binary, "-version"], capture_output=True, text=True, timeout=30)
-                except Exception as e:
-                    raise RuntimeError(f"The downloaded {name} couldn't run: {e}") from None
-                if p.returncode or f"{FFMPEG_MAC_RELEASE}" not in (p.stdout + p.stderr):
-                    raise RuntimeError(f"The downloaded {name} failed its version check.")
-                verified[name] = binary
-            # Keep a known-good existing install until both new executables pass hash, signature and version checks.
-            for name, binary in verified.items():
-                staged = os.path.join(out, name + ".new")
-                shutil.copy2(binary, staged)
-                os.replace(staged, os.path.join(out, name))
-        import engine
-        if not (engine.which("ffmpeg") and engine.which("ffprobe")):
-            raise RuntimeError("FFmpeg setup finished, but Clip Radar still can't find ffmpeg and ffprobe.")
-        encoders = subprocess.run([engine.which("ffmpeg"), "-hide_banner", "-encoders"], capture_output=True,
-                                  text=True, timeout=30)
-        filters = subprocess.run([engine.which("ffmpeg"), "-hide_banner", "-filters"], capture_output=True,
-                                 text=True, timeout=30)
-        protocols = subprocess.run([engine.which("ffmpeg"), "-hide_banner", "-protocols"], capture_output=True,
-                                   text=True, timeout=30)
-        caps = (encoders.stdout + filters.stdout + protocols.stdout)
-        if "h264_videotoolbox" not in caps or "libx264" not in caps or "subtitles" not in caps or "https" not in caps:
-            raise RuntimeError("FFmpeg is missing a required encoder, caption filter, or network protocol.")
-        log("Signed FFmpeg and ffprobe are installed and their required capabilities passed checks.")
-        progress(1.0)
-        return
     out = str(paths.TOOLS_WRITE)
     with tempfile.TemporaryDirectory() as td:
         z = os.path.join(td, "ffmpeg.zip")
@@ -243,18 +150,16 @@ def get_twitchdownloader(log: Log = _noop, progress: Progress = _noop, check: Ch
     name = url = None
     try:
         rel = _get_json(TDL_API)
-        if paths.IS_MAC:
-            asset = _twitchdownloader_asset(rel.get("assets", []), True, platform.machine())
-        else:
-            asset = _twitchdownloader_asset(rel.get("assets", []), False, platform.machine())
+        asset = next((a for a in rel.get("assets", [])
+                      if a["name"].startswith("TwitchDownloaderCLI") and "Windows-x64" in a["name"]
+                      and a["name"].endswith(".zip")), None)
         if asset:
             name, url = asset["name"], asset["browser_download_url"]
     except Exception as e:
         log(f"  GitHub API unavailable ({str(e)[:60]}), using the releases page instead.")
     if not url:
         tag = _latest_tag("lay295/TwitchDownloader")
-        suffix = ("MacOSArm64" if platform.machine().lower() in ("arm64", "aarch64") else "MacOS-x64") if paths.IS_MAC else "Windows-x64"
-        name = f"TwitchDownloaderCLI-{tag}-{suffix}.zip"
+        name = f"TwitchDownloaderCLI-{tag}-Windows-x64.zip"
         url = f"https://github.com/lay295/TwitchDownloader/releases/download/{tag}/{name}"
     with tempfile.TemporaryDirectory() as td:
         z = os.path.join(td, "tdl.zip")
@@ -268,24 +173,23 @@ def get_twitchdownloader(log: Log = _noop, progress: Progress = _noop, check: Ch
                     raise
                 log(f"  retrying ({str(e)[:60]})")
                 time.sleep(3 * (attempt + 1))
-        extract_named(z, ["TwitchDownloaderCLI" if paths.IS_MAC else "TwitchDownloaderCLI.exe"], out)
+        extract_named(z, ["TwitchDownloaderCLI.exe"], out)
     log("TwitchDownloaderCLI ready.")
 
 
 def get_ytdlp(log: Log = _noop, progress: Progress = _noop, check: Check = _noop):
-    target = os.path.join(str(paths.TOOLS_WRITE), "yt-dlp" if paths.IS_MAC else "yt-dlp.exe")
+    target = os.path.join(str(paths.TOOLS_WRITE), "yt-dlp.exe")
     os.makedirs(os.path.dirname(target), exist_ok=True)
     log("Downloading the latest yt-dlp...")
-    download(YTDLP_MAC if paths.IS_MAC else YTDLP_EXE, target, progress, check)
-    if paths.IS_MAC:
-        os.chmod(target, os.stat(target).st_mode | 0o111)
+    download(YTDLP_EXE, target, progress, check)
     log("yt-dlp is up to date.")
 
 
 def setup(want: list, log: Log = _noop, progress: Progress = _noop, check: Check = _noop) -> dict:
     """want: any of 'ffmpeg', 'twitchdownloader', 'ytdlp'."""
-    if not (paths.IS_WIN or paths.IS_MAC):
-        raise RuntimeError("Automatic tool setup is available for Windows and macOS. Install FFmpeg and yt-dlp with your system package manager.")
+    if not paths.IS_WIN:
+        raise RuntimeError("Automatic tool downloads are for Windows. On this system install "
+                           "ffmpeg and yt-dlp with your package manager.")
     paths.ensure_dirs()
     steps = [(k, f) for k, f in (("ffmpeg", get_ffmpeg), ("twitchdownloader", get_twitchdownloader),
                                  ("ytdlp", get_ytdlp)) if k in want]

@@ -391,7 +391,7 @@
                   <button class="btn sm" id="framePresetSave">Save this framing…</button>
                 </div>
                 <div class="sep"></div>
-                <label class="fld switch-label">Use hardware encoding<span class="switch"><input type="checkbox" id="hw" checked><i></i></span></label>
+                <label class="fld switch-label">Use the GPU to encode<span class="switch"><input type="checkbox" id="hw" checked><i></i></span></label>
                 <p class="hint">Changes show in the preview right away and apply to clips you keep from now on.</p>
               </div>
             </div>
@@ -459,7 +459,7 @@
               <div class="err" id="ttErr"></div>
               <div class="row end wrap">
                 <button class="btn ghost" id="ttCopy"><svg class="ic"><use href="#i-copy"/></svg>Copy caption</button>
-                <button class="btn" id="ttStudio" title="Copies the caption, shows the video in Finder or File Explorer and opens TikTok Studio's upload page in your browser">Open TikTok Studio</button>
+                <button class="btn" id="ttStudio" title="Copies the caption, selects the video in File Explorer and opens TikTok Studio's upload page in your browser">Open TikTok Studio</button>
                 <button class="btn primary" id="ttAuto"><svg class="ic"><use href="#i-upload"/></svg>Upload to TikTok</button>
               </div>
               <div class="tt-status" id="ttStatus" aria-live="polite" hidden></div>
@@ -747,7 +747,7 @@
           </div>
           <details class="upd-token" id="twPasteBox">
             <summary>Paste a sign-in token instead</summary>
-            <p class="fine">On twitch.tv, signed in, press F12, open Application › Cookies › https://www.twitch.tv and copy the value of <b>auth-token</b>. It's stored securely for your account and only sent to Twitch. Also used for subscriber-only VODs.</p>
+            <p class="fine">On twitch.tv, signed in, press F12, open Application › Cookies › https://www.twitch.tv and copy the value of <b>auth-token</b>. It's stored encrypted for your Windows account and only sent to Twitch. Also used for subscriber-only VODs.</p>
             <div class="row"><input class="input grow" id="twToken" type="password" placeholder="auth-token value" autocomplete="off" spellcheck="false"><button class="btn" id="twTokenSave">Save</button></div>
           </details>
         </section>
@@ -817,7 +817,7 @@
           <label class="fld switch-label">Check for updates automatically<span class="switch"><input type="checkbox" id="updAuto" checked><i></i></span></label>
           <details class="upd-token" id="updTokenBox">
             <summary>Private repository <span class="muted" id="updTokenState"></span></summary>
-            <p class="fine">If Clip Radar's GitHub repository is private, updates need a read-only access token. On GitHub: Settings › Developer settings › Fine-grained tokens › Generate. Pick only the vodclipper repository and give it <b>Contents: Read-only</b>. It's stored securely for your account.</p>
+            <p class="fine">If Clip Radar's GitHub repository is private, updates need a read-only access token. On GitHub: Settings › Developer settings › Fine-grained tokens › Generate. Pick only the vodclipper repository and give it <b>Contents: Read-only</b>. It's stored encrypted for your Windows account.</p>
             <div class="row"><input class="input grow" id="updToken" type="password" placeholder="github_pat_…" autocomplete="off" spellcheck="false"><button class="btn" id="updTokenSave">Save</button><button class="btn" id="updTokenClear" hidden>Remove</button></div>
           </details>
         </section>
@@ -825,7 +825,7 @@
         <section class="panel set">
           <header><h2>About</h2></header>
           <div class="row"><span>Made for streamers. Not affiliated with Twitch or TikTok.</span><span class="grow"></span><button class="btn danger" id="uninstallBtn" hidden>Uninstall…</button></div>
-          <p class="fine" id="aboutLog">If something goes wrong, the log file is at %LOCALAPPDATA%\ClipRadar\clipradar.log.</p>
+          <p class="fine">If something goes wrong, the log file is at %LOCALAPPDATA%\ClipRadar\clipradar.log.</p>
         </section>
       </div>
     </section>

@@ -47,16 +47,8 @@ def _load() -> dict:
 def _save(d: dict):
     STORE.parent.mkdir(parents=True, exist_ok=True)
     tmp = STORE.with_suffix(".tmp")
-    old = STORE.read_bytes() if STORE.exists() else b""
-    new = secret.protect(json.dumps(d).encode("utf-8"))
-    try:
-        tmp.write_bytes(new)
-        os.replace(tmp, STORE)
-    except Exception:
-        secret.delete(new)
-        raise
-    if old and old != new:
-        secret.delete(old)
+    tmp.write_bytes(secret.protect(json.dumps(d).encode("utf-8")))
+    os.replace(tmp, STORE)
 
 
 def token() -> str:
@@ -113,10 +105,6 @@ def set_token(raw: str) -> dict:
     """Check and store a token (empty string signs out)."""
     with _lock:
         if not (raw or "").strip():
-            try:
-                secret.delete(STORE.read_bytes())
-            except Exception:
-                pass
             try:
                 STORE.unlink()
             except OSError:

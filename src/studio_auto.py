@@ -71,22 +71,6 @@ def find_browser() -> str:
                 if p and os.path.isfile(p):
                     return p
         return ""
-    if sys.platform == "darwin":
-        roots = ["/Applications", os.path.expanduser("~/Applications")]
-        apps = ("Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-                "Google Chrome.app/Contents/MacOS/Google Chrome",
-                "Brave Browser.app/Contents/MacOS/Brave Browser",
-                "Chromium.app/Contents/MacOS/Chromium")
-        for root in roots:
-            for app in apps:
-                candidate = os.path.join(root, app)
-                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-                    return candidate
-        for name in ("microsoft-edge", "google-chrome", "chromium"):
-            candidate = shutil.which(name)
-            if candidate:
-                return candidate
-        return ""
     for name in ("microsoft-edge", "google-chrome", "chromium", "chromium-browser"):
         p = shutil.which(name)
         if p:
