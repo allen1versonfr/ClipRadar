@@ -10,6 +10,7 @@ import sys
 import tempfile
 import types
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
@@ -17,6 +18,7 @@ sys.path.insert(0, str(HERE.parent / "src"))
 import paths  # noqa: E402
 import secret  # noqa: E402
 import tools_setup  # noqa: E402
+import locations  # noqa: E402
 try:
     import engine  # noqa: E402
 except ImportError:
@@ -88,6 +90,15 @@ finally:
     sys.platform = old_platform
 
 check("legacy plain credential values remain readable", secret.unprotect(b"plain:dG9rZW4=") == b"token")
+
+if sys.platform == "darwin":
+    with patch("locations.subprocess.check_output", side_effect=[
+            "8589934592\n",
+            "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+            "Pages free: 100.\nPages inactive: 200.\nPages speculative: 25.\nPages purgeable: 5.\n"]):
+        memory = locations.memory()
+    check("macOS reports available unified memory for render throttling",
+          memory == {"free": 330 * 16384, "total": 8589934592})
 
 assets = [
     {"name": "TwitchDownloaderCLI-1.0-MacOSArm64.zip"},

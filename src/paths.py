@@ -48,6 +48,11 @@ def _rename_target(base: Path, new_name: str) -> Path:
 RES_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 # folder containing ClipRadar.exe (or the source files)
 APP_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
+# PyInstaller's macOS executable lives in Contents/MacOS; updates replace the
+# containing .app bundle, while APP_DIR continues to mean the executable folder.
+_EXECUTABLE = Path(sys.executable).resolve()
+APP_BUNDLE = (_EXECUTABLE.parents[2] if FROZEN and IS_MAC and len(_EXECUTABLE.parents) >= 3
+              and _EXECUTABLE.parents[2].suffix == ".app" else None)
 
 
 def _data_dir() -> Path:

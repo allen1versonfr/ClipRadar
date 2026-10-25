@@ -5,6 +5,12 @@
 /* =============================================================== utilities */
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
+const IS_MAC = /Mac/i.test(navigator.platform);
+if (IS_MAC) {
+  $('#aboutLog').textContent = 'If something goes wrong, the log file is at ~/Library/Application Support/ClipRadar/clipradar.log.';
+  const responsive = $('#pfPriority button[data-v="responsive"]');
+  if (responsive) responsive.textContent = 'Keep the Mac responsive';
+}
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`; };
@@ -2298,7 +2304,7 @@ $('#exCopy').onclick = () => { const q = queueItems.find(x => x.id === exSel); i
 
 /* TikTok Studio handoff. Upload to TikTok (4.18) drives TikTok Studio in Clip Radar's own browser window:
    the video goes in, the caption is typed, and Post is pressed only when "Press Post for me" is on.
-   Open TikTok Studio is the manual way: the caption copied, the file shown in File Explorer, the page
+   Open TikTok Studio is the manual way: the caption copied, the file shown in Finder or File Explorer, the page
    opened. Clip Radar only says a clip was posted when TikTok confirmed it in its window. */
 let studioState = { available: false, press_post: false };
 async function loadStudio() {
@@ -2342,7 +2348,7 @@ function renderTTStatus(q) {
   $('#ttPressRow').hidden = $('#ttPressHint').hidden = !studioState.available;
   $('#ttIntro').textContent = studioState.available
     ? "Upload to TikTok opens TikTok Studio in Clip Radar's own browser window, puts the video in and types the caption. Sign in to TikTok there the first time."
-    : 'Clip Radar gets it ready; you post it in TikTok Studio. The caption is copied, the video is selected in File Explorer to drag in, and TikTok Studio\'s upload page opens in your browser.';
+    : 'Clip Radar gets it ready; you post it in TikTok Studio. The caption is copied, the video is shown in Finder or File Explorer to drag in, and TikTok Studio\'s upload page opens in your browser.';
   $('#ttAuto').disabled = !!step;
   el.hidden = !h && !step;
   const at = h ? esc(new Date(h.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : '';
@@ -2354,7 +2360,7 @@ function renderTTStatus(q) {
   else if (h.auto === 'pressed') el.innerHTML = `<span>Clip Radar pressed Post at ${at}, but TikTok hadn't confirmed it yet.</span>`
     + '<span class="muted">Look in Clip Radar\'s TikTok window to see whether it went through.</span>';
   else if (h.auto === 'failed') el.innerHTML = `<span class="st-err">${icon('alert')}The upload stopped while ${esc(TT_STEP[h.step] || 'working in TikTok Studio')}.</span>`
-    + `<span class="muted">${esc(h.error || '')} The video is selected in File Explorer, so you can drag it in and finish there.</span>`;
+    + `<span class="muted">${esc(h.error || '')} The video is shown in Finder or File Explorer, so you can drag it in and finish there.</span>`;
   else if (h.auto === 'working') el.innerHTML = '<span class="muted">An upload was started but Clip Radar was closed before it finished. Upload again, or finish it in the TikTok window.</span>';
   else el.innerHTML = `<span>${icon('check')}Opened TikTok Studio ${at}.</span>`
     + '<span class="muted">Finish uploading and posting there. Clip Radar can\'t see your browser, so it doesn\'t know whether the clip was posted.</span>';
@@ -2369,7 +2375,7 @@ $('#ttStudio').onclick = async () => {
     await api('/api/handoff', { item: q.id, caption: text });
     q.handoff = { at: Date.now() / 1000 }; q.post = text;
     renderTTStatus(q); renderExports();
-    toast('TikTok Studio is opening. The caption is copied and the video is selected in File Explorer.', '', 6000);
+    toast('TikTok Studio is opening. The caption is copied and the video is shown in Finder or File Explorer.', '', 6000);
   } catch (e) { $('#ttErr').textContent = e.message; }
 };
 $('#ttAuto').onclick = async () => {
@@ -2654,7 +2660,7 @@ function renderHotkey() {
   const h = status.hotkey || {};
   $('#hkKeys').textContent = h.keys || 'Ctrl+Alt+C';
   $('#hkOn').checked = h.enabled !== false; $('#hkOn').disabled = !h.supported;
-  $('#hkState').textContent = !h.supported ? 'Only available in the Windows app.' : h.error ? h.error
+  $('#hkState').textContent = !h.supported ? 'Not available on this computer.' : h.error ? h.error
     : h.registered ? 'Ready. Press it while live clipping is running.' : 'Off';
 }
 $('#hkOn').onchange = async e => { try { status.hotkey = await api('/api/hotkey', { enabled: e.target.checked }); renderHotkey(); syncLiveCard(); } catch (err) { toast(err.message, 'err'); } };
@@ -2980,7 +2986,7 @@ async function saveExport(patch) {
 async function loadPerf() {
   let p; try { p = await api('/api/perf'); } catch { return; }
   const sp = Object.entries(p.speeds || {}).map(([k, v]) => `${k.replace('libx264', 'CPU (x264)')} ${v}× real time`).join(', ');
-  $('#pfInfo').textContent = `This PC: ${p.cpus} processor threads${p.mem_total ? ` · memory ${fmtBytes(p.mem_free)} free of ${fmtBytes(p.mem_total)}` : ''}${p.waiting_for_memory ? ' (extra renders wait until more is free)' : ''} · video encoder: ${p.encoder}` + (sp ? ` · renders so far: ${sp}` : ' · render speed is measured as clips render, for the time estimates');
+  $('#pfInfo').textContent = `${IS_MAC ? 'This Mac' : 'This PC'}: ${p.cpus} processor threads${p.mem_total ? ` · memory ${fmtBytes(p.mem_free)} free of ${fmtBytes(p.mem_total)}` : ''}${p.waiting_for_memory ? ' (extra renders wait until more is free)' : ''} · video encoder: ${p.encoder}` + (sp ? ` · renders so far: ${sp}` : ' · render speed is measured as clips render, for the time estimates');
 }
 const customPatch = kv => saveExport({ custom: Object.assign({}, (exState && exState.prefs.custom) || {}, kv) });
 $('#exPreset').onclick = e => { const v = e.target.closest('button')?.dataset.v; if (v) saveExport({ preset: v }); };

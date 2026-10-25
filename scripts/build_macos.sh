@@ -39,11 +39,18 @@ export PYINSTALLER_CONFIG_DIR="$ROOT/build/pyinstaller-config"
   --add-data "tools/ffmpeg:tools" --add-data "tools/ffprobe:tools" \
   --hidden-import keyring.backends.macOS \
   --hidden-import webview.platforms.cocoa \
+  --collect-all pynput \
+  --hidden-import Quartz \
   src/app.py
 
 chmod 755 dist/ClipRadar.app/Contents/MacOS/ClipRadar
 chmod 755 dist/ClipRadar.app/Contents/Resources/tools/ffmpeg dist/ClipRadar.app/Contents/Resources/tools/ffprobe
 codesign --force --deep --sign - dist/ClipRadar.app
-hdiutil create -volname "Clip Radar" -srcfolder dist/ClipRadar.app -ov -format UDZO dist/ClipRadar.dmg
-hdiutil imageinfo dist/ClipRadar.dmg >/dev/null
-echo "Built dist/ClipRadar.app and dist/ClipRadar.dmg (ad-hoc signed; not notarized)."
+ditto -c -k --sequesterRsrc --keepParent dist/ClipRadar.app dist/ClipRadar-macOS-arm64.zip
+unzip -tq dist/ClipRadar-macOS-arm64.zip
+if hdiutil create -volname "Clip Radar" -srcfolder dist/ClipRadar.app -ov -format UDZO dist/ClipRadar-macOS-arm64.dmg; then
+  hdiutil imageinfo dist/ClipRadar-macOS-arm64.dmg >/dev/null
+  echo "Built dist/ClipRadar.app, the updater ZIP, and the installer DMG (ad-hoc signed; not notarized)."
+else
+  echo "Built dist/ClipRadar.app and the updater ZIP; DMG creation failed (ad-hoc signed; not notarized)." >&2
+fi

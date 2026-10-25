@@ -96,7 +96,7 @@ export function UpdatesPanel({ version }: { version: string | undefined }) {
       </label>
       <details className="adv" open={u?.token || /private/i.test(u?.error ?? '') || undefined}>
         <summary>Private repository {u?.token && <span className="muted">· token {u.token_hint} saved</span>}</summary>
-        <p className="fine">If Clip Radar's GitHub repository is private, updates need a read-only access token. On GitHub: Settings › Developer settings › Fine-grained tokens › Generate. Pick only the vodclipper repository and give it <b>Contents: Read-only</b>. It's stored encrypted for your Windows account.</p>
+        <p className="fine">If Clip Radar's GitHub repository is private, updates need a read-only access token. On GitHub: Settings › Developer settings › Fine-grained tokens › Generate. Pick only the vodclipper repository and give it <b>Contents: Read-only</b>. It's stored securely for your account.</p>
         <div className="row">
           <input className="input grow" type="password" placeholder="github_pat_…" autoComplete="off" spellCheck={false} aria-label="GitHub access token"
                  value={token} onChange={e => setToken(e.target.value)} />

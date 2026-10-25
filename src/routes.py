@@ -597,6 +597,8 @@ class Handler(BaseHTTPRequestHandler):
             v = updater.view()
             if not v["available"]:
                 return self._err("You already have the latest version.", 400)
+            if not updater.can_install_update():
+                return self._err("This release doesn't include a download for this Mac yet. Open its GitHub release page and try again once the macOS build is ready.", 400)
             if v["state"] in ("downloading", "installing"):
                 return self._json(v)
             if S.busy():
@@ -756,7 +758,7 @@ class Handler(BaseHTTPRequestHandler):
                         studio.reveal(it.get("path", ""))           # finish it by hand: the file, shown
                         it["handoff"].update(auto="failed", step=e.step, error=str(e))
                         S.save_queue_soon()
-                        raise RuntimeError(f"{e} The video is selected in File Explorer and the caption is copied, "
+                        raise RuntimeError(f"{e} The video is shown in Finder or File Explorer and the caption is copied, "
                                            "so you can finish in the TikTok window.") from None
                     it["handoff"].update(auto="posted" if r["posted"] else "pressed" if r["pressed"] else "ready")
                     S.save_queue_soon()

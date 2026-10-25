@@ -1,0 +1,74 @@
+name: Build macOS app
+
+# Build after the Windows workflow has completed and created this version's
+# GitHub release. The ZIP is also the payload the in-app macOS updater uses.
+on:
+  workflow_run:
+    workflows: ["Build and test"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request' && (github.event.workflow_run.head_branch == 'main' || startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install build tools
+        run: |
+          brew install ffmpeg
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt pyinstaller
+          mkdir -p tools
+          ln -sf "$(command -v ffmpeg)" tools/ffmpeg
+          ln -sf "$(command -v ffprobe)" tools/ffprobe
+
+      - name: Build and test the shared interface
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Test macOS updater and platform foundation
+        run: |
+          .venv/bin/python tests/test_updater_macos.py
+          .venv/bin/python tests/test_macos_desktop.py
+          .venv/bin/python tests/test_macos_foundation.py
+
+      - name: Build the Apple Silicon app and disk image
+        run: scripts/build_macos.sh
+
+      - name: Verify and publish macOS downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(.venv/bin/python -c 'import sys; sys.path.insert(0, "src"); from version import VERSION; print(VERSION)')
+          tag="v${version}"
+          test "$(uname -m)" = arm64
+          codesign --verify --deep --strict dist/ClipRadar.app
+          unzip -tq dist/ClipRadar-macOS-arm64.zip
+          plutil -extract CFBundleIdentifier raw dist/ClipRadar.app/Contents/Info.plist | grep -qx com.clipradar.app
+          for n in $(seq 1 60); do gh release view "$tag" >/dev/null 2>&1 && break; sleep 20; done
+          gh release view "$tag" >/dev/null
+          gh release upload "$tag" dist/ClipRadar-macOS-arm64.zip --clobber
+          if [[ -f dist/ClipRadar-macOS-arm64.dmg ]]; then
+            gh release upload "$tag" dist/ClipRadar-macOS-arm64.dmg --clobber
+          fi

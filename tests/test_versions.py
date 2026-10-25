@@ -27,6 +27,10 @@ sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import updater  # noqa: E402
 
+# This suite exercises the Windows release assets; the macOS archive path has
+# its own suite in test_updater_macos.py.
+updater.PLATFORM = "win32"
+
 failures = []
 
 

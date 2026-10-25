@@ -3,6 +3,22 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.19.0] - 2026-10-24
+
+### Added
+- Apple Silicon macOS update support: packaged app copies can find and download the `ClipRadar-macOS-arm64.zip` release asset, safely stage a replacement `.app`, and reopen after the old process exits. Downloaded bytes are checked against GitHub's SHA-256 when the release supplies one.
+- A system-wide Ctrl+Option+C live clip shortcut, with macOS Accessibility permission guidance, and TikTok Studio browser discovery for Edge, Chrome, Brave and Chromium on macOS.
+- Performance settings now report available macOS unified memory for queue throttling and show Mac-specific system labels.
+- An Apple Silicon release workflow builds and attaches a macOS app ZIP for in-app updates and a DMG for first-time installation after the Windows release checks pass.
+- macOS installation and update instructions in the README.
+
+### Changed
+- Update availability now selects the release asset for the current operating system. The existing Windows Setup update flow remains in place.
+- Private-repository token guidance now describes secure account storage without assuming Windows.
+
+### Known limitations
+- The public macOS build remains ad-hoc signed and not notarized. The real Accessibility permission prompt, a GitHub-hosted release attachment, and a second-version in-app replacement still need end-to-end verification.
+
 ## [4.18.2] - 2026-10-24
 
 ### Fixed

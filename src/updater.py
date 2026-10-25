@@ -1,11 +1,10 @@
 """
 Updates from GitHub Releases.
 
-Clip Radar checks the latest release of the repository and compares its tag
-(vX.Y.Z) with the running version. Installed copies download the new
-ClipRadar-Setup.exe and run it silently; the installer closes Clip Radar,
-upgrades it in place and opens it again. Portable and source copies just point
-to the release page.
+Windows installed copies download and run ClipRadar-Setup.exe. Installed
+macOS .app copies download the Apple Silicon ZIP, stage a replacement bundle,
+then use a detached helper to replace and reopen the app after it exits.
+Portable and source copies point to the release page.
 
 CLIPRADAR_UPDATE_API overrides the release URL (tests).
 """
@@ -28,10 +27,12 @@ import paths
 from version import VERSION
 
 REPO = "allen1versonfr/vodclipper"
+PLATFORM = sys.platform
 API = os.environ.get("CLIPRADAR_UPDATE_API", f"https://api.github.com/repos/{REPO}/releases/latest")
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 SETUP_ASSET = "ClipRadar-Setup.exe"
 OLD_ASSET = "VodClipper-Setup.exe"         # releases also carry the installer under the old name, for VodClipper's updater
+MAC_ASSET = "ClipRadar-macOS-arm64.zip"
 AUTO_EVERY = 6 * 3600                      # background check interval
 PREFS = paths.DATA_DIR / "update.json"
 DOWNLOADS = paths.DATA_DIR / "updates"
@@ -68,9 +69,24 @@ def newer(a: str, b: str) -> bool:
 
 
 def installed() -> bool:
-    """Installed with Setup (so it can update itself): the uninstaller sits next to the exe."""
-    return paths.FROZEN and sys.platform == "win32" and any(
-        (paths.APP_DIR / n).is_file() for n in ("unins000.exe", "unins001.exe"))
+    """Whether this packaged copy can replace itself in its current location."""
+    if not paths.FROZEN:
+        return False
+    if PLATFORM == "win32":
+        return any((paths.APP_DIR / n).is_file() for n in ("unins000.exe", "unins001.exe"))
+    if PLATFORM == "darwin":
+        bundle = getattr(paths, "APP_BUNDLE", None)
+        return bool(bundle and bundle.is_dir() and os.access(bundle.parent, os.W_OK))
+    return False
+
+
+def _download_name(version: str) -> str:
+    return f"ClipRadar-macOS-arm64-{version}.zip" if PLATFORM == "darwin" else f"ClipRadar-Setup-{version}.exe"
+
+
+def downloaded_for(version: str) -> str:
+    path = _file[0]
+    return path if path and os.path.isfile(path) and os.path.basename(path) == _download_name(version) else ""
 
 
 def prefs() -> dict:
@@ -92,12 +108,18 @@ def set_prefs(auto: bool):
 def view() -> dict:
     with _lock:
         v = dict(state)
-    v["can_install"] = installed()
+        has_asset = bool(_asset.get("browser_download_url"))
+    v["can_install"] = installed() and (has_asset if v["available"] else True)
     tok = get_token()
     v["token"] = bool(tok)
     v["token_hint"] = ("…" + tok[-4:]) if tok else ""
     v["auto"] = prefs()["auto"]
     return v
+
+
+def can_install_update() -> bool:
+    with _lock:
+        return installed() and bool(state["available"] and _asset.get("browser_download_url"))
 
 
 TOKEN_FILE = paths.DATA_DIR / "github.dat"
@@ -195,7 +217,7 @@ def check(log=print) -> dict:
         with _lock:
             _asset.clear()
             _asset.update(asset)
-            state.update(state="ready" if (avail and _file[0] and _file[0].endswith(f"-{tag.lstrip('v')}.exe")) else "idle",
+            state.update(state="ready" if (avail and downloaded_for(tag.lstrip("v"))) else "idle",
                          available=avail, latest=tag.lstrip("v"), notes=_plain_notes(rel.get("body", "")),
                          page=rel.get("html_url") or RELEASES_PAGE, published=rel.get("published_at") or "",
                          size=int(asset.get("size") or 0), checked=time.time(), error="")
@@ -232,6 +254,8 @@ LIST_API = API.rsplit("/latest", 1)[0] + "?per_page=100"
 
 
 def _pick_asset(assets: list) -> dict:
+    if PLATFORM == "darwin":
+        return next((a for a in assets if a.get("name") == MAC_ASSET), {})
     return next((a for a in assets if a.get("name") == SETUP_ASSET), None) or \
         next((a for a in assets if a.get("name") == OLD_ASSET), {})
 
@@ -279,7 +303,7 @@ def choose(version: str):
         _asset.update(rel["setup"])
         state.update(available=True, latest=version, notes=rel["notes"], page=rel["page"], published=rel["published"],
                      size=int(rel["setup"].get("size") or 0), state="idle", error="")
-        if _file[0] and not _file[0].endswith(f"-{version}.exe"):
+        if _file[0] and os.path.basename(_file[0]) != _download_name(version):
             _file[0] = ""
 
 
@@ -293,12 +317,13 @@ def download(log=print) -> str:
         ver = state["latest"]
         state.update(state="downloading", progress=0.0, error="")
     DOWNLOADS.mkdir(parents=True, exist_ok=True)
-    for old in [*DOWNLOADS.glob("ClipRadar-Setup-*"), *DOWNLOADS.glob("VodClipper-Setup-*")]:        # earlier updates
+    for old in [*DOWNLOADS.glob("ClipRadar-Setup-*"), *DOWNLOADS.glob("VodClipper-Setup-*"),
+                *DOWNLOADS.glob("ClipRadar-macOS-arm64-*")]:
         try:
             old.unlink()
         except OSError:
             pass
-    dest = DOWNLOADS / f"ClipRadar-Setup-{ver}.exe"
+    dest = DOWNLOADS / _download_name(ver)
     part = dest.with_suffix(".part")
     try:
         h = hashlib.sha256()
@@ -340,7 +365,23 @@ def download(log=print) -> str:
 
 
 def launch_installer(path: str, log=print):
-    """Run Setup silently. It waits for Clip Radar to close, upgrades it, then opens it again."""
+    """Start the platform installer/replacer and return so the app can shut down."""
+    if PLATFORM == "darwin":
+        if not installed():
+            raise RuntimeError("Move Clip Radar to a folder you can write to (such as ~/Applications) before updating.")
+        bundle = getattr(paths, "APP_BUNDLE", None)
+        staged = _stage_macos_bundle(path)
+        script = DOWNLOADS / "replace-macos-app.sh"
+        script.write_text(_macos_replace_script(), encoding="utf-8")
+        script.chmod(0o700)
+        log_path = DOWNLOADS / "update-install.log"
+        subprocess.Popen(["/bin/sh", str(script), str(os.getpid()), str(bundle), staged, str(log_path)],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         close_fds=True, start_new_session=True, cwd=str(DOWNLOADS))
+        with _lock:
+            state.update(state="installing")
+        log(f"Started the macOS app replacement for {state['latest']}")
+        return
     if not installed():
         raise RuntimeError("This copy of Clip Radar wasn't installed with Setup, so it can't update itself.")
     args = [path, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/UPDATE=1",
@@ -350,6 +391,92 @@ def launch_installer(path: str, log=print):
     with _lock:
         state.update(state="installing")
     log(f"Started the installer for {state['latest']}")
+
+
+def _stage_macos_bundle(archive: str) -> str:
+    """Safely extract only the expected app bundle from a release ZIP."""
+    import shutil
+    import plistlib
+    import stat
+    import zipfile
+    from pathlib import PurePosixPath
+
+    if not zipfile.is_zipfile(archive):
+        raise RuntimeError("The macOS update file is not a valid ZIP archive.")
+    target = DOWNLOADS / f"staged-{state['latest']}"
+    shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        with zipfile.ZipFile(archive) as zf:
+            total = 0
+            for info in zf.infolist():
+                name = PurePosixPath(info.filename)
+                if name.is_absolute() or ".." in name.parts or not name.parts:
+                    raise RuntimeError("The macOS update ZIP contains an unexpected file path.")
+                if name.parts[0] == "__MACOSX" or name.name.startswith("._"):
+                    continue
+                if name.parts[0] != "ClipRadar.app":
+                    raise RuntimeError("The macOS update ZIP contains an unexpected file path.")
+                total += info.file_size
+                if total > 3 * 1024 ** 3:
+                    raise RuntimeError("The macOS update ZIP is unexpectedly large.")
+                mode = info.external_attr >> 16
+                if stat.S_ISLNK(mode):
+                    link = zf.read(info).decode("utf-8", errors="strict")
+                    resolved = PurePosixPath(os.path.normpath(str(name.parent / link)))
+                    if PurePosixPath(link).is_absolute() or ".." in resolved.parts or not resolved.parts \
+                            or resolved.parts[0] != "ClipRadar.app":
+                        raise RuntimeError("The macOS update ZIP contains an unsafe symbolic link.")
+        # ditto preserves the app's framework symlinks, executable modes and
+        # macOS resource forks, which a plain ZIP extraction would discard.
+        subprocess.run(["/usr/bin/ditto", "-x", "-k", archive, str(target)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    except Exception:
+        shutil.rmtree(target, ignore_errors=True)
+        raise
+    bundle = target / "ClipRadar.app"
+    if not (bundle / "Contents/Info.plist").is_file() or not (bundle / "Contents/MacOS/ClipRadar").is_file() \
+            or not os.access(bundle / "Contents/MacOS/ClipRadar", os.X_OK):
+        shutil.rmtree(target, ignore_errors=True)
+        raise RuntimeError("The update ZIP doesn't contain a complete Clip Radar app.")
+    try:
+        with (bundle / "Contents/Info.plist").open("rb") as f:
+            bundle_id = plistlib.load(f).get("CFBundleIdentifier")
+        if bundle_id != "com.clipradar.app":
+            raise RuntimeError("The update ZIP is not a Clip Radar app bundle.")
+        subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(bundle)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    except Exception as e:
+        shutil.rmtree(target, ignore_errors=True)
+        if isinstance(e, RuntimeError):
+            raise
+        raise RuntimeError("macOS could not verify the updated Clip Radar app bundle.") from e
+    return str(bundle)
+
+
+def _macos_replace_script() -> str:
+    """Detached helper waits for the app to exit, then swaps and relaunches the bundle."""
+    return '''#!/bin/sh
+set -eu
+pid="$1"; bundle="$2"; staged="$3"; log="$4"
+parent=$(dirname "$bundle")
+candidate="$parent/.ClipRadar.app.update.$$"
+backup="$parent/.ClipRadar.app.old.$$"
+fail() { printf '%s\\n' "$*" >> "$log"; exit 1; }
+while /bin/kill -0 "$pid" 2>/dev/null; do /bin/sleep 0.5; done
+[ -w "$parent" ] || fail "The app folder is not writable; move Clip Radar to ~/Applications and retry."
+/usr/bin/ditto "$staged" "$candidate" || fail "Could not prepare the updated app bundle."
+/bin/mv "$bundle" "$backup" || fail "Could not move the old app bundle."
+if /bin/mv "$candidate" "$bundle"; then
+  /bin/rm -rf "$backup"
+  /usr/bin/open "$bundle" || fail "The update was installed but Clip Radar did not reopen."
+  /bin/rm -rf "$(dirname "$staged")"
+  printf '%s\\n' "Installation process succeeded" >> "$log"
+else
+  /bin/mv "$backup" "$bundle"
+  fail "Could not install the updated app; restored the previous version."
+fi
+'''
 
 
 def start_background(log=print):

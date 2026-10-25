@@ -31,6 +31,8 @@ export function PerformancePanel() {
     setPending({})
   }
   const p = pc.data
+  const computer = /Mac/i.test(navigator.platform) ? 'This Mac' : 'This PC'
+  const responsive = /Mac/i.test(navigator.platform) ? 'Keep the Mac responsive' : 'Keep the PC responsive'
   const speeds = Object.entries(p?.speeds ?? {}).map(([k, v]) => `${k.replace('libx264', 'CPU (x264)')} ${v}× real time`).join(', ')
   const select = (label: string, key: 'renders' | 'downloads' | 'lives') => (
     <label>{label}
@@ -49,11 +51,11 @@ export function PerformancePanel() {
       </div>
       <div className="fld">While rendering
         <Seg label="While rendering" value={pr?.priority ?? 'responsive'} onChange={v => void save({ priority: v === 'fast' ? 'fast' : 'responsive' })}
-             options={[['responsive', 'Keep the PC responsive'], ['fast', 'Finish faster']]} />
+             options={[['responsive', responsive], ['fast', 'Finish faster']]} />
       </div>
       {p && (
         <p className="fine" data-testid="perf-info">
-          This PC: {p.cpus} processor threads{p.mem_total ? ` · memory ${fmtBytes(p.mem_free)} free of ${fmtBytes(p.mem_total)}` : ''}
+          {computer}: {p.cpus} processor threads{p.mem_total ? ` · memory ${fmtBytes(p.mem_free)} free of ${fmtBytes(p.mem_total)}` : ''}
           {p.waiting_for_memory ? ' (extra renders wait until more is free)' : ''} · video encoder: {p.encoder}
           {speeds ? ` · renders so far: ${speeds}` : ' · render speed is measured as clips render, for the time estimates'}
         </p>
@@ -77,7 +79,7 @@ export function HotkeyPanel({ status, refreshStatus }: { status: Status | undefi
     await refreshStatus()
     setEnabledNow(undefined)
   }
-  const state = !h ? '' : !h.supported ? 'Only available in the Windows app.' : h.error ? h.error
+  const state = !h ? '' : !h.supported ? 'Not available on this computer.' : h.error ? h.error
     : h.registered ? 'Ready. Press it while live clipping is running.' : 'Off'
   return (
     <section className="panel set" aria-labelledby="set-live" data-testid="set-live">
@@ -176,6 +178,9 @@ export function AboutPanel() {
   const confirm = useConfirm()
   const storage = usePoll(() => api(Storage, '/api/storage'), 10 * 60_000)
   const [gone, setGone] = useState(false)
+  const logPath = /Mac/i.test(navigator.platform)
+    ? '~/Library/Application Support/ClipRadar/clipradar.log'
+    : '%LOCALAPPDATA%\\ClipRadar\\clipradar.log'
   async function uninstall() {
     if (!await confirm({ title: 'Uninstall Clip Radar?', ok: 'Uninstall', danger: true,
       body: 'Clip Radar will close and the Windows uninstaller will open. It asks before deleting your VODs and clips.' })) return
@@ -194,7 +199,7 @@ export function AboutPanel() {
         {storage.data?.uninstaller && !gone && <button className="btn danger" onClick={() => void uninstall()}>Uninstall…</button>}
       </div>
       {gone && <p className="notice" role="status">Uninstalling Clip Radar. Follow the uninstaller window.</p>}
-      <p className="fine">If something goes wrong, the log file is at %LOCALAPPDATA%\ClipRadar\clipradar.log.</p>
+      <p className="fine">If something goes wrong, the log file is at {logPath}.</p>
     </section>
   )
 }

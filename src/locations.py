@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -284,6 +287,16 @@ def stale_partials(roots: list, older_than: float = 24 * 3600) -> list:
 def memory() -> dict:
     """{"free", "total"} in bytes, or Nones when it can't be read."""
     try:
+        if sys.platform == "darwin":
+            total = int(subprocess.check_output(["/usr/sbin/sysctl", "-n", "hw.memsize"], text=True).strip())
+            stats = subprocess.check_output(["/usr/bin/vm_stat"], text=True)
+            page = int(re.search(r"page size of (\d+) bytes", stats).group(1))
+            available = 0
+            for label in ("Pages free", "Pages inactive", "Pages speculative", "Pages purgeable"):
+                match = re.search(rf"^{label}:\s*([\d,]+)", stats, re.M)
+                if match:
+                    available += int(match.group(1).replace(",", ""))
+            return {"free": available * page, "total": total}
         if os.name == "nt":
             import ctypes
 
