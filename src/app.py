@@ -224,7 +224,12 @@ def selftest(out_json: str, media: str = "") -> int:
                        ("TwitchDownloaderCLI", ["--version"])):
         exe = engine.which(tool)
         if not exe:
-            rec(f"tool {tool}", False, "not found")
+            if paths.IS_MAC and tool == "yt-dlp" and importlib.util.find_spec("yt_dlp"):
+                rec(f"tool {tool}", True, "using the bundled Python package")
+            elif paths.IS_MAC and tool == "TwitchDownloaderCLI":
+                rec(f"tool {tool}", True, "optional; install from Settings › Downloads and tools")
+            else:
+                rec(f"tool {tool}", False, "not found")
             continue
         try:
             p = subprocess.run([exe, *args], capture_output=True, text=True, timeout=60, encoding="utf-8",

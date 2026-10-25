@@ -217,12 +217,29 @@ try:
     check("rejects junk", False)
 except ValueError:
     check("rejects junk", True)
+
+# Use an in-memory Keychain stand-in. The suite verifies the credential adapter without creating
+# persistent credentials in the developer's real login Keychain.
+import types
+keychain_items = {}
+fake_keyring = types.SimpleNamespace(
+    set_password=lambda service, account, value: keychain_items.__setitem__((service, account), value),
+    get_password=lambda service, account: keychain_items.get((service, account)),
+    delete_password=lambda service, account: keychain_items.pop((service, account), None),
+    errors=types.SimpleNamespace(PasswordDeleteError=type("PasswordDeleteError", (Exception,), {})),
+)
+_TestKeychain = type("Keyring", (), {})
+_TestKeychain.__module__ = "keyring.backends.macOS"
+fake_keyring.get_keyring = lambda: _TestKeychain()
+sys.modules["keyring"] = fake_keyring
 twitchauth._save({"token": "abcdefghijklmnopqrstuvwxyz0123"})
 with twitchauth.cookie_file() as cf:
     body = open(cf, encoding="utf-8").read()
     gone_later = cf
 check("cookie file for yt-dlp", ".twitch.tv\tTRUE\t/\tTRUE\t0\tauth-token\tabcdefghijklmnopqrstuvwxyz0123" in body
       and not os.path.exists(gone_later))
+twitchauth.secret.delete(twitchauth.STORE.read_bytes())
+twitchauth.STORE.unlink(missing_ok=True)
 
 # ------------------------------------------------------------------ weak moments in a video without chat
 # real-world test: a 28-min YouTube upload had 2 strong moments and was padded to 5 with clips scoring 45

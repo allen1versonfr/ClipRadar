@@ -8,6 +8,7 @@ from pathlib import Path
 
 FROZEN = bool(getattr(sys, "frozen", False))
 IS_WIN = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
 
 # Clip Radar was called VodClipper before 4.0. Settings made for the old name keep working.
 OLD_NAME, DATA_NAME, CLIPS_NAME = "VodClipper", "ClipRadar", "Clip Radar"
@@ -56,6 +57,8 @@ def _data_dir() -> Path:
         return APP_DIR
     if IS_WIN:
         base = os.environ.get("LOCALAPPDATA") or os.path.join(Path.home(), "AppData", "Local")
+    elif IS_MAC:
+        base = Path.home() / "Library" / "Application Support"
     else:
         base = os.path.join(Path.home(), ".local", "share")
     return _rename_target(Path(base), DATA_NAME)
@@ -74,14 +77,15 @@ if FROZEN:
 def tools_dirs() -> list:
     out = []
     extra = [] if FROZEN else [APP_DIR.parent / "tools"]      # repo-root tools/ when run from source
-    for d in [TOOLS_WRITE, APP_DIR / "tools", RES_DIR / "tools", *extra]:
+    system = [Path(p) for p in ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin")] if IS_MAC else []
+    for d in [TOOLS_WRITE, APP_DIR / "tools", RES_DIR / "tools", *extra, *system]:
         if d not in out:
             out.append(d)
     return out
 
 
 def _videos_folder() -> Path:
-    """The user's real Videos folder (it may be moved, e.g. into OneDrive)."""
+    """The user's media folder (Windows Videos, macOS Movies)."""
     if IS_WIN:
         try:
             import ctypes
@@ -102,7 +106,7 @@ def _videos_folder() -> Path:
                     return Path(path)
         except Exception:
             pass
-    return Path.home() / "Videos"
+    return Path.home() / ("Movies" if IS_MAC else "Videos")
 
 
 def _work_root() -> Path:
@@ -112,6 +116,11 @@ def _work_root() -> Path:
     if not FROZEN:
         return APP_DIR / "projects"
     videos = _videos_folder()
+    if IS_MAC:
+        try:
+            videos.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            videos = Path.home()
     return _rename_target(videos if videos.is_dir() else Path.home(), CLIPS_NAME)
 
 

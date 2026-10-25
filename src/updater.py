@@ -116,15 +116,30 @@ def set_token(tok: str):
     tok = (tok or "").strip()
     if not tok:
         try:
+            from secret import delete
+            delete(TOKEN_FILE.read_bytes())
+        except Exception:
+            pass
+        try:
             TOKEN_FILE.unlink()
         except OSError:
             pass
         return
     if not re.fullmatch(r"(ghp_|github_pat_|gho_|ghs_)[A-Za-z0-9_]{20,255}", tok):
         raise ValueError("That doesn't look like a GitHub token. They start with github_pat_ or ghp_.")
-    from secret import protect
+    from secret import delete, protect
     TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_FILE.write_bytes(protect(tok.encode("utf-8")))
+    old = TOKEN_FILE.read_bytes() if TOKEN_FILE.exists() else b""
+    new = protect(tok.encode("utf-8"))
+    tmp = TOKEN_FILE.with_suffix(".tmp")
+    try:
+        tmp.write_bytes(new)
+        os.replace(tmp, TOKEN_FILE)
+    except Exception:
+        delete(new)
+        raise
+    if old and old != new:
+        delete(old)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
