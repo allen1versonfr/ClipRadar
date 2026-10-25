@@ -27,11 +27,11 @@ import urllib.request
 import paths
 from version import VERSION
 
-REPO = "allen1versonfr/vodclipper"
+REPO = "allen1versonfr/ClipRadar"
 API = os.environ.get("CLIPRADAR_UPDATE_API", f"https://api.github.com/repos/{REPO}/releases/latest")
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 SETUP_ASSET = "ClipRadar-Setup.exe"
-OLD_ASSET = "VodClipper-Setup.exe"         # releases also carry the installer under the old name, for VodClipper's updater
+OLD_ASSET = "VodClipper-Setup.exe"         # read-only compatibility with genuine pre-4.0 release archives
 AUTO_EVERY = 6 * 3600                      # background check interval
 PREFS = paths.DATA_DIR / "update.json"
 DOWNLOADS = paths.DATA_DIR / "updates"
@@ -92,7 +92,8 @@ def set_prefs(auto: bool):
 def view() -> dict:
     with _lock:
         v = dict(state)
-    v["can_install"] = installed()
+        has_asset = bool(_asset.get("browser_download_url"))
+    v["can_install"] = installed() and (has_asset if v["available"] else True)
     tok = get_token()
     v["token"] = bool(tok)
     v["token_hint"] = ("…" + tok[-4:]) if tok else ""

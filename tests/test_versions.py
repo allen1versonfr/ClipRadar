@@ -60,6 +60,14 @@ for bad in ("3.11.0", "4.1.0", "1.0.0"):
     except ValueError as e:
         check(f"refuses {bad}", "newer" in str(e) or "installer" in str(e), str(e))
 
+# A release can become visible before its installer finishes uploading.
+# Keep its release page available without offering an installation that must fail.
+updater.state["available"] = True
+updater._asset.clear()
+check("an announced release without an installer cannot be installed", not updater.view()["can_install"])
+updater._asset["browser_download_url"] = "https://example.test/ClipRadar-Setup.exe"
+check("installation becomes available when the installer exists", updater.view()["can_install"])
+
 updater.installed = lambda: False
 check("a portable copy sees the list but can't install", not any(x["installable"] for x in updater.versions()["versions"]))
 

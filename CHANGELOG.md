@@ -3,6 +3,20 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [4.18.3] - 2026-10-25
+
+### Fixed
+- Update checks, downloads and model provisioning use the renamed ClipRadar repository.
+- Releases publish only the ClipRadar installer, portable ZIP and source archive. Removed the duplicate VodClipper-named installer; release validation rejects unexpected filenames before publication.
+- Existing 4.x releases have a maintenance job to remove duplicate VodClipper executables when the ClipRadar installer exists. Genuine pre-4.0 archives remain intact.
+- Updates no longer offer installation while a release is still missing its installer.
+
+### Compatibility
+- Copies still branded VodClipper (before 4.0) must install ClipRadar-Setup.exe manually to move to current releases. Their original installers remain archived.
+
+### Tests
+- Added release asset validation and cleanup policy tests; extended updater availability checks. React tests and production build pass.
+
 ## [4.18.2] - 2026-10-24
 
 ### Fixed

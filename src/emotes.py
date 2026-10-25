@@ -33,7 +33,7 @@ API = {
 GQL = os.environ.get("CLIPRADAR_TWITCH_GQL", "https://gql.twitch.tv/gql")
 WEB_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 MAX_AGE = 24 * 3600          # refresh cached lists after a day
-UA = {"User-Agent": "ClipRadar (+https://github.com/allen1versonfr/vodclipper)"}
+UA = {"User-Agent": "ClipRadar (+https://github.com/allen1versonfr/ClipRadar)"}
 _lock = threading.Lock()
 _mem: dict = {}
 
