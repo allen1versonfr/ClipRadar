@@ -1,0 +1,26 @@
+name: Remove duplicate legacy installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/release-maintenance.yml
+      - scripts/release_assets.py
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python tests/test_release_assets.py
+      - name: Remove duplicate VODClipper executables from Clip Radar releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/release_assets.py cleanup

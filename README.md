@@ -3,15 +3,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest"><img alt="Version 4.18.2" src="https://img.shields.io/badge/version-4.18.2-ffd21f?style=flat-square"></a>
-  <a href="https://github.com/allen1versonfr/vodclipper/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/vodclipper/build.yml?branch=main&style=flat-square&label=build"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.18.3" src="https://img.shields.io/badge/version-4.18.3-ffd21f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
   <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-keep%20a%20changelog-1f2329?style=flat-square"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/vodclipper/releases/latest/download/ClipRadar-Setup.exe"><b>Download for Windows</b></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest/download/ClipRadar-Setup.exe"><b>Download for Windows</b></a>
   &nbsp;·&nbsp;
   <a href="https://github.com/allen1versonfr/ClipRadar_macOs"><b>macOS port and downloads</b></a>
   &nbsp;·&nbsp;
@@ -85,11 +85,11 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
 
 ## Install
 
-1. Download **[ClipRadar-Setup.exe](https://github.com/allen1versonfr/vodclipper/releases/latest/download/ClipRadar-Setup.exe)** and run it. It installs for your user only, so there's no admin prompt, and adds Start menu and desktop shortcuts.
+1. Download **[ClipRadar-Setup.exe](https://github.com/allen1versonfr/ClipRadar/releases/latest/download/ClipRadar-Setup.exe)** and run it. It installs for your user only, so there's no admin prompt, and adds Start menu and desktop shortcuts.
 2. The first time you open it, Clip Radar offers to download FFmpeg, yt-dlp and TwitchDownloader for you.
 3. After that, Clip Radar keeps itself up to date. New versions show up in the status bar and in **Settings › Updates**.
 
-Prefer not to install? Use [ClipRadar-portable.zip](https://github.com/allen1versonfr/vodclipper/releases/latest/download/ClipRadar-portable.zip) instead. Unzip it anywhere and run `ClipRadar.exe`.
+Prefer not to install? Use [ClipRadar-portable.zip](https://github.com/allen1versonfr/ClipRadar/releases/latest/download/ClipRadar-portable.zip) instead. Unzip it anywhere and run `ClipRadar.exe`.
 
 > [!NOTE]
 > The app isn't code-signed yet, so Windows SmartScreen may warn you the first time. Choose **More info › Run anyway**.
@@ -118,8 +118,8 @@ Clip Radar can't see your browser, so it only ever says it opened TikTok Studio,
 You need Windows and Python 3.10–3.13 (`install.bat` offers to install Python 3.12 with winget if it’s missing).
 
 ```bat
-git clone https://github.com/allen1versonfr/vodclipper
-cd vodclipper
+git clone https://github.com/allen1versonfr/ClipRadar
+cd ClipRadar
 scripts\install.bat      &rem create a virtualenv and install dependencies
 scripts\run.bat          &rem run from source (opens in your browser)
 scripts\build_exe.bat    &rem build dist\ClipRadar\ClipRadar.exe with PyInstaller

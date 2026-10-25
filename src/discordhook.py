@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-UA = {"User-Agent": "ClipRadar (+https://github.com/allen1versonfr/vodclipper)"}
+UA = {"User-Agent": "ClipRadar (+https://github.com/allen1versonfr/ClipRadar)"}
 HOOK_RE = re.compile(r"https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/api(?:/v\d+)?/webhooks/\d{5,25}/[\w-]{20,100}")
 UPLOAD_LIMIT = 10 * 1024 * 1024        # what a server without boosts accepts per message
 MAX_DOWNLOAD = 60 * 1024 * 1024
