@@ -35,7 +35,7 @@ FPS = SR // HOP
 
 MODEL_NAME = "audio_events.onnx"
 MODEL_URL = os.environ.get("CLIPRADAR_MODEL_URL",
-                           "https://github.com/allen1versonfr/vodclipper/releases/download/models-v1/" + MODEL_NAME)
+                           "https://github.com/allen1versonfr/ClipRadar/releases/download/models-v1/" + MODEL_NAME)
 MODEL_SHA256 = "197920fa51524d0a8078a6a999d97ccbeff76fe61a86034a07d31d236b24803e"
 
 # AudioSet class indices (see metadata/class_labels_indices.csv)
