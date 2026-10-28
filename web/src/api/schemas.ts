@@ -319,3 +319,19 @@ export const Safety = z.looseObject({
   auto_recheck: z.boolean().default(true),
 })
 export type Safety = z.infer<typeof Safety>
+
+/** Settings › Hashtags (/api/hashtags): file-name tags and post tags, set separately, with a preview. */
+const Tags = z.array(z.string()).default([])
+const PerStreamer = z.record(z.string(), z.array(z.string())).default({})
+export const Hashtags = z.looseObject({
+  config: z.looseObject({
+    file: z.looseObject({ enabled: z.boolean().default(true), streamer_tag: z.boolean().default(true), general: Tags,
+      streamers: PerStreamer, max: z.number().default(4) }),
+    post: z.looseObject({ auto: z.boolean().default(true), global: Tags, streamers: PerStreamer,
+      platforms: z.record(z.string(), z.array(z.string())).default({}), max: z.number().default(8) }),
+  }),
+  suggestions: Tags,
+  preview: z.looseObject({ file: z.string().default(''), post: z.record(z.string(), z.array(z.string())).default({}),
+    post_on: z.boolean().default(true) }),
+})
+export type Hashtags = z.infer<typeof Hashtags>

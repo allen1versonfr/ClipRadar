@@ -3,6 +3,14 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- New UI, Settings › **Hashtags**: tags for file names and for post captions, per streamer and per platform, the suggestions, and the preview for a streamer. What you type is saved after a short pause, with the same settings as the current UI's.
+
+### Tests
+- `web/`: 63 Vitest tests. `tests/test_web_settings.py` also checks Hashtags against the real server and the current UI.
+
 ## [4.19.0] - 2026-10-28
 
 Content check in the new UI's Settings. Nothing changes unless you open the new UI (`/next/`).
