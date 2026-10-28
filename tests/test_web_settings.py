@@ -1,7 +1,7 @@
 """
 The new UI's Settings screen against the real server, in a real browser. What you change there is
 what the server and the current UI use: how many clips render at once, render priority, download
-quality, the update settings, caption words, titles, Hashtags and Content check. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
+quality, the update settings, export format, caption words, titles, Hashtags and Content check. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
 then deletes only the VODs. A Twitch token Twitch can't accept is explained, an update check that
 can't reach GitHub says so, the sections not ported yet open the current UI's Settings, and the
 screen fits a narrow window without sideways scrolling.
@@ -171,6 +171,21 @@ with sync_playwright() as pw:
     page.wait_for_function("document.querySelector('[data-testid=set-learn]').textContent.includes('Nothing learned yet')", timeout=10000)
     check("Forget removes it on the server", not [x for x in learning.summary()["profiles"] if x["streamer"] == "teststreamer"])
 
+    # Export format: a preset, a custom setting on top, and the file name template
+    ex = page.locator("[data-testid=set-export]")
+    ex.get_by_role("radio", name="X", exact=True).click()
+    ex.locator("summary", has_text="Advanced").click()
+    ex.get_by_label("Resolution").select_option("0.6667")
+    ex.get_by_placeholder("{title}", exact=True).fill("{title} - {streamer}")
+    deadline = time.time() + 10
+    while time.time() < deadline and exports.load().get("template") != "{title} - {streamer}":
+        time.sleep(0.1)
+    ep = exports.load()
+    check("export format choices are saved on the server", ep.get("preset") == "x" and ep.get("custom", {}).get("scale") == 0.6667
+          and ep.get("template") == "{title} - {streamer}", {k: ep.get(k) for k in ("preset", "custom", "template")})
+    page.wait_for_function("document.querySelector('[data-testid=ex-describe]').textContent.startsWith('X')", timeout=10000)
+    check("and the summary follows them", True)
+
     # Caption words: saved when you leave the box
     cw = page.locator("[data-testid=set-words]")
     cw.get_by_placeholder("word = replacement", exact=False).fill("gonna = going to")
@@ -236,6 +251,11 @@ with sync_playwright() as pw:
     check("'Open them in the current UI' lands on its Settings", page.locator("#view-home").is_hidden())
     page.wait_for_function("document.querySelector('#pfRenders').value === '2'", timeout=10000)
     page.wait_for_function("document.querySelector('#sfCensor button.on')?.dataset.v === 'bleep'", timeout=10000)
+    check("the current UI shows the new UI's export format", page.evaluate(
+        "[document.querySelector('#exPreset button.on')?.dataset.v, document.querySelector('#exScale').value,"
+        " document.querySelector('#exTemplate').value]") == ["x", "0.6667", "{title} - {streamer}"], page.evaluate(
+        "[document.querySelector('#exPreset button.on')?.dataset.v, document.querySelector('#exScale').value,"
+        " document.querySelector('#exTemplate').value]"))
     check("the current UI shows the new UI's caption words", page.evaluate(
         "[document.querySelector('#cwReplace').value, document.querySelector('#cwVocab').value]") == ["gonna = going to", "Kai, Mafia"])
     check("the current UI shows the new UI's title choice", page.evaluate("document.querySelector('#tpPick button.on')?.dataset.v") == "b")

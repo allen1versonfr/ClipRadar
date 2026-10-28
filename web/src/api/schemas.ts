@@ -351,3 +351,26 @@ export const ExportWords = z.looseObject({
     vocab: z.array(z.string()).default([]),
   }),
 })
+
+/** Settings › Export format (/api/export): presets, the settings they give, and your changes on top. */
+const Choice = z.looseObject({ key: z.string(), label: z.string(), note: z.string().default('') })
+export const ExportFormat = z.looseObject({
+  describe: z.string().default(''),
+  presets: z.array(Choice).default([]),
+  quality: z.array(Choice).default([]),
+  tokens: z.array(z.string()).default([]),
+  preview_name: z.string().default(''),
+  settings: z.looseObject({
+    scale: z.number().default(1), fps: z.number().default(0), vcodec: z.string().default('h264'),
+    crf: z.number().default(20), vbitrate: z.number().default(0), abitrate: z.number().default(192),
+    container: z.string().default('mp4'), loudness: z.number().default(-14),
+  }),
+  prefs: z.looseObject({
+    preset: z.string().default('tiktok'), quality: z.string().default('balanced'),
+    custom: z.record(z.string(), z.unknown()).default({}),
+    subtitles: z.enum(['burn', 'burn_srt', 'srt']).catch('burn'),
+    sounds: z.boolean().default(true), denoise: z.boolean().default(false), voice: z.boolean().default(false),
+    template: z.string().default('{title}'),
+  }),
+})
+export type ExportFormat = z.infer<typeof ExportFormat>

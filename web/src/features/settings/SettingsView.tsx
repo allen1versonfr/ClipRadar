@@ -3,6 +3,7 @@ import type { Status } from '../../api/schemas'
 import { legacyViewUrl } from '../../handoff'
 import { CaptionWordsPanel } from './CaptionWordsPanel'
 import { ContentCheckPanel } from './ContentCheckPanel'
+import { ExportFormatPanel } from './ExportFormatPanel'
 import { HashtagsPanel } from './HashtagsPanel'
 import { LearningPanel } from './LearningPanel'
 import { StoragePanel } from './StoragePanel'
@@ -12,7 +13,7 @@ import { TwitchPanel } from './TwitchPanel'
 import { UpdatesPanel } from './UpdatesPanel'
 
 /** The sections still only in the current UI; ported one at a time (docs/react-migration.md). */
-export const NOT_PORTED = ['Export format and watermark', 'Campaigns']
+export const NOT_PORTED = ['Watermark', 'Campaigns']
 
 export function SettingsView({ status, refreshStatus }: { status: Status | undefined; refreshStatus: () => Promise<void> }) {
   const [tagsKey, setTagsKey] = useState(0)
@@ -23,6 +24,7 @@ export function SettingsView({ status, refreshStatus }: { status: Status | undef
         <p><b>More settings are in the current UI:</b> {NOT_PORTED.join(', ')}. They work as before, and anything you change there applies here too.</p>
         <a className="btn" href={legacyViewUrl('settings')}>Open them in the current UI</a>
       </div>
+      <ExportFormatPanel />
       <CaptionWordsPanel />
       <PerformancePanel />
       <TitlesPanel onHashtags={() => setTagsKey(k => k + 1)} />
