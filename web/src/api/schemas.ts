@@ -343,3 +343,11 @@ export const TitlePrefs = z.looseObject({
   chat_titles: z.boolean().default(true),
 })
 export type TitlePrefs = z.infer<typeof TitlePrefs>
+
+/** Settings › Caption words: the part of the export settings (/api/export) that changes caption text. */
+export const ExportWords = z.looseObject({
+  prefs: z.looseObject({
+    replace: z.array(z.tuple([z.string(), z.string()])).default([]),
+    vocab: z.array(z.string()).default([]),
+  }),
+})
