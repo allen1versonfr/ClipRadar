@@ -1,7 +1,7 @@
 """
 The new UI's Settings screen against the real server, in a real browser. What you change there is
 what the server and the current UI use: how many clips render at once, render priority, download
-quality, the update settings, export format, the watermark, caption words, titles, Hashtags and Content check. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
+quality, the update settings, export format, the watermark, campaigns, caption words, titles, Hashtags and Content check. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
 then deletes only the VODs. A Twitch token Twitch can't accept is explained, an update check that
 can't reach GitHub says so, the sections not ported yet open the current UI's Settings, and the
 screen fits a narrow window without sideways scrolling.
@@ -57,6 +57,7 @@ except ImportError:
     print("SKIPPED: Playwright isn't installed (pip install playwright)")
     sys.exit(0)
 
+import campaigns  # noqa: E402
 import cleanup  # noqa: E402
 import learning  # noqa: E402
 import safety  # noqa: E402
@@ -215,6 +216,33 @@ with sync_playwright() as pw:
     check("dragging it on the preview places it by hand there", m0["pos"] == "free" and abs(m0["x"] - 0.3) < 0.03
           and abs(m0["y"] - 0.3) < 0.03, m0)
 
+    # Campaigns: a new one with a copy of your watermark becomes the active one, and Watermark then edits its copy
+    cp = page.locator("[data-testid=set-campaigns]")
+    cp.get_by_role("button", name="+ New").click()
+    cp.get_by_placeholder("Kai Cenat clipping").fill("Clip Co")
+    cp.get_by_placeholder("#ad #KaiCenatClips").fill("#ad #clipco")
+    cp.get_by_role("button", name="Copy my current watermark").click()
+    page.wait_for_function("document.querySelector('[data-testid=cp-wm-info]').textContent.includes('save to keep')", timeout=10000)
+    cp.get_by_role("button", name="Save", exact=True).click()
+    deadline = time.time() + 10
+    while time.time() < deadline and not campaigns.load()["active"]:
+        time.sleep(0.1)
+    cd = campaigns.load()
+    c0 = cd["list"][0] if cd["list"] else {}
+    check("a campaign made in the new UI is saved and active", cd["active"] == c0.get("id") and c0.get("name") == "Clip Co"
+          and c0.get("tags") == ["#ad", "#clipco"] and c0["watermark"]["use"]
+          and [m["text"] for m in c0["watermark"]["marks"]] == ["@clipradar"], cd)
+    page.wait_for_selector("[data-testid=wm-camp]", timeout=10000)
+    check("Watermark then shows the campaign's own watermark", "Clip Co" in wm.locator("[data-testid=wm-camp]").inner_text())
+    wm.get_by_role("button", name="Use mine instead").click()
+    deadline = time.time() + 10
+    while time.time() < deadline and campaigns.load()["list"][0]["watermark"]["use"]:
+        time.sleep(0.1)
+    check("'Use mine instead' turns the campaign's own watermark off", not campaigns.load()["list"][0]["watermark"]["use"])
+    page.wait_for_function("!document.querySelector('[data-testid=wm-camp]')", timeout=10000)
+    page.wait_for_function("!document.querySelector('[data-testid=set-campaigns] .cp-row').textContent.includes('watermark')", timeout=10000)
+    check("and the campaign's row no longer lists a watermark", True)
+
     # Caption words: saved when you leave the box
     cw = page.locator("[data-testid=set-words]")
     cw.get_by_placeholder("word = replacement", exact=False).fill("gonna = going to")
@@ -273,11 +301,11 @@ with sync_playwright() as pw:
     page.screenshot(path=os.environ.get("CLIPRADAR_SHOT") or os.path.join(tempfile.gettempdir(), "settings.png"))
     page.set_viewport_size({"width": 1366, "height": 860})
 
-    # the sections that aren't ported open in the current UI, which has the same values
-    page.get_by_role("link", name="Open them in the current UI").click()
-    page.wait_for_url("**/legacy/**", timeout=15000)
+    check("Settings has every section: nothing sends you to the current UI",
+          page.get_by_text("More settings are in the current UI").count() == 0)
+    # the current UI's Settings has the same values
+    page.goto(url + "/legacy/#view=settings")
     page.wait_for_selector("#view-settings", state="visible", timeout=15000)
-    check("'Open them in the current UI' lands on its Settings", page.locator("#view-home").is_hidden())
     page.wait_for_function("document.querySelector('#pfRenders').value === '2'", timeout=10000)
     page.wait_for_function("document.querySelector('#sfCensor button.on')?.dataset.v === 'bleep'", timeout=10000)
     check("the current UI shows the new UI's export format", page.evaluate(
@@ -288,6 +316,8 @@ with sync_playwright() as pw:
     check("the current UI shows the new UI's watermark", page.evaluate(
         "[document.querySelector('#wmOn').checked, document.querySelector('#wmLayers').textContent.includes('@clipradar'),"
         " document.querySelector('#wmLayers').textContent.includes('placed by hand')]") == [True, True, True])
+    check("the current UI shows the new UI's active campaign", page.evaluate(
+        "document.querySelector('#cpActive').selectedOptions[0]?.textContent") == "Clip Co")
     check("the current UI shows the new UI's caption words", page.evaluate(
         "[document.querySelector('#cwReplace').value, document.querySelector('#cwVocab').value]") == ["gonna = going to", "Kai, Mafia"])
     check("the current UI shows the new UI's title choice", page.evaluate("document.querySelector('#tpPick button.on')?.dataset.v") == "b")

@@ -24,7 +24,7 @@ const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
 /** Settings › Watermark: text and image layers on every exported clip, saved sets, and files to share
  *  in Discord. While the active campaign has its own watermark, that's the one edited here (it's the
  *  one clips get), as in the current UI. */
-export function WatermarkPanel() {
+export function WatermarkPanel({ reloadKey = 0, onCampaigns }: { reloadKey?: number; onCampaigns: () => void }) {
   const toast = useToast()
   const confirm = useConfirm()
   const ex = usePoll(() => api(ExportFormat, '/api/export'), 60_000)
@@ -48,6 +48,10 @@ export function WatermarkPanel() {
     setDraft(camp ? { on: true, marks: camp.watermark.marks } : ex.data.prefs.watermark)
   }, [ex.data, cp.data, camp, synced])
   useEffect(() => () => clearTimeout(timer.current), [])
+  useEffect(() => {                  // Campaigns changed which one is active, or its watermark
+    if (!reloadKey) return
+    void Promise.all([ex.refresh(), cp.refresh()])
+  }, [reloadKey]) // reloadKey only: the polls are stable
 
   async function refresh() { await Promise.all([ex.refresh(), cp.refresh()]) }
   function settled() {
@@ -62,7 +66,10 @@ export function WatermarkPanel() {
       if (next.marks.some(m => m.kind === 'text' && !m.text.trim())) return      // still typing: an empty layer would be dropped
       try {
         const c = target.current
-        if (c) await api(Campaigns, '/api/campaigns/save', { campaign: { ...c, watermark: { use: true, marks: next.marks } } })
+        if (c) {
+          await api(Campaigns, '/api/campaigns/save', { campaign: { ...c, watermark: { use: true, marks: next.marks } } })
+          onCampaigns()
+        }
         else await api(ExportFormat, '/api/export', { watermark: next })
       } catch (e) {
         toast(err(e), 'err')
@@ -104,7 +111,10 @@ export function WatermarkPanel() {
       setPreset(r.name)
       await ex.refresh()
       toast(`Imported the "${r.name}" watermark. It's in use and saved.`)
-    } else toast(`Imported the "${r.name}" campaign. Choose it under Campaigns to use it.`)
+    } else {
+      toast(`Imported the "${r.name}" campaign. Choose it under Campaigns to use it.`)
+      onCampaigns()
+    }
   }
   async function answer(a: Ask) {
     const value = a.value.trim()
@@ -141,6 +151,7 @@ export function WatermarkPanel() {
       await api(Campaigns, '/api/campaigns/save', { campaign: { ...active, watermark: { ...active.watermark, use: false } } })
       await refresh()
       settled()
+      onCampaigns()
     } catch (e) {
       toast(err(e), 'err')
     }

@@ -40,7 +40,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const renderPanel = () => render(<ToastProvider><ConfirmProvider><WatermarkPanel /></ConfirmProvider></ToastProvider>)
+const renderPanel = () => render(<ToastProvider><ConfirmProvider><WatermarkPanel onCampaigns={() => {}} /></ConfirmProvider></ToastProvider>)
 const posted = (path: string) => calls.filter(([p, b]) => p === path && b).map(([, b]) => b!)
 
 describe('Watermark', () => {

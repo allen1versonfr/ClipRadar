@@ -365,12 +365,22 @@ export const Mark = z.looseObject({
 export type Mark = z.infer<typeof Mark>
 export const WmPreset = z.looseObject({ name: z.string(), marks: z.array(Mark).default([]) })
 
+/** A clipping campaign (campaigns.clean_one). */
 export const Campaign = z.looseObject({
-  id: z.string(), name: z.string().default(''),
+  id: z.string(), name: z.string().default(''), org: z.string().default(''), link: z.string().default(''), notes: z.string().default(''),
+  caption: z.string().default(''), caption_where: z.enum(['end', 'start']).catch('end'), tags: z.array(z.string()).default([]),
+  min_len: z.number().default(0), max_len: z.number().default(0),
   watermark: z.looseObject({ use: z.boolean().default(false), marks: z.array(Mark).default([]) }).default({ use: false, marks: [] }),
+  discord: z.looseObject({
+    webhook: z.string().default(''), auto: z.boolean().default(false), file: z.boolean().default(true), message: z.string().default(''),
+  }).default({ webhook: '', auto: false, file: true, message: '' }),
 })
 export type Campaign = z.infer<typeof Campaign>
-export const Campaigns = z.looseObject({ list: z.array(Campaign).default([]), active: z.string().default('') })
+export const Campaigns = z.looseObject({
+  list: z.array(Campaign).default([]), active: z.string().default(''),
+  default_message: z.string().default('**{title}**\n{post_url}'), upload_mb: z.number().default(10),
+  tokens: z.array(z.string()).default([]),
+})
 export type Campaigns = z.infer<typeof Campaigns>
 
 export const WmImage = z.looseObject({ image: z.string() })

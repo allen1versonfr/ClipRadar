@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import type { Status } from '../../api/schemas'
-import { legacyViewUrl } from '../../handoff'
+import { WatermarkPanel } from '../watermark/WatermarkPanel'
+import { CampaignsPanel } from './CampaignsPanel'
 import { CaptionWordsPanel } from './CaptionWordsPanel'
 import { ContentCheckPanel } from './ContentCheckPanel'
 import { ExportFormatPanel } from './ExportFormatPanel'
-import { WatermarkPanel } from '../watermark/WatermarkPanel'
 import { HashtagsPanel } from './HashtagsPanel'
 import { LearningPanel } from './LearningPanel'
 import { StoragePanel } from './StoragePanel'
@@ -13,20 +13,16 @@ import { AboutPanel, HotkeyPanel, PerformancePanel, ToolsPanel } from './SystemP
 import { TwitchPanel } from './TwitchPanel'
 import { UpdatesPanel } from './UpdatesPanel'
 
-/** The sections still only in the current UI; ported one at a time (docs/react-migration.md). */
-export const NOT_PORTED = ['Campaigns']
-
 export function SettingsView({ status, refreshStatus }: { status: Status | undefined; refreshStatus: () => Promise<void> }) {
   const [tagsKey, setTagsKey] = useState(0)
+  const [wmKey, setWmKey] = useState(0)          // Campaigns changed: the active campaign's watermark may be the one shown
+  const [cpKey, setCpKey] = useState(0)          // Watermark changed or imported a campaign
   return (
     <section className="settings" data-testid="settings">
       <h1>Settings</h1>
-      <div className="panel more-set" data-testid="more-settings">
-        <p><b>More settings are in the current UI:</b> {NOT_PORTED.join(', ')}. They work as before, and anything you change there applies here too.</p>
-        <a className="btn" href={legacyViewUrl('settings')}>Open them in the current UI</a>
-      </div>
       <ExportFormatPanel />
-      <WatermarkPanel />
+      <WatermarkPanel reloadKey={wmKey} onCampaigns={() => setCpKey(k => k + 1)} />
+      <CampaignsPanel reloadKey={cpKey} onChange={() => setWmKey(k => k + 1)} />
       <CaptionWordsPanel />
       <PerformancePanel />
       <TitlesPanel onHashtags={() => setTagsKey(k => k + 1)} />

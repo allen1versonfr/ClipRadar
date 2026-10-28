@@ -125,11 +125,9 @@ with sync_playwright() as pw:
     page.wait_for_selector("[data-testid=batch-bar]", state="visible", timeout=60000)
     check("a Recent video opens again in Review", len(page.evaluate("ClipRadarTest.clips()")) >= 1)
     # what the new UI doesn't have yet opens in the original page, on that screen
-    page.goto(url + "/next/#settings")             # its sections not ported yet link to the original page's Settings
-    page.get_by_role("link", name="Open them in the current UI").click()
-    page.wait_for_url("**/legacy/**", timeout=15000)
+    page.goto(url + "/legacy/#view=settings")      # the hand-over link the new UI uses (legacyViewUrl)
     page.wait_for_selector("#view-settings", state="visible", timeout=15000)
-    check("Settings' 'Open them in the current UI' lands on Settings", page.locator("#view-home").is_hidden())
+    check("a #view=settings hand-over lands on Settings", page.locator("#view-home").is_hidden())
     page.evaluate("location.hash = '#view=exports'")
     page.wait_for_selector("#view-exports", state="visible", timeout=5000)
     check("a hand-over link works without a reload too", page.locator("#view-settings").is_hidden()

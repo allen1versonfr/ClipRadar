@@ -163,8 +163,6 @@ details.adv[open] summary { margin-bottom: 10px; }
 .panel.set { display: flex; flex-direction: column; gap: 12px; }
 .panel.set header.row { align-items: center; }
 .panel.set > p { margin: 0; }
-.more-set { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
-.more-set p { margin: 0; flex: 1 1 320px; color: var(--tx1); }
 .row.wrap { flex-wrap: wrap; align-items: center; }
 .src-dot.warn { background: var(--warn); }
 .table.static { table-layout: auto; }
@@ -271,3 +269,12 @@ p.notice { margin: 0; }
 .wm-edit .seg { flex-wrap: wrap; }
 .wm-lab { display: flex; justify-content: space-between; gap: 8px; }
 .wm-lab .tnum { color: var(--tx0); }
+
+/* Settings › Campaigns */
+.cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cp-row { width: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: none; color: var(--tx0); text-align: left; }
+.cp-row:hover { background: var(--bg3); }
+.cp-row.on { border-color: var(--accent); }
+.pill { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line2); color: var(--tx0); }
+.cp-edit { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+@media (pointer: coarse) { .cp-row { min-height: 44px; } }

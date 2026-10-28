@@ -54,11 +54,12 @@ const posted = (path: string) => calls.filter(([p, b]) => p === path && b !== un
 const panel = (id: string) => within(screen.getByTestId(id))
 
 describe('Settings', () => {
-  it('sends the sections it does not have yet to the current UI', () => {
+  it('has every section, so nothing sends you to the current UI', async () => {
     renderSettings()
-    const more = screen.getByTestId('more-settings')
-    expect(more.textContent).toContain('Campaigns')
-    expect(within(more).getByRole('link').getAttribute('href')).toBe('/legacy/#view=settings')
+    const names = (await screen.findAllByRole('heading', { level: 2 })).map(h => h.textContent)
+    for (const n of ['Export format', 'Watermark', 'Campaigns', 'Caption words', 'Hashtags', 'Content check', 'Storage', 'Updates'])
+      expect(names).toContain(n)
+    expect(screen.queryByText(/More settings are in the current UI/)).toBeNull()
   })
 
   it('saves how much runs at once, and shows what this PC has', async () => {
