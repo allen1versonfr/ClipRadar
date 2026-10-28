@@ -42,7 +42,7 @@ export const bodyOf = (d: Draft, streamer: string) => ({
 
 /** Settings › Hashtags. What you type stays as typed; it's saved after a short pause, and the
  *  suggestions and preview come back from Clip Radar. */
-export function HashtagsPanel() {
+export function HashtagsPanel({ reloadKey = 0 }: { reloadKey?: number }) {
   const toast = useToast()
   const [view, setView] = useState<Hashtags>()
   const [draft, setDraft] = useState<Draft>()
@@ -55,6 +55,12 @@ export function HashtagsPanel() {
       .catch(e => toast(e instanceof Error ? e.message : String(e), 'err'))
     return () => { clearTimeout(saveTimer.current); clearTimeout(previewTimer.current) }
   }, [toast])
+  const streamerRef = useRef(streamer)
+  streamerRef.current = streamer
+  useEffect(() => {                  // post-caption hashtags were turned on or off: the preview changes
+    if (!reloadKey) return
+    api(Hashtags, `/api/hashtags?streamer=${encodeURIComponent(streamerRef.current)}`).then(setView).catch(() => {})
+  }, [reloadKey])
 
   function schedule(timer: typeof saveTimer, fn: () => Promise<void>, ms: number) {
     clearTimeout(timer.current)

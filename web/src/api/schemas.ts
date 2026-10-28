@@ -335,3 +335,11 @@ export const Hashtags = z.looseObject({
     post_on: z.boolean().default(true) }),
 })
 export type Hashtags = z.infer<typeof Hashtags>
+
+/** Settings › Titles and captions (/api/titles). */
+export const TitlePrefs = z.looseObject({
+  pick: z.enum(['a', 'b']).catch('a'),
+  hashtags: z.boolean().default(true),
+  chat_titles: z.boolean().default(true),
+})
+export type TitlePrefs = z.infer<typeof TitlePrefs>

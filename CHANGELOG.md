@@ -6,10 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- New UI, Settings › **Titles and captions**: which title new clips get, titles from what chat said, and hashtags on post captions (the Hashtags preview follows it).
 - New UI, Settings › **Hashtags**: tags for file names and for post captions, per streamer and per platform, the suggestions, and the preview for a streamer. What you type is saved after a short pause, with the same settings as the current UI's.
 
 ### Tests
-- `web/`: 63 Vitest tests. `tests/test_web_settings.py` also checks Hashtags against the real server and the current UI.
+- `web/`: 65 Vitest tests. `tests/test_web_settings.py` also checks Titles and captions and Hashtags against the real server and the current UI.
 
 ## [4.19.0] - 2026-10-28
 

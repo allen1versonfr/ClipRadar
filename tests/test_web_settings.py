@@ -1,7 +1,7 @@
 """
 The new UI's Settings screen against the real server, in a real browser. What you change there is
 what the server and the current UI use: how many clips render at once, render priority, download
-quality, the update settings, Hashtags and Content check. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
+quality, the update settings, titles, Hashtags and Content check. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
 then deletes only the VODs. A Twitch token Twitch can't accept is explained, an update check that
 can't reach GitHub says so, the sections not ported yet open the current UI's Settings, and the
 screen fits a narrow window without sideways scrolling.
@@ -171,6 +171,13 @@ with sync_playwright() as pw:
     page.wait_for_function("document.querySelector('[data-testid=set-learn]').textContent.includes('Nothing learned yet')", timeout=10000)
     check("Forget removes it on the server", not [x for x in learning.summary()["profiles"] if x["streamer"] == "teststreamer"])
 
+    # Titles and captions: which title new clips get, saved on the server
+    page.locator("[data-testid=set-titles]").get_by_role("radio", name="B · with the streamer's name").click()
+    deadline = time.time() + 10
+    while time.time() < deadline and server.title_prefs()["pick"] != "b":
+        time.sleep(0.1)
+    check("the title choice is saved on the server", server.title_prefs()["pick"] == "b", server.title_prefs())
+
     # Hashtags: typed tags are saved after a short pause, and the preview follows them
     ht = page.locator("[data-testid=set-tags]")
     ht.get_by_role("button", name="+ #Gaming").click()
@@ -215,6 +222,7 @@ with sync_playwright() as pw:
     check("'Open them in the current UI' lands on its Settings", page.locator("#view-home").is_hidden())
     page.wait_for_function("document.querySelector('#pfRenders').value === '2'", timeout=10000)
     page.wait_for_function("document.querySelector('#sfCensor button.on')?.dataset.v === 'bleep'", timeout=10000)
+    check("the current UI shows the new UI's title choice", page.evaluate("document.querySelector('#tpPick button.on')?.dataset.v") == "b")
     check("the current UI shows the new UI's hashtags", page.evaluate("document.querySelector('#htFileStreamers').value")
           == "Kai Cenat: #KaiCenat #Mafia", page.evaluate("document.querySelector('#htFileStreamers').value"))
     check("the current UI shows the new UI's Content check choices", page.evaluate(
