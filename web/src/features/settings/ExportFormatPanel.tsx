@@ -24,7 +24,7 @@ export function insertToken(value: string, pos: number, tok: string): string {
   return value.slice(0, pos) + sep + `{${tok}}` + value.slice(pos)
 }
 
-/** Settings › Export format (the watermark is still in the current UI). */
+/** Settings › Export format (the watermark has its own panel). */
 export function ExportFormatPanel() {
   const toast = useToast()
   const poll = usePoll(() => api(ExportFormat, '/api/export'), 60_000)

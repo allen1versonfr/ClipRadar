@@ -1,7 +1,7 @@
 """
 The new UI's Settings screen against the real server, in a real browser. What you change there is
 what the server and the current UI use: how many clips render at once, render priority, download
-quality, the update settings, export format, caption words, titles, Hashtags and Content check. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
+quality, the update settings, export format, the watermark, caption words, titles, Hashtags and Content check. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
 then deletes only the VODs. A Twitch token Twitch can't accept is explained, an update check that
 can't reach GitHub says so, the sections not ported yet open the current UI's Settings, and the
 screen fits a narrow window without sideways scrolling.
@@ -186,6 +186,35 @@ with sync_playwright() as pw:
     page.wait_for_function("document.querySelector('[data-testid=ex-describe]').textContent.startsWith('X')", timeout=10000)
     check("and the summary follows them", True)
 
+    # Watermark: a text layer, placed by its buttons and then by dragging it on the preview
+    wm = page.locator("[data-testid=set-watermark]")
+    wm.get_by_label("Put a watermark on exported clips").check()
+    wm.get_by_role("button", name="+ Text layer").click()
+    wm.get_by_placeholder("@yourchannel").fill("@clipradar")
+    wm.get_by_role("radio", name="Centre").click()
+    deadline = time.time() + 10
+    while time.time() < deadline and [m.get("pos") for m in exports.load()["watermark"]["marks"]] != ["c"]:
+        time.sleep(0.1)
+    w = exports.load()["watermark"]
+    check("a watermark layer made in the new UI is saved on the server", w["on"] and len(w["marks"]) == 1
+          and w["marks"][0]["text"] == "@clipradar" and w["marks"][0]["pos"] == "c", w)
+    lit = page.evaluate("""() => { const c = document.querySelector('[data-testid=wm-preview]'), g = c.getContext('2d');
+        const d = g.getImageData(c.width * .3, c.height * .45, c.width * .4, c.height * .1).data; let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] > 150 && d[i + 1] > 150 && d[i + 2] > 150) n++; return n }""")
+    check("the preview draws the layer in the middle", lit > 20, lit)
+    bb = wm.locator("[data-testid=wm-preview]").bounding_box()
+    page.mouse.move(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(bb["x"] + bb["width"] * 0.4, bb["y"] + bb["height"] * 0.4, steps=4)
+    page.mouse.move(bb["x"] + bb["width"] * 0.3, bb["y"] + bb["height"] * 0.3, steps=4)
+    page.mouse.up()
+    deadline = time.time() + 10
+    while time.time() < deadline and exports.load()["watermark"]["marks"][0]["pos"] != "free":
+        time.sleep(0.1)
+    m0 = exports.load()["watermark"]["marks"][0]
+    check("dragging it on the preview places it by hand there", m0["pos"] == "free" and abs(m0["x"] - 0.3) < 0.03
+          and abs(m0["y"] - 0.3) < 0.03, m0)
+
     # Caption words: saved when you leave the box
     cw = page.locator("[data-testid=set-words]")
     cw.get_by_placeholder("word = replacement", exact=False).fill("gonna = going to")
@@ -256,6 +285,9 @@ with sync_playwright() as pw:
         " document.querySelector('#exTemplate').value]") == ["x", "0.6667", "{title} - {streamer}"], page.evaluate(
         "[document.querySelector('#exPreset button.on')?.dataset.v, document.querySelector('#exScale').value,"
         " document.querySelector('#exTemplate').value]"))
+    check("the current UI shows the new UI's watermark", page.evaluate(
+        "[document.querySelector('#wmOn').checked, document.querySelector('#wmLayers').textContent.includes('@clipradar'),"
+        " document.querySelector('#wmLayers').textContent.includes('placed by hand')]") == [True, True, True])
     check("the current UI shows the new UI's caption words", page.evaluate(
         "[document.querySelector('#cwReplace').value, document.querySelector('#cwVocab').value]") == ["gonna = going to", "Kai, Mafia"])
     check("the current UI shows the new UI's title choice", page.evaluate("document.querySelector('#tpPick button.on')?.dataset.v") == "b")

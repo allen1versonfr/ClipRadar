@@ -6,13 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- New UI, Settings › **Watermark**: text and image layers, where they go, size, opacity, rotation, font, colours, box and when they show, with a preview of a 9:16 clip you can drag a layer on to place it. Saved watermarks, Import…, From link… and Share… as in the current UI, and while the active campaign has its own watermark, that one is edited.
 - New UI, Settings › **Export format**: the preset and quality with their notes, Advanced (your changes on top of the preset, with a way back to it; VP9 makes the file WebM), captions, loudness and voice clean-up, and the file-name template with token buttons and a preview.
 - New UI, Settings › **Caption words**: replacements in captions and the words to recognise, saved when you leave the box.
 - New UI, Settings › **Titles and captions**: which title new clips get, titles from what chat said, and hashtags on post captions (the Hashtags preview follows it).
 - New UI, Settings › **Hashtags**: tags for file names and for post captions, per streamer and per platform, the suggestions, and the preview for a streamer. What you type is saved after a short pause, with the same settings as the current UI's.
 
 ### Tests
-- `web/`: 73 Vitest tests. `tests/test_web_settings.py` also checks Export format, Caption words, Titles and captions and Hashtags against the real server and the current UI.
+- `web/`: 81 Vitest tests. `tests/test_web_settings.py` also checks the watermark (made, placed, dragged on the preview, shown by the current UI), Export format, Caption words, Titles and captions and Hashtags against the real server and the current UI.
 
 ## [4.19.0] - 2026-10-28
 

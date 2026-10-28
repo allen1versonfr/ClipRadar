@@ -33,3 +33,11 @@
   font-feature-settings: "cv11", "calt";
   -webkit-font-smoothing: antialiased;
 }
+/* caption fonts (watermark text uses them too; the renderer has the same files) */
+@font-face { font-family: "VC Montserrat"; src: url(/ui/fonts/captions/Montserrat-Black.ttf) format("truetype"); }
+@font-face { font-family: "VC Poppins"; src: url(/ui/fonts/captions/Poppins-Black.ttf) format("truetype"); }
+@font-face { font-family: "VC Inter"; src: url(/ui/fonts/captions/Inter-Black.otf) format("opentype"); }
+@font-face { font-family: "VC Anton"; src: url(/ui/fonts/captions/Anton-Regular.ttf) format("truetype"); }
+@font-face { font-family: "VC Bebas"; src: url(/ui/fonts/captions/BebasNeue-Regular.ttf) format("truetype"); }
+@font-face { font-family: "VC Bangers"; src: url(/ui/fonts/captions/Bangers-Regular.ttf) format("truetype"); }
+@font-face { font-family: "VC Luckiest"; src: url(/ui/fonts/captions/LuckiestGuy-Regular.ttf) format("truetype"); }

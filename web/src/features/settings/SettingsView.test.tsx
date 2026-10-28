@@ -57,7 +57,7 @@ describe('Settings', () => {
   it('sends the sections it does not have yet to the current UI', () => {
     renderSettings()
     const more = screen.getByTestId('more-settings')
-    expect(more.textContent).toContain('Watermark')
+    expect(more.textContent).toContain('Campaigns')
     expect(within(more).getByRole('link').getAttribute('href')).toBe('/legacy/#view=settings')
   })
 

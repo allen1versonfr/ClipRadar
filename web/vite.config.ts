@@ -17,5 +17,5 @@ export default defineConfig({
       '/wmimg': toApp, '/ui': toApp, '/legacy': toApp,
     },
   },
-  test: { environment: 'jsdom' },
+  test: { environment: 'jsdom', setupFiles: ['src/test-setup.ts'] },
 })

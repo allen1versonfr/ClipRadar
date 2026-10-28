@@ -354,6 +354,33 @@ export const ExportWords = z.looseObject({
 
 /** Settings › Export format (/api/export): presets, the settings they give, and your changes on top. */
 const Choice = z.looseObject({ key: z.string(), label: z.string(), note: z.string().default('') })
+/** One watermark layer (watermarks.MARK_DEFAULTS). */
+export const Mark = z.looseObject({
+  kind: z.enum(['text', 'image']).catch('text'), text: z.string().default(''), image: z.string().default(''),
+  pos: z.enum(['tl', 'tr', 'bl', 'br', 'c', 'free']).catch('tl'), x: z.number().default(0.5), y: z.number().default(0.5),
+  size: z.number().default(100), opacity: z.number().default(70), margin: z.number().default(40), rotation: z.number().default(0),
+  color: z.string().default('#FFFFFF'), font: z.string().default('classic'), outline: z.boolean().default(true),
+  box: z.boolean().default(false), box_color: z.string().default('#141414'), start: z.number().default(0), end: z.number().default(0),
+})
+export type Mark = z.infer<typeof Mark>
+export const WmPreset = z.looseObject({ name: z.string(), marks: z.array(Mark).default([]) })
+
+export const Campaign = z.looseObject({
+  id: z.string(), name: z.string().default(''),
+  watermark: z.looseObject({ use: z.boolean().default(false), marks: z.array(Mark).default([]) }).default({ use: false, marks: [] }),
+})
+export type Campaign = z.infer<typeof Campaign>
+export const Campaigns = z.looseObject({ list: z.array(Campaign).default([]), active: z.string().default('') })
+export type Campaigns = z.infer<typeof Campaigns>
+
+export const WmImage = z.looseObject({ image: z.string() })
+export const Shared = z.looseObject({ path: z.string().default(''), name: z.string().default('') })
+export const Imported = z.discriminatedUnion('kind', [
+  z.looseObject({ kind: z.literal('image'), image: z.string() }),
+  z.looseObject({ kind: z.literal('watermark'), name: z.string(), marks: z.array(Mark).default([]) }),
+  z.looseObject({ kind: z.literal('campaign'), name: z.string() }),
+])
+
 export const ExportFormat = z.looseObject({
   describe: z.string().default(''),
   presets: z.array(Choice).default([]),
@@ -371,6 +398,8 @@ export const ExportFormat = z.looseObject({
     subtitles: z.enum(['burn', 'burn_srt', 'srt']).catch('burn'),
     sounds: z.boolean().default(true), denoise: z.boolean().default(false), voice: z.boolean().default(false),
     template: z.string().default('{title}'),
+    watermark: z.looseObject({ on: z.boolean().default(false), marks: z.array(Mark).default([]) }).default({ on: false, marks: [] }),
+    wm_presets: z.array(WmPreset).default([]),
   }),
 })
 export type ExportFormat = z.infer<typeof ExportFormat>

@@ -248,3 +248,26 @@ p.notice { margin: 0; }
   .chk { min-height: 44px; align-items: center; }
   .chk input { width: 22px; height: 22px; margin-top: 0; }
 }
+
+/* Settings › Watermark */
+.wm-grid { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; align-items: start; }
+.wm-preview { width: 180px; aspect-ratio: 9 / 16; border-radius: var(--r); border: 1px solid var(--line2); touch-action: none; cursor: move; }
+.wm-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.wm-layers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.wm-layers li { display: flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+.wm-layers li.on { border-color: var(--accent); }
+.wm-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 0; background: none; color: var(--tx0); text-align: left; }
+.wm-pick img, .wm-t { width: 24px; height: 24px; object-fit: contain; flex: none; display: grid; place-items: center; background: var(--bg3); border-radius: 4px; }
+.wm-pick small { margin-left: auto; white-space: nowrap; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.wm-edit { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.wm-edit input[type=range] { width: 100%; accent-color: var(--accent); }
+.wm-edit input[type=color] { width: 56px; height: 32px; padding: 2px; border: 1px solid var(--line2); border-radius: var(--r); background: var(--bg2); }
+@media (max-width: 560px) {
+  .wm-grid { grid-template-columns: minmax(0, 1fr); }
+  .wm-preview { justify-self: center; width: 160px; }
+}
+@media (pointer: coarse) { .wm-pick { min-height: 44px; } .wm-edit input[type=color] { height: 44px; } }
+.wm-edit .seg { flex-wrap: wrap; }
+.wm-lab { display: flex; justify-content: space-between; gap: 8px; }
+.wm-lab .tnum { color: var(--tx0); }
