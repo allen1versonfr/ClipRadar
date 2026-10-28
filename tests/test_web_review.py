@@ -129,9 +129,12 @@ with sync_playwright() as pw:
     check("the first clip is selected", rows.first.get_attribute("aria-current") == "true")
 
     # the player shows the selected clip's stretch of the video
-    # (this browser can't play H.264, so this also checks the switch to Clip Radar's preview copy)
     page.wait_for_function("(() => { const v = document.querySelector('[data-testid=rv-video]'); return v && v.readyState >= 1 })()", timeout=60000)
-    check("a video the window can't play switches to the preview copy", "preview=1" in page.evaluate("document.querySelector('[data-testid=rv-video]').currentSrc"))
+    # Playwright's own Chromium has no H.264 and must switch to the copy; Edge and Chrome play the original
+    h264 = page.evaluate("document.createElement('video').canPlayType('video/mp4; codecs=\"avc1.42E01E\"') !== ''")
+    copy = "preview=1" in page.evaluate("document.querySelector('[data-testid=rv-video]').currentSrc")
+    check("a video the window can play plays as it is" if h264 else "a video the window can't play switches to the preview copy",
+          copy != h264, {"h264": h264, "copy": copy})
     page.wait_for_timeout(600)
     t = page.evaluate("document.querySelector('[data-testid=rv-video]').currentTime")
     check("the player starts at the clip", first["start"] - 0.5 <= t <= first["end"] + 0.5, (t, first["start"], first["end"]))
