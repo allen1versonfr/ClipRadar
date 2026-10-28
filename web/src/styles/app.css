@@ -323,3 +323,12 @@ p.notice { margin: 0; }
   .rv-rows { max-height: 40vh; }
 }
 @media (pointer: coarse) { .rv-row { min-height: 52px; } }
+.rv-editor { display: flex; flex-direction: column; gap: 8px; }
+.rv-edbar { align-items: center; gap: 6px; }
+.rv-edbar select.input { width: auto; }
+.rv-timeline { width: 100%; height: 92px; display: block; border-radius: var(--r); border: 1px solid var(--line); touch-action: none; }
+.rv-trim { display: flex; flex-direction: column; gap: 6px; }
+.rv-trim-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.rv-trim-l { width: 36px; color: var(--tx1); }
+.rv-trim-row .tnum { min-width: 72px; }
+.rv-trim-btns { display: flex; flex-wrap: wrap; gap: 4px; }

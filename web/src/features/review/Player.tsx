@@ -4,15 +4,19 @@ import { Job, PreviewCopy } from '../../api/schemas'
 import { getPref, setPref } from '../../prefs'
 import { fmt } from './model'
 
-export interface PlayerHandle { toggle: () => void; seekBy: (s: number) => void; toggleMute: () => void }
+export interface PlayerHandle {
+  toggle: () => void; seekBy: (s: number) => void; toggleMute: () => void
+  /** the video element itself, for the timeline */
+  video: () => HTMLVideoElement | null
+}
 
 // which videos needed the smaller copy (the window can't play HEVC or AV1): 'making', 'ready' or 'failed'
 const copies: Record<string, string> = {}
 
 /** The clip's stretch of the video, looping, with the preview volume the original page uses (vc_volume,
  *  vc_muted). A video the window can't play switches to Clip Radar's 480p copy (/api/preview). */
-export const Player = forwardRef<PlayerHandle, { src: string; pid: string; start: number; end: number; autoPlay?: boolean }>(
-  function Player({ src, pid, start, end, autoPlay = true }, ref) {
+export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipKey: string; start: number; end: number; autoPlay?: boolean }>(
+  function Player({ src, pid, clipKey, start, end, autoPlay = true }, ref) {
     const v = useRef<HTMLVideoElement>(null)
     const [t, setT] = useState(start)
     const [paused, setPaused] = useState(true)
@@ -28,19 +32,22 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; start
       toggle: () => { const el = v.current; if (el) void (el.paused ? el.play().catch(() => {}) : el.pause()) },
       seekBy: s => { const el = v.current; if (el) el.currentTime = Math.max(start, Math.min(end, el.currentTime + s)) },
       toggleMute: () => setMuted(m => !m),
+      video: () => v.current,
     }), [start, end])
 
-    useEffect(() => {                         // a new clip: start at its beginning
+    const startRef = useRef(start)
+    startRef.current = start
+    useEffect(() => {                         // a new clip (not a trim of this one): start at its beginning
       const el = v.current
       if (!el) return
       const go = () => {
-        try { el.currentTime = start } catch { /* not loaded yet: loadedmetadata does it */ }
+        try { el.currentTime = startRef.current } catch { /* not loaded yet: loadedmetadata does it */ }
         if (autoPlay) void el.play().catch(() => {})
       }
       if (el.readyState >= 1) go()
       else el.addEventListener('loadedmetadata', go, { once: true })
       return () => el.removeEventListener('loadedmetadata', go)
-    }, [start, end, url, autoPlay])
+    }, [clipKey, url, autoPlay])
     useEffect(() => {
       const el = v.current
       if (!el) return
@@ -76,7 +83,7 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; start
       const el = v.current
       if (!el) return
       const { start: a, end: b } = range.current
-      if (el.currentTime >= b - 0.04 || el.currentTime < a - 1) el.currentTime = a      // loop the clip
+      if (!el.paused && (el.currentTime >= b - 0.04 || el.currentTime < a - 1)) el.currentTime = a     // playing: loop the clip
       setT(el.currentTime)
     }
     function onLoaded() {

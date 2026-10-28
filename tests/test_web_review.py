@@ -1,7 +1,7 @@
 """
 The new UI's Review against the real server, in a real browser, on a generated video: the open videos
 are listed, a video opens with its clips, the selected clip plays its stretch, a title you type is saved
-with the VOD, Keep queues a render with your render style and moves on, Skip (the X key) moves it to
+with the VOD, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
 Skipped and asks why, a video the window can't play switches to the preview copy, Skip in bulk asks first and Undo brings the clips back, a reload keeps what you
 did, "Edit in the current UI" opens the same clip there, and the screen fits a narrow window.
 
@@ -71,11 +71,11 @@ def call(path, body=None):
         return json.load(r)
 
 
-# a quiet tone with five loud bursts: five moments to suggest
+# quiet noise (always the same) with four loud bursts: four moments to suggest
 vod = os.path.join(tempfile.mkdtemp(prefix="vc_rv_"), "review_test.mp4")
-loud = "+".join(f"between(t,{t},{t + 2})" for t in (15, 35, 55, 75, 95))
-subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=110",
-                "-f", "lavfi", "-i", "anoisesrc=d=110:a=0.02", "-af", f"volume='if({loud},40,1)':eval=frame",
+loud = "+".join(f"between(t,{t},{t + 2})" for t in (20, 45, 70, 95))
+subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=120",
+                "-f", "lavfi", "-i", "anoisesrc=d=120:a=0.02:seed=7", "-af", f"volume='if({loud},40,1)':eval=frame",
                 "-shortest", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", vod], check=True)
 job = call("/api/analyze", {"source": vod, "count": 5})["job"]
 deadline = time.time() + 180
@@ -145,6 +145,44 @@ with sync_playwright() as pw:
                                                              and server_clip(first["id"]).get("userTitle")), server_clip(first["id"]))
     page.locator("h1").click()
 
+    # trimming: the buttons, undo and redo, dragging the end on the timeline, I at the playhead, Restore
+    c0 = dict(server_clip(first["id"]))
+    page.get_by_role("button", name="Start: 1 second later").click()
+    check("+1s moves the start a second later, saved as your trim", wait_until(
+        lambda: abs(server_clip(first["id"])["start"] - (c0["start"] + 1)) < 0.01 and server_clip(first["id"]).get("userTrim")),
+        (server_clip(first["id"])["start"], c0["start"]))
+    page.locator("h1").click()
+    page.keyboard.press("Control+z")
+    check("Ctrl+Z undoes it", wait_until(lambda: abs(server_clip(first["id"])["start"] - c0["start"]) < 0.01), server_clip(first["id"])["start"])
+    page.keyboard.press("Control+Shift+z")
+    check("Ctrl+Shift+Z redoes it", wait_until(lambda: abs(server_clip(first["id"])["start"] - (c0["start"] + 1)) < 0.01))
+    cl = dict(server_clip(first["id"]))           # a copy: the server changes its own
+    page.get_by_role("button", name="Fit", exact=True).click()
+    page.wait_for_timeout(200)
+    a, b = (float(page.get_by_test_id("rv-timeline").get_attribute(k)) for k in ("data-a", "data-b"))
+    tl = page.get_by_test_id("rv-timeline").bounding_box()
+    xe = tl["x"] + (cl["end"] - a) / (b - a) * tl["width"] - 2
+    y = tl["y"] + tl["height"] / 2
+    page.mouse.move(xe, y)
+    page.mouse.down()
+    page.mouse.move(xe - 3 / (b - a) * tl["width"], y, steps=6)
+    page.mouse.up()
+    check("dragging the clip's end on the timeline trims it", wait_until(
+        lambda: 2 < cl["end"] - server_clip(first["id"])["end"] < 4), (cl["end"], server_clip(first["id"])["end"]))
+    page.evaluate(f"document.querySelector('[data-testid=rv-video]').pause(); document.querySelector('[data-testid=rv-video]').currentTime = {cl['start'] + 2}")
+    page.wait_for_timeout(300)
+    page.locator("h1").click()
+    page.keyboard.press("i")
+    check("I starts the clip at the playhead", wait_until(lambda: abs(server_clip(first["id"])["start"] - (cl["start"] + 2)) < 0.1),
+          (server_clip(first["id"])["start"], cl["start"] + 2))
+    page.get_by_role("button", name="Restore original cut").click()
+    check("Restore original cut goes back to the cut Clip Radar found", wait_until(
+        lambda: abs(server_clip(first["id"])["start"] - c0["orig"][0]) < 0.01 and abs(server_clip(first["id"])["end"] - c0["orig"][1]) < 0.01
+        and not server_clip(first["id"]).get("userTrim")), (server_clip(first["id"]), c0.get("orig")))
+    page.keyboard.press("Control+z")
+    trimmed = wait_until(lambda: abs(server_clip(first["id"])["start"] - (cl["start"] + 2)) < 0.1)
+    check("and Undo brings the trim back", trimmed, server_clip(first["id"])["start"])
+
     # Keep queues a render with your render style, and moves on to the next clip
     page.get_by_test_id("rv-keep").click()
     ok = wait_until(lambda: any(q.get("clip_id") == first["id"] and q["pid"] == pid for q in server.queue))
@@ -152,6 +190,8 @@ with sync_playwright() as pw:
     check("Keep queues the clip's render", ok, [q.get("clip_id") for q in server.queue])
     check("with its title and your render style", it.get("title") == "My own title" and (it.get("opts") or {}).get("captions") is False,
           {k: it.get(k) for k in ("title",)})
+    check("and your trim", abs(it.get("start", 0) - server_clip(first["id"])["start"]) < 0.01
+          and abs(it.get("end", 0) - server_clip(first["id"])["end"]) < 0.01, (it.get("start"), it.get("end"), server_clip(first["id"])))
     check("and the clip is kept on the server", wait_until(lambda: server_clip(first["id"]).get("state") == "kept"))
     second = page.locator("[data-testid=rv-row][aria-current=true]").inner_text()
     check("Review moves on to the next clip", "My own title" not in second)

@@ -8,7 +8,11 @@ import { usePoll } from '../../hooks/usePoll'
 import { renderOpts } from '../../prefs'
 import { CHECK_LABEL, checkStatus, type Filter, fmt, gate, isGem, keepBody, keyOf, merge, nextTodo, openFlags, postFor,
   prep, qClass, queueFor, snapshot, visible } from './model'
+import { bounds, clamp, fmtA, frameStep, type History, push, snapOf, type Snap } from './edit'
 import { Player, type PlayerHandle } from './Player'
+import { Timeline, type TimelineHandle } from './Timeline'
+
+const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]
 
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const save = (c: Clip) => { api(Ok, '/api/clip_state', snapshot(c)).catch(() => {}) }
@@ -47,6 +51,11 @@ function Workspace({ pid }: { pid: string }) {
   const [under, setUnder] = useState('0')
   const [busy, setBusy] = useState(false)
   const player = useRef<PlayerHandle>(null)
+  const timeline = useRef<TimelineHandle>(null)
+  const [hist, setHist] = useState<History>({ undo: [], redo: [] })
+  const [speed, setSpeed] = useState(1)
+  const dragFrom = useRef<Snap>(undefined)
+  const getVideo = useCallback(() => player.current?.video() ?? null, [])
   const clipsRef = useRef(clips)
   clipsRef.current = clips
   const saveT = useRef(new Map<string, ReturnType<typeof setTimeout>>())      // typing: saved after a pause, per clip
@@ -125,6 +134,70 @@ function Workspace({ pid }: { pid: string }) {
   }
   function after(x: Clip) { select(nextTodo(clipsRef.current, x)) }
 
+  /** An edit you can undo: recorded, shown at once, saved after a pause. */
+  function edit(x: Clip, label: string, patch: Partial<Clip>, group?: string) {
+    setHist(h => push(h, keyOf(x), label, snapOf(x), snapOf({ ...x, ...patch }), group))
+    update(keyOf(x), y => ({ ...y, ...patch }), 'soon')
+  }
+  /** After a trim: a clip cut past the words heard is listened to again, so its captions and title fit. */
+  function afterTrim(x: Clip) {
+    if (!x.words.length || (x.start >= x.words[0]!.start - 6 && x.end <= x.words.at(-1)!.end + 6)) return
+    update(keyOf(x), y => ({ ...y, listened: false }), 'no')
+    const o = renderOpts()
+    api(Ok, '/api/listen', { pid, order: [x.id], model: o.whisper_model, language: o.language }).then(() => setListening(true)).catch(() => {})
+  }
+  function trim(x: Clip, start: number, end: number, label: string, group?: string): boolean {
+    if (x.state === 'kept') return false
+    const b = bounds(x, start, end, meta?.duration ?? x.end)
+    if (!b) return false
+    edit(x, label, { ...b, userTrim: true }, group)
+    afterTrim({ ...x, ...b })
+    return true
+  }
+  function nudge(which: 's' | 'e', by: number | 'now' | 'f' | '-f') {
+    const x = c, vid = getVideo()
+    if (!x || !vid) return
+    const f = 1 / x.fps, d = by === 'f' ? f : by === '-f' ? -f : by === 'now' ? 0 : by
+    const now = vid.currentTime
+    const ok = which === 's'
+      ? trim(x, by === 'now' ? now : x.start + d, x.end, by === 'now' ? 'set start' : 'move start', by === 'now' ? undefined : 'trim-s')
+      : trim(x, x.start, by === 'now' ? now : x.end + d, by === 'now' ? 'set end' : 'move end', by === 'now' ? undefined : 'trim-e')
+    if (!ok || by === 'now') return
+    const start = which === 's' ? x.start + d : x.start, end = which === 'e' ? x.end + d : x.end
+    if (by === 'f' || by === '-f') { vid.pause(); vid.currentTime = which === 'e' ? Math.max(start, end - f) : start }
+    else { vid.currentTime = which === 'e' ? Math.max(start, end - 3) : start; void vid.play().catch(() => {}) }
+  }
+  function restore(x: Clip) {
+    if (!x.orig || x.state === 'kept') return
+    edit(x, 'restore original cut', { start: x.orig[0], end: x.orig[1], userTrim: false })
+    timeline.current?.fit()
+    const vid = getVideo()
+    if (vid) vid.currentTime = x.orig[0]
+    toast('Back to the original cut. Undo brings your trim back.')
+  }
+  function undoRedo(redo: boolean) {
+    const from = redo ? hist.redo : hist.undo, e = from.at(-1)
+    if (!e) return
+    const x = clipsRef.current.find(y => keyOf(y) === e.key)
+    if (!x) { setHist(h => (redo ? { ...h, redo: h.redo.slice(0, -1) } : { ...h, undo: h.undo.slice(0, -1) })); return }
+    if (x.state === 'kept') return toast('That clip is in the render queue. Remove it from the queue to change it.', 'err')
+    setHist(h => (redo ? { undo: [...h.undo, e], redo: h.redo.slice(0, -1) } : { undo: h.undo.slice(0, -1), redo: [...h.redo, e] }))
+    update(e.key, y => ({ ...y, ...(redo ? e.after : e.before) }))
+    if (cur !== e.key) setCur(e.key)
+    toast(`${redo ? 'Redone' : 'Undone'}: ${e.label}`)
+  }
+  function changeSpeed(v: number) {
+    setSpeed(v)
+    const vid = getVideo()
+    if (vid) vid.playbackRate = v
+  }
+  function stepFrame(dir: 1 | -1) {
+    const vid = getVideo()
+    if (!vid || !c) return
+    vid.pause()
+    vid.currentTime = frameStep(vid.currentTime, c.fps, dir)
+  }
+
   async function queueKeep(x: Clip, quiet = false, sound = true): Promise<boolean> {
     epoch.current++
     try {
@@ -185,7 +258,7 @@ function Workspace({ pid }: { pid: string }) {
   function nextTitle() {
     if (!c || c.state === 'kept' || c.titles.length < 2) return
     const i = c.titles.indexOf(c.title)
-    update(keyOf(c), y => ({ ...y, title: y.titles[(i + 1) % y.titles.length]!, userTitle: true }))
+    edit(c, 'new title', { title: c.titles[(i + 1) % c.titles.length]!, userTitle: true })
   }
 
   async function batchKeep() {
@@ -223,9 +296,21 @@ function Workspace({ pid }: { pid: string }) {
 
   useEffect(() => {                                  // the original page's Review keys
     function onKey(e: KeyboardEvent) {
-      if (document.querySelector('[role=alertdialog]') || (e.target as HTMLElement).closest?.('input,select,textarea')) return
-      if (e.ctrlKey || e.metaKey || e.altKey) return
-      const k = e.key
+      if (document.querySelector('[role=alertdialog]')) return
+      const typing = !!(e.target as HTMLElement).closest?.('input,select,textarea'), mod = e.ctrlKey || e.metaKey
+      if (mod && !typing && ['z', 'Z', 'y'].includes(e.key)) { e.preventDefault(); undoRedo(e.key === 'y' || e.shiftKey); return }
+      if (typing || mod || e.altKey) return
+      const k = e.key, vid = getVideo()
+      if (c && vid) {                                // the editor's keys
+        const hit = k === 'i' || k === 'I' ? (trim(c, vid.currentTime, c.end, 'set start'), true)
+          : k === 'o' || k === 'O' ? (trim(c, c.start, vid.currentTime, 'set end'), true)
+          : k === ',' ? (stepFrame(-1), true) : k === '.' ? (stepFrame(1), true)
+          : k === '<' || k === '>' ? (changeSpeed(SPEEDS[clamp(SPEEDS.indexOf(speed) + (k === '<' ? -1 : 1), 0, SPEEDS.length - 1)]!), true)
+          : k === '[' ? ((vid.currentTime = c.start), true) : k === ']' ? ((vid.currentTime = Math.max(c.start, c.end - 0.05)), true)
+          : k === '+' || k === '=' ? (timeline.current?.zoom(0.5), true) : k === '-' || k === '_' ? (timeline.current?.zoom(2), true)
+          : k === '0' ? (timeline.current?.fit(), true) : false
+        if (hit) { e.preventDefault(); return }
+      }
       if (k === ' ') { e.preventDefault(); player.current?.toggle() }
       else if (k === 'ArrowDown' || k === 'j') { e.preventDefault(); step(1) }
       else if (k === 'ArrowUp' || k === 'k') { e.preventDefault(); step(-1) }
@@ -321,11 +406,63 @@ function Workspace({ pid }: { pid: string }) {
         <div className="rv-main">
           {c ? (
             <>
-              <Player ref={player} src={c.vod || meta.vod} pid={pid} start={c.start} end={c.end} />
+              <Player ref={player} src={c.vod || meta.vod} pid={pid} clipKey={keyOf(c)} start={c.start} end={c.end} />
+              <div className="rv-editor" data-testid="rv-editor">
+                <div className="row wrap rv-edbar">
+                  <button className="btn sm" disabled={!hist.undo.length} onClick={() => undoRedo(false)}
+                          title={hist.undo.length ? `Undo ${hist.undo.at(-1)!.label} (Ctrl+Z)` : 'Nothing to undo'}>Undo</button>
+                  <button className="btn sm" disabled={!hist.redo.length} onClick={() => undoRedo(true)}
+                          title={hist.redo.length ? `Redo ${hist.redo.at(-1)!.label} (Ctrl+Shift+Z)` : 'Nothing to redo'}>Redo</button>
+                  <button className="btn sm ghost" onClick={() => stepFrame(-1)} title="One frame back (,)">‹ Frame</button>
+                  <button className="btn sm ghost" onClick={() => stepFrame(1)} title="One frame on (.)">Frame ›</button>
+                  <select className="input" aria-label="Playback speed" title="Playback speed (< and >)" value={speed} onChange={e => changeSpeed(Number(e.target.value))}>
+                    {SPEEDS.map(v => <option key={v} value={v}>{v}×</option>)}
+                  </select>
+                  <span className="grow" />
+                  <button className="btn sm ghost" onClick={() => timeline.current?.zoom(2)} aria-label="Zoom out (-)">−</button>
+                  <button className="btn sm ghost" onClick={() => timeline.current?.zoom(0.5)} aria-label="Zoom in (+)">+</button>
+                  <button className="btn sm ghost" onClick={() => timeline.current?.fit()} title="The whole clip (0)">Fit</button>
+                </div>
+                <Timeline ref={timeline} clip={c} dur={meta.duration} video={getVideo} locked={kept}
+                          onDrag={(start, end) => {
+                            dragFrom.current ??= snapOf(c)
+                            update(keyOf(c), y => ({ ...y, start, end, userTrim: true }), 'no')
+                          }}
+                          onDragEnd={which => {
+                            const before = dragFrom.current
+                            dragFrom.current = undefined
+                            const x = clipsRef.current.find(y => keyOf(y) === keyOf(c))
+                            if (!before || !x) return
+                            setHist(h => push(h, keyOf(x), which === 's' ? 'move start' : 'move end', before, snapOf(x)))
+                            save(x)
+                            afterTrim(x)
+                          }} />
+                <div className="rv-trim" aria-label="Trim">
+                  {(['s', 'e'] as const).map(w => (
+                    <div key={w} className="rv-trim-row">
+                      <span className="rv-trim-l">{w === 's' ? 'Start' : 'End'}</span>
+                      <span className="tnum" data-testid={w === 's' ? 'rv-start' : 'rv-end'}>{fmtA(w === 's' ? c.start : c.end)}</span>
+                      <span className="rv-trim-btns">
+                        {([['-1', '−1s', '1 second earlier'], ['-f', '−1f', '1 frame earlier'], ['f', '+1f', '1 frame later'], ['1', '+1s', '1 second later'],
+                          ['now', 'Set', `${w === 's' ? 'Start' : 'End'} where the playhead is (${w === 's' ? 'I' : 'O'})`]] as const).map(([v, l, t]) => (
+                          <button key={v} className="btn sm" disabled={kept} title={t} aria-label={`${w === 's' ? 'Start' : 'End'}: ${t}`}
+                                  onClick={() => nudge(w, v === 'now' || v === 'f' || v === '-f' ? v : Number(v))}>{l}</button>
+                        ))}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="row wrap muted small">
+                    <span data-testid="rv-len">{(c.end - c.start).toFixed(2)} s{c.orig && (Math.abs(c.orig[0] - c.start) > 0.01 || Math.abs(c.orig[1] - c.end) > 0.01)
+                      ? ` · found as ${(c.orig[1] - c.orig[0]).toFixed(1)} s` : ''}</span>
+                    {!kept && c.orig && (Math.abs(c.orig[0] - c.start) > 0.01 || Math.abs(c.orig[1] - c.end) > 0.01) &&
+                      <button className="link" onClick={() => restore(c)} title="Go back to the cut Clip Radar found">Restore original cut</button>}
+                  </div>
+                </div>
+              </div>
               <div className="rv-details" data-testid="rv-details">
                 <div className="row wrap rv-facts">
                   <b>{isGem(c) ? `Quiet gem #${c.id}` : `Clip #${c.id}`}</b>
-                  <span className="muted">{fmt(c.start)} to {fmt(c.end)} ({(c.end - c.start).toFixed(1)}s)</span>
+                  <span className="muted">{fmtA(c.start)} to {fmtA(c.end)} ({(c.end - c.start).toFixed(1)}s)</span>
                   {c.quality > 0 && <span className={`qpill q${qClass(c.quality)}`}>Score {c.quality}</span>}
                   {st && st !== 'clean' && st !== 'off' && <span className={st === 'needs_review' || st === 'excluded' ? 'warn-tx' : 'muted'}>{CHECK_LABEL[st]}</span>}
                 </div>
@@ -344,20 +481,20 @@ function Workspace({ pid }: { pid: string }) {
                 <label className="fld">Title
                   <span className="row">
                     <input className="input grow" value={c.title} disabled={kept} maxLength={120} data-testid="rv-title-input"
-                           onChange={e => update(keyOf(c), y => ({ ...y, title: e.target.value, userTitle: true }), 'soon')} />
+                           onChange={e => edit(c, 'title change', { title: e.target.value, userTitle: true }, 'title')} />
                     <button className="btn sm" disabled={kept || c.titles.length < 2} onClick={nextTitle} title="Another suggested title (T)">Another title</button>
                   </span>
                 </label>
                 <label className="fld">Post caption
                   <textarea className="input" rows={3} value={postFor(c, hashtagsOn)} disabled={kept}
-                            onChange={e => update(keyOf(c), y => ({ ...y, userPost: true, postText: e.target.value }), 'soon')} />
+                            onChange={e => edit(c, 'post caption change', { userPost: true, postText: e.target.value }, 'post')} />
                 </label>
                 <div className="row wrap">
                   <button className="btn sm ghost" onClick={() => navigator.clipboard.writeText(postFor(c, hashtagsOn)).then(() => toast('Post caption copied.'), () => toast(postFor(c, hashtagsOn)))}>Copy post caption</button>
-                  <a className="btn sm ghost" href={`/legacy/#open=${pid}/${c.id}`} title="Trim, captions, text style and layout are still in the current UI">Edit in the current UI</a>
+                  <a className="btn sm ghost" href={`/legacy/#open=${pid}/${c.id}`} title="Captions, text style and layout are still in the current UI">Edit in the current UI</a>
                 </div>
 
-                <p className="muted small">Keys: Enter keep · X skip · ↑ ↓ clips · Space play · ← → 2 s · T another title · M mute</p>
+                <p className="muted small">Keys: Enter keep · X skip · ↑ ↓ clips · Space play · ← → 2 s · T another title · M mute · I / O start / end here · , . frame · [ ] clip edges · Ctrl+Z undo</p>
               </div>
             </>
           ) : (

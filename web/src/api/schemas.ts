@@ -434,7 +434,7 @@ export const Clip = z.looseObject({
   userTrim: z.boolean().optional(), userTitle: z.boolean().optional(), userPost: z.boolean().optional(),
   postText: z.string().default(''), gain: z.number().default(0), wordsEdited: z.boolean().optional(),
   words: z.array(Word).default([]), words_edit: z.array(Word).optional(),
-  fps: z.number().default(30),
+  fps: z.number().default(30), orig: z.tuple([z.number(), z.number()]).optional(),
   safety: z.looseObject({ enabled: z.boolean().optional(), status: z.string().optional(), level: z.string().optional(),
     flags: z.array(Flag).default([]), open: z.number().default(0) }).optional(),
   check: z.looseObject({ excluded: z.boolean().default(false), fixes: z.array(z.unknown()).default([]) }).optional(),
@@ -457,3 +457,11 @@ export type Project = z.infer<typeof Project>
 export const ClipsUpdate = z.looseObject({ clips: z.array(Clip).default([]), gems: z.array(Clip).default([]), listening: z.boolean().default(false) })
 
 export const PreviewCopy = z.looseObject({ ready: z.boolean().default(false), job: z.string().optional() })
+
+/** What the editing timeline draws for a stretch of the video (/api/strip): loudness, laughter etc., chat. */
+export const Strip = z.looseObject({
+  a: z.number(), b: z.number(), hz: z.number().default(10), start: z.number().default(0),
+  wave: z.array(z.number()).default([]), events: z.record(z.string(), z.array(z.number())).default({}),
+  chat: z.array(z.number()).default([]),
+})
+export type Strip = z.infer<typeof Strip>
