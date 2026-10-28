@@ -1,7 +1,7 @@
 """
 The new UI's Review against the real server, in a real browser, on a generated video: the open videos
 are listed, a video opens with its clips, the selected clip plays its stretch, a title you type is saved
-with the VOD, the clip preview matches the current UI's and the title can be dragged on it, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
+with the VOD, the Text and Layout tabs set the shared render style, the clip preview matches the current UI's (with those choices) and the title can be dragged on it, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
 Skipped and asks why, a video the window can't play switches to the preview copy, Skip in bulk asks first and Undo brings the clips back, a reload keeps what you
 did, "Edit in the current UI" opens the same clip there, and the screen fits a narrow window.
 
@@ -116,7 +116,7 @@ with sync_playwright() as pw:
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" and not m.text.startswith("Failed to load resource") else None)
     page.on("response", lambda r: errors.append(f"{r.status} {r.url}") if r.status >= 400 else None)
-    page.add_init_script("localStorage.setItem('vc_opts', JSON.stringify({captions: false}))")      # no Whisper download here
+    page.add_init_script("if (!localStorage.getItem('vc_opts')) localStorage.setItem('vc_opts', JSON.stringify({captions: false}))")  # no Whisper download here
 
     # the open videos are listed, and one click opens it
     page.goto(url + "/next/#review")
@@ -162,6 +162,7 @@ with sync_playwright() as pw:
     cl = dict(server_clip(first["id"]))           # a copy: the server changes its own
     page.get_by_role("button", name="Fit", exact=True).click()
     page.wait_for_timeout(200)
+    page.evaluate("document.querySelector('[data-testid=rv-timeline]').scrollIntoView({block: 'center'})")   # clear of the toasts
     a, b = (float(page.get_by_test_id("rv-timeline").get_attribute(k)) for k in ("data-a", "data-b"))
     tl = page.get_by_test_id("rv-timeline").bounding_box()
     xe = tl["x"] + (cl["end"] - a) / (b - a) * tl["width"] - 2
@@ -230,6 +231,35 @@ with sync_playwright() as pw:
     check("after a reload, the skipped clip is still skipped", page.locator("[data-testid=rv-row]").count() == 1)
     page.get_by_role("tab", name="To review").click()
 
+    # Text and Layout tabs: the render style both UIs share (vc_opts), saved framings on the server
+    def vc_opts():
+        return json.loads(page.evaluate("localStorage.getItem('vc_opts')") or "{}")
+    page.get_by_role("tab", name="Text", exact=True).click()
+    page.get_by_role("radio", name="Outline").click()
+    page.get_by_role("radiogroup", name="Title font").get_by_role("radio", name="Anton").click()
+    check("the Text tab sets the title style and font", (vc_opts().get("title_style"), vc_opts().get("title_font")) == ("outline", "anton"), vc_opts())
+    page.get_by_role("tab", name="Layout", exact=True).click()
+    page.get_by_role("radio", name="Cam + game").click()
+    pk = page.get_by_test_id("rv-picker")
+    page.evaluate("document.querySelector('[data-testid=rv-picker]').scrollIntoView({block: 'center'})")
+    page.wait_for_function("document.querySelector('[data-testid=rv-picker] img').naturalWidth > 0", timeout=15000)
+    bb = pk.bounding_box()
+    page.mouse.move(bb["x"] + bb["width"] * 0.6, bb["y"] + bb["height"] * 0.1)
+    page.mouse.down()
+    page.mouse.move(bb["x"] + bb["width"] * 0.9, bb["y"] + bb["height"] * 0.4, steps=6)
+    page.mouse.up()
+    cam = vc_opts().get("cam") or [0, 0, 0, 0]
+    check("drawing the camera box sets it", abs(cam[0] - 0.6) < 0.03 and abs(cam[2] - 0.3) < 0.03 and abs(cam[3] - 0.3) < 0.03, cam)
+    page.get_by_role("button", name="Save this framing…").click()
+    page.get_by_label("Name this framing").fill("Cam top right")
+    page.get_by_role("button", name="Save", exact=True).click()
+    import exports  # noqa: E402
+    check("a saved framing is kept on the server", wait_until(lambda: any(p["name"] == "Cam top right" for p in exports.load().get("frame_presets", []))),
+          exports.load().get("frame_presets"))
+    page.get_by_role("radio", name="Blur fit").click()
+    check("the Layout tab sets the layout", vc_opts().get("layout") == "blur", vc_opts().get("layout"))
+    page.get_by_role("tab", name="Clip", exact=True).click()
+
     # the clip preview: the same picture as the current UI's, and the title can be dragged
     page.mouse.move(5, 5)
     page.evaluate("(() => { const v = document.querySelector('[data-testid=rv-video]'); v.pause(); })()")
@@ -238,6 +268,7 @@ with sync_playwright() as pw:
         c.getContext('2d').drawImage(document.querySelector(sel), 0, 0, 54, 96); return Array.from(c.getContext('2d').getImageData(0, 0, 54, 96).data) }"""
     page.wait_for_timeout(400)
     new_px = page.evaluate(shrink, "[data-testid=rv-preview]")
+    page.evaluate("document.querySelector('[data-testid=rv-preview]').scrollIntoView({block: 'center'})")
     pv = page.get_by_test_id("rv-preview").bounding_box()
     page.mouse.move(pv["x"] + pv["width"] / 2, pv["y"] + pv["height"] * 0.07)
     page.mouse.down()

@@ -413,6 +413,8 @@ export const ExportFormat = z.looseObject({
     watermark: z.looseObject({ on: z.boolean().default(false), marks: z.array(Mark).default([]) }).default({ on: false, marks: [] }),
     wm_presets: z.array(WmPreset).default([]),
     replace: z.array(z.tuple([z.string(), z.string()])).default([]),
+    cap_presets: z.array(z.looseObject({ name: z.string(), opts: z.record(z.string(), z.unknown()) })).default([]),
+    frame_presets: z.array(z.looseObject({ name: z.string(), opts: z.record(z.string(), z.unknown()) })).default([]),
   }),
 })
 export type ExportFormat = z.infer<typeof ExportFormat>
@@ -471,4 +473,10 @@ export type Strip = z.infer<typeof Strip>
 export const TrackPath = z.looseObject({
   path: z.array(z.tuple([z.number(), z.number()])).default([]), face_y: z.number().nullish(), face_h: z.number().nullish(),
   reason: z.string().default(''), coverage: z.number().default(0),
+})
+
+/** Layout › Auto-frame (/api/framing/<project>): the layout that fits, or why there's nothing to suggest. */
+export const FramingSuggest = z.looseObject({
+  layout: z.string().default(''), cam: z.array(z.number()).length(4).optional(), track: z.string().optional(),
+  reason: z.string().default(''), confidence: z.number().default(1),
 })

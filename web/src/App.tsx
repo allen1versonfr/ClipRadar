@@ -57,7 +57,7 @@ export function App() {
       </nav>
       <main className="main">
         {current.id === 'home' ? <HomeView status={status.data} refreshStatus={status.refresh} />
-          : current.id === 'review' ? <ReviewView pid={route.pid} />
+          : current.id === 'review' ? <ReviewView pid={route.pid} whisper={status.data?.whisper !== false} />
           : current.id === 'exports' ? <ExportsView />
           : <SettingsView status={status.data} refreshStatus={status.refresh} />}
       </main>

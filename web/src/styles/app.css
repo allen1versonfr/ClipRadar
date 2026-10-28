@@ -336,3 +336,24 @@ p.notice { margin: 0; }
 .rv-phone { position: relative; height: min(62vh, 640px); max-width: 100%; }
 .rv-phone canvas { width: 100%; height: 100%; display: block; border-radius: var(--r); cursor: pointer; touch-action: none; }
 @media (max-width: 560px) { .rv-phone { height: auto; width: 100%; } }
+.rv-tabs { align-self: flex-start; }
+.rv-pane { display: flex; flex-direction: column; gap: 12px; }
+.rv-sec { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.rv-range { display: grid; grid-template-columns: 120px minmax(0, 1fr) 64px; align-items: center; gap: 10px; color: var(--tx1); font-size: 12px; }
+.rv-range input { accent-color: var(--accent); min-width: 0; }
+.rv-range output { color: var(--tx0); text-align: right; }
+.rv-fonts { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 4px; }
+.rv-fonts button { padding: 6px 4px; border: 1px solid var(--line2); border-radius: var(--r); background: var(--bg2); color: var(--tx0); }
+.rv-fonts button.on { border-color: var(--accent); background: var(--accent-soft); }
+.rv-swatches { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rv-swatches button { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line2); }
+.rv-swatches button.on { outline: 2px solid var(--tx0); outline-offset: 2px; }
+.rv-swatches input[type=color] { width: 40px; height: 28px; padding: 2px; border: 1px solid var(--line2); border-radius: var(--r); background: var(--bg2); }
+.rv-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.rv-preset { display: inline-flex; align-items: center; }
+.rv-picker { position: relative; user-select: none; touch-action: none; cursor: crosshair; border-radius: var(--r); overflow: hidden; border: 1px solid var(--line2); }
+.rv-picker img { width: 100%; display: block; pointer-events: none; }
+.rv-cambox { position: absolute; border: 2px solid var(--accent); background: rgba(47, 227, 111, .12); pointer-events: none; }
+@media (max-width: 560px) { .rv-range { grid-template-columns: 90px minmax(0, 1fr) 56px; } }
+@media (pointer: coarse) { .rv-swatches button { width: 44px; height: 44px; } .rv-fonts button { min-height: 44px; } }
+.rv-details[hidden] { display: none; }

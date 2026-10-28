@@ -12,9 +12,15 @@ import { bounds, clamp, fmtA, frameStep, type History, push, snapOf, type Snap }
 import { Player, type PlayerHandle } from './Player'
 import { layoutOf } from './draw'
 import { Preview, type Track } from './Preview'
+import { LayoutPanel, savePresets, TextPanel } from './StylePanels'
 import { Timeline, type TimelineHandle } from './Timeline'
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]
+/** What following the face found (Layout tab). */
+const trackNote = (t: (Track & { reason?: string; coverage?: number }) | null | undefined) => t === undefined ? ''
+  : t === null ? 'Finding the face in this clip…'
+  : t.path.length ? `${t.reason || 'Following the face'} (seen in ${Math.round((t.coverage ?? 0) * 100)}% of the clip). The crop moves smoothly, holds still while a face is hidden, and only moves to someone else once the person it follows has gone.`
+  : `${t.reason || 'No face found'}. The crop stays at the focus point.`
 /** What the face-following path depends on (the original page's trackKey). */
 const trackKey = (c: Clip, o: RenderOpts) => [c.pid, c.start.toFixed(2), c.end.toFixed(2), o.track_target,
   o.track_target === 'point' ? `${Number(o.game_x).toFixed(2)},${Number(o.focus_y ?? 0.4).toFixed(2)}` : '', o.aspect, o.game_zoom].join('|')
@@ -24,8 +30,8 @@ const save = (c: Clip) => { api(Ok, '/api/clip_state', snapshot(c)).catch(() => 
 const feedback = (c: Clip, action: string, extra: object = {}) => { api(Ok, '/api/feedback', { pid: c.pid, clip: c.id, action, ...extra }).catch(() => {}) }
 
 /** Review: #review lists the videos open now; #review/<project> reviews one. */
-export function ReviewView({ pid }: { pid: string | undefined }) {
-  return pid ? <Workspace key={pid} pid={pid} /> : <Picker />
+export function ReviewView({ pid, whisper = true }: { pid: string | undefined; whisper?: boolean }) {
+  return pid ? <Workspace key={pid} pid={pid} whisper={whisper} /> : <Picker />
 }
 
 function Picker() {
@@ -43,7 +49,8 @@ function Picker() {
   )
 }
 
-function Workspace({ pid }: { pid: string }) {
+function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
+  const [tab, setTab] = useState<'clip' | 'text' | 'layout'>('clip')
   const toast = useToast()
   const confirm = useConfirm()
   const [meta, setMeta] = useState<Project>()
@@ -186,6 +193,12 @@ function Workspace({ pid }: { pid: string }) {
     update(keyOf(x), y => ({ ...y, listened: false }), 'no')
     const o = renderOpts()
     api(Ok, '/api/listen', { pid, order: [x.id], model: o.whisper_model, language: o.language }).then(() => setListening(true)).catch(() => {})
+  }
+  /** Accuracy or language changed: every clip is listened to again. */
+  function relisten() {
+    setClips(cs => cs.map(x => ({ ...x, listened: false })))
+    api(Ok, '/api/listen', { pid, order: clipsRef.current.map(x => x.id), model: opts.whisper_model, language: opts.language })
+      .then(() => setListening(true)).catch(() => {})
   }
   function trim(x: Clip, start: number, end: number, label: string, group?: string): boolean {
     if (x.state === 'kept') return false
@@ -458,10 +471,7 @@ function Workspace({ pid }: { pid: string }) {
                          }}
                          onToggle={() => player.current?.toggle()} />
               </Player>
-              <label className="chk small">
-                <input type="checkbox" checked={guides} onChange={e => { setGuides(e.target.checked); setPref('guides', e.target.checked) }} />
-                <span>Show what TikTok covers</span>
-              </label>
+
               <div className="rv-editor" data-testid="rv-editor">
                 <div className="row wrap rv-edbar">
                   <button className="btn sm" disabled={!hist.undo.length} onClick={() => undoRedo(false)}
@@ -514,14 +524,13 @@ function Workspace({ pid }: { pid: string }) {
                   </div>
                 </div>
               </div>
-              <div className="rv-details" data-testid="rv-details">
-                <div className="row wrap rv-facts">
+              <div className="row wrap rv-facts">
                   <b>{isGem(c) ? `Quiet gem #${c.id}` : `Clip #${c.id}`}</b>
                   <span className="muted">{fmtA(c.start)} to {fmtA(c.end)} ({(c.end - c.start).toFixed(1)}s)</span>
                   {c.quality > 0 && <span className={`qpill q${qClass(c.quality)}`}>Score {c.quality}</span>}
                   {st && st !== 'clean' && st !== 'off' && <span className={st === 'needs_review' || st === 'excluded' ? 'warn-tx' : 'muted'}>{CHECK_LABEL[st]}</span>}
                 </div>
-                <div className="row wrap rv-acts">
+              <div className="row wrap rv-acts">
                   <button className="btn ghost" onClick={() => step(-1)} aria-label="Previous clip (Up)">Previous</button>
                   <button className="btn ghost" onClick={() => step(1)} aria-label="Next clip (Down)">Next</button>
                   <span className="grow" />
@@ -530,6 +539,20 @@ function Workspace({ pid }: { pid: string }) {
                   </button>
                   <button className="btn primary" onClick={() => void keep()} disabled={kept && q?.status !== 'error'} data-testid="rv-keep">{keepLabel}</button>
                 </div>
+              <div className="seg rv-tabs" role="tablist" aria-label="Clip, text or layout">
+                {([['clip', 'Clip'], ['text', 'Text'], ['layout', 'Layout']] as const).map(([v, l]) => (
+                  <button key={v} role="tab" aria-selected={tab === v} className={tab === v ? 'on' : ''} onClick={() => setTab(v)}>{l}</button>
+                ))}
+              </div>
+              {tab === 'text' && <TextPanel opts={opts} set={setOpts} capPresets={exp.data?.prefs.cap_presets ?? []} whisper={whisper}
+                                            guides={guides} onGuides={v => { setGuides(v); setPref('guides', v) }} onRelisten={relisten}
+                                            onSavePresets={async l => { await savePresets('cap_presets')(l).catch(e => toast(err(e), 'err')); await exp.refresh() }} />}
+              {tab === 'layout' && <LayoutPanel opts={opts} set={setOpts} pid={pid} frameAt={c.start + (c.end - c.start) * 0.6}
+                                                framePresets={exp.data?.prefs.frame_presets ?? []} trackNote={trackNote(tracks[trackKey(c, opts)])}
+                                                onSavePresets={async l => { await savePresets('frame_presets')(l).catch(e => toast(err(e), 'err')); await exp.refresh() }} />}
+              <div className="rv-details" data-testid="rv-details" hidden={tab !== 'clip'}>
+
+
                 {c.reason && <p className="muted small">{c.reason}</p>}
                 {kept && q?.status === 'error' && <p className="notice err" role="alert"><b>Render failed.</b>&nbsp;{q.error}</p>}
                 {c.held && !kept && <p className="notice"><b>{c.held}.</b>&nbsp;Hands-free didn't render this one. Watch it, then keep or skip it.</p>}
