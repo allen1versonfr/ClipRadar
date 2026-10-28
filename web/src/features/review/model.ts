@@ -7,7 +7,7 @@ import type { RenderOpts } from '../../prefs'
 export type Filter = 'todo' | 'skipped' | 'all' | 'gems'
 /** A clip as the server sent it, ready for the screen (prepClip): caption fixes you made replace the words heard. */
 export function prep(c: Clip): Clip {
-  return c.wordsEdited && c.words_edit ? { ...c, words: c.words_edit, words_edit: undefined } : c
+  return c.wordsEdited && c.words_edit ? { ...c, wordsOrig: c.words, words: c.words_edit, words_edit: undefined } : c
 }
 export const isGem = (c: Clip) => c.kind === 'gem'
 export const keyOf = (c: Pick<Clip, 'pid' | 'id'>) => `${c.pid}:${c.id}`
@@ -59,7 +59,9 @@ export function keepBody(c: Clip, post: string, opts: RenderOpts, sound = true) 
 /** What /api/clip_state is sent: everything you did to a clip, saved with the VOD. */
 export function snapshot(c: Clip) {
   return { pid: c.pid, id: c.id, state: c.state, start: c.start, end: c.end, title: c.title, userTrim: !!c.userTrim,
-    userTitle: !!c.userTitle, userPost: !!c.userPost, postText: c.postText, wordsEdited: !!c.wordsEdited, gain: c.gain }
+    userTitle: !!c.userTitle, userPost: !!c.userPost, postText: c.postText, wordsEdited: !!c.wordsEdited, gain: c.gain,
+    ...(c.wordsEdited ? { words_edit: (c.words as Array<Clip['words'][number] & { g?: unknown; edited?: boolean }>)
+      .map(w => ({ start: w.start, end: w.end, word: w.word, g: w.g, edited: !!w.edited })) } : {}) }
 }
 
 /** A clip from the server, merged into the one on screen: titles and checks arrive in the background,

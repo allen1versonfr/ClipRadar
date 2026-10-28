@@ -357,3 +357,8 @@ p.notice { margin: 0; }
 @media (max-width: 560px) { .rv-range { grid-template-columns: 90px minmax(0, 1fr) 56px; } }
 @media (pointer: coarse) { .rv-swatches button { width: 44px; height: 44px; } .rv-fonts button { min-height: 44px; } }
 .rv-details[hidden] { display: none; }
+.rv-caplines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow-y: auto; }
+.rv-caplines li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 2px 4px; border-left: 2px solid transparent; border-radius: 4px; }
+.rv-caplines li.on { border-left-color: var(--accent); background: var(--bg2); }
+.rv-caplines li.edited .input { border-color: #6b5a24; }
+.rv-caplines li.flag .input { border-color: var(--warn); }

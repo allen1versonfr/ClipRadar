@@ -6,12 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- New UI, Review: the **Captions** tab. Fix what Whisper heard line by line, add a caption at the playhead, delete one, or Undo all edits; the line being said is highlighted as the clip plays, flagged lines are marked, and the content check looks again after each edit.
 - New UI, Review: the **Text** and **Layout** tabs. Title and caption styles, fonts, highlight colour, sizes, words at once, outline, shadow, animation, line spacing, timing, templates and saved styles; the shape, layout, Auto-frame, following the face, the camera box (drag it on a frame), focus, zoom and saved framings. The same settings as the current UI, shown in the preview as you change them. Keep and Skip stay in view on every tab.
 - New UI, Review: the **clip preview** shows the clip as it will render (every layout and shape, following the face, the title, captions with their style and animation, the watermark), drawn exactly like the current UI's. Drag the title, the captions or a watermark layer to move it, and Show what TikTok covers.
 - New UI, Review: **trimming and the timeline**. Drag the clip's edges on the timeline (they snap to words and the playhead; Alt doesn't), or use Start / End (±1 s, ±1 frame, Set at the playhead), Restore original cut, Undo / Redo (Ctrl+Z, Ctrl+Shift+Z), frame steps and playback speed. The timeline shows loudness, the words heard, laughter, screams, cheers and chat. The current UI's editor keys work too.
 
+### Fixed
+- New UI, Review: an edit saved after a short pause (a title, a trim) could undo a Keep or Skip made within that half second, so the clip showed as to review again. The delayed save now sends the clip as it is when it's saved.
+
 ### Tests
-- `web/`: 105 Vitest tests. `tests/test_web_review.py` also compares the new preview with the current UI's on the same frame (identical, with a title style, font and layout picked in the new UI), drags the title, sets the camera box and saves a framing, trims a clip (buttons, undo / redo, dragging the end, I, Restore) and checks Keep renders the trimmed cut.
+- `web/`: 110 Vitest tests. `tests/test_web_review.py` also compares the new preview with the current UI's on the same frame (identical, with a title style, font and layout picked in the new UI), drags the title, sets the camera box and saves a framing, adds and fixes a caption line and undoes it, trims a clip (buttons, undo / redo, dragging the end, I, Restore) and checks Keep renders the trimmed cut.
 
 ## [4.20.0] - 2026-10-28
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Campaigns, type Clip, ClipsUpdate, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
+import { Campaigns, type Clip, ClipsUpdate, Rechecked, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
@@ -13,6 +13,8 @@ import { Player, type PlayerHandle } from './Player'
 import { layoutOf } from './draw'
 import { Preview, type Track } from './Preview'
 import { LayoutPanel, savePresets, TextPanel } from './StylePanels'
+import { addLine, editLine, resetLines } from './captions'
+import { CaptionsPanel } from './CaptionsPanel'
 import { Timeline, type TimelineHandle } from './Timeline'
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]
@@ -50,7 +52,8 @@ function Picker() {
 }
 
 function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
-  const [tab, setTab] = useState<'clip' | 'text' | 'layout'>('clip')
+  const [tab, setTab] = useState<'clip' | 'captions' | 'text' | 'layout'>('clip')
+  const [now, setNow] = useState(0)
   const toast = useToast()
   const confirm = useConfirm()
   const [meta, setMeta] = useState<Project>()
@@ -107,8 +110,12 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     setClips(cs => cs.map(c => {
       if (keyOf(c) !== k) return c
       const n = f(c)
-      if (persist === 'now') save(n)
-      else if (persist === 'soon') { clearTimeout(saveT.current.get(k)); saveT.current.set(k, setTimeout(() => save(n), 600)) }
+      if (persist === 'now') { clearTimeout(saveT.current.get(k)); save(n) }
+      else if (persist === 'soon') {
+        // saved after a pause, as the clip is then: a keep or skip in the meantime isn't undone by an older copy
+        clearTimeout(saveT.current.get(k))
+        saveT.current.set(k, setTimeout(() => { const x = clipsRef.current.find(y => keyOf(y) === k); if (x) save(x) }, 600))
+      }
       return n
     }))
   }, [])
@@ -166,6 +173,11 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     return () => clearTimeout(t)
   }, [tk]) // the key holds everything that changes the path
 
+  useEffect(() => {                                  // the Captions tab follows the line being said
+    if (tab !== 'captions') return
+    const t = setInterval(() => setNow(getVideo()?.currentTime ?? 0), 250)
+    return () => clearInterval(t)
+  }, [tab, getVideo])
   const list = useMemo(() => visible(clips, filter), [clips, filter])
   const c = clips.find(x => keyOf(x) === cur)
   const q = c && queueFor(c, items)
@@ -182,10 +194,30 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
   }
   function after(x: Clip) { select(nextTodo(clipsRef.current, x)) }
 
-  /** An edit you can undo: recorded, shown at once, saved after a pause. */
+  /** An edit you can undo: recorded, shown at once, saved after a pause, and checked again. */
   function edit(x: Clip, label: string, patch: Partial<Clip>, group?: string) {
     setHist(h => push(h, keyOf(x), label, snapOf(x), snapOf({ ...x, ...patch }), group))
     update(keyOf(x), y => ({ ...y, ...patch }), 'soon')
+    recheckSoon(keyOf(x))
+  }
+  /** The content check looks at the clip again after an edit (Settings › Content check › Recheck after edits). */
+  const scanT = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  function recheckSoon(k: string) {
+    if (safety?.enabled === false) return
+    if (safety?.auto_recheck === false) {        // switched off: just say the last check is out of date
+      update(k, y => (y.safety ? { ...y, check: { excluded: false, fixes: [], ...y.check, stale: true } } : y), 'no')
+      return
+    }
+    clearTimeout(scanT.current.get(k))
+    scanT.current.set(k, setTimeout(async () => {
+      const x = clipsRef.current.find(y => keyOf(y) === k)
+      if (!x) return
+      try {
+        const r = await api(Rechecked, '/api/check', { ...snapshot(x), action: '' })
+        const v = r.clips[0]
+        if (v) update(k, y => ({ ...y, safety: v.safety ?? y.safety, check: v.check ?? y.check }), 'no')
+      } catch { /* the next edit checks again */ }
+    }, 350))
   }
   /** After a trim: a clip cut past the words heard is listened to again, so its captions and title fit. */
   function afterTrim(x: Clip) {
@@ -540,10 +572,15 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
                   <button className="btn primary" onClick={() => void keep()} disabled={kept && q?.status !== 'error'} data-testid="rv-keep">{keepLabel}</button>
                 </div>
               <div className="seg rv-tabs" role="tablist" aria-label="Clip, text or layout">
-                {([['clip', 'Clip'], ['text', 'Text'], ['layout', 'Layout']] as const).map(([v, l]) => (
+                {([['clip', 'Clip'], ['captions', 'Captions'], ['text', 'Text'], ['layout', 'Layout']] as const).map(([v, l]) => (
                   <button key={v} role="tab" aria-selected={tab === v} className={tab === v ? 'on' : ''} onClick={() => setTab(v)}>{l}</button>
                 ))}
               </div>
+              {tab === 'captions' && <CaptionsPanel clip={c} opts={opts} whisper={whisper} now={now}
+                    onEdit={(i, text) => { if (kept) return; const p = editLine(c, i, text, opts); if (p) edit(c, text.trim() ? 'caption edit' : 'caption deleted', p) }}
+                    onAdd={() => { const vid = getVideo(); if (!kept && vid) edit(c, 'caption added', addLine(c, vid.currentTime, opts)) }}
+                    onReset={() => { edit(c, 'caption reset', resetLines(c)); toast('Captions are back to what Whisper heard.') }}
+                    onSeek={t => { const vid = getVideo(); if (vid) { vid.pause(); vid.currentTime = clamp(t, c.start, c.end - 0.05) } }} />}
               {tab === 'text' && <TextPanel opts={opts} set={setOpts} capPresets={exp.data?.prefs.cap_presets ?? []} whisper={whisper}
                                             guides={guides} onGuides={v => { setGuides(v); setPref('guides', v) }} onRelisten={relisten}
                                             onSavePresets={async l => { await savePresets('cap_presets')(l).catch(e => toast(err(e), 'err')); await exp.refresh() }} />}

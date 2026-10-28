@@ -1,7 +1,7 @@
 """
 The new UI's Review against the real server, in a real browser, on a generated video: the open videos
 are listed, a video opens with its clips, the selected clip plays its stretch, a title you type is saved
-with the VOD, the Text and Layout tabs set the shared render style, the clip preview matches the current UI's (with those choices) and the title can be dragged on it, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
+with the VOD, the Text and Layout tabs set the shared render style, a caption line can be added, fixed and undone, the clip preview matches the current UI's (with those choices) and the title can be dragged on it, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
 Skipped and asks why, a video the window can't play switches to the preview copy, Skip in bulk asks first and Undo brings the clips back, a reload keeps what you
 did, "Edit in the current UI" opens the same clip there, and the screen fits a narrow window.
 
@@ -258,6 +258,24 @@ with sync_playwright() as pw:
           exports.load().get("frame_presets"))
     page.get_by_role("radio", name="Blur fit").click()
     check("the Layout tab sets the layout", vc_opts().get("layout") == "blur", vc_opts().get("layout"))
+    page.get_by_role("tab", name="Clip", exact=True).click()
+
+    # Captions tab: add a line at the playhead, fix it, saved with the VOD; Undo all edits
+    page.get_by_role("tab", name="Text", exact=True).click()
+    page.get_by_label("Captions on the video").check()
+    page.get_by_role("tab", name="Captions", exact=True).click()
+    page.get_by_role("button", name="+ Add caption at playhead").click()
+    line = page.get_by_test_id("rv-captions").locator("input[value='New caption']").element_handle()    # the element: its value changes
+    line.fill("Hello there friend")
+    line.press("Enter")
+
+    def edited():
+        return next((d for d in server.projects[pid]["clips"] if d.get("wordsEdited")), None)
+    ok = wait_until(lambda: edited() is not None and [w["word"] for w in edited().get("words_edit", [])][-3:] == ["Hello", "there", "friend"])
+    check("a caption line added and fixed in the new UI is saved with the VOD", ok, edited() and edited().get("words_edit"))
+    ed_id = edited()["id"] if edited() else None
+    page.get_by_role("button", name="Undo all edits").click()
+    check("Undo all edits goes back to what Whisper heard", wait_until(lambda: not server_clip(ed_id).get("wordsEdited")) if ed_id else False)
     page.get_by_role("tab", name="Clip", exact=True).click()
 
     # the clip preview: the same picture as the current UI's, and the title can be dragged

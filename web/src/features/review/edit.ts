@@ -44,11 +44,11 @@ export function fmtA(t: number): string {
 
 // ---- undo / redo: every edit to a clip's cut, title and post caption
 
-export const EDIT_KEYS = ['start', 'end', 'userTrim', 'title', 'userTitle', 'postText', 'userPost'] as const
+export const EDIT_KEYS = ['start', 'end', 'userTrim', 'title', 'userTitle', 'postText', 'userPost', 'words', 'wordsEdited', 'wordsOrig'] as const
 export type Snap = Pick<Clip, (typeof EDIT_KEYS)[number]>
 export const snapOf = (c: Clip): Snap => ({ start: c.start, end: c.end, userTrim: !!c.userTrim, title: c.title,
-  userTitle: !!c.userTitle, postText: c.postText, userPost: !!c.userPost })
-const same = (a: Snap, b: Snap) => EDIT_KEYS.every(k => a[k] === b[k])
+  userTitle: !!c.userTitle, postText: c.postText, userPost: !!c.userPost, words: c.words, wordsEdited: !!c.wordsEdited, wordsOrig: c.wordsOrig })
+const same = (a: Snap, b: Snap) => EDIT_KEYS.every(k => (k === 'words' || k === 'wordsOrig' ? JSON.stringify(a[k]) === JSON.stringify(b[k]) : a[k] === b[k]))
 
 export interface Edit { key: string; label: string; before: Snap; after: Snap; group?: string | undefined; t: number }
 export interface History { undo: Edit[]; redo: Edit[] }

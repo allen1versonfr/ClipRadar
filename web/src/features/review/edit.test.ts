@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { bounds, fmtA, frameStep, push, rulerStep, snap, type Snap } from './edit'
 
-const s = (over: Partial<Snap> = {}): Snap => ({ start: 10, end: 30, userTrim: false, title: 'T', userTitle: false, postText: '', userPost: false, ...over })
+const s = (over: Partial<Snap> = {}): Snap => ({ start: 10, end: 30, userTrim: false, title: 'T', userTitle: false, postText: '', userPost: false, words: [], wordsEdited: false, wordsOrig: undefined, ...over })
 
 describe('trimming', () => {
   it('keeps a clip inside the video and at least a second long', () => {

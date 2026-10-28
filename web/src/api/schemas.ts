@@ -436,7 +436,7 @@ export const Clip = z.looseObject({
   manual: z.boolean().optional(), held: z.string().default(''),
   userTrim: z.boolean().optional(), userTitle: z.boolean().optional(), userPost: z.boolean().optional(),
   postText: z.string().default(''), gain: z.number().default(0), wordsEdited: z.boolean().optional(),
-  words: z.array(Word).default([]), words_edit: z.array(Word).optional(),
+  words: z.array(Word).default([]), words_edit: z.array(Word).optional(), wordsOrig: z.array(Word).optional(),
   fps: z.number().default(30), orig: z.tuple([z.number(), z.number()]).optional(),
   safety: z.looseObject({ enabled: z.boolean().optional(), status: z.string().optional(), level: z.string().optional(),
     flags: z.array(Flag).default([]), open: z.number().default(0) }).optional(),
@@ -479,4 +479,9 @@ export const TrackPath = z.looseObject({
 export const FramingSuggest = z.looseObject({
   layout: z.string().default(''), cam: z.array(z.number()).length(4).optional(), track: z.string().optional(),
   reason: z.string().default(''), confidence: z.number().default(1),
+})
+
+/** /api/check: the content check's answer for the clips it looked at. */
+export const Rechecked = z.looseObject({
+  clips: z.array(z.looseObject({ id: z.number(), safety: Clip.shape.safety, check: Clip.shape.check })).default([]),
 })

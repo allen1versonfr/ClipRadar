@@ -51,9 +51,20 @@ describe('Review', () => {
     expect(posted('/api/feedback')).toContainEqual({ pid: 'p1', clip: 2, action: 'reason', reason: 'duplicate' })
   })
 
+  it('an edit saved after a pause never undoes a keep made in the meantime', async () => {
+    renderReview()
+    await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Clip 1'))
+    fireEvent.change(screen.getByTestId('rv-title-input'), { target: { value: 'Mine' } })
+    fireEvent.click(screen.getByTestId('rv-keep'))                 // within the pause
+    await waitFor(() => expect(posted('/api/queue/add')).toHaveLength(1))
+    await new Promise(r => setTimeout(r, 800))
+    const last = posted('/api/clip_state').filter(b => b.id === 1).at(-1)
+    expect(last).toMatchObject({ state: 'kept', title: 'Mine' })
+  })
+
   it('T gives another suggested title, saved as yours', async () => {
     renderReview()
-    await screen.findAllByTestId('rv-row')
+    await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Clip 1'))     // selected
     fireEvent.keyDown(window, { key: 't' })
     expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Other 1')
   })
