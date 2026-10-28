@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { Job, PreviewCopy } from '../../api/schemas'
 import { getPref, setPref } from '../../prefs'
@@ -15,8 +15,10 @@ const copies: Record<string, string> = {}
 
 /** The clip's stretch of the video, looping, with the preview volume the original page uses (vc_volume,
  *  vc_muted). A video the window can't play switches to Clip Radar's 480p copy (/api/preview). */
-export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipKey: string; start: number; end: number; autoPlay?: boolean }>(
-  function Player({ src, pid, clipKey, start, end, autoPlay = true }, ref) {
+export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipKey: string; start: number; end: number; autoPlay?: boolean
+    /** drawn instead of the plain video (the clip preview), which then only plays the sound and frames */
+    children?: ReactNode }>(
+  function Player({ src, pid, clipKey, start, end, autoPlay = true, children }, ref) {
     const v = useRef<HTMLVideoElement>(null)
     const [t, setT] = useState(start)
     const [paused, setPaused] = useState(true)
@@ -94,8 +96,9 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipK
     const level = muted ? 0 : vol
     return (
       <div className="rv-player">
-        <div className="rv-video">
-          <video ref={v} src={url} playsInline preload="auto" data-testid="rv-video"
+        <div className={children ? 'rv-stage' : 'rv-video'}>
+          {children}
+          <video ref={v} src={url} playsInline preload="auto" data-testid="rv-video" style={children ? { display: 'none' } : undefined}
                  onTimeUpdate={onTime} onPlay={() => setPaused(false)} onPause={() => setPaused(true)}
                  onLoadedData={onLoaded} onError={() => { if (copy !== 'ready') void makeCopy() }}
                  onClick={() => { const el = v.current; if (el) void (el.paused ? el.play().catch(() => {}) : el.pause()) }} />

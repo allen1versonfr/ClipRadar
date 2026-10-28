@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { type Clip, ClipsUpdate, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs } from '../../api/schemas'
+import { Campaigns, type Clip, ClipsUpdate, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
 import { usePoll } from '../../hooks/usePoll'
-import { renderOpts } from '../../prefs'
+import { getPref, type RenderOpts, renderOpts, setPref } from '../../prefs'
 import { CHECK_LABEL, checkStatus, type Filter, fmt, gate, isGem, keepBody, keyOf, merge, nextTodo, openFlags, postFor,
   prep, qClass, queueFor, snapshot, visible } from './model'
 import { bounds, clamp, fmtA, frameStep, type History, push, snapOf, type Snap } from './edit'
 import { Player, type PlayerHandle } from './Player'
+import { layoutOf } from './draw'
+import { Preview, type Track } from './Preview'
 import { Timeline, type TimelineHandle } from './Timeline'
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]
+/** What the face-following path depends on (the original page's trackKey). */
+const trackKey = (c: Clip, o: RenderOpts) => [c.pid, c.start.toFixed(2), c.end.toFixed(2), o.track_target,
+  o.track_target === 'point' ? `${Number(o.game_x).toFixed(2)},${Number(o.focus_y ?? 0.4).toFixed(2)}` : '', o.aspect, o.game_zoom].join('|')
 
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const save = (c: Clip) => { api(Ok, '/api/clip_state', snapshot(c)).catch(() => {}) }
@@ -56,6 +61,29 @@ function Workspace({ pid }: { pid: string }) {
   const [speed, setSpeed] = useState(1)
   const dragFrom = useRef<Snap>(undefined)
   const getVideo = useCallback(() => player.current?.video() ?? null, [])
+  // your render style (vc_opts, shared with the current page): what the preview draws and Keep renders
+  const [opts, setOptsState] = useState<RenderOpts>(renderOpts)
+  const setOpts = useCallback((patch: Partial<RenderOpts>, persist = true) => {
+    setOptsState(o => { const n = { ...o, ...patch }; if (persist) setPref('opts', n); return n })
+  }, [])
+  const [guides, setGuides] = useState(() => !!getPref('guides', false))
+  // the watermark clips get: the active campaign's own, or yours (Settings › Watermark)
+  const exp = usePoll(useCallback(() => api(ExportFormat, '/api/export'), []), 30_000)
+  const camps = usePoll(useCallback(() => api(Campaigns, '/api/campaigns'), []), 30_000)
+  const camp = camps.data?.list.find(x => x.id === camps.data?.active && x.watermark.use)
+  const wmServer = camp ? { on: true, marks: camp.watermark.marks } : exp.data?.prefs.watermark
+  const [dragMarks, setDragMarks] = useState<Mark[]>()
+  const marks = wmServer?.on ? dragMarks ?? wmServer.marks : []
+  const replace = useMemo(() => Object.fromEntries((exp.data?.prefs.replace ?? []).map(([a, b]) => [a.toLowerCase(), b])), [exp.data])
+  async function saveMarks(ms: Mark[]) {
+    try {
+      if (camp) await api(Campaigns, '/api/campaigns/save', { campaign: { ...camp, watermark: { use: true, marks: ms } } })
+      else await api(ExportFormat, '/api/export', { watermark: { on: true, marks: ms } })
+    } catch (e) { toast(err(e), 'err') }
+    await Promise.all([exp.refresh(), camps.refresh()])
+    setDragMarks(undefined)
+  }
+  const [tracks, setTracks] = useState<Record<string, Track | null>>({})
   const clipsRef = useRef(clips)
   clipsRef.current = clips
   const saveT = useRef(new Map<string, ReturnType<typeof setTimeout>>())      // typing: saved after a pause, per clip
@@ -117,6 +145,19 @@ function Workspace({ pid }: { pid: string }) {
       return c
     }))
   }, [queue.data])
+
+  // following the face (Layout › Follow the face): the crop's path for this clip, worked out by Clip Radar
+  const trackFor = clips.find(x => keyOf(x) === cur)
+  const tk = trackFor ? trackKey(trackFor, opts) : ''
+  useEffect(() => {
+    if (!trackFor || !tk || tk in tracks || layoutOf(opts) !== 'full' || opts.track === 'off') return
+    const t = setTimeout(() => {
+      setTracks(m => ({ ...m, [tk]: null }))
+      api(TrackPath, '/api/framing/track', { pid: trackFor.pid, start: trackFor.start, end: trackFor.end, opts })
+        .then(r => setTracks(m => ({ ...m, [tk]: r }))).catch(() => {})
+    }, 500)
+    return () => clearTimeout(t)
+  }, [tk]) // the key holds everything that changes the path
 
   const list = useMemo(() => visible(clips, filter), [clips, filter])
   const c = clips.find(x => keyOf(x) === cur)
@@ -201,7 +242,7 @@ function Workspace({ pid }: { pid: string }) {
   async function queueKeep(x: Clip, quiet = false, sound = true): Promise<boolean> {
     epoch.current++
     try {
-      await api(Ok, '/api/queue/add', keepBody(x, postFor(x, hashtagsOn), renderOpts(), sound))
+      await api(Ok, '/api/queue/add', keepBody(x, postFor(x, hashtagsOn), opts, sound))
     } catch (e) {
       if (!quiet) toast(err(e), 'err')
       return false
@@ -406,7 +447,21 @@ function Workspace({ pid }: { pid: string }) {
         <div className="rv-main">
           {c ? (
             <>
-              <Player ref={player} src={c.vod || meta.vod} pid={pid} clipKey={keyOf(c)} start={c.start} end={c.end} />
+              <Player ref={player} src={c.vod || meta.vod} pid={pid} clipKey={keyOf(c)} start={c.start} end={c.end}>
+                <Preview clip={c} video={getVideo} thumb={c.thumb} opts={opts} marks={marks} safety={safety} replace={replace}
+                         track={tracks[trackKey(c, opts)] ?? null} guides={guides}
+                         onOpts={(patch, persist) => setOpts(patch, persist)}
+                         onMark={(i, patch, persist) => {
+                           const ms = (dragMarks ?? wmServer?.marks ?? []).map((m, j) => (j === i ? { ...m, ...patch } : m))
+                           setDragMarks(ms)
+                           if (persist) void saveMarks(ms)
+                         }}
+                         onToggle={() => player.current?.toggle()} />
+              </Player>
+              <label className="chk small">
+                <input type="checkbox" checked={guides} onChange={e => { setGuides(e.target.checked); setPref('guides', e.target.checked) }} />
+                <span>Show what TikTok covers</span>
+              </label>
               <div className="rv-editor" data-testid="rv-editor">
                 <div className="row wrap rv-edbar">
                   <button className="btn sm" disabled={!hist.undo.length} onClick={() => undoRedo(false)}

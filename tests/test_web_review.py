@@ -1,7 +1,7 @@
 """
 The new UI's Review against the real server, in a real browser, on a generated video: the open videos
 are listed, a video opens with its clips, the selected clip plays its stretch, a title you type is saved
-with the VOD, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
+with the VOD, the clip preview matches the current UI's and the title can be dragged on it, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
 Skipped and asks why, a video the window can't play switches to the preview copy, Skip in bulk asks first and Undo brings the clips back, a reload keeps what you
 did, "Edit in the current UI" opens the same clip there, and the screen fits a narrow window.
 
@@ -230,6 +230,23 @@ with sync_playwright() as pw:
     check("after a reload, the skipped clip is still skipped", page.locator("[data-testid=rv-row]").count() == 1)
     page.get_by_role("tab", name="To review").click()
 
+    # the clip preview: the same picture as the current UI's, and the title can be dragged
+    page.mouse.move(5, 5)
+    page.evaluate("(() => { const v = document.querySelector('[data-testid=rv-video]'); v.pause(); })()")
+    at = page.evaluate("document.querySelector('[data-testid=rv-video]').currentTime")
+    shrink = """(sel) => { const c = document.createElement('canvas'); c.width = 54; c.height = 96;
+        c.getContext('2d').drawImage(document.querySelector(sel), 0, 0, 54, 96); return Array.from(c.getContext('2d').getImageData(0, 0, 54, 96).data) }"""
+    page.wait_for_timeout(400)
+    new_px = page.evaluate(shrink, "[data-testid=rv-preview]")
+    pv = page.get_by_test_id("rv-preview").bounding_box()
+    page.mouse.move(pv["x"] + pv["width"] / 2, pv["y"] + pv["height"] * 0.07)
+    page.mouse.down()
+    page.mouse.move(pv["x"] + pv["width"] / 2, pv["y"] + pv["height"] * 0.3, steps=8)
+    page.mouse.up()
+    o = json.loads(page.evaluate("localStorage.getItem('vc_opts')") or "{}")
+    check("dragging the title on the preview moves it, in the render style both UIs share", 0.2 < o.get("title_y", 0) < 0.4, o.get("title_y"))
+    page.evaluate("localStorage.setItem('vc_opts', JSON.stringify(Object.assign(JSON.parse(localStorage.getItem('vc_opts')), {title_y: 0.05})))")
+
     # the current UI's editor opens on the same clip
     sel = page.locator("[data-testid=rv-row][aria-current=true] .rv-row-t").inner_text()
     sel_id = next(d["id"] for d in server.projects[pid]["clips"] if (d.get("title") or "Untitled") == sel and d.get("state", "todo") == "todo")
@@ -238,6 +255,14 @@ with sync_playwright() as pw:
     page.wait_for_function("window.ClipRadarTest && ClipRadarTest.current()", timeout=15000)
     check("'Edit in the current UI' opens the same clip there", page.evaluate("ClipRadarTest.current()") == f"{pid}:{sel_id}",
           (page.evaluate("ClipRadarTest.current()"), sel_id))
+    page.wait_for_function("document.querySelector('#vod').readyState >= 2", timeout=60000)
+    page.evaluate(f"(() => {{ const v = document.querySelector('#vod'); v.pause(); v.currentTime = {at}; }})()")
+    page.wait_for_function(f"Math.abs(document.querySelector('#vod').currentTime - {at}) < 0.05 && !document.querySelector('#vod').seeking", timeout=15000)
+    page.mouse.move(5, 5)
+    page.wait_for_timeout(600)
+    old_px = page.evaluate(shrink, "#phone")
+    diff = sum(abs(a - b) for a, b in zip(new_px, old_px)) / len(new_px)
+    check("the new preview draws the same picture as the current UI's", diff < 10, round(diff, 1))
 
     # narrow window: no sideways scrolling
     page.goto(url + f"/next/#review/{pid}")

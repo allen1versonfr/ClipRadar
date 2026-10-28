@@ -412,6 +412,7 @@ export const ExportFormat = z.looseObject({
     template: z.string().default('{title}'),
     watermark: z.looseObject({ on: z.boolean().default(false), marks: z.array(Mark).default([]) }).default({ on: false, marks: [] }),
     wm_presets: z.array(WmPreset).default([]),
+    replace: z.array(z.tuple([z.string(), z.string()])).default([]),
   }),
 })
 export type ExportFormat = z.infer<typeof ExportFormat>
@@ -465,3 +466,9 @@ export const Strip = z.looseObject({
   chat: z.array(z.number()).default([]),
 })
 export type Strip = z.infer<typeof Strip>
+
+/** Layout › Follow the face: where the crop's centre is over the clip ([seconds in, share of width]). */
+export const TrackPath = z.looseObject({
+  path: z.array(z.tuple([z.number(), z.number()])).default([]), face_y: z.number().nullish(), face_h: z.number().nullish(),
+  reason: z.string().default(''), coverage: z.number().default(0),
+})

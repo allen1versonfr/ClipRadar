@@ -6,10 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- New UI, Review: the **clip preview** shows the clip as it will render (every layout and shape, following the face, the title, captions with their style and animation, the watermark), drawn exactly like the current UI's. Drag the title, the captions or a watermark layer to move it, and Show what TikTok covers.
 - New UI, Review: **trimming and the timeline**. Drag the clip's edges on the timeline (they snap to words and the playhead; Alt doesn't), or use Start / End (±1 s, ±1 frame, Set at the playhead), Restore original cut, Undo / Redo (Ctrl+Z, Ctrl+Shift+Z), frame steps and playback speed. The timeline shows loudness, the words heard, laughter, screams, cheers and chat. The current UI's editor keys work too.
 
 ### Tests
-- `web/`: 100 Vitest tests. `tests/test_web_review.py` also trims a clip (buttons, undo / redo, dragging the end, I, Restore) and checks Keep renders the trimmed cut.
+- `web/`: 105 Vitest tests. `tests/test_web_review.py` also compares the new preview with the current UI's on the same frame (identical), drags the title, trims a clip (buttons, undo / redo, dragging the end, I, Restore) and checks Keep renders the trimmed cut.
 
 ## [4.20.0] - 2026-10-28
 
