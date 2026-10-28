@@ -110,11 +110,11 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     setClips(cs => cs.map(c => {
       if (keyOf(c) !== k) return c
       const n = f(c)
-      if (persist === 'now') { clearTimeout(saveT.current.get(k)); save(n) }
+      if (persist === 'now') { clearTimeout(saveT.current.get(k)); saveT.current.delete(k); save(n) }
       else if (persist === 'soon') {
         // saved after a pause, as the clip is then: a keep or skip in the meantime isn't undone by an older copy
         clearTimeout(saveT.current.get(k))
-        saveT.current.set(k, setTimeout(() => { const x = clipsRef.current.find(y => keyOf(y) === k); if (x) save(x) }, 600))
+        saveT.current.set(k, setTimeout(() => { saveT.current.delete(k); const x = clipsRef.current.find(y => keyOf(y) === k); if (x) save(x) }, 600))
       }
       return n
     }))
@@ -142,7 +142,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
       try {
         const r = await api(ClipsUpdate, `/api/clips/${pid}`)
         const by = new Map(r.clips.concat(r.gems).map(s => [keyOf(s), s]))
-        setClips(cs => cs.map(c => { const s = by.get(keyOf(c)); return s ? merge(c, s) : c }))
+        setClips(cs => cs.map(c => { const s = by.get(keyOf(c)); return s ? merge(c, s, saveT.current.has(keyOf(c))) : c }))
         setListening(r.listening)
       } catch { /* the next tick tries again */ }
     }, 1200)

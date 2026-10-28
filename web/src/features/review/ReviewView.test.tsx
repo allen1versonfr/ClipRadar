@@ -62,6 +62,29 @@ describe('Review', () => {
     expect(last).toMatchObject({ state: 'kept', title: 'Mine' })
   })
 
+  it("the server's older cut, arriving while Restore isn't saved yet, doesn't undo it", async () => {
+    let release: (v: unknown) => void = () => {}, asked: (v: unknown) => void = () => {}
+    const gate = new Promise(r => { release = r }), polled = new Promise(r => { asked = r })
+    const trimmed = { ...CLIPS[0]!, start: 22, end: 30, orig: [20, 35], userTrim: true }
+    const base = fetch as unknown as (p: string, i?: RequestInit) => Promise<Response>
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/project/p1') return new Response(JSON.stringify({ pid: 'p1', title: 'S', duration: 600, vod: '/vod/p1', clips: [trimmed, CLIPS[1]] }))
+      if (path === '/api/clips/p1') {
+        asked(null)
+        await gate                                      // the answer that left before Restore was saved
+        return new Response(JSON.stringify({ clips: [trimmed, CLIPS[1]], listening: true }))
+      }
+      return base(path, init)
+    }))
+    renderReview()
+    const restore = await screen.findByRole('button', { name: 'Restore original cut' })
+    await polled                                        // a request for the clips is on its way
+    fireEvent.click(restore)
+    release(null)
+    await new Promise(r => setTimeout(r, 900))
+    expect(posted('/api/clip_state').filter(b => b.id === 1).at(-1)).toMatchObject({ start: 20, end: 35, userTrim: false })
+  })
+
   it('T gives another suggested title, saved as yours', async () => {
     renderReview()
     await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Clip 1'))     // selected

@@ -15,9 +15,10 @@ Review in the new UI can now trim, preview the clip as it will render, and chang
 
 ### Fixed
 - New UI, Review: an edit saved after a short pause (a title, a trim) could undo a Keep or Skip made within that half second, so the clip showed as to review again. The delayed save now sends the clip as it is when it's saved.
+- New UI, Review: while titles were still being written, Restore original cut (or another edit) could be undone by the server's older copy of the clip arriving before the edit was saved. Background updates now leave a clip alone while one of your edits to it is waiting to be saved.
 
 ### Tests
-- `web/`: 110 Vitest tests. `tests/test_web_review.py` also compares the new preview with the current UI's on the same frame (identical, with a title style, font and layout picked in the new UI), drags the title, sets the camera box and saves a framing, adds and fixes a caption line and undoes it, trims a clip (buttons, undo / redo, dragging the end, I, Restore) and checks Keep renders the trimmed cut.
+- `web/`: 111 Vitest tests. `tests/test_web_review.py` also compares the new preview with the current UI's on the same frame (identical, with a title style, font and layout picked in the new UI), drags the title, sets the camera box and saves a framing, adds and fixes a caption line and undoes it, trims a clip (buttons, undo / redo, dragging the end, I, Restore) and checks Keep renders the trimmed cut.
 
 ## [4.20.0] - 2026-10-28
 

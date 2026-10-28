@@ -47,6 +47,8 @@ describe('Review rules', () => {
     expect(merge(clip({}), s)).toMatchObject({ title: 'Heard title', start: 9.5, listened: true })
     expect(merge(clip({ title: 'Mine', userTitle: true, userTrim: true }), s)).toMatchObject({ title: 'Mine', start: 10, end: 30 })
     expect(merge(clip({ state: 'kept' }), s)).toMatchObject({ start: 10 })
+    // restoring the cut turns your trim off; until that's saved, the server's older cut mustn't come back
+    expect(merge(clip({ userTrim: false, start: 5, end: 25 }), clip({ start: 12, end: 28 }), true)).toMatchObject({ start: 5, end: 25 })
   })
 
   it('after a keep or skip, the next clip to review of the same kind, wrapping round', () => {

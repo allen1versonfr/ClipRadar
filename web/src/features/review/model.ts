@@ -65,12 +65,16 @@ export function snapshot(c: Clip) {
 }
 
 /** A clip from the server, merged into the one on screen: titles and checks arrive in the background,
- *  and its cut moves to sentence boundaries once it's been listened to, unless you trimmed it. */
-export function merge(c: Clip, s: Clip): Clip {
+ *  and its cut moves to sentence boundaries once it's been listened to, unless you trimmed it, or an edit is
+ *  still waiting to be saved. */
+export function merge(c: Clip, s: Clip, saving = false): Clip {
   const out: Clip = { ...c, listened: s.listened, words: c.wordsEdited ? c.words : s.words, titles: s.titles, vibe: s.vibe, emoji: s.emoji, reason: s.reason, post: s.post,
     held: s.held, description: s.description ?? c.description, hashtags: s.hashtags ?? c.hashtags,
     safety: s.safety ?? c.safety, check: s.check ?? c.check }
+  // an edit of yours still waiting to be saved: the server's copy is older, so it doesn't move the cut or title
+  if (saving) return out
   if (!c.userTitle && s.title) out.title = s.title
+  if (s.orig && !c.userTrim) out.orig = s.orig
   if (!c.userTrim && c.state !== 'kept') { out.start = s.start; out.end = s.end }
   return out
 }
