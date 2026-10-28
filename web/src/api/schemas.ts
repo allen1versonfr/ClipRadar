@@ -54,6 +54,8 @@ export const QueueItem = z.looseObject({
   captions_skipped: z.boolean().optional(),
   srt: z.boolean().optional(),
   history: z.array(Attempt).default([]),
+  pid: z.string().optional(),
+  clip_id: z.number().optional(),
 })
 export type QueueItem = z.infer<typeof QueueItem>
 
@@ -413,3 +415,45 @@ export const ExportFormat = z.looseObject({
   }),
 })
 export type ExportFormat = z.infer<typeof ExportFormat>
+
+/** A content-check flag on a clip (safety.py). */
+export const Flag = z.looseObject({ label: z.string().default(''), text: z.string().default(''), status: z.string().default('open') })
+
+/** A caption word (start and end in seconds of the video). */
+export const Word = z.looseObject({ start: z.number(), end: z.number(), word: z.string().default('') })
+
+/** A suggested clip, as /api/project and /api/clips send it (server.py; what you did to it is saved with the VOD). */
+export const Clip = z.looseObject({
+  id: z.number(), pid: z.string(), start: z.number(), end: z.number(),
+  kind: z.string().default('hype'), state: z.enum(['todo', 'kept', 'skipped']).catch('todo'),
+  title: z.string().default(''), titles: z.array(z.string()).default([]),
+  description: z.string().optional(), hashtags: z.array(z.string()).optional(), emoji: z.string().default(''), post: z.string().default(''),
+  reason: z.string().default(''), quality: z.number().default(0), vibe: z.string().default(''),
+  thumb: z.string().default(''), vod: z.string().default(''), listened: z.boolean().default(false),
+  manual: z.boolean().optional(), held: z.string().default(''),
+  userTrim: z.boolean().optional(), userTitle: z.boolean().optional(), userPost: z.boolean().optional(),
+  postText: z.string().default(''), gain: z.number().default(0), wordsEdited: z.boolean().optional(),
+  words: z.array(Word).default([]), words_edit: z.array(Word).optional(),
+  fps: z.number().default(30),
+  safety: z.looseObject({ enabled: z.boolean().optional(), status: z.string().optional(), level: z.string().optional(),
+    flags: z.array(Flag).default([]), open: z.number().default(0) }).optional(),
+  check: z.looseObject({ excluded: z.boolean().default(false), fixes: z.array(z.unknown()).default([]) }).optional(),
+})
+export type Clip = z.infer<typeof Clip>
+
+export const Project = z.looseObject({
+  pid: z.string(), title: z.string().default(''), duration: z.number().default(0), vod: z.string().default(''),
+  has_chat: z.boolean().default(false), chat_count: z.number().default(0),
+  chat_stats: z.looseObject({ chatters: z.number().default(0) }).default({ chatters: 0 }),
+  estimate: z.looseObject({ strong: z.number().nullish(), good: z.number().nullish() }).default({}),
+  clips: z.array(Clip).default([]), gems: z.array(Clip).default([]),
+  restored: z.boolean().default(false), pick_note: z.string().default(''),
+  review: z.looseObject({ kept: z.number().default(0), skipped: z.number().default(0), todo: z.number().default(0) }).default({ kept: 0, skipped: 0, todo: 0 }),
+  detect_text: z.string().default(''),
+  origin: z.looseObject({ link: z.string().optional() }).default({}),
+})
+export type Project = z.infer<typeof Project>
+
+export const ClipsUpdate = z.looseObject({ clips: z.array(Clip).default([]), gems: z.array(Clip).default([]), listening: z.boolean().default(false) })
+
+export const PreviewCopy = z.looseObject({ ready: z.boolean().default(false), job: z.string().optional() })

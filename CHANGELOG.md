@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- New UI, **Review** (first part): open a video from the list of open videos, go through its clips with the player, change the title or post caption, Keep and render, Skip, and keep or skip many at once (with Undo). The same keys as the current UI. Trimming, the layout preview, captions and live sessions open in the current UI on the same clip (Edit in the current UI).
 - New UI, Settings › **Campaigns**: choose the active campaign, make and edit one (rules, caption text and hashtags, clip length, its own watermark or a copy of yours, the Discord webhook with Test, the message), Delete (asks first), Share, Import and From link. Every Settings section is now in the new UI.
 - New UI, Settings › **Watermark**: text and image layers, where they go, size, opacity, rotation, font, colours, box and when they show, with a preview of a 9:16 clip you can drag a layer on to place it. Saved watermarks, Import…, From link… and Share… as in the current UI, and while the active campaign has its own watermark, that one is edited.
 - New UI, Settings › **Export format**: the preset and quality with their notes, Advanced (your changes on top of the preset, with a way back to it; VP9 makes the file WebM), captions, loudness and voice clean-up, and the file-name template with token buttons and a preview.
@@ -14,7 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - New UI, Settings › **Hashtags**: tags for file names and for post captions, per streamer and per platform, the suggestions, and the preview for a streamer. What you type is saved after a short pause, with the same settings as the current UI's.
 
 ### Tests
-- `web/`: 87 Vitest tests. `tests/test_web_settings.py` also checks the watermark (made, placed, dragged on the preview, shown by the current UI), a campaign (made with a copy of the watermark, active, Use mine instead), Export format, Caption words, Titles and captions and Hashtags against the real server and the current UI.
+- `web/`: 96 Vitest tests. New `tests/test_web_review.py` (real server, generated video, real browser). `tests/test_web_settings.py` also checks the watermark (made, placed, dragged on the preview, shown by the current UI), a campaign (made with a copy of the watermark, active, Use mine instead), Export format, Caption words, Titles and captions and Hashtags against the real server and the current UI.
 
 ## [4.19.0] - 2026-10-28
 

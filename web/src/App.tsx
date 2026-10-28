@@ -4,32 +4,34 @@ import { Status } from './api/schemas'
 import { usePoll } from './hooks/usePoll'
 import { ExportsView } from './features/exports/ExportsView'
 import { HomeView } from './features/home/HomeView'
+import { ReviewView } from './features/review/ReviewView'
 import { SettingsView } from './features/settings/SettingsView'
-import { legacyViewUrl } from './handoff'
 
 // The screens switch by #hash, so the app works the same at /next/ (while the original page stays
 // at /) and at / (CLIPRADAR_UI=web), and a reload keeps the screen.
 const VIEWS = [
-  { id: 'home', label: 'Home', ported: true },
-  { id: 'review', label: 'Review', ported: false },
-  { id: 'exports', label: 'Exports', ported: true },
-  { id: 'settings', label: 'Settings', ported: true },
+  { id: 'home', label: 'Home' },
+  { id: 'review', label: 'Review' },
+  { id: 'exports', label: 'Exports' },
+  { id: 'settings', label: 'Settings' },
 ] as const
 type ViewId = (typeof VIEWS)[number]['id']
 
-function viewFromHash(): ViewId {
-  const h = location.hash.replace(/^#\/?/, '')
-  return VIEWS.find(v => v.id === h)?.id ?? 'home'
+/** #review/<project id> is Review on that video */
+function routeFromHash(): { view: ViewId; pid: string | undefined } {
+  const [h = '', pid] = location.hash.replace(/^#\/?/, '').split('/')
+  return { view: VIEWS.find(v => v.id === h)?.id ?? 'home', pid: pid && /^\w+$/.test(pid) ? pid : undefined }
 }
 
 const loadStatus = () => api(Status, '/api/status')
 
 export function App() {
-  const [view, setView] = useState<ViewId>(viewFromHash)
+  const [route, setRoute] = useState(routeFromHash)
+  const view = route.view
   const status = usePoll(loadStatus, 5000)
 
   useEffect(() => {
-    const onHash = () => setView(viewFromHash())
+    const onHash = () => setRoute(routeFromHash())
     addEventListener('hashchange', onHash)
     return () => removeEventListener('hashchange', onHash)
   }, [])
@@ -55,24 +57,14 @@ export function App() {
       </nav>
       <main className="main">
         {current.id === 'home' ? <HomeView status={status.data} refreshStatus={status.refresh} />
+          : current.id === 'review' ? <ReviewView pid={route.pid} />
           : current.id === 'exports' ? <ExportsView />
-          : current.id === 'settings' ? <SettingsView status={status.data} refreshStatus={status.refresh} />
-          : <NotPorted label={current.label} id={current.id} />}
+          : <SettingsView status={status.data} refreshStatus={status.refresh} />}
       </main>
       <footer className="status-bar">
         {status.error ? <span className="err-tx">{status.error}</span>
           : status.data ? <span className="muted">Clip Radar {status.data.version}</span> : null}
       </footer>
     </div>
-  )
-}
-
-function NotPorted({ label, id }: { label: string; id: ViewId }) {
-  return (
-    <section className="not-ported" data-testid={`not-ported-${id}`}>
-      <h1>{label}</h1>
-      <p>{label} isn't in the new UI yet. It works as before in the current UI.</p>
-      <a className="btn primary" href={legacyViewUrl(id)}>Open {label} in the current UI</a>
-    </section>
   )
 }

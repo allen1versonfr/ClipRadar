@@ -3378,6 +3378,7 @@ loadStatus().then(() => { updateStatusBar(); });
 window.ClipRadarTest = {
   clips: () => (W && W.clips || []).map(c => ({ state: c.state, quality: c.quality, gem: !!isGem(c) })),
   open: () => (W ? { kind: W.kind, id: W.kind === 'live' ? W.sid : W.pid } : null),   // what Review has open
+  current: () => cur,                 // the selected clip, as "<project>:<clip id>"
   setOption: (k, v) => { opts[k] = v; },
   setTodoQualities: qs => {          // qs[i] is the score for the i-th clip still to review (gems excluded)
     let i = 0;
@@ -3763,13 +3764,17 @@ document.addEventListener('keydown', e => {
 loadRecent(); loadStorage(); syncControls(); refreshQueue(); updateCrumb(); loadUpdate(); loadSafety(); loadTwitch(); loadStudio();
 
 // the new UI (/next/) hands over to this page for the screens it doesn't have yet:
-// /legacy/#open=<project id> opens that video in Review, #live=<session id> a live session, #view=<name> a screen
+// /legacy/#open=<project id> opens that video in Review (#open=<project id>/<clip id>: on that clip),
+// #live=<session id> a live session, #view=<name> a screen
 async function openFromHash() {
-  const m = /^#(open|live|view)=([\w-]+)$/.exec(location.hash);
+  const m = /^#(open|live|view)=([\w-]+)(?:\/(\d+))?$/.exec(location.hash);
   if (!m) return;
   history.replaceState(null, '', location.pathname + location.search);
   try {
-    if (m[1] === 'open') openVod(await api('/api/project/' + m[2]));
+    if (m[1] === 'open') {
+      openVod(await api('/api/project/' + m[2]));
+      if (m[3] && byKey(`${m[2]}:${m[3]}`)) select(`${m[2]}:${m[3]}`, false);
+    }
     else if (m[1] === 'live') openLive(await api('/api/live/' + m[2]), false);
     else if (['home', 'review', 'exports', 'settings'].includes(m[2])) setView(m[2]);
   } catch (e) { toast(e.message, 'err'); }
