@@ -3,7 +3,9 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.19.0] - 2026-10-28
+
+Content check in the new UI's Settings. Nothing changes unless you open the new UI (`/next/`).
 
 ### Added
 - New UI, Settings › **Content check**: what's checked and censored for each kind of word, sensitivity, mute, bleep or hide in captions, holding back flagged hands-free clips, how flags are reviewed, and your own blocked words. The same settings as the current UI's.
