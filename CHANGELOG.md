@@ -3,7 +3,9 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.21.0] - 2026-10-28
+
+Review in the new UI can now trim, preview the clip as it will render, and change text, layout and captions. Nothing changes unless you open the new UI (`/next/`).
 
 ### Added
 - New UI, Review: the **Captions** tab. Fix what Whisper heard line by line, add a caption at the playhead, delete one, or Undo all edits; the line being said is highlighted as the clip plays, flagged lines are marked, and the content check looks again after each edit.
