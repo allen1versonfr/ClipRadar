@@ -3,7 +3,9 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.20.0] - 2026-10-28
+
+Every Settings section and the first part of Review in the new UI. Nothing changes unless you open the new UI (`/next/`).
 
 ### Added
 - New UI, **Review** (first part): open a video from the list of open videos, go through its clips with the player, change the title or post caption, Keep and render, Skip, and keep or skip many at once (with Undo). The same keys as the current UI. Trimming, the layout preview, captions and live sessions open in the current UI on the same clip (Edit in the current UI).
