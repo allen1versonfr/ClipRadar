@@ -1,7 +1,7 @@
 """
 The new UI's Settings screen against the real server, in a real browser. What you change there is
 what the server and the current UI use: how many clips render at once, render priority, download
-quality and the update settings. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
+quality, the update settings and Content check. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
 then deletes only the VODs. A Twitch token Twitch can't accept is explained, an update check that
 can't reach GitHub says so, the sections not ported yet open the current UI's Settings, and the
 screen fits a narrow window without sideways scrolling.
@@ -59,6 +59,7 @@ except ImportError:
 
 import cleanup  # noqa: E402
 import learning  # noqa: E402
+import safety  # noqa: E402
 
 for i in range(10):                                  # decisions to learn from, for one streamer
     learning.record("teststreamer", f"c{i}", {k: (i % 3) / 2 for k in learning.FEATURES}, "keep" if i % 3 else "skip")
@@ -169,6 +170,20 @@ with sync_playwright() as pw:
     page.wait_for_function("document.querySelector('[data-testid=set-learn]').textContent.includes('Nothing learned yet')", timeout=10000)
     check("Forget removes it on the server", not [x for x in learning.summary()["profiles"] if x["streamer"] == "teststreamer"])
 
+    # Content check: the same settings as the current UI's, saved on the server
+    sf = page.locator("[data-testid=set-safety]")
+    sf.get_by_role("radio", name="Bleep it").click()
+    sf.get_by_label("Censor Swearing").check()
+    box = sf.get_by_placeholder("Your real name", exact=False)
+    box.fill("Alex Smith, Springfield")
+    box.blur()
+    deadline = time.time() + 10
+    while time.time() < deadline and safety.load_config().get("custom") != ["Alex Smith", "Springfield"]:
+        time.sleep(0.1)
+    cfg = safety.load_config()
+    check("Content check choices are saved on the server", cfg.get("censor") == "bleep" and "profanity" in cfg.get("censor_categories", [])
+          and cfg.get("custom") == ["Alex Smith", "Springfield"], {k: cfg.get(k) for k in ("censor", "censor_categories", "custom")})
+
     # narrow window: no sideways scrolling
     page.set_viewport_size({"width": 420, "height": 860})
     page.wait_for_timeout(300)
@@ -184,6 +199,10 @@ with sync_playwright() as pw:
     page.wait_for_selector("#view-settings", state="visible", timeout=15000)
     check("'Open them in the current UI' lands on its Settings", page.locator("#view-home").is_hidden())
     page.wait_for_function("document.querySelector('#pfRenders').value === '2'", timeout=10000)
+    page.wait_for_function("document.querySelector('#sfCensor button.on')?.dataset.v === 'bleep'", timeout=10000)
+    check("the current UI shows the new UI's Content check choices", page.evaluate(
+        "[document.querySelector('#sfCustom').value, document.querySelector('[data-censor=profanity]').checked]")
+        == ["Alex Smith, Springfield", True])
     check("the current UI shows the new UI's choices", page.evaluate(
         "[document.querySelector('#pfRenders').value, document.querySelector('#maxh').value,"
         " document.querySelector('#pfPriority button.on')?.dataset.v, document.querySelector('#updAuto').checked]")

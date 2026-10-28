@@ -301,3 +301,21 @@ export const Explain = z.looseObject({
   method: z.string().default(''),
 })
 export type Explain = z.infer<typeof Explain>
+
+/** Settings › Content check (/api/safety): what's checked, how it's censored, how flags are reviewed. */
+export const Safety = z.looseObject({
+  enabled: z.boolean().default(true),
+  categories: z.record(z.string(), z.boolean()).default({}),
+  category_info: z.array(z.looseObject({ key: z.string(), label: z.string(), severity: z.number().default(1) })).default([]),
+  censor: z.enum(['off', 'mask', 'mute', 'bleep']).catch('off'),
+  censor_categories: z.array(z.string()).default([]),
+  hold: z.boolean().default(true),
+  custom: z.array(z.string()).default([]),
+  auto: z.boolean().default(true),
+  notify: z.enum(['now', 'later']).catch('now'),
+  sensitivity: z.enum(['all', 'skip_mild', 'serious']).catch('all'),
+  export_flagged: z.enum(['ask', 'block', 'allow']).catch('ask'),
+  remember_dismissed: z.boolean().default(true),
+  auto_recheck: z.boolean().default(true),
+})
+export type Safety = z.infer<typeof Safety>
