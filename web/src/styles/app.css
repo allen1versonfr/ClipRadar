@@ -315,7 +315,21 @@ p.notice { margin: 0; }
 .review { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px 24px; min-width: 0; }
 .rv-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; min-width: 0; }
 .rv-head h1 { margin: 0; font-size: 18px; max-width: 100%; }
-.rv-grid { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.rv-grid { display: grid; grid-template-columns: clamp(200px, 21vw, 300px) minmax(0, 1fr); gap: 16px; align-items: start; }
+/* a clip open: the stage (player, timeline, trims) and, on its right, the inspector (Keep / Skip, tabs, title),
+   as in the previous UI. The inspector scrolls on its own, so Keep and the tabs stay in reach. */
+.rv-main.has-insp { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 26vw, 360px); gap: 16px; align-items: start; }
+.rv-stagecol { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.rv-insp { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.rv-acts { display: flex; flex-direction: column; gap: 8px; }
+/* Skip and a bigger Keep side by side, as in the previous UI: the decision in one place */
+.rv-decide { display: grid; grid-template-columns: 1fr 1.6fr; gap: 8px; }
+.rv-decide .btn { justify-content: center; min-height: 40px; }
+/* beside the inspector, a shorter preview leaves the timeline in view */
+.rv-main.has-insp .rv-phone { height: min(46vh, 520px); }
+@media (max-width: 1000px) {
+  .rv-main.has-insp { grid-template-columns: minmax(0, 1fr); }
+}
 .rv-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .rv-list .seg { align-self: stretch; }
 .rv-list .seg button { flex: 1; }
@@ -345,7 +359,6 @@ p.notice { margin: 0; }
 .rv-details { display: flex; flex-direction: column; gap: 10px; }
 .rv-details p { margin: 0; }
 .rv-facts { align-items: center; }
-.rv-acts { align-items: center; padding-top: 4px; }
 .rv-done { padding: 24px; border: 1px dashed var(--line2); border-radius: var(--r-lg); display: flex; flex-direction: column; gap: 10px; }
 .warn-tx { color: var(--warn); }
 @media (max-width: 860px) {
@@ -362,7 +375,7 @@ p.notice { margin: 0; }
 .rv-trim-l { width: 36px; color: var(--tx1); }
 .rv-trim-row .tnum { min-width: 72px; }
 .rv-trim-btns { display: flex; flex-wrap: wrap; gap: 4px; }
-.rv-stage { display: flex; justify-content: center; background: #000; border-radius: var(--r-lg); padding: 8px; }
+.rv-stage { position: relative; display: flex; justify-content: center; background: #000; border-radius: var(--r-lg); padding: 8px; }
 .rv-phone { position: relative; height: min(62vh, 640px); max-width: 100%; }
 .rv-phone canvas { width: 100%; height: 100%; display: block; border-radius: var(--r); cursor: pointer; touch-action: none; }
 @media (max-width: 560px) { .rv-phone { height: auto; width: 100%; } }

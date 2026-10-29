@@ -5,6 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- Review: **the clip's inspector is back on the right**, as in the previous UI: Previous / Next, Skip and a larger Keep and render, the Clip / Captions / Text / Layout tabs and the title sit beside the preview, not under it. The preview and timeline stay in the middle (a little shorter, so the timeline is in view), and the clip list and inspector narrow on smaller windows; below 1000 px wide the inspector goes under the player.
+
+### Fixed
+- Review: "This video needs a copy the window can play" showed at the bottom of the window instead of on the player.
+
 ## [4.26.0] - 2026-10-29
 
 Settings is grouped, with a menu that follows you and a search, and a new TikTok section.

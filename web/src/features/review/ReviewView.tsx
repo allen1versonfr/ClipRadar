@@ -837,7 +837,7 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
           )}
         </aside>
 
-        <div className="rv-main">
+        <div className={`rv-main${c && free == null ? ' has-insp' : ''}`}>
           {free != null ? (
             <>
               <Player ref={player} src={meta.vod} pid={pid} clipKey={`free:${free}`} start={free} end={meta.duration} />
@@ -851,6 +851,7 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
             </>
           ) : c ? (
             <>
+              <div className="rv-stagecol">
               <Player ref={player} src={c.vod || meta.vod} pid={c.pid} clipKey={keyOf(c)} start={c.start} end={c.end}>
                 <Preview clip={shown ?? c} video={getVideo} thumb={c.thumb} opts={opts} marks={marks} safety={safety} replace={replace}
                          track={tracks[trackKey(c, opts)] ?? null} guides={guides}
@@ -933,20 +934,26 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
                   </div>
                 </div>
               </div>
+              </div>
+              {/* the inspector, on the right as in the previous UI: decide, then change what's needed, without scrolling past the player */}
+              <aside className="rv-insp" aria-label="This clip" data-testid="rv-insp">
               <div className="row wrap rv-facts">
                   <b>{isGem(c) ? `Quiet gem #${c.id}` : `Clip #${c.id}`}</b>
                   <span className="muted">{fmtA(c.start)} to {fmtA(c.end)} ({(c.end - c.start).toFixed(1)}s)</span>
                   {c.quality > 0 && <span className={`qpill q${qClass(c.quality)}`}>Score {c.quality}</span>}
                   {st && st !== 'clean' && st !== 'off' && <span className={st === 'needs_review' || st === 'excluded' ? 'warn-tx' : 'muted'}>{CHECK_LABEL[st]}</span>}
                 </div>
-              <div className="row wrap rv-acts">
-                  <button className="btn ghost" onClick={() => step(-1)} aria-label="Previous clip (Up)">Previous</button>
-                  <button className="btn ghost" onClick={() => step(1)} aria-label="Next clip (Down)">Next</button>
-                  <span className="grow" />
-                  <button className="btn" onClick={() => void skip()} disabled={kept && q?.status === 'done'} data-testid="rv-skip">
-                    {kept ? 'Remove from queue' : c.state === 'skipped' ? 'Move back to review' : 'Skip'}
-                  </button>
-                  <button className="btn primary" onClick={() => void keep()} disabled={kept && q?.status !== 'error'} data-testid="rv-keep">{keepLabel}</button>
+              <div className="rv-acts">
+                  <div className="row">
+                    <button className="btn ghost" onClick={() => step(-1)} aria-label="Previous clip (Up)">Previous</button>
+                    <button className="btn ghost" onClick={() => step(1)} aria-label="Next clip (Down)">Next</button>
+                  </div>
+                  <div className="rv-decide">
+                    <button className="btn" onClick={() => void skip()} disabled={kept && q?.status === 'done'} data-testid="rv-skip">
+                      {kept ? 'Remove from queue' : c.state === 'skipped' ? 'Move back to review' : 'Skip'}
+                    </button>
+                    <button className="btn primary" onClick={() => void keep()} disabled={kept && q?.status !== 'error'} data-testid="rv-keep">{keepLabel}</button>
+                  </div>
                 </div>
               <div className="seg rv-tabs" role="tablist" aria-label="Clip, text or layout">
                 {([['clip', 'Clip'], ['captions', 'Captions'], ['text', 'Text'], ['layout', 'Layout']] as const).map(([v, l]) => (
@@ -1007,6 +1014,7 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
 
                 <p className="muted small">Keys: Enter keep · X skip · ↑ ↓ clips · Space play · ← → 2 s · T another title · M mute · I / O start / end here · , . frame · [ ] clip edges · Ctrl+Z undo</p>
               </div>
+              </aside>
             </>
           ) : (
             <div className="rv-done" data-testid="rv-done">
