@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.23.0] - 2026-10-29
+
+Every part of Review is now in the new UI: Exact preview and live sessions join it. Nothing changes unless you open the new UI (`/next/`).
+
 ### Added
 - New UI, Review: **live sessions** (`#review/live/<session>`, also listed under Review). The session's state, what's recorded, chat per minute, moments and ads skipped; lowest score, how many clips, Hands-free, Clip last 30s (C) and Stop; new moments appear as they're clipped, and the overview shows the whole stream so far with the live edge.
 - New UI, Review: **Exact preview**. A few seconds around the playhead rendered exactly like the export, played over the preview until you close it (or press Esc).
