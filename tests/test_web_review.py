@@ -377,7 +377,8 @@ with sync_playwright() as pw:
         d.get("manual") and d["start"] - 1 <= gap + 3 and d["end"] + 1 >= gap for d in server.projects[pid]["clips"] if d["id"] not in before)),
         [(d["id"], d["start"], d["end"]) for d in server.projects[pid]["clips"]])
     added = next(d["id"] for d in server.projects[pid]["clips"] if d["id"] not in before)
-    check("and opens it", page.locator("[data-testid=rv-row][aria-current=true]").count() == 1 and free.count() == 0)
+    # the server has it before the page does (its answer is still on the way): wait for the page
+    check("and opens it", wait_until(lambda: page.locator("[data-testid=rv-row][aria-current=true]").count() == 1 and free.count() == 0, 5))
     page.evaluate("document.querySelector('[data-testid=rv-heat]').scrollIntoView({block: 'center'})")
     hb = page.get_by_test_id("rv-heat").bounding_box()
     cs = server.projects[pid]["clips"]
