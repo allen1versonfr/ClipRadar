@@ -5,6 +5,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+The new UI is now Clip Radar's UI. The previous one stays at `/legacy/` for a while ("Previous UI" in the top bar), with your clips and settings shared. Before the switch, an audit checked that everything the previous UI did is in the new one, and that it's accessible (`docs/audit-new-ui.md`).
+
+### Changed
+- **The new UI opens by default** (at `/`, in the app window). "Previous UI" in its top bar opens the previous one, and "Back to the new UI" there comes back.
+
+### Added
+- New UI, Exports: **posting**. TikTok: the caption with its count, Open TikTok Studio, Upload to TikTok in Clip Radar's own TikTok window, Press Post for me, and what happened last time. A campaign's clip: the link to your post (saved as you type), Copy submission and Send to Discord. A Posted column (Opened in Studio, In Studio, Posted, Upload stopped, Discord). Copy caption, Copy source link and Remove in the clip's panel, and the active campaign at the top.
+- New UI: **Quit** in the top bar, and closing the window while something runs asks first, as in the previous UI. Before, closing the window during a render or download did nothing.
+- New UI: badges on Review (clips to review) and Exports (renders running), and the status bar shows what's running (each a link to it) and an update when there is one.
+- New UI, Review: a clip's own **volume** (Much quieter to Louder) and the **Hashtags** switch by the post caption.
+- New UI: live clipping running when the window opens is shown, and Keep watching's next stream is followed, as in the previous UI.
+
+### Fixed
+- Upload to TikTok could hang after an earlier upload: it only loaded TikTok Studio's upload page if Clip Radar's TikTok window wasn't already on it, so the next clip waited for an upload box that wasn't there and stopped after a minute. Every upload now starts from a fresh upload page.
+- New UI: text boxes and dropdowns show a clear focus ring, and on touch screens every control is at least 44 px each way.
+- New UI: "Sign in to Twitch" on Home opens the new UI's Settings at Twitch sign-in.
+
+### Tests
+- `tests/test_web_a11y.py` (in CI): axe-core's WCAG 2.2 A and AA rules on every screen and dialog of the new UI, the focus ring on every control Tab reaches, and 44 px controls on a touch screen.
+- `test_ui.py`, `test_live_switch.py` and `test_studio_handoff.py` run on both UIs.
+
 ## [4.24.0] - 2026-10-29
 
 Home in the new UI now opens videos and live sessions in the new UI's own Review. Nothing changes unless you open the new UI (`/next/`).

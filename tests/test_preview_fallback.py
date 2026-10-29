@@ -71,7 +71,7 @@ with sync_playwright() as pw:
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     try:
-        page.goto(url + "/")
+        page.goto(url + "/legacy/")         # the previous UI's player (test_web_review.py covers the new one)
         page.wait_for_timeout(800)
         page.fill("[data-testid=source-input]", vod)
         page.click("[data-testid=find-clips]")

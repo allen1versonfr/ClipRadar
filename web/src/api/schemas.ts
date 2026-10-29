@@ -56,8 +56,22 @@ export const QueueItem = z.looseObject({
   history: z.array(Attempt).default([]),
   pid: z.string().optional(),
   clip_id: z.number().optional(),
+  // posting: the caption, a link to the source at this moment, TikTok Studio, the campaign and its Discord
+  post: z.string().default(''),
+  link: z.string().nullish(),
+  handoff: z.looseObject({ at: z.number().default(0), auto: z.string().optional(), step: z.string().optional(),
+    error: z.string().optional() }).nullish(),
+  tiktok: z.looseObject({ state: z.string().optional(), mode: z.string().optional() }).nullish(),
+  campaign: z.looseObject({ id: z.string(), name: z.string().default('') }).nullish(),
+  discord: z.looseObject({ at: z.number().default(0), error: z.string().nullish(), attached: z.boolean().optional(),
+    post_url: z.string().nullish(), note: z.string().nullish() }).nullish(),
+  post_url: z.string().default(''),
 })
 export type QueueItem = z.infer<typeof QueueItem>
+/** Exports › TikTok: whether Clip Radar can drive a browser, and Press Post for me. */
+export const Studio = z.looseObject({ available: z.boolean().default(false), press_post: z.boolean().default(false) })
+export type Studio = z.infer<typeof Studio>
+export const DiscordSent = z.looseObject({ attached: z.boolean().optional(), note: z.string().nullish(), item: QueueItem.optional() })
 
 export const Queue = z.looseObject({
   items: z.array(QueueItem),
@@ -77,6 +91,8 @@ export const Status = z.looseObject({
   twitchdownloader: z.boolean().optional(),
   can_download_tools: z.boolean().optional(),
   live: z.string().default(''),
+  lives: z.array(z.looseObject({ id: z.string(), title: z.string().default(''), status: z.string().default('') })).default([]),
+  running: z.boolean().default(false),
   hotkey: z.lazy(() => Hotkey).optional(),
 })
 export type Status = z.infer<typeof Status>
@@ -490,6 +506,7 @@ export const LiveView = z.looseObject({
   latency: z.record(z.string(), z.number()).default({}),
   skipped: z.record(z.string(), z.number()).default({}),
   clips: z.array(Clip).default([]),
+  next: z.string().default(''),                // Keep watching: the channel's next stream, once this one ended
 })
 export type LiveView = z.infer<typeof LiveView>
 /** Detection settings › Try: what other settings would suggest, next to the list you have. */

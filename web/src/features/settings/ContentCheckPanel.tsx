@@ -58,11 +58,11 @@ export function ContentCheckPanel() {
                 return (
                   <tr key={k.key}>
                     <td>{k.label}<span className="muted small"> · {SEV[k.severity] ?? ''}</span></td>
-                    <td className="c"><input type="checkbox" aria-label={`Check ${k.label}`} checked={on}
-                      onChange={e => void save({ categories: { ...c.categories, [k.key]: e.target.checked } })} /></td>
-                    <td className="c"><input type="checkbox" aria-label={`Censor ${k.label}`} disabled={!on} checked={c.censor_categories.includes(k.key)}
+                    <td className="c"><label className="cell-chk"><input type="checkbox" aria-label={`Check ${k.label}`} checked={on}
+                      onChange={e => void save({ categories: { ...c.categories, [k.key]: e.target.checked } })} /></label></td>
+                    <td className="c"><label className="cell-chk"><input type="checkbox" aria-label={`Censor ${k.label}`} disabled={!on} checked={c.censor_categories.includes(k.key)}
                       onChange={e => void save({ censor_categories: e.target.checked ? [...new Set([...c.censor_categories, k.key])]
-                        : c.censor_categories.filter(x => x !== k.key) })} /></td>
+                        : c.censor_categories.filter(x => x !== k.key) })} /></label></td>
                   </tr>
                 )
               })}

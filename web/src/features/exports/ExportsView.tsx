@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { api } from '../../api/client'
-import { Ok, Queue, type QueueItem } from '../../api/schemas'
+import { Campaigns, Ok, Queue, type QueueItem } from '../../api/schemas'
+import { handoffCell } from './posting'
+import { SubmitPanel, TikTokPanel, useCopy } from './Posting'
 import { usePoll } from '../../hooks/usePoll'
 import { useNow } from '../../hooks/useNow'
 import { useToast } from '../../components/Toasts'
@@ -29,6 +31,8 @@ export function ExportsView() {
   const rows = items.slice().reverse()
   const sel = rows.find(q => q.id === selId) ?? rows[0]
   const failed = items.filter(q => q.status === 'error').length
+  const camps = usePoll(useCallback(() => api(Campaigns, '/api/campaigns'), []), 30_000).data
+  const campaign = camps?.list.find(c => c.id === camps.active)
 
   async function act(path: string, body: object, done?: string) {
     try {
@@ -52,6 +56,7 @@ export function ExportsView() {
         )}
         <button className="btn ghost" onClick={() => act('/api/open_folder', { folder: 'root' })}>Open clips folder</button>
       </header>
+      {campaign && <a className="notice" href="#settings/campaigns" data-testid="ex-campaign">Campaign: {campaign.name}. Clips you keep now follow its rules. Change it in Settings › Campaigns.</a>}
       {queue.error && <p className="banner err" role="alert">{queue.error}</p>}
       {!queue.data && !queue.error && <p className="muted pad">Loading…</p>}
       {queue.data && !items.length && (
@@ -61,7 +66,7 @@ export function ExportsView() {
         <div className="ex-split">
           <table className="ex-table" data-testid="exports-table">
             <thead>
-              <tr><th aria-label="Thumbnail" /><th>Clip</th><th className="r">Length</th><th>Status</th><th aria-label="Remove" /></tr>
+              <tr><th aria-label="Thumbnail" /><th>Clip</th><th className="r">Length</th><th>Status</th><th>Posted</th><th aria-label="Remove" /></tr>
             </thead>
             <tbody>
               {rows.map(q => (
@@ -71,7 +76,9 @@ export function ExportsView() {
               ))}
             </tbody>
           </table>
-          {sel && <Detail q={sel} onRetry={() => act('/api/queue/retry', { id: sel.id }, 'Rendering again…')}
+          {sel && <Detail q={sel} campaigns={camps} onChanged={queue.refresh}
+                          onRetry={() => act('/api/queue/retry', { id: sel.id }, 'Rendering again…')}
+                          onRemove={() => act('/api/queue/remove', { id: sel.id })}
                           onShow={() => act('/api/open_folder', { folder: sel.folder ?? 'root' })} />}
         </div>
       )}
@@ -119,6 +126,10 @@ function Row({ q, now, selected, onSelect, onRemove, onRetry }: RowProps) {
         </div>
       </td>
       <td>
+        {(() => { const h = handoffCell(q); return <span className={`tt-cell ${h.tone}`} title={h.title}>{h.text}</span> })()}
+        {q.discord && !q.discord.error && <span className="tt-cell ok" title={`Sent to ${q.campaign?.name ?? 'the campaign'}'s Discord`}>Discord ✓</span>}
+      </td>
+      <td>
         <button className="ibtn" aria-label={removeLabel} title={removeLabel}
                 onClick={e => { e.stopPropagation(); onRemove() }}>×</button>
       </td>
@@ -126,8 +137,11 @@ function Row({ q, now, selected, onSelect, onRemove, onRetry }: RowProps) {
   )
 }
 
-function Detail({ q, onRetry, onShow }: { q: QueueItem; onRetry: () => void; onShow: () => void }) {
+function Detail({ q, campaigns, onChanged, onRetry, onRemove, onShow }: {
+  q: QueueItem; campaigns: Campaigns | undefined; onChanged: () => Promise<void>; onRetry: () => void; onRemove: () => void; onShow: () => void
+}) {
   const [more, setMore] = useState(false)
+  const copy = useCopy()
   const attempts = q.history.map(attemptLine).join('\n')
   const details = [q.detail && q.detail !== q.error ? q.detail : '', attempts].filter(Boolean).join('\n\n')
   // a clip that came out with a warning (a layout that fell back): what failed first, for a bug report
@@ -142,7 +156,13 @@ function Detail({ q, onRetry, onShow }: { q: QueueItem; onRetry: () => void; onS
           : <div className="phone-empty">{q.status === 'error' ? 'Not rendered' : q.status === 'queued' ? 'Waiting to render' : 'Rendering…'}</div>}
       </div>
       <div className="file">{q.name ?? ''}</div>
-      {q.status === 'done' && <button className="btn" onClick={onShow}>Show in folder</button>}
+      <div className="row wrap">
+        {q.status === 'done' && <button className="btn sm" onClick={onShow}>Show in folder</button>}
+        {(q.post || q.title) && <button className="btn sm" onClick={() => void copy(q.post || q.title)}>Copy caption</button>}
+        {q.link && <button className="btn sm" title="A link to the original video at this moment, to credit the source"
+                           onClick={() => void copy(q.link!, 'Source link')}>Copy source link</button>}
+        <button className="btn sm ghost" onClick={onRemove}>{q.status === 'done' ? 'Remove from list' : q.status === 'error' ? 'Remove' : 'Cancel'}</button>
+      </div>
       {q.status === 'done' && q.warning && firstFailure && (
         <div className="row">
           <button className="btn ghost" aria-expanded={more} onClick={() => setMore(!more)}>{more ? 'Hide details' : 'Details'}</button>
@@ -160,7 +180,8 @@ function Detail({ q, onRetry, onShow }: { q: QueueItem; onRetry: () => void; onS
           {more && <pre className="details" data-testid="export-details">{details}</pre>}
         </div>
       )}
-      <p className="muted small">Posting to TikTok, Discord and campaigns is in the current UI for now.</p>
+      {q.status === 'done' && <TikTokPanel q={q} onChanged={onChanged} />}
+      <SubmitPanel q={q} campaigns={campaigns} onChanged={onChanged} />
     </aside>
   )
 }

@@ -107,7 +107,7 @@ h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .panel header p { margin: 4px 0 0; }
 .panel footer { display: flex; justify-content: flex-end; }
 .input { background: var(--bg1); border: 1px solid var(--line2); border-radius: var(--r); padding: 6px 9px; min-width: 0; }
-.input:focus { border-color: var(--accent); outline: none; }
+.input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 1px var(--accent); }   /* a 2 px ring with the border */
 .grow { flex: 1; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }
 .form-grid.two { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
@@ -245,7 +245,16 @@ p.notice { margin: 0; }
   .btn, .btn.sm, .rail a { display: inline-flex; align-items: center; }
   .chk { min-height: 44px; align-items: center; }
   .chk input { width: 22px; height: 22px; margin-top: 0; }
+  /* 44 px each way: a finger needs the width too, and a link in a sentence becomes a target of its own */
+  .btn, .btn.sm, .ibtn, .seg button { min-width: 44px; justify-content: center; }
+  .link { display: inline-flex; align-items: center; min-width: 44px; }
+  .cell-chk { min-width: 44px; min-height: 44px; }
+  label.fld.inline:has(> input[type=checkbox]) { min-height: 44px; }
+  .main a[href]:not(.btn), .status-bar a { display: inline-flex; align-items: center; min-height: 44px; }
+  .cell-chk input { width: 22px; height: 22px; }
 }
+/* a checkbox in a table cell: the whole cell area around it takes the click */
+.cell-chk { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 
 /* Settings › Watermark */
 .wm-grid { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -425,3 +434,24 @@ p.notice { margin: 0; }
 .live-tag.off { border-color: var(--line2); color: var(--tx1); }
 .live-tag.off i { background: var(--tx2); }
 .rv-live-status { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 0; }
+/* the frame: Quit, menu badges, the status bar's tasks and update */
+.rail a { display: flex; align-items: center; gap: 8px; }
+.rail .badge { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 99px; background: var(--bg4); color: var(--tx0); font-size: 11px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+.status-bar { display: flex; align-items: center; gap: 12px; min-height: 26px; }
+.sb-tasks { display: flex; flex-wrap: wrap; gap: 4px 14px; min-width: 0; }
+.sb-tasks .task { display: inline-flex; align-items: center; gap: 6px; color: var(--tx1); text-decoration: none; }
+.sb-tasks .task:hover { color: var(--tx0); text-decoration: underline; }
+.sb-tasks .task i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.sb-update { margin-left: auto; color: var(--tx0); }
+.top .top-acts { margin-left: auto; display: flex; gap: 8px; }
+.top .top-acts .btn { margin-left: 0; }
+.stopped { height: 100vh; display: grid; place-items: center; color: var(--tx1); background: var(--bg1); }
+/* Exports › posting */
+.post-panel { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.post-panel h3 { margin: 0; font-size: 14px; }
+.post-panel p { margin: 0; }
+.post-status { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.tt-cell { display: inline-block; margin-right: 6px; font-size: 12px; color: var(--tx1); }
+.tt-cell.ok { color: var(--tx0); }
+.tt-cell.err { color: var(--danger); }
+.exports .notice { display: block; margin: 0 0 8px; color: var(--tx0); }

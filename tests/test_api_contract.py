@@ -106,7 +106,7 @@ try:
 
     st = json.loads(req("GET", "/api/status")[2])
     check("status reports the API version", st.get("api") == server.API_VERSION, st.get("api"))
-    check("status reports which UI is served (legacy here)", st.get("ui") == "legacy", st.get("ui"))
+    check("status reports which UI is served", st.get("ui") == server.ui_mode() and st.get("ui") in ("web", "legacy"), st.get("ui"))
 
     # ---------------------------------------------------------------- jobs: only their public fields
     code, _, data = post("/api/analyze", {"source": os.path.join(tempfile.gettempdir(), "no_such_video_x.mp4")})
@@ -154,17 +154,17 @@ try:
     (web / "robots.txt").write_text("User-agent: *", encoding="utf-8")
     server.WEB_DIR = web
     try:
-        # until the React UI covers every screen, it's opt-in: the original page stays at /
+        # with a build, the new UI is at / (4.25.0); /next/, its old address, still works
         code, h, data = req("GET", "/")
-        check("with a React build, / is still the original page by default", code == 200 and b"/ui/app.js" in data, code)
+        check("with a React build, / is the new UI by default", code == 200 and b'id="root"' in data, (code, data[:60]))
         code, h, data = req("GET", "/next/")
-        check("and the new UI is at /next/ to try", code == 200 and b'id="root"' in data, (code, data[:60]))
+        check("and /next/ still opens it", code == 200 and b'id="root"' in data, (code, data[:60]))
         code, h, _ = req("GET", "/assets/index-a1b2c3.js")
         check("with its bundles", code == 200 and "immutable" in h.get("cache-control", ""), code)
         st = json.loads(req("GET", "/api/status")[2])
-        check("status says which UI is at / and that /next/ works", st.get("ui") == "legacy" and st.get("next") is True, st)
-        code, _, _ = req("GET", "/review")
-        check("client-side paths stay the original page's 404s", code == 404, code)
+        check("status says the new UI is at /", st.get("ui") == "web" and st.get("next") is True, st)
+        code, _, data = req("GET", "/legacy/")
+        check("the previous UI stays at /legacy/", code == 200 and b"/ui/app.js" in data, code)
 
         os.environ["CLIPRADAR_UI"] = "web"
         code, h, data = req("GET", "/")

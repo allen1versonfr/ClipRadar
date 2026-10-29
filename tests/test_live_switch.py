@@ -60,41 +60,48 @@ with sync_playwright() as pw:
     if browser is None:
         print("SKIPPED: no Chromium-based browser (set CLIPRADAR_BROWSER)")
         sys.exit(0)
-    page = browser.new_page(viewport={"width": 1366, "height": 860})
-    errors = []
-    page.on("pageerror", lambda e: errors.append(str(e)))
-    try:
-        page.goto(url + "/")
-        page.wait_for_function("ClipRadarTest.open() && ClipRadarTest.open().kind === 'live'", timeout=15000)
-        check("with live clipping running, the page opens it", page.evaluate("ClipRadarTest.open().id") == a,
+    def journey(path, ui):
+        """The same steps on each UI: both keep window.ClipRadarTest.open() and data-src-open-live."""
+        server.live_sessions[a].extra.pop("next", None)
+        page = browser.new_page(viewport={"width": 1366, "height": 860})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(url + path)
+        page.wait_for_function("window.ClipRadarTest && ClipRadarTest.open() && ClipRadarTest.open().kind === 'live'", timeout=15000)
+        check(f"{ui}: with live clipping running, the page opens it", page.evaluate("ClipRadarTest.open().id") == a,
               page.evaluate("ClipRadarTest.open()"))
-        check("both streams are running", [x.id for x in server.live_list()] == [a, b])
+        check(f"{ui}: both streams are running", [x.id for x in server.live_list()] == [a, b])
 
         # open the second stream from Running now, then wait through several status checks (every 5 s)
         page.click("[data-testid=nav-home]")
         page.wait_for_selector(f"[data-src-open-live='{b}']", timeout=15000)
         page.click(f"[data-src-open-live='{b}']")
-        page.wait_for_function(f"ClipRadarTest.open().id === '{b}'", timeout=10000)
-        check("opening the second stream shows it", True)
+        page.wait_for_function(f"window.ClipRadarTest && ClipRadarTest.open() && ClipRadarTest.open().id === '{b}'", timeout=10000)
+        check(f"{ui}: opening the second stream shows it", True)
         seen = set()
         for _ in range(13):                                   # 13 s: two or three status checks
             page.wait_for_timeout(1000)
             seen.add(page.evaluate("ClipRadarTest.open().id"))
-        check("and it stays open (no jumping back to the first)", seen == {b}, seen)
+        check(f"{ui}: and it stays open (no jumping back to the first)", seen == {b}, seen)
 
         # and back to the first, which stays too
         page.click("[data-testid=nav-home]")
         page.click(f"[data-src-open-live='{a}']")
-        page.wait_for_function(f"ClipRadarTest.open().id === '{a}'", timeout=10000)
+        page.wait_for_function(f"window.ClipRadarTest && ClipRadarTest.open() && ClipRadarTest.open().id === '{a}'", timeout=10000)
         page.wait_for_timeout(6500)
-        check("switching back to the first works, and stays", page.evaluate("ClipRadarTest.open().id") == a)
+        check(f"{ui}: switching back to the first works, and stays", page.evaluate("ClipRadarTest.open().id") == a)
 
         # Keep watching: the stream you're on ended and its next stream started: the page moves on to it
         server.live_sessions[a].extra["next"] = b
-        page.wait_for_function(f"ClipRadarTest.open().id === '{b}'", timeout=12000)
-        check("Keep watching's next stream is followed", True)
-        check("and says the stream ended", "Stream ended" in page.locator("[data-testid=toasts]").inner_text())
-        check("no errors in the page", not errors, errors[:5])
+        page.wait_for_function(f"window.ClipRadarTest && ClipRadarTest.open() && ClipRadarTest.open().id === '{b}'", timeout=12000)
+        check(f"{ui}: Keep watching's next stream is followed", True)
+        check(f"{ui}: and says the stream ended", "Stream ended" in page.locator("[data-testid=toasts]").inner_text())
+        check(f"{ui}: no errors in the page", not errors, errors[:5])
+        page.close()
+
+    try:
+        journey("/", "new UI")
+        journey("/legacy/", "previous UI")
     finally:
         browser.close()
         for s in list(server.live_sessions.values()):

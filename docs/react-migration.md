@@ -15,12 +15,14 @@ tests, the app window and updates keep working. Written alongside
 
 ### Which UI is where
 
-Until the React app covers every screen, **the original page stays at `/`** and the React app is opt-in:
+Since 4.25.0 **the React app is at `/`** (`REACT_IS_DEFAULT = True` in `src/server.py`), after the audit in
+`docs/audit-new-ui.md`. The original page is the "Previous UI":
 
-- `/next/` serves the React app whenever it's built (the original Exports screen links to it as "Try the new Exports").
-- `CLIPRADAR_UI=web` serves it at `/` and refuses to fall back to the original page (useful in CI).
-- `CLIPRADAR_UI=legacy` turns the React build off entirely, `/next/` included.
-- When it covers everything, set `REACT_IS_DEFAULT = True` in `src/server.py` to make it the default at `/`.
+- `/legacy/` always serves the original page; its top bar has "Back to the new UI". Without a React build
+  (running from source without `npm run build`), the original page is at `/` too.
+- `/next/` still serves the React app (its address before 4.25.0).
+- `CLIPRADAR_UI=web` serves it at `/` and refuses to fall back to the original page.
+- `CLIPRADAR_UI=legacy` turns the React build off entirely, `/next/` included (CI runs `test_ui.py` that way too).
 - `/api/status` reports `"ui"` (what's at `/`: `"web"` or `"legacy"`), `"next"` (whether `/next/` works) and `"api": 1`.
 
 Screens switch by `#hash` (`/next/#exports`), so the app needs no router and works the same at `/next/` and

@@ -3,7 +3,7 @@ import { api } from '../../api/client'
 import { Ref, Twitch, type Status } from '../../api/schemas'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
-import { go, legacyViewUrl, liveUrl } from '../../handoff'
+import { go, liveUrl } from '../../handoff'
 import { usePoll } from '../../hooks/usePoll'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { PRESETS } from './VodCard'
@@ -95,7 +95,7 @@ export function LiveCard({ status }: { status: Status | undefined }) {
         {twitch?.signed_in
           ? twitch.turbo ? <>Signed in to Twitch as <b>{twitch.login}</b> with Turbo: recordings come without ads.</>
             : <>Signed in to Twitch as <b>{twitch.login}</b>. Without Turbo or a sub, ad breaks are left out of the recording.</>
-          : <>Ad breaks are left out of recordings. <a href={legacyViewUrl('settings')}>Sign in to Twitch</a> with Turbo for an ad-free stream.</>}
+          : <>Ad breaks are left out of recordings. <a href="#settings/twitch">Sign in to Twitch</a> with Turbo for an ad-free stream.</>}
       </p>
       <p className="fine">{hk?.registered ? `Press ${hk.keys ?? ''} anywhere to clip the last 30 seconds. ` : ''}Only the last 15 minutes of the stream are kept on disk.</p>
       {error && <p className="err-tx" role="alert">{error}</p>}

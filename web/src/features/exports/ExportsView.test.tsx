@@ -72,4 +72,32 @@ describe('Exports', () => {
     render(<ToastProvider><ExportsView /></ToastProvider>)
     expect((await screen.findByRole('alert')).textContent).toMatch(/Lost connection to Clip Radar/)
   })
+  it('a rendered campaign clip: open TikTok Studio with your caption, then send your post link to Discord', async () => {
+    const calls: Array<[string, any]> = []
+    const done = { id: 'c1', status: 'done', stage: 'done', title: 'Clutch', duration: 20, name: 'Clutch.mp4', url: '/export/c1', post: 'old caption',
+      link: 'https://twitch.tv/videos/1?t=0h1m0s', campaign: { id: 'k1', name: 'Big Server' }, history: [] }
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      calls.push([path, body])
+      const answer = path === '/api/queue' ? { items: [done], eta: null, workers: 1 }
+        : path === '/api/campaigns' ? { list: [{ id: 'k1', name: 'Big Server', discord: { webhook: 'https://discord.com/api/webhooks/x' } }], active: 'k1' }
+        : path === '/api/studio' ? { available: false, press_post: false }
+        : path === '/api/discord/send' ? { attached: false } : { ok: true }
+      return new Response(JSON.stringify(answer), { status: 200 })
+    }))
+    Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } })
+    render(<ToastProvider><ExportsView /></ToastProvider>)
+    expect((await screen.findByTestId('ex-campaign')).textContent).toContain('Campaign: Big Server')
+    fireEvent.change(await screen.findByTestId('tt-caption'), { target: { value: 'new caption #fyp' } })
+    fireEvent.click(screen.getByTestId('tt-studio'))
+    await waitFor(() => expect(calls).toContainEqual(['/api/handoff', { item: 'c1', caption: 'new caption #fyp' }]))
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('new caption #fyp')
+    expect(screen.queryByTestId('tt-auto')).toBeNull()                 // no browser to drive: the manual way only
+    fireEvent.change(screen.getByTestId('submit-url'), { target: { value: 'https://www.tiktok.com/@me/video/9' } })
+    await waitFor(() => expect(calls).toContainEqual(['/api/queue/post_url', { item: 'c1', url: 'https://www.tiktok.com/@me/video/9' }]), { timeout: 2000 })
+    fireEvent.click(screen.getByTestId('submit-send'))
+    await waitFor(() => expect(calls).toContainEqual(['/api/discord/send', { item: 'c1', post_url: 'https://www.tiktok.com/@me/video/9' }]))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy source link' }))
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://twitch.tv/videos/1?t=0h1m0s')
+  })
 })

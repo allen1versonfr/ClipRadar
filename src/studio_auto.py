@@ -148,8 +148,9 @@ def upload(path: str, caption: str, press_post: bool, url: str, step: Callable[[
     page = cdp.Page.connect(port)
     try:
         page.call("Page.enable")
-        if not page.eval("location.href || ''", timeout=10).startswith(url.split("?")[0]):
-            page.call("Page.navigate", url=url)
+        # a fresh upload page every time: after an upload, the window is still on the page but with that
+        # clip in its editor (no upload box), so the next clip would wait for one that never comes
+        page.call("Page.navigate", url=url)
         page.call("Page.bringToFront")
         # signed in? the first time, TikTok asks; wait for you to sign in, in that window
         if _wait(page, SELECTORS["login"], 4, check) and not _wait(page, SELECTORS["file"], 1, check):

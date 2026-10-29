@@ -91,8 +91,8 @@ with sync_playwright() as pw:
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
 
-    page.goto(url + "/")
-    check("the original page is still at /", page.locator("#exTable").count() == 1)
+    page.goto(url + "/legacy/")
+    check("the previous UI is at /legacy/", page.locator("#exTable").count() == 1)
     page.goto(url + "/next/#exports")
     page.wait_for_selector("[data-testid=exports-empty]", timeout=15000)
     check("the new UI loads at /next/, with an empty Exports list", True)

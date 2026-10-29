@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Status } from '../../api/schemas'
 import { WatermarkPanel } from '../watermark/WatermarkPanel'
 import { CampaignsPanel } from './CampaignsPanel'
@@ -13,7 +13,11 @@ import { AboutPanel, HotkeyPanel, PerformancePanel, ToolsPanel } from './SystemP
 import { TwitchPanel } from './TwitchPanel'
 import { UpdatesPanel } from './UpdatesPanel'
 
-export function SettingsView({ status, refreshStatus }: { status: Status | undefined; refreshStatus: () => Promise<void> }) {
+/** #settings/<section> (twitch, updates, …) opens Settings at that section. */
+export function SettingsView({ status, refreshStatus, section }: { status: Status | undefined; refreshStatus: () => Promise<void>; section?: string | undefined }) {
+  useEffect(() => {
+    if (section) document.getElementById(`set-${section}`)?.closest('section')?.scrollIntoView({ block: 'start' })
+  }, [section])
   const [tagsKey, setTagsKey] = useState(0)
   const [wmKey, setWmKey] = useState(0)          // Campaigns changed: the active campaign's watermark may be the one shown
   const [cpKey, setCpKey] = useState(0)          // Watermark changed or imported a campaign

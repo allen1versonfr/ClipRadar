@@ -73,14 +73,13 @@ HERE = paths.RES_DIR
 API_VERSION = 1
 MAX_BODY = 16 << 20       # largest POST body accepted (requests carry paths and settings, never files)
 
-# Two UIs can ship side by side while the React rewrite lands:
-#   src/ui   the original page (index.html + app.js): at / and always at /legacy/
-#   src/web  the React build (`npm run build` in web/ writes it here): at /next/ to try, and at /
-#            only with CLIPRADAR_UI=web, until it covers every screen and REACT_IS_DEFAULT is flipped
+# Two UIs ship side by side:
+#   src/web  the React build (`npm run build` in web/ writes it here): at / (since 4.25.0), and at /next/
+#   src/ui   the previous page (index.html + app.js): always at /legacy/, and at / when there's no build
 # CLIPRADAR_UI=legacy turns the React build off entirely; CLIPRADAR_UI=web serves it at / and refuses
-# to fall back to the original page.
+# to fall back to the previous page.
 WEB_DIR = HERE / "web"
-REACT_IS_DEFAULT = False
+REACT_IS_DEFAULT = True
 # mimetypes reads the Windows registry, where .js is sometimes text/plain: module scripts (what a
 # Vite build emits) are then refused by the browser. Pin the types the UI depends on.
 for _ext, _type in ((".js", "text/javascript"), (".mjs", "text/javascript"), (".css", "text/css"),

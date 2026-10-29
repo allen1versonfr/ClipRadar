@@ -60,7 +60,7 @@ export function RunningNow() {
             </div>
             <span className="src-acts">
               {live ? <>
-                <button className="btn sm" onClick={() => go(liveUrl(x.id))}>Open</button>
+                <button className="btn sm" onClick={() => go(liveUrl(x.id))} data-src-open-live={x.id}>Open</button>
                 {on ? <button className="btn sm ghost" onClick={() => act(`/api/live/${x.id}/stop`, {})}>Stop</button>
                   : <button className="link" onClick={() => act('/api/sources/forget', { live: x.id })}>Hide</button>}
               </> : x.status === 'running' ? <>

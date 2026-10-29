@@ -3,7 +3,7 @@ The new UI's Review against the real server, in a real browser, on a generated v
 are listed, a video opens with its clips, the selected clip plays its stretch, a title you type is saved
 with the VOD, the Text and Layout tabs set the shared render style, a caption line can be added, fixed and undone, the content check box tries, makes and undoes a fix, excludes, removes and brings back a clip, the clip preview matches the current UI's (with those choices) and the title can be dragged on it, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
 Skipped and asks why, a video the window can't play switches to the preview copy, Skip in bulk asks first and Undo brings the clips back, a reload keeps what you
-did, "Edit in the current UI" opens the same clip there, and the screen fits a narrow window.
+did, its preview matches the current UI's on the same clip, and the screen fits a narrow window.
 
 Needs FFmpeg, the React build (cd web && npm run build) and Playwright; skipped without them.
 
@@ -339,13 +339,12 @@ with sync_playwright() as pw:
     check("dragging the title on the preview moves it, in the render style both UIs share", 0.2 < o.get("title_y", 0) < 0.4, o.get("title_y"))
     page.evaluate("localStorage.setItem('vc_opts', JSON.stringify(Object.assign(JSON.parse(localStorage.getItem('vc_opts')), {title_y: 0.05})))")
 
-    # the current UI's editor opens on the same clip
+    # the current UI on the same clip, for the preview comparison
     sel = page.get_by_test_id("rv-title-input").input_value()
     sel_id = next(d["id"] for d in server.projects[pid]["clips"] if (d.get("title") or "Untitled") == sel and d.get("state", "todo") == "todo")
-    page.get_by_role("link", name="Edit in the current UI").click()
-    page.wait_for_url("**/legacy/**", timeout=15000)
+    page.goto(url + f"/legacy/#open={pid}/{sel_id}")      # the same clip in the current UI, to compare the previews
     page.wait_for_function("window.ClipRadarTest && ClipRadarTest.current()", timeout=15000)
-    check("'Edit in the current UI' opens the same clip there", page.evaluate("ClipRadarTest.current()") == f"{pid}:{sel_id}",
+    check("the current UI opens the same clip (#open=<project>/<clip>)", page.evaluate("ClipRadarTest.current()") == f"{pid}:{sel_id}",
           (page.evaluate("ClipRadarTest.current()"), sel_id))
     page.wait_for_function("document.querySelector('#vod').readyState >= 2", timeout=60000)
     page.evaluate(f"(() => {{ const v = document.querySelector('#vod'); v.pause(); v.currentTime = {at}; }})()")

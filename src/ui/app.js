@@ -127,7 +127,7 @@ async function loadStatus() {
   try { status = await api('/api/status'); } catch { return; }
   $('#sbVer').textContent = 'v' + status.version; $('#verText').textContent = status.version;
   $('#quitBtn').hidden = !!status.window;
-  $('#exTryNew').hidden = !status.next;
+  $('#newUiLink').hidden = status.ui !== 'web';      // this page is the previous UI, at /legacy/
   $('#sbTools').innerHTML = [['ffmpeg', 'FFmpeg'], ['ytdlp', 'yt-dlp'], ['whisper', 'Whisper']]
     .map(([k, l]) => `<span class="sb-tool" title="${status[k] ? l + ' ready' : l + ' missing'}"><span class="status-dot ${status[k] ? 'on' : 'warn'}"></span>${l}</span>`).join('');
   $('#capWarn').textContent = status.whisper ? '' : 'Captions need Whisper, which isn\'t available in this install.';

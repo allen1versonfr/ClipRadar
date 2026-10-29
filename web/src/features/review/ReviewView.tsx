@@ -22,6 +22,7 @@ import { Timeline, type TimelineHandle } from './Timeline'
 import { Overview } from './Overview'
 import { filterFor, type Span } from './streamMap'
 import { LiveHead } from './LiveHead'
+import { setReviewTodo } from '../../shell'
 import { DeepBox, type Detect, DetectDialog, HeadFacts, TitleChoices } from './StreamTools'
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]
@@ -123,7 +124,8 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
   const saveT = useRef(new Map<string, ReturnType<typeof setTimeout>>())      // typing: saved after a pause, per clip
 
   const safety = usePoll(useCallback(() => api(Safety, '/api/safety'), []), 60_000).data
-  const titles = usePoll(useCallback(() => api(TitlePrefs, '/api/titles'), []), 60_000).data
+  const titlesPoll = usePoll(useCallback(() => api(TitlePrefs, '/api/titles'), []), 60_000)
+  const titles = titlesPoll.data
   const hashtagsOn = titles?.hashtags !== false
   // the render queue: a keep or remove since a request left means its answer is out of date
   const epoch = useRef(0)
@@ -163,6 +165,11 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
       if (document.hidden) return
       let v: LiveView
       try { v = await api(LiveView, `/api/live/${pid}`) } catch { return }
+      if (v.next && v.next !== pid) {                // Keep watching started the channel's next stream: follow it
+        toast(`Stream ended with ${plural(clipsRef.current.length, 'clip')}. They're in Exports. Waiting for the next stream.`)
+        location.hash = `#review/live/${v.next}`
+        return
+      }
       setLive(v)
       setMeta(m => (m ? { ...m, duration: Math.max(1, v.recorded), curve: v.curve } : m))
       const have = new Set(clipsRef.current.map(keyOf))
@@ -280,6 +287,8 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
       flaggedOpen: clips.filter(x => checkStatus(x, safety?.enabled !== false) === 'needs_review').length }
   }, [clips, safety?.enabled])
 
+  useEffect(() => { setReviewTodo(counts.todo) }, [counts.todo])     // the badge on Review in the menu
+  useEffect(() => () => setReviewTodo(0), [])
   function select(x: Clip | undefined) { setFree(null); setCur(x && keyOf(x)) }
   function step(dir: 1 | -1) {
     const i = list.findIndex(x => keyOf(x) === cur)
@@ -913,6 +922,14 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
                       ? ` · found as ${(c.orig[1] - c.orig[0]).toFixed(1)} s` : ''}</span>
                     {!kept && c.orig && (Math.abs(c.orig[0] - c.start) > 0.01 || Math.abs(c.orig[1] - c.end) > 0.01) &&
                       <button className="link" onClick={() => restore(c)} title="Go back to the cut Clip Radar found">Restore original cut</button>}
+                    <span className="grow" />
+                    <label className="fld inline" title="Only this clip. With Even out volume on, this moves this clip's level up or down from the others.">Volume
+                      <select className="input" value={c.gain} disabled={kept} data-testid="rv-gain"
+                              onChange={e => update(keyOf(c), y => ({ ...y, gain: Number(e.target.value) }))}>
+                        {([[-9, 'Much quieter'], [-6, 'Quieter'], [-3, 'A bit quieter'], [0, 'As is'], [3, 'A bit louder'], [6, 'Louder']] as const)
+                          .map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -980,8 +997,12 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
                             onChange={e => edit(c, 'post caption change', { userPost: true, postText: e.target.value }, 'post')} />
                 </label>
                 <div className="row wrap">
+                  <label className="fld inline" title="Add hashtags to post captions (all clips)">
+                    <input type="checkbox" checked={hashtagsOn} data-testid="rv-tags-on" onChange={async e => {
+                      try { await api(TitlePrefs, '/api/titles', { hashtags: e.target.checked }); await titlesPoll.refresh() } catch (x) { toast(err(x), 'err') }
+                    }} />Hashtags
+                  </label>
                   <button className="btn sm ghost" onClick={() => navigator.clipboard.writeText(postFor(c, hashtagsOn)).then(() => toast('Post caption copied.'), () => toast(postFor(c, hashtagsOn)))}>Copy post caption</button>
-                  <a className="btn sm ghost" href={isLive ? `/legacy/#live=${pid}` : `/legacy/#open=${pid}/${c.id}`} title="Captions, text style and layout are still in the current UI">Edit in the current UI</a>
                 </div>
 
                 <p className="muted small">Keys: Enter keep · X skip · ↑ ↓ clips · Space play · ← → 2 s · T another title · M mute · I / O start / end here · , . frame · [ ] clip edges · Ctrl+Z undo</p>
