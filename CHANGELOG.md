@@ -13,7 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Settings › About: **Open the previous UI**.
 
 ### Tests
-- `web/`: 141 Vitest tests, including the search and the TikTok section. `tests/test_web_settings.py` jumps with the menu, searches, opens `#settings/tiktok` and sets Press Post for me there.
+- `web/`: 139 Vitest tests, including the search and the TikTok section. `tests/test_web_settings.py` jumps with the menu, searches, opens `#settings/tiktok` and sets Press Post for me there.
 
 ## [4.25.0] - 2026-10-29
 
