@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { type Campaigns, DiscordSent, Job, JobStarted, Ok, type QueueItem, Studio } from '../../api/schemas'
 import { useToast } from '../../components/Toasts'
@@ -17,7 +17,7 @@ const uploading: Record<string, string> = {}
 
 /** TikTok: Open TikTok Studio (the caption copied, the file shown, the upload page opened), or Upload to TikTok
  *  (Clip Radar's own browser window puts the video in and types the caption; Press Post for me presses Post). */
-export function TikTokPanel({ q, onChanged }: { q: QueueItem; onChanged: () => Promise<void> }) {
+export function TikTokPanel({ q, onChanged, children }: { q: QueueItem; onChanged: () => Promise<void>; children?: ReactNode }) {
   const toast = useToast()
   const copy = useCopy()
   const [caption, setCaption] = useState(q.post || q.title)
@@ -65,31 +65,19 @@ export function TikTokPanel({ q, onChanged }: { q: QueueItem; onChanged: () => P
     else if (j?.error) toast(j.error, 'err')
   }
   async function press(on: boolean) {
+    setStudio(s => ({ ...s, press_post: on }))            // shown at once; the server's answer follows
     try { setStudio(await api(Studio, '/api/studio', { press_post: on })) } catch (e) { toast(err(e), 'err') }
   }
-  return (
-    <section className="post-panel" aria-labelledby={`tt-${q.id}`} data-testid="tt-panel">
-      <h3 id={`tt-${q.id}`}>TikTok</h3>
-      <p className="muted small">{studio.available
-        ? "Upload to TikTok opens TikTok Studio in Clip Radar's own browser window, puts the video in and types the caption. Sign in to TikTok there the first time."
-        : "Clip Radar gets it ready; you post it in TikTok Studio. The caption is copied, the video is selected in File Explorer to drag in, and TikTok Studio's upload page opens in your browser."}</p>
-      <label className="fld">Caption
-        <textarea className="input" rows={4} maxLength={2200} value={caption} onChange={e => setCaption(e.target.value)} data-testid="tt-caption" />
-        <span className="hint tnum">{caption.length} / 2200</span>
-      </label>
-      {studio.available && <>
-        <label className="fld inline"><input type="checkbox" checked={studio.press_post} onChange={e => void press(e.target.checked)} data-testid="tt-press" />Press Post for me</label>
-        <span className="hint">{studio.press_post
-          ? "On: once the video is in, Clip Radar presses Post. It posts straight to your account, so check the caption first. TikTok's terms don't allow automated posting, so heavy use could get an account flagged."
-          : 'Off: you check the post in TikTok Studio and press Post yourself.'}</span>
-      </>}
-      {error && <p className="err-tx" role="alert">{error}</p>}
+  const actions = (
+    <section className="post-panel tt-top" aria-labelledby={`tt-${q.id}`} data-testid="tt-panel">
+      <h3 id={`tt-${q.id}`} className="sr-only">TikTok</h3>
       <div className="row wrap">
-        <button className="btn ghost" onClick={() => void copy(caption)}>Copy caption</button>
+        {studio.available && <button className="btn primary" disabled={!!step} onClick={() => void upload()} data-testid="tt-auto">Upload to TikTok</button>}
         <button className={`btn${studio.available ? '' : ' primary'}`} onClick={() => void openStudio()} data-testid="tt-studio"
                 title="Copies the caption, selects the video in File Explorer and opens TikTok Studio's upload page in your browser">Open TikTok Studio</button>
-        {studio.available && <button className="btn primary" disabled={!!step} onClick={() => void upload()} data-testid="tt-auto">Upload to TikTok</button>}
+        <button className="btn ghost" onClick={() => void copy(caption)}>Copy caption</button>
       </div>
+      {error && <p className="err-tx" role="alert">{error}</p>}
       {status && (
         <div className="post-status" aria-live="polite" data-testid="tt-status">
           {step ? <span className="row"><span className="meter busy" role="progressbar" aria-label={step}><i /></span>{step}</span>
@@ -97,8 +85,26 @@ export function TikTokPanel({ q, onChanged }: { q: QueueItem; onChanged: () => P
           {status.more && <span className="muted">{status.more}</span>}
         </div>
       )}
+      {studio.available && <>
+        <label className="fld inline"><input type="checkbox" checked={studio.press_post} onChange={e => void press(e.target.checked)} data-testid="tt-press" />Press Post for me</label>
+        <span className="hint" data-testid="tt-press-hint">{studio.press_post
+          ? "On: once the video is in, Clip Radar presses Post. It posts straight to your account, so check the caption first. TikTok's terms don't allow automated posting, so heavy use could get an account flagged."
+          : 'Off: you check the post in TikTok Studio and press Post yourself.'}</span>
+      </>}
     </section>
   )
+  const captionBox = (
+    <section className="post-panel" aria-label="TikTok caption">
+      <label className="fld">Caption for TikTok
+        <textarea className="input" rows={4} maxLength={2200} value={caption} onChange={e => setCaption(e.target.value)} data-testid="tt-caption" />
+        <span className="hint tnum">{caption.length} / 2200 · {studio.available
+          ? "Upload to TikTok opens TikTok Studio in Clip Radar's own browser window, puts the video in and types this caption."
+          : 'Open TikTok Studio copies this caption, selects the video in File Explorer and opens the upload page.'}</span>
+      </label>
+    </section>
+  )
+  // the buttons first, above the clip; the caption they use at the bottom
+  return <>{actions}{children}{captionBox}</>
 }
 
 /** Submit to a campaign: the link to your post (saved as you type), Copy submission, Send to Discord. */

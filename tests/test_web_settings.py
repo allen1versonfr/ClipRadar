@@ -62,6 +62,7 @@ import cleanup  # noqa: E402
 import learning  # noqa: E402
 import safety  # noqa: E402
 import studio_auto  # noqa: E402
+studio_auto.available = lambda: True     # as on a PC with Edge or Chrome, so Press Post for me is there to set
 
 for i in range(10):                                  # decisions to learn from, for one streamer
     learning.record("teststreamer", f"c{i}", {k: (i % 3) / 2 for k in learning.FEATURES}, "keep" if i % 3 else "skip")
@@ -116,6 +117,7 @@ with sync_playwright() as pw:
     page.wait_for_timeout(500)
     top = page.evaluate("document.querySelector('[data-testid=set-tiktok]').getBoundingClientRect().top")
     check("#settings/tiktok opens Settings at TikTok", 0 <= top < 200, top)
+    page.wait_for_selector("[data-testid=set-press-post]", timeout=10000)
     if page.get_by_test_id("set-press-post").count():
         page.get_by_test_id("set-press-post").check()
         page.wait_for_timeout(500)

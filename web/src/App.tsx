@@ -38,6 +38,10 @@ export function App() {
   const todo = useReviewTodo()
   const confirm = useConfirm()
   const [stopped, setStopped] = useState(false)
+  const [lastReview, setLastReview] = useState<{ pid: string; live: boolean }>()
+  useEffect(() => {
+    if (route.view === 'review' && route.pid) setLastReview({ pid: route.pid, live: route.live })
+  }, [route])
   const busy = useRef(false)
   busy.current = !!status.data?.running
 
@@ -74,6 +78,10 @@ export function App() {
   }, [])
 
   const current = VIEWS.find(v => v.id === view) ?? VIEWS[0]
+  // the video open in Review stays open (hidden) while you're on another screen: where you were, the tab,
+  // the filter and undo come back with it, and Review in the menu goes back to it
+  const reviewing = view === 'review' && route.pid ? { pid: route.pid, live: route.live } : lastReview
+  const reviewHref = lastReview ? `#review/${lastReview.live ? 'live/' : ''}${lastReview.pid}` : '#review'
   if (stopped) return <div className="stopped" role="status">Clip Radar has stopped. You can close this window.</div>
   const rendering = (queue.data?.items ?? []).filter(q => q.status === 'queued' || q.status === 'rendering').length
   const badge = (id: ViewId) => (id === 'review' ? todo : id === 'exports' ? rendering : 0)
@@ -88,7 +96,7 @@ export function App() {
       </header>
       <nav className="rail" aria-label="Screens">
         {VIEWS.map(v => (
-          <a key={v.id} href={`#${v.id}`} data-testid={`nav-${v.id}`} aria-current={v.id === view ? 'page' : undefined}
+          <a key={v.id} href={v.id === 'review' ? reviewHref : `#${v.id}`} data-testid={`nav-${v.id}`} aria-current={v.id === view ? 'page' : undefined}
              className={v.id === view ? 'on' : ''}>
             {v.label}
             {badge(v.id) > 0 && <b className="badge" aria-label={v.id === 'review' ? `${badge(v.id)} to review` : `${badge(v.id)} rendering`}>{badge(v.id)}</b>}
@@ -97,9 +105,14 @@ export function App() {
       </nav>
       <main className="main">
         {current.id === 'home' ? <HomeView status={status.data} refreshStatus={status.refresh} />
-          : current.id === 'review' ? <ReviewView pid={route.pid} live={route.live} whisper={status.data?.whisper !== false} />
+          : current.id === 'review' && !route.pid ? <ReviewView pid={undefined} />
           : current.id === 'exports' ? <ExportsView />
-          : <SettingsView status={status.data} refreshStatus={status.refresh} section={route.pid} />}
+          : current.id === 'settings' ? <SettingsView status={status.data} refreshStatus={status.refresh} section={route.pid} /> : null}
+        {reviewing && (
+          <div className="keep-alive" hidden={current.id !== 'review'}>
+            <ReviewView pid={reviewing.pid} live={reviewing.live} active={current.id === 'review'} whisper={status.data?.whisper !== false} />
+          </div>
+        )}
       </main>
       <StatusBar status={status.data} error={status.error} queue={queue.data} />
     </div>

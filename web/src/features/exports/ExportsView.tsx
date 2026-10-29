@@ -147,8 +147,8 @@ function Detail({ q, campaigns, onChanged, onRetry, onRemove, onShow }: {
   // a clip that came out with a warning (a layout that fell back): what failed first, for a bug report
   const ff = q.history.at(-1)?.first_failure
   const firstFailure = ff ? `${ff.layout} failed, exit ${ff.exit}:\n${ff.reason}\n\nFilter graph:\n${ff.filter}` : ''
-  return (
-    <aside className="ex-detail" data-testid="export-detail" aria-label="Selected clip">
+  const body = (
+    <>
       <div className="phone">
         {q.status === 'done' && q.url
           ? <video key={q.url} src={q.url} controls preload="metadata" data-testid="ex-video" ref={atPreviewLevel}
@@ -180,8 +180,13 @@ function Detail({ q, campaigns, onChanged, onRetry, onRemove, onShow }: {
           {more && <pre className="details" data-testid="export-details">{details}</pre>}
         </div>
       )}
-      {q.status === 'done' && <TikTokPanel q={q} onChanged={onChanged} />}
       <SubmitPanel q={q} campaigns={campaigns} onChanged={onChanged} />
+    </>
+  )
+  return (
+    <aside className="ex-detail" data-testid="export-detail" aria-label="Selected clip">
+      {/* a rendered clip: its TikTok buttons at the top, the caption they use at the bottom */}
+      {q.status === 'done' ? <TikTokPanel q={q} onChanged={onChanged}>{body}</TikTokPanel> : body}
     </aside>
   )
 }

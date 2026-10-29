@@ -9,6 +9,7 @@ export function TikTokPanel() {
   const [st, setSt] = useState<Studio>()
   useEffect(() => { api(Studio, '/api/studio').then(setSt).catch(() => {}) }, [])
   async function press(on: boolean) {
+    setSt(s => (s ? { ...s, press_post: on } : s))        // shown at once; the server's answer follows
     try { setSt(await api(Studio, '/api/studio', { press_post: on })) } catch (e) { toast(e instanceof Error ? e.message : String(e), 'err') }
   }
   return (

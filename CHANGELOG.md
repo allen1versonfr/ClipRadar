@@ -5,17 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-### Changed
-- Review: **the clip's inspector is back on the right**, as in the previous UI: Previous / Next, Skip and a larger Keep and render, the Clip / Captions / Text / Layout tabs and the title sit beside the preview, not under it. The preview and timeline stay in the middle (a little shorter, so the timeline is in view), and the clip list and inspector narrow on smaller windows; below 1000 px wide the inspector goes under the player.
-
-### Fixed
-- Review: "This video needs a copy the window can play" showed at the bottom of the window instead of on the player.
-
 ## [4.26.0] - 2026-10-29
 
-Settings is grouped, with a menu that follows you and a search, and a new TikTok section.
+Review keeps your place when you go to another screen, its clip panel is back on the right, Exports puts the TikTok buttons first, and Settings is grouped with a menu and a search.
+
+### Fixed
+- **Review lost your place when you went to another screen.** Going to Exports (or Home, or Settings) closed the video in Review; coming back showed the list of open videos, and the clip you were on, the list, the tab and undo were gone. Review now stays as you left it, and Review in the menu goes back to it. While you're on another screen its keys are off (Enter or X there doesn't keep or skip a clip) and its preview stops.
+- Review: "This video needs a copy the window can play" showed at the bottom of the window instead of on the player.
+- Press Post for me (in Exports and Settings) shows its new state as soon as you click it, not after the server answers.
 
 ### Changed
+- Exports: **Upload to TikTok, Open TikTok Studio and Copy caption are at the top** of the clip's panel, above the video, with what happened last time and Press Post for me. The caption they use is at the bottom.
+- Review: **the clip's panel is back on the right**, as in the previous UI: Previous / Next, Skip and a larger Keep and render, the Clip / Captions / Text / Layout tabs and the title sit beside the preview, not under it. The preview and timeline stay in the middle (a little shorter, so the timeline is in view), and the clip list and the panel narrow on smaller windows; below 1000 px wide the panel goes under the player.
 - **Settings is easier to find your way around.** Its sections are in four groups (Clips, Posting, Finding clips, App), with a menu beside them that follows where you are and jumps to any section, and a search that finds a section by its name, the words people use for it ("logo", "turbo", "webhook") or what it says. On a narrow window the menu sits above the sections. `#settings/<section>` opens Settings at that section.
 
 ### Added
@@ -23,7 +24,7 @@ Settings is grouped, with a menu that follows you and a search, and a new TikTok
 - Settings › About: **Open the previous UI**.
 
 ### Tests
-- `web/`: 139 Vitest tests, including the search and the TikTok section. `tests/test_web_settings.py` jumps with the menu, searches, opens `#settings/tiktok` and sets Press Post for me there.
+- `web/`: 140 Vitest tests, including going to Exports and back to Review (the place, list and tab kept, nothing opened again, Enter and X on Exports not reaching Review), the settings search and the TikTok section. `tests/test_web_settings.py` jumps with the menu, searches, and sets Press Post for me in Settings; `test_web_a11y.py` waits for dialogs to fade in before checking their colours.
 
 ## [4.25.0] - 2026-10-29
 

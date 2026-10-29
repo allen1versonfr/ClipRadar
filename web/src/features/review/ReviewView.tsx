@@ -40,8 +40,8 @@ const save = (c: Clip) => { api(Ok, '/api/clip_state', snapshot(c)).catch(() => 
 const feedback = (c: Clip, action: string, extra: object = {}) => { api(Ok, '/api/feedback', { pid: c.pid, clip: c.id, action, ...extra }).catch(() => {}) }
 
 /** Review: #review lists the videos open now; #review/<project> reviews one, #review/live/<session> a live session. */
-export function ReviewView({ pid, live = false, whisper = true }: { pid: string | undefined; live?: boolean; whisper?: boolean }) {
-  return pid ? <Workspace key={`${live}:${pid}`} pid={pid} live={live} whisper={whisper} /> : <Picker />
+export function ReviewView({ pid, live = false, active = true, whisper = true }: { pid: string | undefined; live?: boolean; active?: boolean; whisper?: boolean }) {
+  return pid ? <Workspace key={`${live}:${pid}`} pid={pid} live={live} active={active} whisper={whisper} /> : <Picker />
 }
 
 function Picker() {
@@ -63,7 +63,8 @@ function Picker() {
   )
 }
 
-function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean; whisper: boolean }) {
+/** `active` is false while another screen is shown: the workspace stays as you left it, without its keys or sound. */
+function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: boolean; active: boolean; whisper: boolean }) {
   const [live, setLive] = useState<LiveView>()
   // a live moment's times are in its own file: where each starts in the stream, kept from when it arrived
   const offs = useRef(new Map<string, number>())
@@ -96,6 +97,7 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
   const [speed, setSpeed] = useState(1)
   const dragFrom = useRef<Snap>(undefined)
   const getVideo = useCallback(() => player.current?.video() ?? null, [])
+  useEffect(() => { if (!active) getVideo()?.pause() }, [active, getVideo])       // another screen: the preview stops
   // your render style (vc_opts, shared with the current page): what the preview draws and Keep renders
   const [opts, setOptsState] = useState<RenderOpts>(renderOpts)
   const setOpts = useCallback((patch: Partial<RenderOpts>, persist = true) => {
@@ -711,6 +713,7 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
 
   useEffect(() => {                                  // the original page's Review keys
     function onKey(e: KeyboardEvent) {
+      if (!active) return                            // on another screen: Enter or X there mustn't keep or skip a clip
       if (document.querySelector('[role=alertdialog],[role=dialog]')) return
       const typing = !!(e.target as HTMLElement).closest?.('input,select,textarea'), mod = e.ctrlKey || e.metaKey
       if (mod && !typing && ['z', 'Z', 'y'].includes(e.key)) { e.preventDefault(); undoRedo(e.key === 'y' || e.shiftKey); return }
