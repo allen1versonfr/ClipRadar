@@ -162,6 +162,24 @@ describe('Review', () => {
     await waitFor(() => expect(posted('/api/clip_state').at(-1)).toMatchObject({ id: 1, title: 'Jason missed', userTitle: true }))
   })
 
+  it('Exact preview renders a few seconds like the export and shows them until closed', async () => {
+    const base = fetch as unknown as (p: string, i?: RequestInit) => Promise<Response>
+    let polls = 0
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/preview_render') { calls.push([path, JSON.parse(String(init!.body))]); return new Response(JSON.stringify({ job: 'j1' })) }
+      if (path === '/api/job/j1') return new Response(JSON.stringify(++polls < 2
+        ? { id: 'j1', kind: 'preview', status: 'running', step: 'Rendering', progress: 0.5 }
+        : { id: 'j1', kind: 'preview', status: 'done', result: { url: '/files/p1/preview/a.mp4', start: 20, end: 26 } }))
+      return base(path, init)
+    }))
+    renderReview()
+    fireEvent.click(await screen.findByTestId('rv-exact-btn'))
+    await waitFor(() => expect(screen.getByTestId('rv-exact').getAttribute('src')).toBe('/files/p1/preview/a.mp4'), { timeout: 3000 })
+    expect(posted('/api/preview_render')[0]).toMatchObject({ pid: 'p1', clip: { id: 1, start: 20, end: 35, title: 'Clip 1' } })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByTestId('rv-exact')).toBeNull())
+  })
+
   it('a video that is not open any more says how to get it back', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'This session expired. Press Find clips again.' }), { status: 404 })))
     renderReview()

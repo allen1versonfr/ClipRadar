@@ -5,6 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- New UI, Review: **Exact preview**. A few seconds around the playhead rendered exactly like the export, played over the preview until you close it (or press Esc).
+
+### Tests
+- `web/`: 124 Vitest tests. `tests/test_web_review.py` makes an exact preview and closes it.
+
 ## [4.22.0] - 2026-10-29
 
 Review in the new UI now has the content check and the whole stream: the overview, detection settings, deep scan and title A / B. Nothing changes unless you open the new UI (`/next/`).

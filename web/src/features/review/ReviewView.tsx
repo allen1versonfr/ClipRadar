@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
+import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, Job, JobStarted, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
@@ -63,6 +63,8 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
   const [proposal, setProposal] = useState<Proposal | null>(null)
   const [free, setFree] = useState<number | null>(null)       // previewing any moment of the stream, not a clip
   const [detOpen, setDetOpen] = useState(false)
+  const [exact, setExact] = useState<{ url: string; start: number; end: number } | null>(null)   // a few seconds rendered like the export
+  const [exactStep, setExactStep] = useState('')
   const [deep, setDeep] = useState<DeepStatus>()
   const trying = useRef<{ to: number; started: boolean } | null>(null)
   const toast = useToast()
@@ -577,6 +579,32 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
   const proposalRef = useRef(proposal)
   proposalRef.current = proposal
   useEffect(() => { stopTrying(); setProposal(null) }, [cur])        // another clip: nothing being tried
+  useEffect(() => { setExact(null) }, [cur, opts, free])              // what the exact preview showed has changed
+
+  /** Exact preview: a few seconds around the playhead rendered by the real export pipeline. */
+  async function exactPreview(x: Clip) {
+    if (exactStep) return
+    const clip: Record<string, unknown> = { id: x.id, start: x.start, end: x.end, title: x.title.trim() }
+    if (x.wordsEdited) clip.words = x.words.filter(w => w.start >= x.start - 0.2 && w.start < x.end)
+    setExactStep('Getting ready…')
+    try {
+      const { job } = await api(JobStarted, '/api/preview_render', { pid: x.pid, clip, opts, at: getVideo()?.currentTime ?? x.start })
+      for (;;) {
+        const j = await api(Job, `/api/job/${job}`)
+        if (j.status === 'done') {
+          const r = j.result as { url: string; start: number; end: number }
+          if (keyOf(x) === curRef.current) { getVideo()?.pause(); setExact(r) }
+          break
+        }
+        if (j.status !== 'running') { if (j.status === 'error') toast(j.error || 'The exact preview stopped.', 'err'); break }
+        setExactStep(j.step === 'Rendering' ? `Rendering ${Math.round(j.progress * 100)}%` : 'Getting ready…')
+        await new Promise(res => setTimeout(res, 500))
+      }
+    } catch (e) { toast(err(e), 'err') }
+    setExactStep('')
+  }
+  const curRef = useRef(cur)
+  curRef.current = cur
 
   useEffect(() => {                                  // the original page's Review keys
     function onKey(e: KeyboardEvent) {
@@ -604,6 +632,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
       else if (k === 'ArrowRight') player.current?.seekBy(2)
       else if (k === 't') nextTitle()
       else if (k === 'm') player.current?.toggleMute()
+      else if (k === 'Escape') setExact(null)
     }
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
@@ -724,7 +753,15 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
                            setDragMarks(ms)
                            if (persist) void saveMarks(ms)
                          }}
-                         onToggle={() => player.current?.toggle()} />
+                         onToggle={() => player.current?.toggle()}>
+                  {exact && (
+                    <div className="rv-exact">
+                      <video src={exact.url} autoPlay loop playsInline muted={player.current?.userMuted() ?? false} data-testid="rv-exact" />
+                      <button className="rv-exact-close" onClick={() => setExact(null)} title="Back to the live preview (Esc)">
+                        Exact preview {fmtA(exact.start)} to {fmtA(exact.end)} · close</button>
+                    </div>
+                  )}
+                </Preview>
               </Player>
 
               <div className="rv-editor" data-testid="rv-editor">
@@ -738,6 +775,8 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
                   <select className="input" aria-label="Playback speed" title="Playback speed (< and >)" value={speed} onChange={e => changeSpeed(Number(e.target.value))}>
                     {SPEEDS.map(v => <option key={v} value={v}>{v}×</option>)}
                   </select>
+                  <button className="btn sm" disabled={!!exactStep} onClick={() => void exactPreview(c)} data-testid="rv-exact-btn"
+                          title="Render a few seconds around the playhead exactly like the export">{exactStep || 'Exact preview'}</button>
                   <span className="grow" />
                   <button className="btn sm ghost" onClick={() => timeline.current?.zoom(2)} aria-label="Zoom out (-)">−</button>
                   <button className="btn sm ghost" onClick={() => timeline.current?.zoom(0.5)} aria-label="Zoom in (+)">+</button>

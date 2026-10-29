@@ -1,4 +1,4 @@
-import { useEffect, useRef, type PointerEvent } from 'react'
+import { type ReactNode, useEffect, useRef, type PointerEvent } from 'react'
 import type { Clip, Mark, Safety } from '../../api/schemas'
 import type { RenderOpts } from '../../prefs'
 import { type Box, captionAt, chunksFor, dragPlace, drawCaption, drawGuides, drawLayout, drawMarks, drawSelection,
@@ -8,13 +8,15 @@ export interface Track { path: Array<[number, number]>; face_y?: number | null |
 
 /** The clip as it will render (9:16, 1:1 or 16:9): the layout, title, captions and watermark on the
  *  playing video. Drag the title, the captions or a watermark layer to move it; click to play or pause. */
-export function Preview({ clip, video, thumb, opts, marks, safety, replace, track, guides, onOpts, onMark, onToggle }: {
+export function Preview({ clip, video, thumb, opts, marks, safety, replace, track, guides, onOpts, onMark, onToggle, children }: {
   clip: Clip; video: () => HTMLVideoElement | null; thumb: string; opts: RenderOpts; marks: Mark[]
   safety: Pick<Safety, 'enabled' | 'censor' | 'censor_categories'> | undefined; replace: Record<string, string>
   track: Track | null; guides: boolean
   onOpts: (patch: Partial<RenderOpts>, save: boolean) => void
   onMark: (i: number, patch: Partial<Mark>, save: boolean) => void
   onToggle: () => void
+  /** shown over the preview (the exact preview) */
+  children?: ReactNode
 }) {
   const cv = useRef<HTMLCanvasElement>(null)
   const frame = useRef<HTMLImageElement>(null)
@@ -123,6 +125,7 @@ export function Preview({ clip, video, thumb, opts, marks, safety, replace, trac
               onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
               onPointerEnter={() => { inside.current = true }} onPointerLeave={() => { inside.current = false; hover.current = null }} />
       <img ref={frame} src={thumb} alt="" hidden />
+      {children}
     </div>
   )
 }

@@ -388,6 +388,17 @@ with sync_playwright() as pw:
     check("clicking a clip on the overview opens it", wait_until(lambda: page.get_by_test_id("rv-title-input").input_value() == (other.get("title") or "")),
           (page.get_by_test_id("rv-title-input").input_value(), other.get("title")))
 
+    # exact preview: a few seconds rendered by the export pipeline, shown over the preview
+    page.get_by_test_id("rv-exact-btn").click()
+    ex = page.get_by_test_id("rv-exact")
+    ex.wait_for(timeout=120000)
+    src = ex.get_attribute("src") or ""
+    check("Exact preview renders a few seconds and shows them", src.startswith("/files/") and urllib.request.urlopen(url + src).status == 200, src)
+    if h264:
+        check("and plays them", wait_until(lambda: page.evaluate("document.querySelector('[data-testid=rv-exact]').readyState") >= 2, 30))
+    page.keyboard.press("Escape")
+    check("Esc goes back to the live preview", wait_until(lambda: ex.count() == 0, 5))
+
     # detection settings: Try compares, Apply re-ranks, and your clip stays
     page.get_by_test_id("rv-detect-open").click()
     dlg = page.get_by_role("dialog")
