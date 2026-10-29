@@ -61,6 +61,7 @@ import campaigns  # noqa: E402
 import cleanup  # noqa: E402
 import learning  # noqa: E402
 import safety  # noqa: E402
+import studio_auto  # noqa: E402
 
 for i in range(10):                                  # decisions to learn from, for one streamer
     learning.record("teststreamer", f"c{i}", {k: (i % 3) / 2 for k in learning.FEATURES}, "keep" if i % 3 else "skip")
@@ -97,6 +98,35 @@ with sync_playwright() as pw:
     page.wait_for_selector("[data-testid=set-about]", timeout=15000)
     check("Settings is a screen of the new UI", page.locator("[data-testid=not-ported-settings]").count() == 0
           and page.locator("h1", has_text="Settings").count() == 1)
+
+    # finding your way: the menu jumps to a section, a search narrows to what matches, a link opens a section
+    nav = page.get_by_role("navigation", name="Settings sections")
+    check("the sections are in four groups", all(nav.get_by_text(g, exact=True).count() == 1 for g in ("Clips", "Posting", "Finding clips", "App")))
+    nav.get_by_role("link", name="Twitch sign-in").click()
+    page.wait_for_timeout(500)
+    top = page.evaluate("document.querySelector('[data-testid=set-twitch]').getBoundingClientRect().top")
+    check("the menu jumps to a section", 0 <= top < 200, top)
+    page.get_by_test_id("set-search").fill("webhook")
+    page.wait_for_timeout(300)
+    visible = [x for x in ("set-campaigns", "set-export", "set-storage") if page.get_by_test_id(x).is_visible()]
+    check("a search shows only the sections that match", visible == ["set-campaigns"], visible)
+    page.get_by_test_id("set-search").fill("")
+    page.goto(url + "/next/#settings/tiktok")
+    page.wait_for_selector("[data-testid=set-tiktok]", timeout=15000)
+    page.wait_for_timeout(500)
+    top = page.evaluate("document.querySelector('[data-testid=set-tiktok]').getBoundingClientRect().top")
+    check("#settings/tiktok opens Settings at TikTok", 0 <= top < 200, top)
+    if page.get_by_test_id("set-press-post").count():
+        page.get_by_test_id("set-press-post").check()
+        page.wait_for_timeout(500)
+        check("Press Post for me is saved from Settings", studio_auto.load_settings()["press_post"] is True)
+        page.get_by_test_id("set-press-post").uncheck()
+        page.wait_for_timeout(500)
+        check("and turned off again", studio_auto.load_settings()["press_post"] is False)
+    else:
+        check("without Edge or Chrome, TikTok says how posting works", "Open TikTok Studio" in page.get_by_test_id("set-tiktok").inner_text())
+    page.goto(url + "/next/#settings")
+    page.wait_for_selector("[data-testid=set-about]", timeout=15000)
 
     # Performance: saved on the server, where renders and downloads read it
     perf = page.locator("[data-testid=set-perf]")

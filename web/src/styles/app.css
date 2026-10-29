@@ -158,7 +158,28 @@ details.adv[open] summary { margin-bottom: 10px; }
 /* Touch screens: every control is at least 44 px tall, a fingertip's size. With a mouse the tool stays
    compact (about 30 px controls), as dense work screens are. */
 /* settings: one column of panels, like the original page */
-.settings { padding: 20px 24px 32px; display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
+.settings { padding: 20px 24px 32px; display: grid; grid-template-columns: 200px minmax(0, 860px); gap: 24px; align-items: start; }
+.set-nav { position: sticky; top: 0; display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 120px); overflow-y: auto; padding: 0 2px 8px; }
+.set-nav h1 { margin: 0 0 2px; }
+.set-nav-group { display: flex; flex-direction: column; gap: 1px; }
+.set-nav-label, .set-group-label { color: var(--tx2); font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; }
+.set-nav-label { padding: 4px 10px 2px; }
+.set-nav a { color: var(--tx1); text-decoration: none; padding: 5px 10px; border-radius: var(--r); border-left: 2px solid transparent; }
+.set-nav a:hover { background: var(--bg3); color: var(--tx0); }
+.set-nav a.on { color: var(--tx0); background: var(--bg2); border-left-color: var(--accent); }
+.set-body { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+.set-group { display: flex; flex-direction: column; gap: 16px; }
+.set-group-label { margin: 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.set-section { scroll-margin-top: 12px; }
+.set-group[hidden], .set-section[hidden] { display: none; }
+@media (max-width: 860px) {
+  .settings { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; }
+  .set-nav { position: static; max-height: none; overflow: visible; }
+  .set-nav-group { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .set-nav-label { width: 100%; }
+  .set-nav a { border: 1px solid var(--line2); border-radius: 99px; padding: 4px 12px; }
+  .set-nav a.on { border-color: var(--line2); background: none; color: var(--tx1); }   /* the menu scrolls away here: no "you are here" */
+}
 .settings h2 { font-size: 15px; font-weight: 650; margin: 0; }
 .panel.set { display: flex; flex-direction: column; gap: 12px; }
 .panel.set header.row { align-items: center; }

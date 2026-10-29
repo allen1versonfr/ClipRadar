@@ -195,6 +195,10 @@ export function AboutPanel() {
       </div>
       {gone && <p className="notice" role="status">Uninstalling Clip Radar. Follow the uninstaller window.</p>}
       <p className="fine">If something goes wrong, the log file is at %LOCALAPPDATA%\ClipRadar\clipradar.log.</p>
+      <div className="row wrap">
+        <span className="grow">The previous look of Clip Radar is still here for a while, with the same clips and settings.</span>
+        <a className="btn" href="/legacy/" data-testid="open-previous-ui">Open the previous UI</a>
+      </div>
     </section>
   )
 }

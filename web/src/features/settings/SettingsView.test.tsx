@@ -146,4 +146,35 @@ describe('updateLine', () => {
     expect(updateLine(u({ state: 'error', error: 'No internet.' }))).toEqual({ text: 'No internet.', cls: 'err' })
     expect(updateLine(u({ state: 'nonsense' })).text).toContain('up to date')
   })
+  it('groups the sections, finds them by search (their own words too), and says when nothing matches', async () => {
+    vi.stubGlobal('fetch', fakeServer())
+    renderSettings()
+    const nav = within(await screen.findByRole('navigation', { name: 'Settings sections' }))
+    for (const g of ['Clips', 'Posting', 'Finding clips', 'App']) expect(nav.getByText(g)).toBeTruthy()
+    expect(nav.getByRole('link', { name: 'TikTok' }).getAttribute('href')).toBe('#settings/tiktok')
+    fireEvent.change(screen.getByTestId('set-search'), { target: { value: 'turbo' } })
+    await waitFor(() => expect(nav.queryByRole('link', { name: 'Watermark' })).toBeNull())
+    expect(nav.getByRole('link', { name: 'Twitch sign-in' })).toBeTruthy()
+    expect((screen.getByTestId('set-twitch').closest('.set-section') as HTMLElement).hidden).toBe(false)
+    expect((screen.getByTestId('set-export').closest('.set-section') as HTMLElement).hidden).toBe(true)
+    fireEvent.change(screen.getByTestId('set-search'), { target: { value: 'zzzz nothing' } })
+    expect((await screen.findByTestId('set-no-match')).textContent).toContain('No settings match')
+    fireEvent.change(screen.getByTestId('set-search'), { target: { value: '' } })
+    await waitFor(() => expect(nav.getByRole('link', { name: 'Watermark' })).toBeTruthy())
+  })
+  it('TikTok: Press Post for me is set here too', async () => {
+    const base = fakeServer()
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/studio') {
+        const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined
+        calls.push([path, body])
+        return new Response(JSON.stringify({ available: true, press_post: !!body?.press_post }))
+      }
+      return base(path, init)
+    }))
+    renderSettings()
+    fireEvent.click(await screen.findByTestId('set-press-post'))
+    await waitFor(() => expect(posted('/api/studio')).toEqual([{ press_post: true }]))
+    expect(panel('set-tiktok').getByText(/posts straight to your account/)).toBeTruthy()
+  })
 })

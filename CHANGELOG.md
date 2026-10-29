@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- **Settings is easier to find your way around.** Its sections are in four groups (Clips, Posting, Finding clips, App), with a menu beside them that follows where you are and jumps to any section, and a search that finds a section by its name, the words people use for it ("logo", "turbo", "webhook") or what it says. On a narrow window the menu sits above the sections. `#settings/<section>` opens Settings at that section.
+
+### Added
+- Settings › Posting › **TikTok**: how Upload to TikTok works on this PC, and Press Post for me (also in Exports).
+- Settings › About: **Open the previous UI**.
+
+### Tests
+- `web/`: 141 Vitest tests, including the search and the TikTok section. `tests/test_web_settings.py` jumps with the menu, searches, opens `#settings/tiktok` and sets Press Post for me there.
+
 ## [4.25.0] - 2026-10-29
 
 The new UI is now Clip Radar's UI. The previous one stays at `/legacy/` for a while ("Previous UI" in the top bar), with your clips and settings shared. Before the switch, an audit checked that everything the previous UI did is in the new one, and that it's accessible (`docs/audit-new-ui.md`).
