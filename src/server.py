@@ -18,6 +18,7 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
+import bisect
 import glob
 import hashlib
 import json
@@ -32,6 +33,7 @@ import time
 import traceback
 import uuid
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from http.server import ThreadingHTTPServer
 from typing import Optional
@@ -390,18 +392,24 @@ def flush_saves():
 TX_MARGIN = 8.0   # seconds transcribed around each clip: trims keep captions, and cuts can move to a sentence
 
 
-def _chat_window(pr: dict, start: float, end: float) -> list:
+def _chat_near(pr: dict, start: float, end: float) -> list:
+    """The real chat (no bots, commands or notices) reacting to start..end. Chat is in time order, so
+    only that stretch is looked at: filtering all of a long stream's chat for every clip took 0.15 s
+    a clip twice over (measured: 67k messages, 60 clips, 18 s of the scan)."""
+    chat = pr.get("chat") or []
     d = pr.get("chat_delay", 6.0)
-    lo, hi = start + d - 2, end + d + 8
-    return [m[1] for m in chatsignal.human(pr["chat"]) if lo <= m[0] <= hi and isinstance(m[1], str)]
+    a = bisect.bisect_left(chat, start + d - 2, key=lambda m: m[0])
+    b = bisect.bisect_right(chat, end + d + 8, key=lambda m: m[0])
+    return [m for m in chatsignal.human(chat[a:b]) if isinstance(m[1], str)]
+
+
+def _chat_window(pr: dict, start: float, end: float) -> list:
+    return [m[1] for m in _chat_near(pr, start, end)]
 
 
 def _chat_title(pr: dict, start: float, end: float) -> str:
     """Settings › Titles: a title from a phrase many chatters typed around the clip ('' if none)."""
-    d = pr.get("chat_delay", 6.0)
-    lo, hi = start + d - 2, end + d + 8
-    msgs = [(m[1], m[2] if len(m) > 2 else "") for m in chatsignal.human(pr.get("chat") or [])
-            if lo <= m[0] <= hi and isinstance(m[1], str)]
+    msgs = [(m[1], m[2] if len(m) > 2 else "") for m in _chat_near(pr, start, end)]
     es = getattr(pr.get("analysis"), "_emotes", None)
     names = set(getattr(es, "lower", None) or {}) if es else set()
     return chattitles.find(msgs, names | set(engine.HYPE), _streamer_name(pr))["title"]
@@ -480,21 +488,32 @@ def rescan_all():
         save_project_soon(pid)
 
 
+THUMB_WORKERS = 4
+
+
 def clip_dicts(pid: str, clips: list, kind: str = "hype") -> list:
     pr = projects[pid]
     tdir = os.path.join(pr["workdir"], "thumbs")
     os.makedirs(tdir, exist_ok=True)
-    out, used = [], set()
-    for c in clips:
-        d = asdict(c) if not isinstance(c, dict) else dict(c)
-        t = d["start"] + (d["end"] - d["start"]) * 0.6
-        name = f"t_{pr.get('thumb_prefix', '')}{int(t)}.jpg"
+    ds = [asdict(c) if not isinstance(c, dict) else dict(c) for c in clips]
+    at = [d["start"] + (d["end"] - d["start"]) * 0.6 for d in ds]
+    names = [f"t_{pr.get('thumb_prefix', '')}{int(t)}.jpg" for t in at]
+
+    def thumb(job: tuple):
+        name, t = job
         path = os.path.join(tdir, name)
         if not os.path.exists(path):
             try:
                 engine.make_thumb(pr["video"], t, path)
             except Exception:
                 pass
+    # each FFmpeg spends most of its time opening the video (a long VOD's index), not decoding, so a few
+    # at once go much faster (measured: 60 thumbnails of a 9-hour VOD, 24 s one by one, 11 s four at once).
+    # One job per file name: two clips can share a thumbnail
+    with ThreadPoolExecutor(THUMB_WORKERS) as ex:
+        list(ex.map(thumb, dict(zip(names, at)).items()))
+    out, used = [], set()
+    for d, name in zip(ds, names):
         d["thumb"] = f"/files/{pid}/thumbs/{name}"
         d["pid"] = pid
         d["vod"] = f"/vod/{pid}"
@@ -1626,6 +1645,7 @@ def _render_item(it: dict):
         words = []                                  # subtitles as a file only, not burned in
     path = os.path.join(outdir, name)
     expect = min(it["end"], pr["info"]["duration"] or it["end"]) - max(0.0, it["start"])
+    picture = _picture_soon(it, pr)
     for attempt in (1, 2):
         set_stage(it, "rendering", "Rendering" if attempt == 1 else "Rendering again")
         it["progress"] = 0.0
@@ -1647,7 +1667,7 @@ def _render_item(it: dict):
         try:
             _check_output(path, expect, want_audio=bool(pr["info"].get("has_audio")))
             _check_sound(it, pr, path)
-            _check_picture(it, pr)
+            _check_picture(it, pr, picture)
             break
         except BrokenOutput as e:
             print(f"  {e}" + (" Trying once more." if attempt == 1 else ""), flush=True)
@@ -1789,11 +1809,31 @@ def _check_sound(it: dict, pr: dict, path: str):
                          "(Twitch mutes some music).")
 
 
-def _check_picture(it: dict, pr: dict):
-    """A clip that's mostly too dark or too blurry to watch on a phone gets a warning (it still renders)."""
-    try:
-        pc = engine.picture_check(pr["video"], it["start"], it["end"])
-    except Exception:
+def _picture_soon(it: dict, pr: dict):
+    """Start looking at the clip's picture now; returns a wait() that gives the result (None if it failed).
+    It reads the source, not the render, so it runs while FFmpeg encodes: after the render it added about
+    2 s to every clip (measured: five seeks into a 32 GB, 9-hour VOD), a quarter of a short GPU render."""
+    box: dict = {}
+
+    def look():
+        try:
+            box["pc"] = engine.picture_check(pr["video"], it["start"], it["end"])
+        except Exception:
+            pass
+    t = threading.Thread(target=look, daemon=True)
+    t.start()
+
+    def wait():
+        t.join()
+        return box.get("pc")
+    return wait
+
+
+def _check_picture(it: dict, pr: dict, measured=None):
+    """A clip that's mostly too dark or too blurry to watch on a phone gets a warning (it still renders).
+    measured: a wait() from _picture_soon, when the check already started alongside the render."""
+    pc = (measured or _picture_soon(it, pr))()
+    if pc is None:
         return
     it["picture"] = pc
     if it.get("warning"):
