@@ -1,0 +1,71 @@
+name: Set up Clip Radar
+description: Python and the app's packages, the React UI, the laughter detector, and (optionally) the bundled tools
+
+inputs:
+  web-tests:
+    description: also run the React UI's own tests (Vitest) before building it
+    default: "false"
+  tools:
+    description: download ffmpeg, TwitchDownloader and yt-dlp into tools/
+    default: "true"
+
+outputs:
+  web:
+    description: "'True' when the React UI (web/) is in the repo and was built"
+    value: ${{ steps.web.outputs.present }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+        cache-dependency-path: requirements.txt
+
+    - name: Install packages
+      shell: pwsh
+      run: python -m pip install -U pip && python -m pip install -r requirements.txt pywebview pyinstaller playwright
+
+    # The React UI (web/) builds into src/web, which the server serves at / when it's there.
+    - name: Check for the React UI
+      id: web
+      shell: pwsh
+      run: echo "present=$(Test-Path web/package.json)" >> $env:GITHUB_OUTPUT
+
+    - uses: actions/setup-node@v5
+      if: steps.web.outputs.present == 'True'
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+
+    - name: Build the React UI
+      if: steps.web.outputs.present == 'True'
+      shell: pwsh
+      working-directory: web
+      run: |
+        npm ci
+        if ("${{ inputs.web-tests }}" -eq "true") { npm test; if ($LASTEXITCODE -ne 0) { exit 1 } }
+        npm run build
+        if (-not (Test-Path ../src/web/index.html)) { Write-Host "::error title=web::npm run build didn't write src/web/index.html"; exit 1 }
+
+    - name: Get the laughter detector (built by the "Build model files" workflow)
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force src/models | Out-Null
+        Invoke-WebRequest "https://github.com/${{ github.repository }}/releases/download/models-v1/audio_events.onnx" -OutFile src/models/audio_events.onnx -UseBasicParsing
+        $want = (Select-String -Path src/audio_events.py -Pattern 'MODEL_SHA256 = "([0-9a-f]+)"').Matches[0].Groups[1].Value
+        $got = (Get-FileHash src/models/audio_events.onnx -Algorithm SHA256).Hash.ToLower()
+        if ($got -ne $want) { Write-Host "::error title=model::audio_events.onnx hash $got, expected $want"; exit 1 }
+
+    - name: Get ffmpeg, TwitchDownloader and yt-dlp
+      if: inputs.tools == 'true'
+      shell: pwsh
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        python src/tools_setup.py --dest tools ffmpeg twitchdownloader ytdlp
+        foreach ($t in "ffmpeg.exe","ffprobe.exe","TwitchDownloaderCLI.exe","yt-dlp.exe") {
+          if (-not (Test-Path "tools\$t")) { Write-Host "::error title=FAIL tool download::$t missing"; exit 1 }
+        }
