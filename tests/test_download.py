@@ -5,7 +5,9 @@ called stalled; and stopping it killed only yt-dlp's launcher while the real dow
 
   - a download that is quiet but still writing its file is not stalled
   - a download that is quiet and writing nothing is stopped, with every process it started
-  - after 100%, the step says the video is being put together
+  - after 100%, the step says the video is being put together, and how far that has got
+  - the space check counts a Twitch VOD's size (from its bitrate) and the join's second copy
+  - background work (chat, the early sound) runs once per project, and its errors reach the caller
 
   python tests/test_download.py
 """
@@ -49,6 +51,8 @@ for k in range(1, 11):
     print(f"VCPROG {k * 100} 1000 None None None 5000000 {10 - k}", flush=True)
     time.sleep(0.05)
 if mode == "join":
+    with open(out, "wb") as f:                     # the downloaded pieces, before they're joined
+        f.write(b"x" * 100000 * int(os.environ["FAKE_JOIN_S"]))
     with open(os.path.join(folder, "vod.temp.mp4"), "wb") as f:
         for _ in range(int(os.environ["FAKE_JOIN_S"])):
             f.write(b"x" * 100000); f.flush(); time.sleep(1)
@@ -90,6 +94,8 @@ def run(mode, **env):
 r, err, took = run("join", FAKE_JOIN_S=9)
 check("quiet but still writing its file: the download finishes", r is not None and r[0].endswith("vod.mp4"), err)
 check("the step says the video is being put together", any("together" in s for s in steps), steps[-3:])
+pcts = [int(s.rsplit(" ", 1)[1].rstrip("%")) for s in steps if s.startswith("Putting the video together, ")]
+check("and how far the joining has got", pcts and all(0 < p <= 100 for p in pcts) and pcts == sorted(pcts), steps[-5:])
 
 # quiet and writing nothing: stopped after the limit, child processes included
 pidfile = os.path.join(tmp, "child.pid")
@@ -116,6 +122,51 @@ def alive(pid):
 
 
 check("and everything it started is stopped too (no download left running behind)", child and not alive(child), child)
+
+# disk space: Twitch gives no size, only the bitrate; the join keeps two copies on disk for a while
+check("a Twitch VOD's size comes from its bitrate and length",
+      abs(engine._size_of({"tbr": 7927.062, "duration": 33050}) - 32.75e9) < 0.01e9, engine._size_of({"tbr": 7927.062, "duration": 33050}))
+check("a size yt-dlp gives is used as it is", engine._size_of({"filesize": 5e9, "tbr": 1, "duration": 1}) == 5e9)
+check("no size, no bitrate: unknown", engine._size_of({}) == 0 and engine._size_of(None) == 0)
+import locations  # noqa: E402
+real_free = locations.free_space
+try:
+    locations.free_space = lambda d: 40e9
+    try:
+        engine._check_download_space(tempfile.mkdtemp(), 32.75e9)
+        stopped = False
+    except RuntimeError as e:
+        stopped = "Not enough space" in str(e)
+    check("40 GB free isn't enough for a 33 GB VOD (it needs room for the join's second copy)", stopped)
+    locations.free_space = lambda d: 80e9
+    engine._check_download_space(tempfile.mkdtemp(), 32.75e9)
+    check("80 GB free is", True)
+finally:
+    locations.free_space = real_free
+
+# the join's progress, from the file being written against what goes in
+jd = tempfile.mkdtemp(prefix="vc_join_")
+check("not joining: no join progress", engine._join_progress(jd) is None)
+open(os.path.join(jd, "vod.mp4"), "wb").write(b"x" * 1000)
+open(os.path.join(jd, "vod.temp.mp4"), "wb").write(b"x" * 250)
+check("a quarter written: 25%", abs((engine._join_progress(jd) or 0) - 0.25) < 1e-9, engine._join_progress(jd))
+
+# background work: one per key at a time, so a resumed download picks up its chat download still running
+gate = __import__("threading").Event()
+a = engine._Soon.start(("chat", "x"), lambda s: gate.wait(5) and "first")
+b = engine._Soon.start(("chat", "x"), lambda s: "second")
+check("started again while running: the same work, not a second copy", a is b)
+gate.set()
+check("its result", a.wait() == "first")
+c = engine._Soon.start(("chat", "x"), lambda s: "again")
+check("once it's finished, starting it again runs it again", c is not a and c.wait() == "again")
+d = engine._Soon.start(("x", "y"), lambda s: 1 / 0)
+try:
+    d.wait()
+    raised = False
+except ZeroDivisionError:
+    raised = True
+check("an error in the background reaches whoever waits for it", raised and d.mark.is_set())
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

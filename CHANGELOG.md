@@ -5,6 +5,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.27.0] - 2026-10-29
+
+Twitch VODs are ready sooner: on a 9-hour, 32 GB VOD, pasting the link to seeing clips went from about 21 minutes to under 14, with the same clips. About 5½ minutes of that doesn't depend on how fast Twitch sends the video.
+
+### Changed
+- Chat replay downloads alongside the video instead of after it (a minute sooner on that VOD).
+- Clip Radar listens to a Twitch VOD's sound while the video downloads. It fetches Twitch's sound-only copy (about 1 GB, a minute), listens to it, and deletes it, so Find clips no longer waits 2½ minutes after the download. The result is the same as listening to the video: identical loudness, laughter and timing.
+- Putting a downloaded VOD together is about a third quicker and writes half as much to the drive: it no longer rewrites the whole file a second time to put the video's index first, which only matters for streaming it over the internet (355 s and 65 GB written before, 215 s and 31 GB now).
+- While it's being put together, the step shows how far it has got ("Putting the video together, 58%") and the bar keeps moving, instead of sitting at the end for minutes.
+
+### Fixed
+- The free space check for a Twitch VOD only asked for 2 GB, because Twitch doesn't say how big a VOD is. It now works the size out from the VOD's bitrate and length, and asks for room for two copies, since putting the video together writes a new copy before deleting the old one (a 9-hour VOD needs about 65 GB free). Before, a download could run for many minutes and then fail at the end. YouTube and other videos count the second copy too.
+
+### Tests
+- `tests/test_download.py`: the join's progress, the size estimate and space check, and background downloads running once per project.
+
 ## [4.26.1] - 2026-10-29
 
 Find clips is about a quarter faster on long streams, and each render finishes about 2 seconds sooner. Measured on a 9-hour, 32 GB Twitch VOD with 67,000 chat messages: 244 s to 184 s, with the same clips, scores and titles as before.

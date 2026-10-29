@@ -663,7 +663,8 @@ def do_analyze(job, body: dict):
         s = engine.acquire(src, WORKROOT, chat_file=body.get("chat_file") or "",
                            max_height=int(body.get("max_height", 1080)),
                            cookies_browser=body.get("cookies") or "", cookie_file=cookie,
-                           log=log, progress=job_progress(job, 0.0, 0.62), step=step, check=check)
+                           log=log, progress=job_progress(job, 0.0, 0.62), step=step, check=check,
+                           early_sound=True, events=bool(body.get("events", True)))
     step("Finding the best moments")
     # a VOD you opened before keeps its own detection settings; otherwise use what was asked for
     saved = persist.load_project(os.path.join(s.workdir, "project.json"), _project_sig({"video": s.video}))
@@ -680,7 +681,7 @@ def do_analyze(job, body: dict):
                                chat_weight_pct=float(body.get("chat_weight", detect.preset(det["preset"])["chat"])),
                                log=log, progress=job_progress(job, 0.62, 0.94), check=check,
                                events=bool(body.get("events", True)), emote_set=es,
-                               weights=detect.preset(det["preset"]))
+                               weights=detect.preset(det["preset"]), sound=s.sound)
     delay = an.chat_delay
     pid = _pid_for(s.workdir)
     old = projects.get(pid)
