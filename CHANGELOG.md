@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.24.0] - 2026-10-29
+
+Home in the new UI now opens videos and live sessions in the new UI's own Review. Nothing changes unless you open the new UI (`/next/`).
+
 ### Changed
 - New UI: Home opens videos and live sessions in the new UI's Review, no longer in the current UI's. The new Review keeps the whole UI test contract (`tests/test_ui.py` passes on both UIs).
 - New UI: the Exports preview plays at the level you set for the Review preview, and its own volume control sets that level, as in the current UI. The mouse wheel over Review's volume turns it up or down.
