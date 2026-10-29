@@ -1,7 +1,7 @@
 """
 The new UI's Review against the real server, in a real browser, on a generated video: the open videos
 are listed, a video opens with its clips, the selected clip plays its stretch, a title you type is saved
-with the VOD, the Text and Layout tabs set the shared render style, a caption line can be added, fixed and undone, the clip preview matches the current UI's (with those choices) and the title can be dragged on it, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
+with the VOD, the Text and Layout tabs set the shared render style, a caption line can be added, fixed and undone, the content check box tries, makes and undoes a fix, excludes, removes and brings back a clip, the clip preview matches the current UI's (with those choices) and the title can be dragged on it, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
 Skipped and asks why, a video the window can't play switches to the preview copy, Skip in bulk asks first and Undo brings the clips back, a reload keeps what you
 did, "Edit in the current UI" opens the same clip there, and the screen fits a narrow window.
 
@@ -53,7 +53,10 @@ if not shutil.which("ffmpeg"):
     print("SKIPPED: FFmpeg isn't on PATH")
     sys.exit(0)
 
+import safety  # noqa: E402
 import server  # noqa: E402
+
+safety.save_config({"custom": ["watch"]})        # flags the suggested title "Watch till the end": a clip to check
 
 if not (server.WEB_DIR / "index.html").is_file():
     print("SKIPPED: the React UI isn't built (cd web && npm ci && npm run build)")
@@ -216,7 +219,7 @@ with sync_playwright() as pw:
     page.get_by_role("tab", name="To review").click()
 
     # Skip by key: moves to Skipped and asks why (optional)
-    cur_title = page.locator("[data-testid=rv-row][aria-current=true] .rv-row-t").inner_text()
+    cur_title = page.get_by_test_id("rv-title-input").input_value()
     cur_id = next(d["id"] for d in pr["clips"] if (d.get("title") or "Untitled") == cur_title and d.get("state", "todo") == "todo")
     page.keyboard.press("x")
     check("X skips the clip", wait_until(lambda: server_clip(cur_id).get("state") == "skipped"), server_clip(cur_id).get("state"))
@@ -289,6 +292,35 @@ with sync_playwright() as pw:
     check("Undo all edits goes back to what Whisper heard", wait_until(lambda: not server_clip(ed_id).get("wordsEdited")) if ed_id else False)
     page.get_by_role("tab", name="Clip", exact=True).click()
 
+    # content check: the Flagged tab, a fix tried and made, undone, exclude and include, remove and undo
+    page.get_by_role("tab", name="Flagged").click()
+    page.get_by_test_id("rv-row").first.click()
+    cc = page.get_by_test_id("content-check")
+    cc.wait_for(timeout=10000)
+    flagged = next(d for d in server.projects[pid]["clips"] if (d.get("safety") or {}).get("open"))
+    check("the Flagged tab lists the flagged clip, and its box says it needs review", "Needs review" in cc.inner_text(), cc.inner_text()[:200])
+    cc.get_by_role("button", name="Hide it in the title").first.click()
+    prop = page.get_by_test_id("cc-proposal")
+    prop.wait_for(timeout=10000)
+    check("a fix is shown before it's made", "New title:" in prop.inner_text() and "W****" in prop.inner_text(), prop.inner_text())
+    prop.get_by_role("button", name="Hide it in the title").click()
+    check("making it masks the title on the server", wait_until(lambda: server_clip(flagged["id"]).get("title", "").startswith("W****")),
+          server_clip(flagged["id"]).get("title"))
+    cc.get_by_role("button", name="Undo fix").click()
+    check("Undo fix brings the title back", wait_until(lambda: server_clip(flagged["id"]).get("title") == flagged["title"]),
+          server_clip(flagged["id"]).get("title"))
+    cc.get_by_role("button", name="Exclude from export").click()
+    check("Exclude from export is kept on the server", wait_until(lambda: (server_clip(flagged["id"]).get("check") or {}).get("excluded")))
+    cc.get_by_role("button", name="Include in export").click()
+    check("and Include undoes it", wait_until(lambda: not (server_clip(flagged["id"]).get("check") or {}).get("excluded")))
+    cc.get_by_role("button", name="Remove…").click()
+    page.get_by_role("alertdialog").get_by_role("button", name="Remove").click()
+    gone = wait_until(lambda: not any(d["id"] == flagged["id"] for d in server.projects[pid]["clips"]))
+    check("Remove takes the clip out of the project", gone)
+    page.get_by_test_id("toasts").get_by_role("button", name="Undo").click()
+    check("and Undo brings it back", wait_until(lambda: any(d["id"] == flagged["id"] for d in server.projects[pid]["clips"])))
+    page.get_by_role("tab", name="To review").click()
+
     # the clip preview: the same picture as the current UI's, and the title can be dragged
     page.mouse.move(5, 5)
     page.evaluate("(() => { const v = document.querySelector('[data-testid=rv-video]'); v.pause(); })()")
@@ -308,7 +340,7 @@ with sync_playwright() as pw:
     page.evaluate("localStorage.setItem('vc_opts', JSON.stringify(Object.assign(JSON.parse(localStorage.getItem('vc_opts')), {title_y: 0.05})))")
 
     # the current UI's editor opens on the same clip
-    sel = page.locator("[data-testid=rv-row][aria-current=true] .rv-row-t").inner_text()
+    sel = page.get_by_test_id("rv-title-input").input_value()
     sel_id = next(d["id"] for d in server.projects[pid]["clips"] if (d.get("title") or "Untitled") == sel and d.get("state", "todo") == "todo")
     page.get_by_role("link", name="Edit in the current UI").click()
     page.wait_for_url("**/legacy/**", timeout=15000)

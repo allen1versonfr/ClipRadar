@@ -3,6 +3,14 @@
 All notable changes to Clip Radar (called VodClipper before 4.0) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- New UI, Review: the **content check**. A Flagged tab (with a filter, and Leave all, Dismiss all, Exclude all), and on each clip its flags: try a fix before making it (mute, bleep, cut, hide in the title or post caption), dismiss, undo a fix, leave as is, review and edit the words, exclude or include, remove the clip (with Undo), and the history. Muted and bleeped words sound that way in the preview, as they'll render.
+
+### Tests
+- `web/`: 115 Vitest tests. `tests/test_web_review.py` blocks a word in a suggested title and tries, makes and undoes the fix, excludes and includes the clip, removes it and brings it back.
+
 ## [4.21.0] - 2026-10-28
 
 Review in the new UI can now trim, preview the clip as it will render, and change text, layout and captions. Nothing changes unless you open the new UI (`/next/`).

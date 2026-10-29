@@ -8,6 +8,10 @@ export interface PlayerHandle {
   toggle: () => void; seekBy: (s: number) => void; toggleMute: () => void
   /** the video element itself, for the timeline */
   video: () => HTMLVideoElement | null
+  /** whether you muted the preview (a fix being played mutes it for a moment on top of that) */
+  userMuted: () => boolean
+  /** the preview volume you chose, 0 to 1 */
+  level: () => number
 }
 
 // which videos needed the smaller copy (the window can't play HEVC or AV1): 'making', 'ready' or 'failed'
@@ -35,7 +39,9 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipK
       seekBy: s => { const el = v.current; if (el) el.currentTime = Math.max(start, Math.min(end, el.currentTime + s)) },
       toggleMute: () => setMuted(m => !m),
       video: () => v.current,
-    }), [start, end])
+      userMuted: () => muted,
+      level: () => vol,
+    }), [start, end, muted, vol])
 
     const startRef = useRef(start)
     startRef.current = start

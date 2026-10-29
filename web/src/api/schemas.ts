@@ -483,5 +483,7 @@ export const FramingSuggest = z.looseObject({
 
 /** /api/check: the content check's answer for the clips it looked at. */
 export const Rechecked = z.looseObject({
-  clips: z.array(z.looseObject({ id: z.number(), safety: Clip.shape.safety, check: Clip.shape.check })).default([]),
+  clips: z.array(z.looseObject({ id: z.number(), safety: Clip.shape.safety, check: Clip.shape.check, state: z.string().optional() })).default([]),
 })
+/** /api/clip_restore: the clip back, after Remove's Undo. */
+export const Restored = z.looseObject({ clip: Clip.optional() })

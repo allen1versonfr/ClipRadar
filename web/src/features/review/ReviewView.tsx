@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Campaigns, type Clip, ClipsUpdate, Rechecked, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
+import { Campaigns, type Clip, ClipsUpdate, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
@@ -15,6 +15,8 @@ import { Preview, type Track } from './Preview'
 import { LayoutPanel, savePresets, TextPanel } from './StylePanels'
 import { addLine, editLine, resetLines } from './captions'
 import { CaptionsPanel } from './CaptionsPanel'
+import { applied, fixSpans, flaggedList, isFlagged, previewPlan, FIX_LABEL } from './checks'
+import { ContentCheck, type Proposal } from './ContentCheck'
 import { Timeline, type TimelineHandle } from './Timeline'
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]
@@ -54,6 +56,9 @@ function Picker() {
 function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
   const [tab, setTab] = useState<'clip' | 'captions' | 'text' | 'layout'>('clip')
   const [now, setNow] = useState(0)
+  const [flagFilter, setFlagFilter] = useState('all')
+  const [proposal, setProposal] = useState<Proposal | null>(null)
+  const trying = useRef<{ to: number; started: boolean } | null>(null)
   const toast = useToast()
   const confirm = useConfirm()
   const [meta, setMeta] = useState<Project>()
@@ -178,14 +183,16 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     const t = setInterval(() => setNow(getVideo()?.currentTime ?? 0), 250)
     return () => clearInterval(t)
   }, [tab, getVideo])
-  const list = useMemo(() => visible(clips, filter), [clips, filter])
+  const list = useMemo(() => (filter === 'flagged' ? flaggedList(clips, flagFilter, safety?.enabled !== false) : visible(clips, filter)),
+    [clips, filter, flagFilter, safety?.enabled])
   const c = clips.find(x => keyOf(x) === cur)
   const q = c && queueFor(c, items)
   const counts = useMemo(() => {
     const hype = clips.filter(x => !isGem(x))
     return { todo: hype.filter(x => x.state === 'todo').length, skipped: hype.filter(x => x.state === 'skipped').length,
-      all: hype.length, gems: clips.length - hype.length }
-  }, [clips])
+      all: hype.length, gems: clips.length - hype.length, flagged: clips.filter(isFlagged).length,
+      flaggedOpen: clips.filter(x => checkStatus(x, safety?.enabled !== false) === 'needs_review').length }
+  }, [clips, safety?.enabled])
 
   function select(x: Clip | undefined) { setCur(x && keyOf(x)) }
   function step(dir: 1 | -1) {
@@ -380,6 +387,106 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     } }])
   }
 
+  // ---- the content check box: actions on one clip, fixes tried before they're made, Remove
+  async function checkAct(x: Clip, action: string, args: Record<string, unknown> = {}) {
+    try {
+      const r = await api(Rechecked, '/api/check', { ...snapshot(x), action, args })
+      const v = r.clips[0]
+      if (v) update(keyOf(x), y => ({ ...y, ...applied(y, v) }), 'no')
+      if (action === 'fix') toast(`${FIX_LABEL[String(args.kind)] ?? 'Fix'}: done. Undo is next to the flag.`)
+      if (action === 'exclude') { epoch.current++; void queue.refresh() }
+    } catch (e) { toast(err(e), 'err') }
+  }
+  async function flagBatch(action: string, args: Record<string, unknown>, verb: string, what: string) {
+    const pick = action === 'exclude' ? list.filter(x => !x.check?.excluded) : list.filter(x => x.state !== 'kept' && (x.safety?.open ?? 0) > 0)
+    if (!pick.length) return toast('Nothing in this list needs that.')
+    if (!await confirm({ title: `${verb} for ${plural(pick.length, 'clip')}?`, ok: verb, body: what })) return
+    try {
+      const r = await api(Rechecked, '/api/check', { pid, ids: pick.map(x => x.id), action, args })
+      const by = new Map(r.clips.map(v => [v.id, v]))
+      setClips(cs => cs.map(x => { const v = by.get(x.id); return v ? { ...x, safety: v.safety ?? x.safety, check: v.check ?? x.check,
+        ...(typeof v.state === 'string' ? { state: v.state as Clip['state'] } : {}) } : x }))
+      if (action === 'exclude') { epoch.current++; void queue.refresh() }
+      toast(`Done for ${plural(pick.length, 'clip')}.`)
+    } catch (e) { toast(err(e), 'err') }
+  }
+  function stopTrying() {
+    trying.current = null
+    setProposal(p => (p ? { ...p, playing: false } : p))
+    getVideo()?.pause()
+  }
+  async function propose(x: Clip, fp: string, kind: string) {
+    stopTrying()
+    try {
+      const r = await api(Rechecked, '/api/check', { ...snapshot(x), action: 'fix', args: { fp, kind, preview: true } })
+      const fix = (r as { fix?: { span?: [number, number] } }).fix
+      setProposal({ fp, kind, view: (r.clips[0] ?? {}) as Record<string, unknown>, span: fix?.span, playing: false })
+    } catch (e) { toast(err(e), 'err') }
+  }
+  function tryFix(x: Clip) {
+    const p = proposal, vid = getVideo()
+    if (!p || !vid) return
+    if (p.playing) { stopTrying(); return }
+    const plan = previewPlan(x, p.kind, p.view, p.span)
+    trying.current = { to: plan.to, started: false }
+    setProposal({ ...p, playing: true })
+    vid.currentTime = plan.from
+    void vid.play().catch(() => {})
+  }
+  async function removeClip(x: Clip) {
+    if (!await confirm({ title: `Remove clip #${x.id} from this project?`, ok: 'Remove', danger: true,
+      body: 'It leaves the clip list for good, even when you change the sliders. Your stream recording and any file already rendered stay where they are. You can undo this right away.' })) return
+    try { await api(Ok, '/api/clip_remove', { pid: x.pid, id: x.id }) } catch (e) { toast(err(e), 'err'); return }
+    stopTrying()
+    const i = clipsRef.current.findIndex(y => keyOf(y) === keyOf(x))
+    const rest = clipsRef.current.filter(y => keyOf(y) !== keyOf(x))
+    setClips(rest)
+    const nx = rest[i] ?? rest[i - 1]
+    setCur(nx && keyOf(nx))
+    epoch.current++; void queue.refresh()
+    toast(`Clip #${x.id} removed.`, '', [{ label: 'Undo', fn: async () => {
+      try {
+        const r = await api(Restored, '/api/clip_restore', { pid: x.pid, id: x.id })
+        if (r.clip) setClips(cs => (cs.some(y => keyOf(y) === keyOf(x)) ? cs : [...cs.slice(0, Math.max(0, i)), prep(r.clip!), ...cs.slice(Math.max(0, i))]))
+        setCur(keyOf(x))
+      } catch (e) { toast(err(e), 'err') }
+    } }])
+  }
+  // what's heard while playing: muted or bleeped where a fix is (or one being tried), as it will render
+  useEffect(() => {
+    let raf = 0, actx: AudioContext | null = null, osc: OscillatorNode | null = null
+    const beep = (on: boolean) => {
+      if (on && !osc) {
+        try {
+          actx ??= new AudioContext()
+          osc = actx.createOscillator(); const g = actx.createGain()
+          g.gain.value = 0.06 * (player.current?.level() ?? 1); osc.frequency.value = 1000; osc.connect(g).connect(actx.destination); osc.start()
+        } catch { osc = null }
+      } else if (!on && osc) { try { osc.stop() } catch { /* already stopped */ } osc = null }
+    }
+    const tick = () => {
+      raf = requestAnimationFrame(tick)
+      const vid = getVideo(), x = clipsRef.current.find(y => keyOf(y) === cur), userMuted = player.current?.userMuted() ?? false
+      if (!vid || !x) return
+      const tr = trying.current
+      if (tr) {                                        // a fix being tried plays its stretch, then stops
+        if (!vid.paused) tr.started = true
+        if (vid.currentTime >= tr.to || (vid.paused && tr.started)) stopTrying()
+      }
+      if (vid.paused) { beep(false); if (vid.muted !== userMuted) vid.muted = userMuted; return }
+      const p = tr && proposalRef.current
+      const hit = fixSpans(x, p ? { span: p.span, kind: p.kind } : null).find(([a, b]) => vid.currentTime >= a && vid.currentTime <= b)
+      const m = userMuted || !!hit
+      if (vid.muted !== m) vid.muted = m
+      beep(!!hit && hit[2] === 'bleep' && !userMuted)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => { cancelAnimationFrame(raf); beep(false); void actx?.close() }
+  }, [cur, getVideo])
+  const proposalRef = useRef(proposal)
+  proposalRef.current = proposal
+  useEffect(() => { stopTrying(); setProposal(null) }, [cur])        // another clip: nothing being tried
+
   useEffect(() => {                                  // the original page's Review keys
     function onKey(e: KeyboardEvent) {
       if (document.querySelector('[role=alertdialog]')) return
@@ -417,6 +524,11 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
   )
   if (!meta) return <section className="rv-pick"><h1>Review</h1><p className="muted">Opening…</p></section>
 
+  // a fix being tried shows in the preview: the title as it would be, the words masked where they would be
+  const shown = c && proposal?.playing ? {
+    ...c, ...(proposal.kind === 'mask_title' ? { title: String(proposal.view.title ?? c.title) } : {}),
+    ...(proposal.span ? { check: { excluded: false, ...c.check, fixes: [...(c.check?.fixes ?? []), { span: proposal.span, kind: proposal.kind }] } } : {}),
+  } : c
   const st = c && checkStatus(c, safety?.enabled !== false)
   const kept = c?.state === 'kept'
   const keepLabel = !c ? '' : kept ? (q?.status === 'error' ? 'Retry render' : q?.status === 'done' ? 'Rendered' : 'In render queue') : 'Keep and render'
@@ -437,7 +549,8 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
         <aside className="rv-list" aria-label="Clips">
           <div className="seg" role="tablist" aria-label="Which clips">
             {([['todo', 'To review', counts.todo], ['skipped', 'Skipped', counts.skipped], ['all', 'All', counts.all],
-              ...(counts.gems ? [['gems', 'Gems', counts.gems]] : [])] as Array<[Filter, string, number]>).map(([f, l, n]) => (
+              ...(counts.gems ? [['gems', 'Gems', counts.gems]] : []),
+              ...(counts.flagged || filter === 'flagged' ? [['flagged', 'Flagged', counts.flaggedOpen]] : [])] as Array<[Filter, string, number]>).map(([f, l, n]) => (
               <button key={f} role="tab" aria-selected={filter === f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
                 {l} <span className="tnum muted">{n}</span>
               </button>
@@ -457,6 +570,17 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
                 </select>
               </label>
               <button className="btn sm ghost" onClick={() => void batchSkip()} data-testid="rv-batch-skip">Skip</button>
+            </div>
+          )}
+          {filter === 'flagged' && (
+            <div className="rv-batch" data-testid="rv-flagbar">
+              <select className="input" aria-label="Show flagged clips by status" value={flagFilter} onChange={e => setFlagFilter(e.target.value)}>
+                <option value="all">All flagged</option><option value="needs_review">Needs review</option><option value="reviewed">Reviewed</option>
+                <option value="corrected">Corrected</option><option value="dismissed">Dismissed</option><option value="excluded">Excluded from export</option>
+              </select>
+              <button className="btn sm" title="Leave every listed clip as it is" onClick={() => void flagBatch('leave', {}, 'Leave as is', 'The clips stay exactly as they are and their open flags are marked as reviewed. You can undo it on each clip.')}>Leave all</button>
+              <button className="btn sm" title="Dismiss the open flags on every listed clip" onClick={() => void flagBatch('dismiss', {}, 'Dismiss flags', "Their open flags are dismissed (they come back if the words change or the rules do). Dismissing doesn't make a clip safe.")}>Dismiss all</button>
+              <button className="btn sm" title="Keep every listed clip out of rendering" onClick={() => void flagBatch('exclude', { on: true }, 'Exclude from export', "They stay in the project but won't render until you include them again. Unfinished renders of them are taken out of the queue.")}>Exclude all</button>
             </div>
           )}
           {list.length ? (
@@ -485,7 +609,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
             </ul>
           ) : (
             <p className="muted small rv-empty">{!clips.length ? 'Nothing stood out in this video.' : filter === 'todo' ? 'Nothing left to review.'
-              : filter === 'skipped' ? 'No skipped clips.' : 'No clips here.'}</p>
+              : filter === 'skipped' ? 'No skipped clips.' : filter === 'flagged' ? (flagFilter === 'all' ? 'Nothing flagged.' : 'No flagged clips with this status.') : 'No clips here.'}</p>
           )}
         </aside>
 
@@ -493,7 +617,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
           {c ? (
             <>
               <Player ref={player} src={c.vod || meta.vod} pid={pid} clipKey={keyOf(c)} start={c.start} end={c.end}>
-                <Preview clip={c} video={getVideo} thumb={c.thumb} opts={opts} marks={marks} safety={safety} replace={replace}
+                <Preview clip={shown ?? c} video={getVideo} thumb={c.thumb} opts={opts} marks={marks} safety={safety} replace={replace}
                          track={tracks[trackKey(c, opts)] ?? null} guides={guides}
                          onOpts={(patch, persist) => setOpts(patch, persist)}
                          onMark={(i, patch, persist) => {
@@ -588,6 +712,19 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
                                                 framePresets={exp.data?.prefs.frame_presets ?? []} trackNote={trackNote(tracks[trackKey(c, opts)])}
                                                 onSavePresets={async l => { await savePresets('frame_presets')(l).catch(e => toast(err(e), 'err')); await exp.refresh() }} />}
               <div className="rv-details" data-testid="rv-details" hidden={tab !== 'clip'}>
+                <ContentCheck clip={c} safety={safety} flaggedTab={filter === 'flagged'} proposal={proposal}
+                              onAct={(a, args) => void checkAct(c, a, args)} onPropose={(fp, k) => void propose(c, fp, k)}
+                              onPreview={() => tryFix(c)} onCancel={() => { stopTrying(); setProposal(null) }}
+                              onApply={() => { const p = proposal; stopTrying(); setProposal(null); if (p) void checkAct(c, 'fix', { fp: p.fp, kind: p.kind }) }}
+                              onSeek={t => { const vid = getVideo(); stopTrying(); if (vid) { vid.currentTime = clamp(t, c.start, c.end - 0.1); void vid.play().catch(() => {}) } }}
+                              onEdit={() => {
+                                const f = (c.safety?.flags ?? []).find(x => (x as { source?: string }).source === 'speech' && x.status === 'open') as { start?: number } | undefined
+                                setTab('captions')
+                                const vid = getVideo()
+                                if (vid && f) { vid.pause(); vid.currentTime = clamp(c.start + (f.start ?? 0), c.start, c.end - 0.05) }
+                                toast("Fix the words here, or trim the clip. Your video isn't changed, and Undo all edits brings the captions back.")
+                              }}
+                              onRemove={() => void removeClip(c)} />
 
 
                 {c.reason && <p className="muted small">{c.reason}</p>}

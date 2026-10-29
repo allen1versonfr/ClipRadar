@@ -4,7 +4,7 @@ import type { RenderOpts } from '../../prefs'
 // Review's rules, as in the original page (src/ui/app.js: visible, checkStatus, checkGate, postFor,
 // queueKeep, clipSnapshot), kept apart from the screen so they're tested on their own.
 
-export type Filter = 'todo' | 'skipped' | 'all' | 'gems'
+export type Filter = 'todo' | 'skipped' | 'all' | 'gems' | 'flagged'
 /** A clip as the server sent it, ready for the screen (prepClip): caption fixes you made replace the words heard. */
 export function prep(c: Clip): Clip {
   return c.wordsEdited && c.words_edit ? { ...c, wordsOrig: c.words, words: c.words_edit, words_edit: undefined } : c
