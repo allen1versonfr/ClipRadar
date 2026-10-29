@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.26.1] - 2026-10-29
+
+Find clips is about a quarter faster on long streams, and each render finishes about 2 seconds sooner. Measured on a 9-hour, 32 GB Twitch VOD with 67,000 chat messages: 244 s to 184 s, with the same clips, scores and titles as before.
+
+### Changed
+- Listening for loud moments and laughter: FFmpeg reads the next stretch of sound while the laughter detector works on the last one, instead of waiting for it (186 s to 145 s on that VOD).
+- Clip thumbnails are made four at a time (24 s to 11 s for 60 clips).
+- Titles from chat look only at the chat around each clip, not the whole stream's chat for every clip (18 s saved for 60 clips, and again each time titles are rewritten).
+- The check for clips that are too dark or blurry to watch runs while the clip renders instead of after it.
+
+### Tests
+- `tests/test_chattitles.py`: the chat found near a clip is the same as filtering the whole chat.
+- `scripts/bench_startup.py` reports its numbers and memory use on Windows (it printed nothing, then 0 MB).
+
 ## [4.26.0] - 2026-10-29
 
 Review keeps your place when you go to another screen, its clip panel is back on the right, Exports puts the TikTok buttons first, and Settings is grouped with a menu and a search.

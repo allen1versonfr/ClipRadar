@@ -107,5 +107,21 @@ d3 = {"start": 95.0, "end": 115.0, "peak": 100.0}
 server._title_clip(broken, d3, [], set())
 check("odd chat data still gives a normal title", bool(d3["title"]) and not d3["title"].startswith("Chat:"), d3.get("title"))
 
+# titles look only at the stretch of chat around the clip (it used to filter all of a stream's chat for every
+# clip); the messages found must be exactly the ones the whole-chat filter finds
+import random  # noqa: E402
+import chatsignal  # noqa: E402
+rnd = random.Random(5)
+long_chat = sorted(((rnd.uniform(0, 3600), rnd.choice(["lol", "!uptime", "KEKW no way", "gg"]),
+                     rnd.choice(["a", "b", "nightbot", "c"]), rnd.choice(["", "", "sub"])) for _ in range(4000)),
+                   key=lambda m: m[0])
+lp = dict(pr, chat=long_chat, chat_delay=4.0)
+same = True
+for start in (0.0, 5.0, 1234.5, 3590.0):
+    lo, hi = start + 4.0 - 2, start + 20 + 4.0 + 8
+    want = [m[1] for m in chatsignal.human(long_chat) if lo <= m[0] <= hi]
+    same = same and server._chat_window(lp, start, start + 20) == want
+check("the chat near a clip is the same as filtering the whole chat", same)
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

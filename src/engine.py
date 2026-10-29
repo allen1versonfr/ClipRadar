@@ -15,6 +15,7 @@ import bisect
 import json
 import math
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -1182,9 +1183,26 @@ def measure_audio(video: str, duration: float, events: bool = False, progress: P
     scanner = audio_events.Scanner() if use_ev else None
     got = 0
     ev_failed = False
+    # FFmpeg decodes the next stretch while this thread listens to the last one. Read straight from the
+    # pipe, FFmpeg sat idle whenever the laughter model ran (measured on a 9-hour VOD: 42 s of decoding
+    # plus about 140 s of listening, one after the other). A few chunks ahead keeps memory small.
+    chunks: queue.Queue = queue.Queue(maxsize=4)
+
+    def read_ahead():
+        try:
+            while True:
+                c = p.stdout.read(sr * bps * 30)
+                chunks.put(c)
+                if not c:
+                    return
+        except (OSError, ValueError):
+            chunks.put(b"")
+
+    reader = threading.Thread(target=read_ahead, daemon=True)
+    reader.start()
     try:
         while True:
-            chunk = p.stdout.read(sr * bps * 30)
+            chunk = chunks.get()
             if not chunk:
                 break
             check()
@@ -1218,6 +1236,11 @@ def measure_audio(video: str, duration: float, events: bool = False, progress: P
         if p.poll() is None:
             p.kill()
         p.wait()
+        while reader.is_alive():               # cancelled with the queue full: let the reader finish
+            try:
+                chunks.get(timeout=0.5)
+            except queue.Empty:
+                pass
     pw = np.concatenate(pows) if pows else np.zeros(0, dtype=np.float32)
     fine = np.full(n * FINE_HZ, -100.0, dtype=np.float32)
     k = min(fine.size, pw.size)
