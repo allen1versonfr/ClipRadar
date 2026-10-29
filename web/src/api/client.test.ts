@@ -23,6 +23,13 @@ describe('api()', () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
     await expect(api(Queue, '/api/queue')).rejects.toThrow(LOST_CONNECTION)
   })
+  it('an answer cut off on the way (the page moved on) is a lost request, not a wrong answer', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"a": 1, "wave": [1, 2', { status: 200 })))
+    await expect(api(Queue, '/api/queue')).rejects.toThrow(LOST_CONNECTION)
+    expect(err).not.toHaveBeenCalled()
+    err.mockRestore()
+  })
   it('refuses an answer of the wrong shape instead of drawing nonsense', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal('fetch', answer(200, { items: [{ id: 'x', status: 'exploded' }], eta: null }))

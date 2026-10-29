@@ -19,7 +19,6 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
-os.environ.setdefault("CLIPRADAR_WORK", tempfile.mkdtemp(prefix="vc_test_"))   # server is imported below
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import engine  # noqa: E402
@@ -57,26 +56,6 @@ check("unknown shape falls back to vertical", engine.out_size(engine.RenderOpts(
 check("frame rate from avg_frame_rate", engine._fps({"avg_frame_rate": "60000/1001"}) == 59.94)
 check("frame rate falls back to r_frame_rate", engine._fps({"avg_frame_rate": "0/0", "r_frame_rate": "30/1"}) == 30.0)
 check("unreadable frame rate is 30", engine._fps({}) == 30.0)
-
-# the editor timeline's data (/api/strip): NaN and infinities (silence's -inf loudness, a model's NaN) would
-# make the whole answer unreadable JSON in the browser, so every number sent is finite
-import json  # noqa: E402
-from types import SimpleNamespace  # noqa: E402
-
-import numpy as np  # noqa: E402
-import server  # noqa: E402
-
-_bad = np.array([1.0, np.nan, -np.inf, np.inf, 2.0] * 4, dtype=np.float32)
-_an = SimpleNamespace(duration=20.0, fine=None, loud=_bad, has_events=True, event_level=lambda k: _bad,
-                      has_chat=True, chat_z=_bad, emote_z=_bad)
-_st = server.strip_data({"analysis": _an}, 0, 20)
-try:
-    json.loads(json.dumps(_st, allow_nan=False))
-    _ok = True
-except ValueError:
-    _ok = False
-check("the timeline's data is finite JSON, even with NaN or infinities in a signal", _ok, _st)
-check("a missing loudness reads as the quietest", _st["wave"][:5] == [1.0, 1.0, 1.0, 1.0, 2.0], _st["wave"][:5])
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

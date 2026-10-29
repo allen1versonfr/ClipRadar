@@ -26,7 +26,11 @@ async function call(path: string, body?: unknown): Promise<unknown> {
   } catch {
     throw new ApiError(LOST_CONNECTION, 0)
   }
-  const j: unknown = await r.json().catch(() => ({}))
+  let j: unknown = {}
+  try { j = await r.json() } catch {
+    // an answer cut off (the page moved on, the connection dropped) is a lost request, not a wrong answer
+    if (r.ok) throw new ApiError(LOST_CONNECTION, 0)
+  }
   if (!r.ok) {
     const msg = typeof j === 'object' && j !== null && 'error' in j && typeof j.error === 'string' ? j.error : ''
     throw new ApiError(msg || `Request failed (${r.status})`, r.status)

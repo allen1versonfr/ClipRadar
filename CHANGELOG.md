@@ -10,10 +10,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - New UI: the Exports preview plays at the level you set for the Review preview, and its own volume control sets that level, as in the current UI. The mouse wheel over Review's volume turns it up or down.
 
 ### Fixed
-- New UI, Review: the editing timeline could stay empty for some videos. Its data (`/api/strip`) could carry NaN or infinite numbers (silence's loudness, a detector's output), which the browser can't read as JSON; they're now sent as the quietest finite value. The new UI's log also names what didn't match when an answer is unreadable.
+- New UI: leaving Review while it was still loading (the editing timeline's data, for example) logged "Clip Radar sent an answer this screen doesn't understand". An answer cut off on the way is now treated as a lost request, and an answer that really doesn't match says which fields in the log.
 
 ### Tests
-- `tests/test_ui.py` checks the preview volume through `data-testid`s and `ClipRadarTest.volume()`, so the same checks run on both UIs. `test_editing.py` checks the timeline's data stays finite JSON with NaN and infinities in every signal.
+- `tests/test_ui.py` checks the preview volume through `data-testid`s and `ClipRadarTest.volume()`, so the same checks run on both UIs. `web/`: 128 Vitest tests, including an answer cut off on the way.
 
 ## [4.23.0] - 2026-10-29
 
