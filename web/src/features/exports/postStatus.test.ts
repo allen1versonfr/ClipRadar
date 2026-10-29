@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { QueueItem } from '../../api/schemas'
-import { discordStatus, handoffCell, handoffStatus, submission } from './posting'
+import { discordStatus, handoffCell, handoffStatus, submission } from './postStatus'
 
 const item = (extra: Record<string, unknown>) => QueueItem.parse({ id: 'q1', status: 'done', title: 'Big play', name: 'Big play.mp4', ...extra })
 

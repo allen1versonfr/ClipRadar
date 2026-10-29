@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { api } from '../../api/client'
 import { Campaigns, Ok, Queue, type QueueItem } from '../../api/schemas'
-import { handoffCell } from './posting'
+import { handoffCell } from './postStatus'
 import { SubmitPanel, TikTokPanel, useCopy } from './Posting'
 import { usePoll } from '../../hooks/usePoll'
 import { useNow } from '../../hooks/useNow'

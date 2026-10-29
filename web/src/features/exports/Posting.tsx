@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { type Campaigns, DiscordSent, Job, JobStarted, Ok, type QueueItem, Studio } from '../../api/schemas'
 import { useToast } from '../../components/Toasts'
-import { discordStatus, handoffStatus, submission } from './posting'
+import { discordStatus, handoffStatus, submission } from './postStatus'
 
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
