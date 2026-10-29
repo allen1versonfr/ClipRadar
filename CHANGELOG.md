@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.26.0] - 2026-10-29
+
+Settings is grouped, with a menu that follows you and a search, and a new TikTok section.
+
 ### Changed
 - **Settings is easier to find your way around.** Its sections are in four groups (Clips, Posting, Finding clips, App), with a menu beside them that follows where you are and jumps to any section, and a search that finds a section by its name, the words people use for it ("logo", "turbo", "webhook") or what it says. On a narrow window the menu sits above the sections. `#settings/<section>` opens Settings at that section.
 
