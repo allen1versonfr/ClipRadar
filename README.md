@@ -6,7 +6,7 @@
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-keep%20a%20changelog-1f2329?style=flat-square"></a>
+  <a href="CHANGELOG.md"><img alt="Release notes" src="https://img.shields.io/badge/release-notes-1f2329?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -23,10 +23,6 @@
 ---
 
 Clip Radar watches a Twitch stream the way your chat does. It finds the moments where chat explodes and the audio spikes, cuts them into vertical 9:16 clips with captions and a title, and lets you review and post them to TikTok. It works on a past broadcast, or live while you're still streaming. Everything runs on your own PC.
-
-<p align="center">
-  <img src="docs/images/review.png" alt="Reviewing suggested clips in a 9:16 phone preview" width="100%">
-</p>
 
 ## Latest Windows release: 4.26
 
@@ -83,6 +79,8 @@ The redesigned Windows interface became the default in v4.25. The latest update 
 
 <details>
 <summary><strong>View previous-interface screenshots</strong></summary>
+
+<p><img src="docs/images/review.png" alt="Archived Review screen from the previous interface" width="100%"></p>
 
 <table>
   <tr>
