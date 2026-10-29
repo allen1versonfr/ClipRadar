@@ -1827,6 +1827,17 @@ def _compare_settings(pr: dict, det: dict, cw: float, count: int, length: float)
             "top": [{"start": c.start, "end": c.end, "quality": c.quality, "reason": c.reason} for c in clips[:5]]}
 
 
+def _finite(xs, nd: int) -> list:
+    """Numbers JSON can carry: NaN and infinities (silence's -inf loudness, a model's NaN) would make the
+    whole answer unreadable in the browser, so they become the lowest finite value (or 0)."""
+    v = np.asarray(xs, dtype=np.float64)
+    ok = np.isfinite(v)
+    if not ok.all():
+        lo = float(v[ok].min()) if ok.any() else 0.0
+        v = np.where(ok, v, lo)
+    return [round(float(x), nd) for x in v]
+
+
 def strip_data(pr: dict, a: float, b: float) -> dict:
     an = pr["analysis"]
     dur = an.duration
@@ -1837,18 +1848,18 @@ def strip_data(pr: dict, a: float, b: float) -> dict:
     hz = engine.FINE_HZ
     out = {"a": a, "b": b, "hz": hz, "wave": [], "events": {}, "chat": []}
     if an.fine is not None:
-        out["wave"] = [round(float(x), 1) for x in an.fine[int(a * hz):int(b * hz)]]
+        out["wave"] = _finite(an.fine[int(a * hz):int(b * hz)], 1)
     elif an.loud is not None:
         out["hz"] = 1
-        out["wave"] = [round(float(x), 1) for x in an.loud[i0:i1]]
+        out["wave"] = _finite(an.loud[i0:i1], 1)
     out["start"] = i0
     if an.has_events:
         for k in ("laugh", "scream", "cheer"):
-            out["events"][k] = [round(float(x), 2) for x in an.event_level(k)[i0:i1]]
+            out["events"][k] = _finite(an.event_level(k)[i0:i1], 2)
     if an.has_chat:
-        out["chat"] = [round(float(x), 2) for x in an.chat_z[i0:i1]]
-    if getattr(an, "emote_z", None) is not None and float(an.emote_z.max() if len(an.emote_z) else 0) > 0:
-        out["emotes"] = [round(float(x), 2) for x in an.emote_z[i0:i1]]
+        out["chat"] = _finite(an.chat_z[i0:i1], 2)
+    if getattr(an, "emote_z", None) is not None and float(np.nanmax(an.emote_z) if len(an.emote_z) else 0) > 0:
+        out["emotes"] = _finite(an.emote_z[i0:i1], 2)
     return out
 
 

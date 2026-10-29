@@ -3388,6 +3388,10 @@ window.ClipRadarTest = {
   reloadExport: () => loadExport(),
   hitBox: name => hit[name] || null,          // where a draggable layer was drawn, in preview canvas pixels
   previewWidth: () => phone.width,            // the preview canvas's own width (hitBox units)
+  volume: () => {                             // the preview's sound, the speaker's level, and the Exports preview's
+    const icon = $('#muteIcon').getAttribute('href');
+    return { vol: vod.volume, muted: vod.muted, level: icon === '#i-mute' ? 'off' : icon === '#i-vol-low' ? 'low' : 'high', ex: $('#exVideo').volume };
+  },
 };
 /* =============================================================== editor (3.4): timeline, trims, undo/redo */
 const MIN_LEN = 1;                       // shortest clip, seconds

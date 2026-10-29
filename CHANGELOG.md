@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- New UI: Home opens videos and live sessions in the new UI's Review, no longer in the current UI's. The new Review keeps the whole UI test contract (`tests/test_ui.py` passes on both UIs).
+- New UI: the Exports preview plays at the level you set for the Review preview, and its own volume control sets that level, as in the current UI. The mouse wheel over Review's volume turns it up or down.
+
+### Fixed
+- New UI, Review: the editing timeline could stay empty for some videos. Its data (`/api/strip`) could carry NaN or infinite numbers (silence's loudness, a detector's output), which the browser can't read as JSON; they're now sent as the quietest finite value. The new UI's log also names what didn't match when an answer is unreadable.
+
+### Tests
+- `tests/test_ui.py` checks the preview volume through `data-testid`s and `ClipRadarTest.volume()`, so the same checks run on both UIs. `test_editing.py` checks the timeline's data stays finite JSON with NaN and infinities in every signal.
+
 ## [4.23.0] - 2026-10-29
 
 Every part of Review is now in the new UI: Exact preview and live sessions join it. Nothing changes unless you open the new UI (`/next/`).

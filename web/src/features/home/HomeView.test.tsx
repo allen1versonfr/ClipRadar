@@ -72,7 +72,7 @@ describe('Home', () => {
     fireEvent.change(screen.getByTestId('source-input'), { target: { value: 'D:\\Videos\\stream.mp4' } })
     fireEvent.click(screen.getByTestId('find-clips'))
     await waitFor(() => expect(screen.getByTestId('vod-job').textContent).toMatch(/Downloading.*40%/))
-    await waitFor(() => expect(handoff.go).toHaveBeenCalledWith('/legacy/#open=p42'), { timeout: 3000 })
+    await waitFor(() => expect(handoff.go).toHaveBeenCalledWith('#review/p42'), { timeout: 3000 })
   })
 
   it("says why when the video can't be opened", async () => {
@@ -109,7 +109,7 @@ describe('Home', () => {
     fireEvent.click(within(rows[0]!).getByRole('button', { name: 'Pause' }))
     await waitFor(() => expect(calls).toContainEqual(['/api/sources/pause', { job: 'j9' }]))
     fireEvent.click(within(rows[1]!).getByRole('button', { name: 'Open' }))
-    expect(handoff.go).toHaveBeenCalledWith('/legacy/#open=p8')
+    expect(handoff.go).toHaveBeenCalledWith('#review/p8')
     fireEvent.click(within(rows[2]!).getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(calls).toContainEqual(['/api/live/s1/stop', {}]))
   })

@@ -208,9 +208,9 @@
               <button class="ibtn" id="nextBtn" title="Next clip (Down arrow)"><svg class="ic"><use href="#i-down"/></svg></button>
               <div class="scrub" id="scrub"><i id="scrubFill"></i></div>
               <span class="tnum time" id="timeText">0:00 / 0:00</span>
-              <div class="vol" id="volBox">
-                <button class="ibtn" id="muteBtn" title="Mute (M)" aria-label="Mute"><svg class="ic"><use id="muteIcon" href="#i-vol"/></svg></button>
-                <input type="range" id="volSlider" min="0" max="100" step="1" value="100" aria-label="Preview volume" title="Preview volume (only the preview: clips render at their own level)">
+              <div class="vol" id="volBox" data-testid="vol-box">
+                <button class="ibtn" id="muteBtn" data-testid="mute-btn" title="Mute (M)" aria-label="Mute"><svg class="ic"><use id="muteIcon" href="#i-vol"/></svg></button>
+                <input type="range" id="volSlider" data-testid="vol-slider" min="0" max="100" step="1" value="100" aria-label="Preview volume" title="Preview volume (only the preview: clips render at their own level)">
               </div>
             </div>
             <div class="editor" id="editor" hidden>

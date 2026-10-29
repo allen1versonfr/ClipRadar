@@ -6,6 +6,15 @@ import { useNow } from '../../hooks/useNow'
 import { useToast } from '../../components/Toasts'
 import { attemptLine, statusText, summary } from './renderStatus'
 import { fmtTime } from './renderStatus'
+import { getPref, setPref } from '../../prefs'
+
+/** The Exports preview plays at the level you set for the Review preview (vc_volume, vc_muted), and its own
+ *  controls set that same level, as in the original page. */
+function atPreviewLevel(v: HTMLVideoElement | null) {
+  if (!v) return
+  v.volume = Math.min(1, Math.max(0, Number(getPref('volume', 1)) || 0))
+  v.muted = !!getPref('muted', false)
+}
 
 const loadQueue = () => api(Queue, '/api/queue')
 
@@ -128,7 +137,8 @@ function Detail({ q, onRetry, onShow }: { q: QueueItem; onRetry: () => void; onS
     <aside className="ex-detail" data-testid="export-detail" aria-label="Selected clip">
       <div className="phone">
         {q.status === 'done' && q.url
-          ? <video key={q.url} src={q.url} controls preload="metadata" />
+          ? <video key={q.url} src={q.url} controls preload="metadata" data-testid="ex-video" ref={atPreviewLevel}
+                   onVolumeChange={e => { setPref('volume', e.currentTarget.volume); setPref('muted', e.currentTarget.muted) }} />
           : <div className="phone-empty">{q.status === 'error' ? 'Not rendered' : q.status === 'queued' ? 'Waiting to render' : 'Rendering…'}</div>}
       </div>
       <div className="file">{q.name ?? ''}</div>

@@ -12,6 +12,7 @@ import { bounds, clamp, fmtA, frameStep, type History, push, snapOf, type Snap }
 import { Player, type PlayerHandle } from './Player'
 import { layoutOf } from './draw'
 import { Preview, type Track } from './Preview'
+import type { Hits } from './draw'
 import { LayoutPanel, savePresets, TextPanel } from './StylePanels'
 import { addLine, editLine, resetLines } from './captions'
 import { CaptionsPanel } from './CaptionsPanel'
@@ -671,6 +672,34 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
   const curRef = useRef(cur)
   curRef.current = cur
 
+  // the UI test's way in (tests/test_ui.py), the same as the original page's window.ClipRadarTest
+  const probe = useRef<{ hits: () => Hits; width: () => number } | null>(null)
+  const exp_ = useRef(exp), camps_ = useRef(camps)
+  exp_.current = exp
+  camps_.current = camps
+  useEffect(() => {
+    const t = {
+      clips: () => clipsRef.current.map(x => ({ state: x.state, quality: x.quality, gem: isGem(x) })),
+      open: () => ({ kind: isLive ? 'live' : 'vod', id: pid }),
+      current: () => curRef.current ?? null,
+      setOption: (k: string, v: unknown) => setOpts({ [k]: v } as Partial<RenderOpts>),
+      setTodoQualities: (qs: number[]) => {   // qs[i] is the score for the i-th clip still to review (gems left out)
+        let i = 0
+        setClips(cs => cs.map(x => (x.state === 'todo' && !isGem(x) && i < qs.length ? { ...x, quality: qs[i++]! } : x)))
+      },
+      reloadExport: () => Promise.all([exp_.current.refresh(), camps_.current.refresh()]),
+      hitBox: (name: string) => probe.current?.hits()[name] ?? null,
+      previewWidth: () => probe.current?.width() ?? 0,
+      volume: () => {
+        const v = getVideo(), b = document.querySelector('[data-testid=mute-btn]')
+        return { vol: v?.volume ?? 0, muted: v?.muted ?? false, level: b?.getAttribute('data-level') ?? '',
+          ex: Math.min(1, Math.max(0, Number(getPref('volume', 1)) || 0)) }
+      },
+    }
+    ;(window as unknown as { ClipRadarTest?: unknown }).ClipRadarTest = t
+    return () => { if ((window as unknown as { ClipRadarTest?: unknown }).ClipRadarTest === t) delete (window as unknown as { ClipRadarTest?: unknown }).ClipRadarTest }
+  }, [pid, isLive, setOpts, getVideo])
+
   useEffect(() => {                                  // the original page's Review keys
     function onKey(e: KeyboardEvent) {
       if (document.querySelector('[role=alertdialog],[role=dialog]')) return
@@ -743,19 +772,19 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
             ))}
           </div>
           {filter === 'todo' && counts.todo > 0 && (
-            <div className="rv-batch" data-testid="rv-batch">
+            <div className="rv-batch" data-testid="batch-bar">
               <label className="fld inline">Keep the top
-                <select className="input" value={batchN} onChange={e => setBatchN(e.target.value)} data-testid="rv-batch-count">
+                <select className="input" value={batchN} onChange={e => setBatchN(e.target.value)} data-testid="batch-count">
                   {['3', '5', '10'].map(n => <option key={n} value={n}>{n}</option>)}<option value="0">all</option>
                 </select>
               </label>
-              <button className="btn sm" disabled={busy} onClick={() => void batchKeep()} data-testid="rv-batch-keep">Keep and render</button>
+              <button className="btn sm" disabled={busy} onClick={() => void batchKeep()} data-testid="batch-keep">Keep and render</button>
               <label className="fld inline">Skip
-                <select className="input" value={under} onChange={e => setUnder(e.target.value)} data-testid="rv-skip-score">
+                <select className="input" value={under} onChange={e => setUnder(e.target.value)} data-testid="skip-score">
                   <option value="0">all left</option>{['40', '50', '60'].map(n => <option key={n} value={n}>scored under {n}</option>)}
                 </select>
               </label>
-              <button className="btn sm ghost" onClick={() => void batchSkip()} data-testid="rv-batch-skip">Skip</button>
+              <button className="btn sm ghost" onClick={() => void batchSkip()} data-testid="batch-skip">Skip</button>
             </div>
           )}
           {filter === 'flagged' && (
@@ -822,7 +851,7 @@ function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean;
                            setDragMarks(ms)
                            if (persist) void saveMarks(ms)
                          }}
-                         onToggle={() => player.current?.toggle()}>
+                         onToggle={() => player.current?.toggle()} probe={probe}>
                   {exact && (
                     <div className="rv-exact">
                       <video src={exact.url} autoPlay loop playsInline muted={player.current?.userMuted() ?? false} data-testid="rv-exact" />

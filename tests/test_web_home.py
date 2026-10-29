@@ -101,12 +101,12 @@ with sync_playwright() as pw:
     page.wait_for_selector("[data-testid=running-now] [data-testid=source-row]", timeout=15000)
     check("and Running now lists the video", "home_test" in page.locator("[data-testid=running-now]").inner_text())
 
-    # ready: Review opens with its clips (the original page's Review, opened by the handoff)
-    page.wait_for_url("**/legacy/**", timeout=180000)
+    # ready: this UI's Review opens with its clips
+    page.wait_for_function("location.hash.startsWith('#review/')", timeout=180000)
     page.wait_for_selector("[data-testid=batch-bar]", state="visible", timeout=60000)
     clips = page.evaluate("ClipRadarTest.clips()")
     check("the finished video opens in Review with its clips", 1 <= len(clips) <= 5, clips)
-    check("and the hand-over link is cleaned up", page.evaluate("location.hash") == "", page.evaluate("location.hash"))
+    check("and it's this UI's Review", "/next/" in page.url and page.evaluate("ClipRadarTest.open().kind") == "vod", page.url)
     stored = page.evaluate("({count: localStorage.getItem('vc_count2'), preset: localStorage.getItem('vc_preset'),"
                            " cw: localStorage.getItem('vc_cw'), src: localStorage.getItem('vc_src')})")
     check("the options picked in the new UI are the original page's options",
@@ -121,7 +121,7 @@ with sync_playwright() as pw:
     page.wait_for_selector("[data-testid=recent-row]", timeout=15000)
     check("Recent lists the video", "home_test" in page.locator("[data-testid=recent-table]").inner_text())
     page.locator("[data-testid=recent-row]").first.click()
-    page.wait_for_url("**/legacy/**", timeout=60000)
+    page.wait_for_function("location.hash.startsWith('#review/')", timeout=60000)
     page.wait_for_selector("[data-testid=batch-bar]", state="visible", timeout=60000)
     check("a Recent video opens again in Review", len(page.evaluate("ClipRadarTest.clips()")) >= 1)
     # what the new UI doesn't have yet opens in the original page, on that screen

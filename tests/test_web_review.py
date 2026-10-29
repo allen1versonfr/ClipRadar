@@ -228,7 +228,7 @@ with sync_playwright() as pw:
 
     # Skip in bulk asks first (more than 3), and Undo brings them back
     left = page.locator("[data-testid=rv-row]").count()
-    page.get_by_test_id("rv-batch-skip").click()
+    page.get_by_test_id("batch-skip").click()
     if left > 3:
         page.get_by_role("alertdialog").get_by_role("button", name="Skip").click()
     check("Skip all left skips every clip still to review", wait_until(
@@ -328,9 +328,9 @@ with sync_playwright() as pw:
     shrink = """(sel) => { const c = document.createElement('canvas'); c.width = 54; c.height = 96;
         c.getContext('2d').drawImage(document.querySelector(sel), 0, 0, 54, 96); return Array.from(c.getContext('2d').getImageData(0, 0, 54, 96).data) }"""
     page.wait_for_timeout(400)
-    new_px = page.evaluate(shrink, "[data-testid=rv-preview]")
-    page.evaluate("document.querySelector('[data-testid=rv-preview]').scrollIntoView({block: 'center'})")
-    pv = page.get_by_test_id("rv-preview").bounding_box()
+    new_px = page.evaluate(shrink, "[data-testid=clip-preview]")
+    page.evaluate("document.querySelector('[data-testid=clip-preview]').scrollIntoView({block: 'center'})")
+    pv = page.get_by_test_id("clip-preview").bounding_box()
     page.mouse.move(pv["x"] + pv["width"] / 2, pv["y"] + pv["height"] * 0.07)
     page.mouse.down()
     page.mouse.move(pv["x"] + pv["width"] / 2, pv["y"] + pv["height"] * 0.3, steps=8)

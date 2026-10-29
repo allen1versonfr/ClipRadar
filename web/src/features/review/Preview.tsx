@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, type PointerEvent } from 'react'
+import { type MutableRefObject, type ReactNode, useEffect, useRef, type PointerEvent } from 'react'
 import type { Clip, Mark, Safety } from '../../api/schemas'
 import type { RenderOpts } from '../../prefs'
 import { type Box, captionAt, chunksFor, dragPlace, drawCaption, drawGuides, drawLayout, drawMarks, drawSelection,
@@ -8,7 +8,7 @@ export interface Track { path: Array<[number, number]>; face_y?: number | null |
 
 /** The clip as it will render (9:16, 1:1 or 16:9): the layout, title, captions and watermark on the
  *  playing video. Drag the title, the captions or a watermark layer to move it; click to play or pause. */
-export function Preview({ clip, video, thumb, opts, marks, safety, replace, track, guides, onOpts, onMark, onToggle, children }: {
+export function Preview({ clip, video, thumb, opts, marks, safety, replace, track, guides, onOpts, onMark, onToggle, children, probe }: {
   clip: Clip; video: () => HTMLVideoElement | null; thumb: string; opts: RenderOpts; marks: Mark[]
   safety: Pick<Safety, 'enabled' | 'censor' | 'censor_categories'> | undefined; replace: Record<string, string>
   track: Track | null; guides: boolean
@@ -17,6 +17,8 @@ export function Preview({ clip, video, thumb, opts, marks, safety, replace, trac
   onToggle: () => void
   /** shown over the preview (the exact preview) */
   children?: ReactNode
+  /** for tests (window.ClipRadarTest): where each draggable layer was drawn, in canvas pixels, and the canvas width */
+  probe?: MutableRefObject<{ hits: () => Hits; width: () => number } | null>
 }) {
   const cv = useRef<HTMLCanvasElement>(null)
   const frame = useRef<HTMLImageElement>(null)
@@ -26,6 +28,7 @@ export function Preview({ clip, video, thumb, opts, marks, safety, replace, trac
   const inside = useRef(false)
   const p = useRef({ clip, opts, marks, safety, replace, track, guides })
   p.current = { clip, opts, marks, safety, replace, track, guides }
+  if (probe) probe.current = { hits: () => hits.current, width: () => cv.current?.width ?? 0 }
   const [ow, oh] = outSize(opts)
   const scale = 960 / Math.max(ow, oh), W = Math.round(ow * scale / 2) * 2, H = Math.round(oh * scale / 2) * 2
 
@@ -121,7 +124,7 @@ export function Preview({ clip, video, thumb, opts, marks, safety, replace, trac
   }
   return (
     <div className="rv-phone" style={{ aspectRatio: `${ow} / ${oh}` }}>
-      <canvas ref={cv} width={W} height={H} data-testid="rv-preview" aria-label="Clip preview, as it will render. Drag the title, captions or watermark to move them."
+      <canvas ref={cv} width={W} height={H} data-testid="clip-preview" aria-label="Clip preview, as it will render. Drag the title, captions or watermark to move them."
               onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
               onPointerEnter={() => { inside.current = true }} onPointerLeave={() => { inside.current = false; hover.current = null }} />
       <img ref={frame} src={thumb} alt="" hidden />

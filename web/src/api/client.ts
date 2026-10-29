@@ -39,7 +39,9 @@ export async function api<S extends z.ZodType>(schema: S, path: string, body?: u
   const raw = await call(path, body)
   const parsed = schema.safeParse(raw)
   if (!parsed.success) {
-    console.error(`Unexpected answer from ${path}`, parsed.error.issues)
+    // what didn't match, readable in a log line (where an object shows as [Object])
+    const what = parsed.error.issues.slice(0, 3).map(i => `${i.path.join('.') || '(answer)'}: ${i.message}`).join('; ')
+    console.error(`Unexpected answer from ${path}: ${what}`, parsed.error.issues)
     throw new ApiError(UNEXPECTED_ANSWER, 200)
   }
   return parsed.data

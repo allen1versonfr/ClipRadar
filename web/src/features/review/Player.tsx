@@ -43,6 +43,22 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipK
       level: () => vol,
     }), [start, end, muted, vol])
 
+    // the mouse wheel over the volume turns it up or down 5% (a non-passive listener, so the page doesn't scroll)
+    const volBox = useRef<HTMLSpanElement>(null)
+    const levelRef = useRef(muted ? 0 : vol)
+    levelRef.current = muted ? 0 : vol
+    useEffect(() => {
+      const el = volBox.current
+      if (!el) return
+      const wheel = (e: WheelEvent) => {
+        e.preventDefault()
+        const n = Math.round(Math.min(1, Math.max(0, levelRef.current + (e.deltaY < 0 ? 0.05 : -0.05))) * 100) / 100
+        setVol(n); setMuted(false)
+      }
+      el.addEventListener('wheel', wheel, { passive: false })
+      return () => el.removeEventListener('wheel', wheel)
+    }, [])
+
     const startRef = useRef(start)
     startRef.current = start
     useEffect(() => {                         // a new clip (not a trim of this one): start at its beginning
@@ -120,12 +136,16 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipK
                  aria-valuetext={`${fmt(t - start)} of ${fmt(len)}`}
                  onChange={e => { const el = v.current; if (el) el.currentTime = start + Number(e.target.value) }} />
           <span className="tnum muted small">{fmt(t - start)} / {fmt(len)}</span>
-          <button className="btn sm ghost" aria-label={level === 0 ? 'Unmute' : 'Mute'} onClick={() => {
-            if (muted || vol === 0) { setMuted(false); if (vol === 0) setVol(0.5) } else setMuted(true)
-          }}>{level === 0 ? 'Unmute' : 'Mute'}</button>
-          <input type="range" className="rv-vol" aria-label="Preview volume" min={0} max={100} step={1}
-                 value={Math.round(level * 100)} aria-valuetext={muted ? `Muted (${Math.round(vol * 100)}%)` : `${Math.round(vol * 100)}%`}
-                 onChange={e => { const n = Number(e.target.value) / 100; setVol(n); setMuted(n === 0 ? muted : false) }} />
+          <span className="rv-volbox" data-testid="vol-box" ref={volBox}>
+            <button className="btn sm ghost" aria-label={level === 0 ? 'Unmute' : 'Mute'} title={`${level === 0 ? 'Unmute' : 'Mute'} (M)`} data-testid="mute-btn"
+                    data-level={level === 0 ? 'off' : vol < 0.5 ? 'low' : 'high'} onClick={() => {
+              if (muted || vol === 0) { setMuted(false); if (vol === 0) setVol(0.5) } else setMuted(true)
+            }}>{level === 0 ? 'Unmute' : 'Mute'}</button>
+            <input type="range" className="rv-vol" aria-label="Preview volume" min={0} max={100} step={1} data-testid="vol-slider"
+                   title="Preview volume (only the preview: clips render at their own level)"
+                   value={Math.round(level * 100)} aria-valuetext={muted ? `Muted (${Math.round(vol * 100)}%)` : `${Math.round(vol * 100)}%`}
+                   onChange={e => { const n = Number(e.target.value) / 100; setVol(n); setMuted(n === 0 ? muted : false) }} />
+          </span>
         </div>
       </div>
     )

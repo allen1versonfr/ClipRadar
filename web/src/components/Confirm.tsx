@@ -51,8 +51,8 @@ function Dialog({ ask, onClose }: { ask: Ask; onClose: (v: boolean) => void }) {
         <h2 id="ask-title">{ask.title}</h2>
         <p id="ask-body">{ask.body}</p>
         <div className="row modal-actions">
-          <button className="btn" data-cancel onClick={() => onClose(false)}>Cancel</button>
-          <button className={`btn ${ask.danger ? 'danger' : 'primary'}`} data-ok onClick={() => onClose(true)}>{ask.ok ?? 'OK'}</button>
+          <button className="btn" data-cancel data-testid="confirm-no" onClick={() => onClose(false)}>Cancel</button>
+          <button className={`btn ${ask.danger ? 'danger' : 'primary'}`} data-ok data-testid="confirm-yes" onClick={() => onClose(true)}>{ask.ok ?? 'OK'}</button>
         </div>
       </div>
     </div>
