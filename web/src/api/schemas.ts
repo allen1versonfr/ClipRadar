@@ -438,11 +438,17 @@ export const Clip = z.looseObject({
   postText: z.string().default(''), gain: z.number().default(0), wordsEdited: z.boolean().optional(),
   words: z.array(Word).default([]), words_edit: z.array(Word).optional(), wordsOrig: z.array(Word).optional(),
   fps: z.number().default(30), orig: z.tuple([z.number(), z.number()]).optional(),
+  title_a: z.string().optional(), title_b: z.string().optional(), title_b_named: z.boolean().optional(),
   safety: z.looseObject({ enabled: z.boolean().optional(), status: z.string().optional(), level: z.string().optional(),
     flags: z.array(Flag).default([]), open: z.number().default(0) }).optional(),
   check: z.looseObject({ excluded: z.boolean().default(false), fixes: z.array(z.unknown()).default([]) }).optional(),
 })
 export type Clip = z.infer<typeof Clip>
+
+/** Deep scan (the whole stream transcribed for quiet gems): where it's at. */
+export const DeepStatus = z.looseObject({ state: z.string().default('none'), progress: z.number().default(0), step: z.string().default(''),
+  error: z.string().default(''), gems: z.number().default(0), can: z.boolean().default(false) })
+export type DeepStatus = z.infer<typeof DeepStatus>
 
 export const Project = z.looseObject({
   pid: z.string(), title: z.string().default(''), duration: z.number().default(0), vod: z.string().default(''),
@@ -453,11 +459,33 @@ export const Project = z.looseObject({
   restored: z.boolean().default(false), pick_note: z.string().default(''),
   review: z.looseObject({ kept: z.number().default(0), skipped: z.number().default(0), todo: z.number().default(0) }).default({ kept: 0, skipped: 0, todo: 0 }),
   detect_text: z.string().default(''),
-  origin: z.looseObject({ link: z.string().optional() }).default({}),
+  origin: z.looseObject({ link: z.string().optional(), platform: z.string().optional(), label: z.string().optional(),
+    uploader: z.string().optional(), uploaded: z.string().optional(), url: z.string().optional() }).default({}),
+  curve: z.array(z.number()).default([]),
+  deep: DeepStatus.optional(),
+  streamer_name: z.string().default(''),
+  learning: z.looseObject({ active: z.boolean().default(false), decisions: z.number().default(0), using: z.string().default(''),
+    trim: z.looseObject({ n: z.number().default(0), start: z.number().default(0), end: z.number().default(0) }).nullish() }).default({ active: false, decisions: 0, using: '' }),
+  settings: z.looseObject({ count: z.number().default(0), length: z.number().default(0), chat_weight: z.number().default(60) }).optional(),
+  detect: z.looseObject({ preset: z.string().default('any'), sensitivity: z.string().default('normal'),
+    min_len: z.number().nullish(), max_len: z.number().nullish() }).default({ preset: 'any', sensitivity: 'normal' }),
+  presets: z.array(z.looseObject({ key: z.string(), label: z.string().default(''), hint: z.string().default(''),
+    chat: z.number().default(60), min: z.number().default(15), max: z.number().default(60) })).default([]),
+  emotes_known: z.number().default(0),
 })
 export type Project = z.infer<typeof Project>
 
-export const ClipsUpdate = z.looseObject({ clips: z.array(Clip).default([]), gems: z.array(Clip).default([]), listening: z.boolean().default(false) })
+export const ClipsUpdate = z.looseObject({ clips: z.array(Clip).default([]), gems: z.array(Clip).default([]), listening: z.boolean().default(false),
+  deep: DeepStatus.optional() })
+/** Detection settings › Try: what other settings would suggest, next to the list you have. */
+export const Compared = z.looseObject({ count: z.number().default(0), same: z.number().default(0), added: z.number().default(0),
+  dropped: z.number().default(0), text: z.string().default(''),
+  top: z.array(z.looseObject({ start: z.number(), end: z.number(), quality: z.number().default(0), reason: z.string().default('') })).default([]) })
+/** /api/streamer: the name title B uses, and the titles written again with it. */
+export const StreamerSet = z.looseObject({ name: z.string().default(''),
+  clips: z.array(z.looseObject({ id: z.number(), title: z.string().nullish(), title_a: z.string().nullish(), title_b: z.string().nullish(),
+    title_b_named: z.boolean().nullish(), titles: z.array(z.string()).nullish(), description: z.string().nullish(),
+    hashtags: z.array(z.string()).nullish(), post: z.string().nullish() })).default([]) })
 
 export const PreviewCopy = z.looseObject({ ready: z.boolean().default(false), job: z.string().optional() })
 

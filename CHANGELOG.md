@@ -7,9 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 - New UI, Review: the **content check**. A Flagged tab (with a filter, and Leave all, Dismiss all, Exclude all), and on each clip its flags: try a fix before making it (mute, bleep, cut, hide in the title or post caption), dismiss, undo a fix, leave as is, review and edit the words, exclude or include, remove the clip (with Undo), and the history. Muted and bleeped words sound that way in the preview, as they'll render.
+- New UI, Review: **the whole stream**. Under the clip, the stream's hype from start to end with every clip on it: click a clip to open it, or any other moment to preview it and Make a clip here. The header's facts (where it's from, chat, about how many strong moments, Tuned to your picks), Detection settings (stream type, how many moments, clip lengths, how many clips, chat or audio) with Try to compare before Apply, Suggest 5 more, Deep scan with its progress (quiet gems arrive in the Gems tab as it goes), and title A or B with the streamer's name.
 
 ### Tests
-- `web/`: 115 Vitest tests. `tests/test_web_review.py` blocks a word in a suggested title and tries, makes and undoes the fix, excludes and includes the clip, removes it and brings it back.
+- `web/`: 123 Vitest tests. `tests/test_web_review.py` blocks a word in a suggested title and tries, makes and undoes the fix, excludes and includes the clip, removes it and brings it back; previews a moment from the overview and makes a clip there, opens a clip from it, tries and applies other detection settings (your clip stays), and sets the streamer's name for title B.
 
 ## [4.21.0] - 2026-10-28
 

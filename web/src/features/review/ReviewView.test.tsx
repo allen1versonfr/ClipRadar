@@ -92,6 +92,76 @@ describe('Review', () => {
     expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Other 1')
   })
 
+  it('re-ranking with other detection settings keeps what you did to clips still suggested', async () => {
+    const base = fetch as unknown as (p: string, i?: RequestInit) => Promise<Response>
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/repick') {
+        const body = JSON.parse(String(init!.body)) as Record<string, any>
+        calls.push([path, body])
+        if (body.dry_run) return new Response(JSON.stringify({ count: 2, same: 1, added: 1, dropped: 2, top: [{ start: 20, end: 35, quality: 70, reason: 'Chat went off' }] }))
+        return new Response(JSON.stringify({ pid: 'p1', title: 'My stream', duration: 600, vod: '/vod/p1', detect_text: 'Gaming',
+          clips: [{ ...CLIPS[0]!, title: 'Server title' }, { id: 4, pid: 'p1', start: 300, end: 320, title: 'New one', vod: '/vod/p1' }] }))
+      }
+      return base(path, init)
+    }))
+    renderReview()
+    await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Clip 1'))
+    fireEvent.change(screen.getByTestId('rv-title-input'), { target: { value: 'Mine' } })
+    fireEvent.click(screen.getByTestId('rv-detect-open'))
+    fireEvent.click(await screen.findByTestId('rv-det-try'))
+    expect((await screen.findByTestId('rv-det-cmp')).textContent).toContain('2 clips. 1 the same as now, 1 new, 2 dropped')
+    fireEvent.click(screen.getByTestId('rv-det-apply'))
+    await waitFor(() => expect(screen.getAllByTestId('rv-row')).toHaveLength(2))
+    expect(posted('/api/repick').at(-1)).toMatchObject({ pid: 'p1', detect: { preset: 'any' } })
+    expect(posted('/api/repick').at(-1)!.dry_run).toBeUndefined()
+    expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Mine')
+    expect(screen.queryByTestId('rv-detect')).toBeNull()
+  })
+
+  it('a moment of the stream outside the clips previews, and becomes a clip', async () => {
+    const base = fetch as unknown as (p: string, i?: RequestInit) => Promise<Response>
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/add_clip') {
+        const body = JSON.parse(String(init!.body)) as Record<string, any>
+        calls.push([path, body])
+        return new Response(JSON.stringify({ id: 9, pid: 'p1', start: body.t - 10, end: body.t + 10, title: '', vod: '/vod/p1', manual: true }))
+      }
+      return base(path, init)
+    }))
+    renderReview()
+    await screen.findAllByTestId('rv-row')
+    fireEvent.click(screen.getByTestId('rv-heat'), { clientX: 0.5 })      // the canvas has no size here: 0.5 px is 300 s
+    expect((await screen.findByTestId('rv-free')).textContent).toContain('Previewing 5:00 of the stream.')
+    fireEvent.click(screen.getByTestId('rv-add-here'))
+    await waitFor(() => expect(screen.getAllByTestId('rv-row')).toHaveLength(4))
+    expect(posted('/api/add_clip')[0]).toMatchObject({ pid: 'p1', length: 0 })
+    expect(screen.queryByTestId('rv-free')).toBeNull()
+    expect(screen.getAllByTestId('rv-row').at(-1)!.getAttribute('aria-current')).toBe('true')
+    expect(posted('/api/listen').at(-1)).toMatchObject({ order: [9] })
+  })
+
+  it("title B with the streamer's name: set the name, then pick it", async () => {
+    const base = fetch as unknown as (p: string, i?: RequestInit) => Promise<Response>
+    const ab = { ...CLIPS[0]!, title_a: 'He missed', title_b: 'Streamer missed', title_b_named: false }
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/project/p1') return new Response(JSON.stringify({ pid: 'p1', title: 'S', duration: 600, vod: '/vod/p1', clips: [ab] }))
+      if (path === '/api/streamer') {
+        calls.push([path, JSON.parse(String(init!.body))])
+        return new Response(JSON.stringify({ name: 'Jason', clips: [{ id: 1, title: 'Clip 1', title_a: 'He missed', title_b: 'Jason missed', title_b_named: true }] }))
+      }
+      return base(path, init)
+    }))
+    renderReview()
+    fireEvent.click(await screen.findByTestId('rv-streamer'))
+    fireEvent.change(screen.getByTestId('rv-streamer-input'), { target: { value: ' Jason ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect((screen.getByTestId('rv-streamer')).textContent).toContain('Streamer: Jason · change'))
+    expect(posted('/api/streamer')[0]).toEqual({ pid: 'p1', name: 'Jason' })
+    fireEvent.click(within(screen.getByTestId('rv-title-opts')).getByRole('button', { name: /Jason missed/ }))
+    expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Jason missed')
+    await waitFor(() => expect(posted('/api/clip_state').at(-1)).toMatchObject({ id: 1, title: 'Jason missed', userTitle: true }))
+  })
+
   it('a video that is not open any more says how to get it back', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'This session expired. Press Find clips again.' }), { status: 404 })))
     renderReview()

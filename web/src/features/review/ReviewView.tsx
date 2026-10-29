@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Campaigns, type Clip, ClipsUpdate, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
+import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
@@ -18,6 +18,9 @@ import { CaptionsPanel } from './CaptionsPanel'
 import { applied, fixSpans, flaggedList, isFlagged, previewPlan, FIX_LABEL } from './checks'
 import { ContentCheck, type Proposal } from './ContentCheck'
 import { Timeline, type TimelineHandle } from './Timeline'
+import { Overview } from './Overview'
+import { filterFor } from './overview'
+import { DeepBox, type Detect, DetectDialog, HeadFacts, TitleChoices } from './StreamTools'
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]
 /** What following the face found (Layout tab). */
@@ -58,6 +61,9 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
   const [now, setNow] = useState(0)
   const [flagFilter, setFlagFilter] = useState('all')
   const [proposal, setProposal] = useState<Proposal | null>(null)
+  const [free, setFree] = useState<number | null>(null)       // previewing any moment of the stream, not a clip
+  const [detOpen, setDetOpen] = useState(false)
+  const [deep, setDeep] = useState<DeepStatus>()
   const trying = useRef<{ to: number; started: boolean } | null>(null)
   const toast = useToast()
   const confirm = useConfirm()
@@ -130,6 +136,10 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
       const cs = p.clips.concat(p.gems).map(prep)
       setMeta(p)
       setClips(cs)
+      setDeep(p.deep)
+      if (p.restored && p.settings) {                // opened before: the sliders go back to where you left them for this VOD
+        setPref('count2', String(p.settings.count || 0)); setPref('length2', String(p.settings.length || 0)); setPref('cw', p.settings.chat_weight)
+      }
       const first = cs.find(c => c.state === 'todo' && !isGem(c))
       setCur(first && keyOf(first))
       if (p.restored) toast(`Picked up where you left off: ${plural(p.review.kept, 'clip')} kept, ${p.review.skipped} skipped, ${p.review.todo} to review.`)
@@ -140,19 +150,31 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     }).catch(e => setFailed(err(e)))
   }, [pid, toast])
 
-  useEffect(() => {                                  // titles, captions and checks arrive in the background
-    if (!listening) return
+  const deepRunning = deep?.state === 'running'
+  useEffect(() => {                                  // titles, captions, checks and quiet gems arrive in the background
+    if (!listening && !deepRunning) return
     const t = setInterval(async () => {
       if (document.hidden) return
       try {
         const r = await api(ClipsUpdate, `/api/clips/${pid}`)
         const by = new Map(r.clips.concat(r.gems).map(s => [keyOf(s), s]))
-        setClips(cs => cs.map(c => { const s = by.get(keyOf(c)); return s ? merge(c, s, saveT.current.has(keyOf(c))) : c }))
+        setClips(cs => {
+          const have = new Set(cs.map(keyOf))
+          const gems = r.gems.filter(s => !have.has(keyOf(s))).map(prep)          // deep scan found another
+          return cs.map(c => { const s = by.get(keyOf(c)); return s ? merge(c, s, saveT.current.has(keyOf(c))) : c }).concat(gems)
+        })
         setListening(r.listening)
+        if (r.deep) setDeep(d => {
+          if (d?.state === 'running' && r.deep!.state === 'done') {
+            const n = r.gems.length
+            toast(n ? `Deep scan found ${plural(n, 'quiet gem')}. They're in the Gems tab.` : 'Deep scan finished. No quiet gems stood out.')
+          }
+          return r.deep
+        })
       } catch { /* the next tick tries again */ }
     }, 1200)
     return () => clearInterval(t)
-  }, [listening, pid])
+  }, [listening, deepRunning, pid, toast])
 
   useEffect(() => {                                  // the render queue decides which clips are kept
     if (!queue.data || queue.data.e !== epoch.current) return
@@ -179,10 +201,10 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
   }, [tk]) // the key holds everything that changes the path
 
   useEffect(() => {                                  // the Captions tab follows the line being said
-    if (tab !== 'captions') return
+    if (tab !== 'captions' && free == null) return
     const t = setInterval(() => setNow(getVideo()?.currentTime ?? 0), 250)
     return () => clearInterval(t)
-  }, [tab, getVideo])
+  }, [tab, free, getVideo])
   const list = useMemo(() => (filter === 'flagged' ? flaggedList(clips, flagFilter, safety?.enabled !== false) : visible(clips, filter)),
     [clips, filter, flagFilter, safety?.enabled])
   const c = clips.find(x => keyOf(x) === cur)
@@ -194,7 +216,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
       flaggedOpen: clips.filter(x => checkStatus(x, safety?.enabled !== false) === 'needs_review').length }
   }, [clips, safety?.enabled])
 
-  function select(x: Clip | undefined) { setCur(x && keyOf(x)) }
+  function select(x: Clip | undefined) { setFree(null); setCur(x && keyOf(x)) }
   function step(dir: 1 | -1) {
     const i = list.findIndex(x => keyOf(x) === cur)
     select(i < 0 ? list[0] : list[i + dir] ?? list[i])
@@ -289,6 +311,75 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     if (!vid || !c) return
     vid.pause()
     vid.currentTime = frameStep(vid.currentTime, c.fps, dir)
+  }
+
+  // ---- the whole stream: re-ranking, previewing any moment, deep scan, the streamer's name
+  function listen(ids: number[]) {
+    const o = renderOpts()
+    api(Ok, '/api/listen', { pid, order: ids, model: o.whisper_model, language: o.language }).then(() => setListening(true)).catch(() => {})
+  }
+  /** The clips suggested again with other settings; clips still suggested keep everything you did to them. */
+  async function repick(det?: Detect, count = String(getPref('count2', '0')), length = String(getPref('length2', '0')), cw = Number(getPref('cw', 60))) {
+    try {
+      const p = await api(Project, '/api/repick', { pid, count: Number(count), length: Number(length), chat_weight: cw, ...(det ? { detect: det } : {}) })
+      setPref('count2', count); setPref('length2', length); setPref('cw', cw)
+      const old = new Map(clipsRef.current.map(x => [keyOf(x), x]))
+      const next = p.clips.map(s => { const o = old.get(keyOf(s)); return o ? merge(o, s, saveT.current.has(keyOf(o))) : prep(s) })
+        .concat(clipsRef.current.filter(isGem))
+      setMeta(m => ({ ...p, gems: m?.gems ?? p.gems }))
+      setClips(next)
+      if (p.pick_note) toast(p.pick_note)
+      if (!next.some(x => keyOf(x) === cur)) { const f = next.find(x => x.state === 'todo' && !isGem(x)); setCur(f && keyOf(f)) }
+      listen(next.filter(x => !x.listened).map(x => x.id))
+      epoch.current++; void queue.refresh()
+      return true
+    } catch (e) { toast(err(e), 'err'); return false }
+  }
+  function suggestMore() {
+    const n = Math.min(100, (Number(getPref('count2', '0')) || clipsRef.current.filter(x => !isGem(x)).length) + 5)
+    void repick(undefined, String(n))
+  }
+  function previewAt(t: number) {
+    stopTrying()
+    const at = clamp(t, 0, Math.max(0, (meta?.duration ?? t) - 0.5))
+    setNow(at)
+    setFree(at)
+  }
+  async function addHere() {
+    const t = getVideo()?.currentTime ?? free ?? 0
+    try {
+      const x = { ...prep(await api(Clip, '/api/add_clip', { pid, t, length: Number(getPref('length2', '0')) })), kind: 'hype', manual: true }
+      setClips(cs => [...cs, x])
+      setFilter('todo')
+      select(x)
+      listen([x.id])
+    } catch (e) { toast(err(e), 'err') }
+  }
+  async function startDeep() {
+    try {
+      setDeep(await api(DeepStatus, '/api/deepscan', { pid, model: getPref('deepModel', 'auto'), language: opts.language }))
+      toast('Deep scan started. Quiet gems show up in the Gems tab as it goes.')
+    } catch (e) { toast(err(e), 'err') }
+  }
+  async function stopDeep() {
+    try { setDeep(await api(DeepStatus, '/api/deepscan', { pid, cancel: true })) } catch (e) { toast(err(e), 'err') }
+  }
+  async function setStreamer(name: string): Promise<boolean> {
+    try {
+      const r = await api(StreamerSet, '/api/streamer', { pid, name })
+      setMeta(m => (m ? { ...m, streamer_name: r.name } : m))
+      const by = new Map(r.clips.map(v => [v.id, v]))
+      setClips(cs => cs.map(x => {
+        const v = by.get(x.id)
+        if (!v) return x
+        const n: Clip = { ...x, title_a: v.title_a ?? undefined, title_b: v.title_b ?? undefined, title_b_named: !!v.title_b_named,
+          titles: v.titles ?? x.titles, description: v.description ?? x.description, hashtags: v.hashtags ?? x.hashtags, post: v.post ?? x.post }
+        if (!x.userTitle && v.title) n.title = v.title
+        return n
+      }))
+      toast(r.name ? `Title B now uses "${r.name}".` : 'Streamer name removed.')
+      return true
+    } catch (e) { toast(err(e), 'err'); return false }
   }
 
   async function queueKeep(x: Clip, quiet = false, sound = true): Promise<boolean> {
@@ -489,12 +580,12 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
 
   useEffect(() => {                                  // the original page's Review keys
     function onKey(e: KeyboardEvent) {
-      if (document.querySelector('[role=alertdialog]')) return
+      if (document.querySelector('[role=alertdialog],[role=dialog]')) return
       const typing = !!(e.target as HTMLElement).closest?.('input,select,textarea'), mod = e.ctrlKey || e.metaKey
       if (mod && !typing && ['z', 'Z', 'y'].includes(e.key)) { e.preventDefault(); undoRedo(e.key === 'y' || e.shiftKey); return }
       if (typing || mod || e.altKey) return
       const k = e.key, vid = getVideo()
-      if (c && vid) {                                // the editor's keys
+      if (c && vid && free == null) {                // the editor's keys
         const hit = k === 'i' || k === 'I' ? (trim(c, vid.currentTime, c.end, 'set start'), true)
           : k === 'o' || k === 'O' ? (trim(c, c.start, vid.currentTime, 'set end'), true)
           : k === ',' ? (stepFrame(-1), true) : k === '.' ? (stepFrame(1), true)
@@ -537,11 +628,8 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     <section className="review" aria-labelledby="rv-title" data-testid="review">
       <header className="rv-head">
         <h1 id="rv-title" className="ellipsis" title={meta.title}>{meta.title}</h1>
-        <span className="muted small">
-          {fmt(meta.duration)} long · {!meta.has_chat ? 'No chat, ranked by audio' : meta.chat_stats.chatters
-            ? `${meta.chat_stats.chatters.toLocaleString()} chatters` : `${meta.chat_count.toLocaleString()} chat messages`}
-          {meta.detect_text && ` · ${meta.detect_text}`}
-        </span>
+        <HeadFacts meta={meta} onDetect={() => setDetOpen(true)} />
+        <DeepBox deep={deep} gems={counts.gems} onStart={() => void startDeep()} onStop={() => void stopDeep()} />
         {listening && clips.some(x => !x.listened) && <span className="muted small" data-testid="rv-listening">Writing titles ({clips.filter(x => x.listened).length} of {clips.length})</span>}
       </header>
 
@@ -614,7 +702,18 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
         </aside>
 
         <div className="rv-main">
-          {c ? (
+          {free != null ? (
+            <>
+              <Player ref={player} src={meta.vod} pid={pid} clipKey={`free:${free}`} start={free} end={meta.duration} />
+              <div className="rv-free" data-testid="rv-free">
+                <p>Previewing <b className="tnum" data-testid="rv-free-at">{fmt(now || free)}</b> of the stream.</p>
+                <div className="row wrap">
+                  <button className="btn primary" onClick={() => void addHere()} data-testid="rv-add-here">Make a clip here</button>
+                  <button className="btn" onClick={() => select(c ?? list[0] ?? clips[0])}>Back to clips</button>
+                </div>
+              </div>
+            </>
+          ) : c ? (
             <>
               <Player ref={player} src={c.vod || meta.vod} pid={pid} clipKey={keyOf(c)} start={c.start} end={c.end}>
                 <Preview clip={shown ?? c} video={getVideo} thumb={c.thumb} opts={opts} marks={marks} safety={safety} replace={replace}
@@ -737,6 +836,8 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
                     <button className="btn sm" disabled={kept || c.titles.length < 2} onClick={nextTitle} title="Another suggested title (T)">Another title</button>
                   </span>
                 </label>
+                <TitleChoices clip={c} name={meta.streamer_name} kept={kept} onName={setStreamer}
+                              onPick={(t, k) => edit(c, `title ${k}`, { title: t, userTitle: true })} />
                 <label className="fld">Post caption
                   <textarea className="input" rows={3} value={postFor(c, hashtagsOn)} disabled={kept}
                             onChange={e => edit(c, 'post caption change', { userPost: true, postText: e.target.value }, 'post')} />
@@ -754,12 +855,27 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
               <p>{clips.length ? `${plural(done, 'clip')} kept, ${counts.skipped} skipped.` : 'Nothing stood out in this video.'}</p>
               <div className="row wrap">
                 {counts.skipped > 0 && <button className="btn" onClick={() => { setFilter('skipped'); select(visible(clips, 'skipped')[0]) }}>Review the skipped ones</button>}
+                <button className="btn" onClick={suggestMore} data-testid="rv-more">Suggest 5 more</button>
                 {done > 0 && <a className="btn primary" href="#exports">Go to Exports</a>}
               </div>
             </div>
           )}
         </div>
       </div>
+      <Overview clips={clips} curve={meta.curve} dur={meta.duration} cur={cur} free={free != null}
+                playhead={() => { const v = getVideo(); return v && (free != null || c) ? v.currentTime : null }}
+                onClip={x => { const f = filterFor(x, filter); if (f !== filter) setFilter(f); select(x) }}
+                onPreview={previewAt} />
+      {detOpen && <DetectDialog meta={meta} count={String(getPref('count2', '0'))} length={String(getPref('length2', '0'))} cw={Number(getPref('cw', 60))}
+                                onClose={() => setDetOpen(false)}
+                                onTry={async (d, w, n, l) => {
+                                  try { return await api(Compared, '/api/repick', { pid, count: Number(n), length: Number(l), chat_weight: w, detect: d, dry_run: true }) }
+                                  catch (e) { toast(err(e), 'err'); return null }
+                                }}
+                                onApply={async (d, w, n, l) => {
+                                  setDetOpen(false)
+                                  if (await repick(d, n, l, w)) toast('Detection settings applied. Your kept, skipped and edited clips stayed.')
+                                }} />}
     </section>
   )
 }

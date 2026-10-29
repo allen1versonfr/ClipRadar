@@ -356,9 +356,66 @@ with sync_playwright() as pw:
     diff = sum(abs(a - b) for a, b in zip(new_px, old_px)) / len(new_px)
     check("the new preview draws the same picture as the current UI's", diff < 10, round(diff, 1))
 
-    # narrow window: no sideways scrolling
+    # the whole stream: its facts, the overview, previewing any moment and making a clip there
     page.goto(url + f"/next/#review/{pid}")
     page.wait_for_selector("[data-testid=rv-row]", timeout=15000)
+    check("the header says how many strong moments the stream has", "strong moment" in page.get_by_test_id("rv-facts").inner_text(),
+          page.get_by_test_id("rv-facts").inner_text())
+    dur = pr["analysis"].duration
+    gap = next(t for t in range(5, int(dur) - 5) if not any(d["start"] - 3 <= t <= d["end"] + 3 for d in pr["clips"] + pr.get("gems", [])))
+    page.evaluate("document.querySelector('[data-testid=rv-heat]').scrollIntoView({block: 'center'})")
+    hb = page.get_by_test_id("rv-heat").bounding_box()
+    page.mouse.click(hb["x"] + gap / dur * hb["width"], hb["y"] + hb["height"] / 2)
+    free = page.get_by_test_id("rv-free")
+    free.wait_for(timeout=5000)
+    check("clicking the overview outside the clips previews that moment", "Previewing" in free.inner_text(), free.inner_text())
+    page.wait_for_timeout(500)
+    vt = page.evaluate("document.querySelector('[data-testid=rv-video]').currentTime")
+    check("the player goes to that moment", abs(vt - gap) < 3, (vt, gap))
+    before = {d["id"] for d in pr["clips"]}
+    page.get_by_test_id("rv-add-here").click()
+    check("Make a clip here adds a clip of yours there", wait_until(lambda: any(
+        d.get("manual") and d["start"] - 1 <= gap + 3 and d["end"] + 1 >= gap for d in server.projects[pid]["clips"] if d["id"] not in before)),
+        [(d["id"], d["start"], d["end"]) for d in server.projects[pid]["clips"]])
+    added = next(d["id"] for d in server.projects[pid]["clips"] if d["id"] not in before)
+    check("and opens it", page.locator("[data-testid=rv-row][aria-current=true]").count() == 1 and free.count() == 0)
+    page.evaluate("document.querySelector('[data-testid=rv-heat]').scrollIntoView({block: 'center'})")
+    hb = page.get_by_test_id("rv-heat").bounding_box()
+    cs = server.projects[pid]["clips"]
+    other = next(d for d in cs if d["id"] != added and not any(
+        e is not d and e["start"] <= (d["start"] + d["end"]) / 2 <= e["end"] for e in cs))   # nothing else covers its middle
+    page.mouse.click(hb["x"] + (other["start"] + other["end"]) / 2 / dur * hb["width"], hb["y"] + hb["height"] / 2)
+    check("clicking a clip on the overview opens it", wait_until(lambda: page.get_by_test_id("rv-title-input").input_value() == (other.get("title") or "")),
+          (page.get_by_test_id("rv-title-input").input_value(), other.get("title")))
+
+    # detection settings: Try compares, Apply re-ranks, and your clip stays
+    page.get_by_test_id("rv-detect-open").click()
+    dlg = page.get_by_role("dialog")
+    dlg.get_by_test_id("rv-det-preset").select_option("gaming")
+    dlg.get_by_test_id("rv-det-try").click()
+    cmp_box = dlg.get_by_test_id("rv-det-cmp")
+    cmp_box.wait_for(timeout=10000)
+    check("Try says what the settings would suggest, without changing anything", "With these settings" in cmp_box.inner_text()
+          and (pr.get("detect") or {}).get("preset", "any") != "gaming", cmp_box.inner_text())
+    dlg.get_by_test_id("rv-det-apply").click()
+    check("Apply re-ranks with them", wait_until(lambda: (server.projects[pid].get("detect") or {}).get("preset") == "gaming"),
+          server.projects[pid].get("detect"))
+    check("and the clip you made stays", any(d["id"] == added for d in server.projects[pid]["clips"]))
+    check("the dialog closes", page.get_by_role("dialog").count() == 0)
+
+    # title B with the streamer's name
+    if any(d.get("title_a") for d in server.projects[pid]["clips"]):
+        page.get_by_test_id("rv-streamer").click()
+        page.get_by_test_id("rv-streamer-input").fill("Tester")
+        page.get_by_role("button", name="Save").click()
+        check("the streamer's name is saved for title B", wait_until(lambda: server.projects[pid].get("streamer_display") == "Tester"),
+              server.projects[pid].get("streamer_display"))
+    else:
+        check("clips have title choices to pick from", False, "no title_a on any clip")
+
+    if os.environ.get("CLIPRADAR_SHOT_WIDE"):
+        page.screenshot(path=os.environ["CLIPRADAR_SHOT_WIDE"])
+    # narrow window: no sideways scrolling
     page.set_viewport_size({"width": 420, "height": 860})
     page.wait_for_timeout(300)
     over = page.evaluate("Math.max(document.documentElement.scrollWidth, document.querySelector('.main').scrollWidth)"
