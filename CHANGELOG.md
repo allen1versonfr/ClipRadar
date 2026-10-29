@@ -5,6 +5,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.25.0] - 2026-10-29
+
 The new UI is now Clip Radar's UI. The previous one stays at `/legacy/` for a while ("Previous UI" in the top bar), with your clips and settings shared. Before the switch, an audit checked that everything the previous UI did is in the new one, and that it's accessible (`docs/audit-new-ui.md`).
 
 ### Changed
@@ -19,7 +21,7 @@ The new UI is now Clip Radar's UI. The previous one stays at `/legacy/` for a wh
 
 ### Fixed
 - Upload to TikTok could hang after an earlier upload: it only loaded TikTok Studio's upload page if Clip Radar's TikTok window wasn't already on it, so the next clip waited for an upload box that wasn't there and stopped after a minute. Every upload now starts from a fresh upload page.
-- New UI: text boxes and dropdowns show a clear focus ring, and on touch screens every control is at least 44 px each way.
+- New UI: text boxes, dropdowns and video players show a clear focus ring, and on touch screens every control is at least 44 px each way.
 - New UI: "Sign in to Twitch" on Home opens the new UI's Settings at Twitch sign-in.
 
 ### Tests

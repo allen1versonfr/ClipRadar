@@ -455,3 +455,5 @@ p.notice { margin: 0; }
 .tt-cell.ok { color: var(--tx0); }
 .tt-cell.err { color: var(--danger); }
 .exports .notice { display: block; margin: 0 0 8px; color: var(--tx0); }
+/* a video's own controls take the focus inside it: the ring goes round the player, so it shows where you are */
+video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
