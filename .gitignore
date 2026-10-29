@@ -11,3 +11,16 @@ src/models/*.onnx
 src/web/
 web/node_modules/
 web/dist/
+
+# Local editor, test, and generated TypeScript state
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage/
+web/coverage/
+web/*.tsbuildinfo
+*.tsbuildinfo
