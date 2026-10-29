@@ -186,10 +186,12 @@ with sync_playwright() as pw:
         page.get_by_role("tab", name="To review").click()
     page.get_by_test_id("rv-detect-open").click()
     page.get_by_role("dialog").wait_for()
+    page.wait_for_timeout(400)                # dialogs fade in: colours are only final after that
     axe(page, "Review: detection settings dialog")
     page.keyboard.press("Escape")
     page.get_by_test_id("batch-keep").click()
     page.get_by_role("alertdialog").wait_for()
+    page.wait_for_timeout(400)                # dialogs fade in: colours are only final after that
     axe(page, "Review: a confirm dialog")
     page.get_by_test_id("confirm-no").click()
     screen("#exports", "Exports", "[data-testid=export-row]")
