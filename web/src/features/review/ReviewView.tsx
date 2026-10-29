@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, Job, JobStarted, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
+import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, Job, JobStarted, LiveView, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
@@ -19,7 +19,8 @@ import { applied, fixSpans, flaggedList, isFlagged, previewPlan, FIX_LABEL } fro
 import { ContentCheck, type Proposal } from './ContentCheck'
 import { Timeline, type TimelineHandle } from './Timeline'
 import { Overview } from './Overview'
-import { filterFor } from './streamMap'
+import { filterFor, type Span } from './streamMap'
+import { LiveHead } from './LiveHead'
 import { DeepBox, type Detect, DetectDialog, HeadFacts, TitleChoices } from './StreamTools'
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]
@@ -36,27 +37,36 @@ const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const save = (c: Clip) => { api(Ok, '/api/clip_state', snapshot(c)).catch(() => {}) }
 const feedback = (c: Clip, action: string, extra: object = {}) => { api(Ok, '/api/feedback', { pid: c.pid, clip: c.id, action, ...extra }).catch(() => {}) }
 
-/** Review: #review lists the videos open now; #review/<project> reviews one. */
-export function ReviewView({ pid, whisper = true }: { pid: string | undefined; whisper?: boolean }) {
-  return pid ? <Workspace key={pid} pid={pid} whisper={whisper} /> : <Picker />
+/** Review: #review lists the videos open now; #review/<project> reviews one, #review/live/<session> a live session. */
+export function ReviewView({ pid, live = false, whisper = true }: { pid: string | undefined; live?: boolean; whisper?: boolean }) {
+  return pid ? <Workspace key={`${live}:${pid}`} pid={pid} live={live} whisper={whisper} /> : <Picker />
 }
 
 function Picker() {
   const src = usePoll(useCallback(() => api(Sources, '/api/sources'), []), 5000)
   const ready = (src.data?.items ?? []).filter(x => x.type === 'vod' && x.status === 'done' && x.pid)
+  const lives = (src.data?.items ?? []).filter(x => x.type === 'live' && x.id)
   return (
     <section className="rv-pick" data-testid="review-picker">
       <h1>Review</h1>
       {ready.length ? (
         <ul className="rv-open">
           {ready.map(x => <li key={x.id}><a className="btn" href={`#review/${x.pid}`}>{x.title || x.source}</a></li>)}
+          {lives.map(x => <li key={x.id}><a className="btn" href={`#review/live/${x.id}`}>Live: {x.title || x.source}</a></li>)}
         </ul>
+      ) : lives.length ? (
+        <ul className="rv-open">{lives.map(x => <li key={x.id}><a className="btn" href={`#review/live/${x.id}`}>Live: {x.title || x.source}</a></li>)}</ul>
       ) : <p className="muted">No video is open. Find clips in a video on <a href="#home">Home</a>, then review them here.</p>}
     </section>
   )
 }
 
-function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
+function Workspace({ pid, live: isLive, whisper }: { pid: string; live: boolean; whisper: boolean }) {
+  const [live, setLive] = useState<LiveView>()
+  // a live moment's times are in its own file: where each starts in the stream, kept from when it arrived
+  const offs = useRef(new Map<string, number>())
+  const noteOff = (x: Clip) => { if (!offs.current.has(keyOf(x))) offs.current.set(keyOf(x), x.abs_start != null ? x.abs_start - x.start : 0) }
+  const span: Span = x => { const o = offs.current.get(keyOf(x)) ?? 0; return [x.start + o, x.end + o] }
   const [tab, setTab] = useState<'clip' | 'captions' | 'text' | 'layout'>('clip')
   const [now, setNow] = useState(0)
   const [flagFilter, setFlagFilter] = useState('all')
@@ -133,7 +143,58 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     }))
   }, [])
 
+  useEffect(() => {                                  // a live session: its moments, as one stream
+    if (!isLive) return
+    api(LiveView, `/api/live/${pid}`).then(v => {
+      const cs = v.clips.map(prep)
+      cs.forEach(noteOff)
+      setLive(v)
+      setMeta(Project.parse({ pid, title: v.channel || v.title, duration: Math.max(1, v.recorded), curve: v.curve }))
+      setClips(cs)
+      if (v.hands_free) setFilter('all')
+      const first = cs.find(c => (v.hands_free || c.state === 'todo'))
+      setCur(first && keyOf(first))
+    }).catch(e => setFailed(err(e)))
+  }, [pid, isLive])
+  useEffect(() => {                                  // new moments, titles and the session's state as it records
+    if (!isLive || !meta) return
+    const t = setInterval(async () => {
+      if (document.hidden) return
+      let v: LiveView
+      try { v = await api(LiveView, `/api/live/${pid}`) } catch { return }
+      setLive(v)
+      setMeta(m => (m ? { ...m, duration: Math.max(1, v.recorded), curve: v.curve } : m))
+      const have = new Set(clipsRef.current.map(keyOf))
+      const fresh = v.clips.filter(s => !have.has(keyOf(s))).map(prep)
+      fresh.forEach(noteOff)
+      const by = new Map(v.clips.map(s => [keyOf(s), s]))
+      setClips(cs => cs.map(c => { const s = by.get(keyOf(c)); return s ? merge(c, s, saveT.current.has(keyOf(c))) : c }).concat(fresh))
+      const last = fresh.at(-1)
+      if (last) {
+        if (curRef.current) toast(`New moment: ${last.title || `clip ${clipsRef.current.length + fresh.length}`}`)
+        else setCur(keyOf(last))
+      }
+    }, 1500)
+    return () => clearInterval(t)
+  }, [isLive, !!meta, pid, toast])
+  async function liveSettings(body: Record<string, unknown>) {
+    setLive(v => (v ? { ...v, ...body } : v))         // shown at once; the session's answer follows
+    try {
+      setLive(await api(LiveView, `/api/live/${pid}/settings`, body))
+      if ('hands_free' in body) toast(body.hands_free ? 'Hands-free is on: new moments render by themselves.' : 'Hands-free is off: new moments wait for you in Review.')
+    } catch (e) { toast(err(e), 'err') }
+  }
+  async function clipNow() {
+    try { await api(Ok, `/api/live/${pid}/clip`, { seconds: 30 }); toast('Clipping the last 30 seconds. It appears in the list in a few seconds.') }
+    catch (e) { toast(err(e), 'err') }
+  }
+  async function stopLive() {
+    if (!await confirm({ title: 'Stop live clipping?', body: 'Recording stops. Moments already found stay here so you can keep reviewing them.', ok: 'Stop', danger: true })) return
+    try { await api(Ok, `/api/live/${pid}/stop`, {}); toast('Stopping…') } catch (e) { toast(err(e), 'err') }
+  }
+
   useEffect(() => {                                  // open the video, and start writing titles
+    if (isLive) return
     api(Project, `/api/project/${pid}`).then(p => {
       const cs = p.clips.concat(p.gems).map(prep)
       setMeta(p)
@@ -150,7 +211,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
       api(Ok, '/api/listen', { pid, order: cs.map(c => c.id), model: o.whisper_model, language: o.language })
         .then(() => setListening(true)).catch(() => {})
     }).catch(e => setFailed(err(e)))
-  }, [pid, toast])
+  }, [pid, isLive, toast])
 
   const deepRunning = deep?.state === 'running'
   useEffect(() => {                                  // titles, captions, checks and quiet gems arrive in the background
@@ -252,6 +313,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
   }
   /** After a trim: a clip cut past the words heard is listened to again, so its captions and title fit. */
   function afterTrim(x: Clip) {
+    if (isLive) return                               // a live session listens to its moments itself
     if (!x.words.length || (x.start >= x.words[0]!.start - 6 && x.end <= x.words.at(-1)!.end + 6)) return
     update(keyOf(x), y => ({ ...y, listened: false }), 'no')
     const o = renderOpts()
@@ -259,13 +321,14 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
   }
   /** Accuracy or language changed: every clip is listened to again. */
   function relisten() {
+    if (isLive) return
     setClips(cs => cs.map(x => ({ ...x, listened: false })))
     api(Ok, '/api/listen', { pid, order: clipsRef.current.map(x => x.id), model: opts.whisper_model, language: opts.language })
       .then(() => setListening(true)).catch(() => {})
   }
   function trim(x: Clip, start: number, end: number, label: string, group?: string): boolean {
     if (x.state === 'kept') return false
-    const b = bounds(x, start, end, meta?.duration ?? x.end)
+    const b = bounds(x, start, end, isLive ? getVideo()?.duration || x.end + 30 : meta?.duration ?? x.end)
     if (!b) return false
     edit(x, label, { ...b, userTrim: true }, group)
     afterTrim({ ...x, ...b })
@@ -495,9 +558,11 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     if (!pick.length) return toast('Nothing in this list needs that.')
     if (!await confirm({ title: `${verb} for ${plural(pick.length, 'clip')}?`, ok: verb, body: what })) return
     try {
-      const r = await api(Rechecked, '/api/check', { pid, ids: pick.map(x => x.id), action, args })
-      const by = new Map(r.clips.map(v => [v.id, v]))
-      setClips(cs => cs.map(x => { const v = by.get(x.id); return v ? { ...x, safety: v.safety ?? x.safety, check: v.check ?? x.check,
+      // a live session's moments are each their own project: one request for each
+      const pids = [...new Set(pick.map(x => x.pid))]
+      const answers = await Promise.all(pids.map(p => api(Rechecked, '/api/check', { pid: p, ids: pick.filter(x => x.pid === p).map(x => x.id), action, args })))
+      const by = new Map<string, (typeof answers)[number]['clips'][number]>(answers.flatMap((r, i) => r.clips.map(v => [`${pids[i]!}:${v.id}`, v] as const)))
+      setClips(cs => cs.map(x => { const v = by.get(keyOf(x)); return v ? { ...x, safety: v.safety ?? x.safety, check: v.check ?? x.check,
         ...(typeof v.state === 'string' ? { state: v.state as Clip['state'] } : {}) } : x }))
       if (action === 'exclude') { epoch.current++; void queue.refresh() }
       toast(`Done for ${plural(pick.length, 'clip')}.`)
@@ -632,6 +697,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
       else if (k === 'ArrowRight') player.current?.seekBy(2)
       else if (k === 't') nextTitle()
       else if (k === 'm') player.current?.toggleMute()
+      else if ((k === 'c' || k === 'C') && isLive) void clipNow()
       else if (k === 'Escape') setExact(null)
     }
     addEventListener('keydown', onKey)
@@ -657,8 +723,11 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
     <section className="review" aria-labelledby="rv-title" data-testid="review">
       <header className="rv-head">
         <h1 id="rv-title" className="ellipsis" title={meta.title}>{meta.title}</h1>
-        <HeadFacts meta={meta} onDetect={() => setDetOpen(true)} />
-        <DeepBox deep={deep} gems={counts.gems} onStart={() => void startDeep()} onStop={() => void stopDeep()} />
+        {live ? <LiveHead live={live} moments={clips.length} onSettings={b => void liveSettings(b)} onClip={() => void clipNow()} onStop={() => void stopLive()} />
+          : <>
+            <HeadFacts meta={meta} onDetect={() => setDetOpen(true)} />
+            <DeepBox deep={deep} gems={counts.gems} onStart={() => void startDeep()} onStop={() => void stopDeep()} />
+          </>}
         {listening && clips.some(x => !x.listened) && <span className="muted small" data-testid="rv-listening">Writing titles ({clips.filter(x => x.listened).length} of {clips.length})</span>}
       </header>
 
@@ -744,7 +813,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
             </>
           ) : c ? (
             <>
-              <Player ref={player} src={c.vod || meta.vod} pid={pid} clipKey={keyOf(c)} start={c.start} end={c.end}>
+              <Player ref={player} src={c.vod || meta.vod} pid={c.pid} clipKey={keyOf(c)} start={c.start} end={c.end}>
                 <Preview clip={shown ?? c} video={getVideo} thumb={c.thumb} opts={opts} marks={marks} safety={safety} replace={replace}
                          track={tracks[trackKey(c, opts)] ?? null} guides={guides}
                          onOpts={(patch, persist) => setOpts(patch, persist)}
@@ -782,7 +851,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
                   <button className="btn sm ghost" onClick={() => timeline.current?.zoom(0.5)} aria-label="Zoom in (+)">+</button>
                   <button className="btn sm ghost" onClick={() => timeline.current?.fit()} title="The whole clip (0)">Fit</button>
                 </div>
-                <Timeline ref={timeline} clip={c} dur={meta.duration} video={getVideo} locked={kept}
+                <Timeline ref={timeline} clip={c} dur={isLive ? getVideo()?.duration || c.end + 30 : meta.duration} video={getVideo} locked={kept}
                           onDrag={(start, end) => {
                             dragFrom.current ??= snapOf(c)
                             update(keyOf(c), y => ({ ...y, start, end, userTrim: true }), 'no')
@@ -846,7 +915,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
               {tab === 'text' && <TextPanel opts={opts} set={setOpts} capPresets={exp.data?.prefs.cap_presets ?? []} whisper={whisper}
                                             guides={guides} onGuides={v => { setGuides(v); setPref('guides', v) }} onRelisten={relisten}
                                             onSavePresets={async l => { await savePresets('cap_presets')(l).catch(e => toast(err(e), 'err')); await exp.refresh() }} />}
-              {tab === 'layout' && <LayoutPanel opts={opts} set={setOpts} pid={pid} frameAt={c.start + (c.end - c.start) * 0.6}
+              {tab === 'layout' && <LayoutPanel opts={opts} set={setOpts} pid={c.pid} frameAt={c.start + (c.end - c.start) * 0.6}
                                                 framePresets={exp.data?.prefs.frame_presets ?? []} trackNote={trackNote(tracks[trackKey(c, opts)])}
                                                 onSavePresets={async l => { await savePresets('frame_presets')(l).catch(e => toast(err(e), 'err')); await exp.refresh() }} />}
               <div className="rv-details" data-testid="rv-details" hidden={tab !== 'clip'}>
@@ -875,7 +944,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
                     <button className="btn sm" disabled={kept || c.titles.length < 2} onClick={nextTitle} title="Another suggested title (T)">Another title</button>
                   </span>
                 </label>
-                <TitleChoices clip={c} name={meta.streamer_name} kept={kept} onName={setStreamer}
+                <TitleChoices clip={c} name={meta.streamer_name} kept={kept} onName={isLive ? undefined : setStreamer}
                               onPick={(t, k) => edit(c, `title ${k}`, { title: t, userTitle: true })} />
                 <label className="fld">Post caption
                   <textarea className="input" rows={3} value={postFor(c, hashtagsOn)} disabled={kept}
@@ -883,7 +952,7 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
                 </label>
                 <div className="row wrap">
                   <button className="btn sm ghost" onClick={() => navigator.clipboard.writeText(postFor(c, hashtagsOn)).then(() => toast('Post caption copied.'), () => toast(postFor(c, hashtagsOn)))}>Copy post caption</button>
-                  <a className="btn sm ghost" href={`/legacy/#open=${pid}/${c.id}`} title="Captions, text style and layout are still in the current UI">Edit in the current UI</a>
+                  <a className="btn sm ghost" href={isLive ? `/legacy/#live=${pid}` : `/legacy/#open=${pid}/${c.id}`} title="Captions, text style and layout are still in the current UI">Edit in the current UI</a>
                 </div>
 
                 <p className="muted small">Keys: Enter keep · X skip · ↑ ↓ clips · Space play · ← → 2 s · T another title · M mute · I / O start / end here · , . frame · [ ] clip edges · Ctrl+Z undo</p>
@@ -894,17 +963,18 @@ function Workspace({ pid, whisper }: { pid: string; whisper: boolean }) {
               <p>{clips.length ? `${plural(done, 'clip')} kept, ${counts.skipped} skipped.` : 'Nothing stood out in this video.'}</p>
               <div className="row wrap">
                 {counts.skipped > 0 && <button className="btn" onClick={() => { setFilter('skipped'); select(visible(clips, 'skipped')[0]) }}>Review the skipped ones</button>}
-                <button className="btn" onClick={suggestMore} data-testid="rv-more">Suggest 5 more</button>
+                {!isLive && <button className="btn" onClick={suggestMore} data-testid="rv-more">Suggest 5 more</button>}
                 {done > 0 && <a className="btn primary" href="#exports">Go to Exports</a>}
               </div>
             </div>
           )}
         </div>
       </div>
-      <Overview clips={clips} curve={meta.curve} dur={meta.duration} cur={cur} free={free != null}
-                playhead={() => { const v = getVideo(); return v && (free != null || c) ? v.currentTime : null }}
+      <Overview clips={clips} curve={meta.curve} dur={meta.duration} cur={cur} free={free != null} span={span}
+                {...(live ? { live: { recording: live.status === 'recording' } } : {})}
+                playhead={() => { const v = getVideo(); return v && (free != null || c) ? v.currentTime + (c && free == null ? span(c)[0] - c.start : 0) : null }}
                 onClip={x => { const f = filterFor(x, filter); if (f !== filter) setFilter(f); select(x) }}
-                onPreview={previewAt} />
+                onPreview={t => (isLive ? toast("In live mode, use Clip last 30s to grab something that isn't highlighted.") : previewAt(t))} />
       {detOpen && <DetectDialog meta={meta} count={String(getPref('count2', '0'))} length={String(getPref('length2', '0'))} cw={Number(getPref('cw', 60))}
                                 onClose={() => setDetOpen(false)}
                                 onTry={async (d, w, n, l) => {

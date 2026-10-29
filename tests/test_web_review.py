@@ -424,6 +424,45 @@ with sync_playwright() as pw:
     else:
         check("clips have title choices to pick from", False, "no title_a on any clip")
 
+    # a live session: the real /api/live routes on a stand-in session whose one moment is this video's first clip
+    class _Sess:
+        id, extra, moments, clipped, stopped = "lv1", {}, [pid], [], []
+        status, frequency, min_quality = "recording", "normal", 0
+
+        def public(self):
+            return {"id": self.id, "channel": "testchannel", "title": "Test live", "status": self.status, "recorded": 300.0,
+                    "curve": [1.0] * 60, "chat_per_min": 12, "chat_connected": True, "chat_state": "ok", "chat_delay": 3.0,
+                    "frequency": self.frequency, "min_quality": self.min_quality, "forming": [], "latency": {}, "skipped": {}}
+
+        def clip_now(self, seconds):
+            self.clipped.append(seconds)
+
+        def set_frequency(self, level):
+            self.frequency = level
+
+        def stop(self):
+            self.stopped.append(True)
+            self.status = "stopped"
+    sess = _Sess()
+    server.live_sessions[sess.id] = sess
+    page.goto(url + "/next/#review/live/lv1")
+    page.get_by_test_id("rv-live").wait_for(timeout=15000)
+    check("a live session opens in the new Review", page.get_by_role("heading", name="testchannel").count() == 1
+          and page.get_by_test_id("rv-live-state").inner_text() == "Live")
+    page.get_by_role("tab", name="All").click()
+    check("its moment is listed", page.locator("[data-testid=rv-row]").count() == 1)
+    page.get_by_test_id("rv-live-clip").click()
+    check("Clip last 30s asks the session for a clip", wait_until(lambda: sess.clipped == [30.0]), sess.clipped)
+    page.get_by_label("How many clips to make").select_option("more")
+    check("how many clips is changed on the session", wait_until(lambda: sess.frequency == "more"), sess.frequency)
+    page.get_by_test_id("rv-live-auto").check()
+    check("Hands-free is switched on for the session", wait_until(lambda: sess.extra.get("auto_render") is True), sess.extra)
+    page.get_by_test_id("rv-live-stop").click()
+    page.get_by_role("alertdialog").get_by_role("button", name="Stop").click()
+    check("Stop stops it, after asking", wait_until(lambda: sess.stopped == [True]))
+    check("and the header says so", wait_until(lambda: page.get_by_test_id("rv-live-state").inner_text() == "Stopped", 5))
+    del server.live_sessions[sess.id]
+
     if os.environ.get("CLIPRADAR_SHOT_WIDE"):
         page.screenshot(path=os.environ["CLIPRADAR_SHOT_WIDE"])
     # narrow window: no sideways scrolling

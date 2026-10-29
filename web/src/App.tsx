@@ -17,10 +17,11 @@ const VIEWS = [
 ] as const
 type ViewId = (typeof VIEWS)[number]['id']
 
-/** #review/<project id> is Review on that video */
-function routeFromHash(): { view: ViewId; pid: string | undefined } {
-  const [h = '', pid] = location.hash.replace(/^#\/?/, '').split('/')
-  return { view: VIEWS.find(v => v.id === h)?.id ?? 'home', pid: pid && /^\w+$/.test(pid) ? pid : undefined }
+/** #review/<project id> is Review on that video, #review/live/<session id> on a live session */
+function routeFromHash(): { view: ViewId; pid: string | undefined; live: boolean } {
+  const parts = location.hash.replace(/^#\/?/, '').split('/')
+  const live = parts[1] === 'live', pid = live ? parts[2] : parts[1]
+  return { view: VIEWS.find(v => v.id === parts[0])?.id ?? 'home', pid: pid && /^\w+$/.test(pid) ? pid : undefined, live }
 }
 
 const loadStatus = () => api(Status, '/api/status')
@@ -57,7 +58,7 @@ export function App() {
       </nav>
       <main className="main">
         {current.id === 'home' ? <HomeView status={status.data} refreshStatus={status.refresh} />
-          : current.id === 'review' ? <ReviewView pid={route.pid} whisper={status.data?.whisper !== false} />
+          : current.id === 'review' ? <ReviewView pid={route.pid} live={route.live} whisper={status.data?.whisper !== false} />
           : current.id === 'exports' ? <ExportsView />
           : <SettingsView status={status.data} refreshStatus={status.refresh} />}
       </main>

@@ -439,6 +439,7 @@ export const Clip = z.looseObject({
   words: z.array(Word).default([]), words_edit: z.array(Word).optional(), wordsOrig: z.array(Word).optional(),
   fps: z.number().default(30), orig: z.tuple([z.number(), z.number()]).optional(),
   title_a: z.string().optional(), title_b: z.string().optional(), title_b_named: z.boolean().optional(),
+  abs_start: z.number().optional(),            // a live moment: where it starts in the stream
   safety: z.looseObject({ enabled: z.boolean().optional(), status: z.string().optional(), level: z.string().optional(),
     flags: z.array(Flag).default([]), open: z.number().default(0) }).optional(),
   check: z.looseObject({ excluded: z.boolean().default(false), fixes: z.array(z.unknown()).default([]) }).optional(),
@@ -477,6 +478,20 @@ export type Project = z.infer<typeof Project>
 
 export const ClipsUpdate = z.looseObject({ clips: z.array(Clip).default([]), gems: z.array(Clip).default([]), listening: z.boolean().default(false),
   deep: DeepStatus.optional() })
+/** A live session as Review shows it (/api/live/<id>): its state, the stream's hype so far, the moments clipped. */
+export const LiveView = z.looseObject({
+  id: z.string(), channel: z.string().default(''), title: z.string().default(''), status: z.string().default('starting'),
+  error: z.string().nullish(), recorded: z.number().default(0), curve: z.array(z.number()).default([]),
+  chat_per_min: z.number().default(0), chat_connected: z.boolean().default(false), chat_state: z.string().default(''),
+  chat_delay: z.number().default(0), delay_auto: z.boolean().default(false), delay_sure: z.boolean().default(false),
+  in_ad: z.boolean().default(false), ads_skipped: z.number().default(0), frequency: z.string().default('normal'),
+  min_quality: z.number().default(0), hands_free: z.boolean().default(false), listening: z.boolean().default(false),
+  forming: z.array(z.looseObject({ at: z.number(), quality: z.number().default(0) })).default([]),
+  latency: z.record(z.string(), z.number()).default({}),
+  skipped: z.record(z.string(), z.number()).default({}),
+  clips: z.array(Clip).default([]),
+})
+export type LiveView = z.infer<typeof LiveView>
 /** Detection settings › Try: what other settings would suggest, next to the list you have. */
 export const Compared = z.looseObject({ count: z.number().default(0), same: z.number().default(0), added: z.number().default(0),
   dropped: z.number().default(0), text: z.string().default(''),

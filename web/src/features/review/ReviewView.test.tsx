@@ -180,6 +180,39 @@ describe('Review', () => {
     await waitFor(() => expect(screen.queryByTestId('rv-exact')).toBeNull())
   })
 
+  it('a live session: new moments arrive, Clip last 30s, Hands-free and Stop', async () => {
+    const base = fetch as unknown as (p: string, i?: RequestInit) => Promise<Response>
+    const moment = (id: number, pid: string, abs: number) => ({ id, pid, start: 5, end: 20, abs_start: abs, title: `Moment ${id}`, vod: `/vod/${pid}`, listened: true })
+    let clips = [moment(1, 'm1', 60)]
+    let hands = false
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, any> : undefined
+      if (path.startsWith('/api/live/s1')) {
+        calls.push([path, body])
+        if (path.endsWith('/settings')) hands = !!body!.hands_free
+        if (path.endsWith('/clip') || path.endsWith('/stop')) return new Response(JSON.stringify({ ok: true }))
+        return new Response(JSON.stringify({ id: 's1', channel: 'somechannel', status: 'recording', recorded: 300, curve: [1, 2, 3],
+          chat_connected: true, chat_per_min: 42, chat_state: 'ok', hands_free: hands, clips }))
+      }
+      return base(path, init)
+    }))
+    render(<ToastProvider><ConfirmProvider><ReviewView pid="s1" live /></ConfirmProvider></ToastProvider>)
+    expect(await screen.findByRole('heading', { name: 'somechannel' })).toBeTruthy()
+    expect(screen.getByTestId('rv-live-state').textContent).toBe('Live')
+    await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Moment 1'))
+    clips = [...clips, moment(1, 'm2', 200)]
+    await waitFor(() => expect(screen.getAllByTestId('rv-row')).toHaveLength(2), { timeout: 3000 })
+    expect(within(screen.getByTestId('toasts')).getByText('New moment: Moment 1')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('rv-live-clip'))
+    await waitFor(() => expect(posted('/api/live/s1/clip')).toEqual([{ seconds: 30 }]))
+    fireEvent.click(screen.getByTestId('rv-live-auto'))
+    await waitFor(() => expect(posted('/api/live/s1/settings')).toEqual([{ hands_free: true }]))
+    fireEvent.click(screen.getByTestId('rv-live-stop'))
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Stop' }))
+    await waitFor(() => expect(posted('/api/live/s1/stop')).toEqual([{}]))
+    expect(screen.queryByTestId('rv-detect-open')).toBeNull()
+  })
+
   it('a video that is not open any more says how to get it back', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'This session expired. Press Find clips again.' }), { status: 404 })))
     renderReview()

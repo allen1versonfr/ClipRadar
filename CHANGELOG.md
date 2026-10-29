@@ -6,10 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- New UI, Review: **live sessions** (`#review/live/<session>`, also listed under Review). The session's state, what's recorded, chat per minute, moments and ads skipped; lowest score, how many clips, Hands-free, Clip last 30s (C) and Stop; new moments appear as they're clipped, and the overview shows the whole stream so far with the live edge.
 - New UI, Review: **Exact preview**. A few seconds around the playhead rendered exactly like the export, played over the preview until you close it (or press Esc).
 
 ### Tests
-- `web/`: 124 Vitest tests. `tests/test_web_review.py` makes an exact preview and closes it.
+- `web/`: 127 Vitest tests. `tests/test_web_review.py` makes an exact preview and closes it, and opens a live session on the real `/api/live` routes (Clip last 30s, how many clips, Hands-free, Stop).
 
 ## [4.22.0] - 2026-10-29
 

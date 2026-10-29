@@ -64,7 +64,9 @@ export function DeepBox({ deep, gems, onStart, onStop }: { deep: DeepStatus | un
 
 /** Title A (from what was said) or B (with the streamer's name), and that name. */
 export function TitleChoices({ clip: c, name, kept, onPick, onName }: {
-  clip: Clip; name: string; kept: boolean; onPick: (t: string, which: 'A' | 'B') => void; onName: (name: string) => Promise<boolean>
+  clip: Clip; name: string; kept: boolean; onPick: (t: string, which: 'A' | 'B') => void
+  /** the streamer's name can be set (a VOD; a live session has the channel's) */
+  onName: ((name: string) => Promise<boolean>) | undefined
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(name)
@@ -78,7 +80,7 @@ export function TitleChoices({ clip: c, name, kept, onPick, onName }: {
     <div className="topts" data-testid="rv-title-opts">
       {chip('A', c.title_a, '')}
       {c.title_b && c.title_b !== c.title_a && chip('B', c.title_b, c.title_b_named ? '' : 'no streamer name yet')}
-      {editing ? (
+      {!onName ? null : editing ? (
         <form className="row" onSubmit={async e => { e.preventDefault(); if (await onName(draft.trim())) setEditing(false) }}>
           <input className="input" autoFocus value={draft} maxLength={40} aria-label="The streamer's name as it should appear in titles"
                  placeholder="For example JasonTheWeen" onChange={e => setDraft(e.target.value)} data-testid="rv-streamer-input" />

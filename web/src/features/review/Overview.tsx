@@ -1,21 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Clip } from '../../api/schemas'
 import { fmt, isGem, keyOf } from './model'
-import { clipAt, heatLevel, markers } from './streamMap'
+import { clipAt, heatLevel, markers, ownSpan, type Span } from './streamMap'
 
 const accent = (el: Element) => getComputedStyle(el).getPropertyValue('--accent').trim() || '#2fe36f'
 const rgba = (hex: string, a: number) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})` }
 
 /** The whole stream under the player: how hyped each moment was, and where the clips are. Click a clip to
  *  open it, anywhere else to preview that moment (the original page's timeline dock). */
-export function Overview({ clips, curve, dur, cur, free, playhead, onClip, onPreview }: {
+export function Overview({ clips, curve, dur, cur, free, playhead, onClip, onPreview, span = ownSpan, live }: {
   clips: Clip[]; curve: number[]; dur: number; cur: string | undefined; free: boolean
   playhead: () => number | null; onClip: (c: Clip) => void; onPreview: (t: number) => void
+  /** where a clip is in the stream; a live session also marks the live edge while it records */
+  span?: Span; live?: { recording: boolean }
 }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const [hover, setHover] = useState<{ x: number; text: string } | null>(null)
-  const args = useRef({ clips, curve, dur, cur, free, playhead })
-  args.current = { clips, curve, dur, cur, free, playhead }
+  const args = useRef({ clips, curve, dur, cur, free, playhead, span, live })
+  args.current = { clips, curve, dur, cur, free, playhead, span, live }
   const dirty = useRef(true)
   dirty.current = true                               // what's drawn changed: drawn on the next frame
 
@@ -24,7 +26,7 @@ export function Overview({ clips, curve, dur, cur, free, playhead, onClip, onPre
     const draw = () => {
       const el = ref.current
       if (!el) return
-      const { clips, curve, dur, cur, free, playhead } = args.current
+      const { clips, curve, dur, cur, free, playhead, span, live } = args.current
       const ph = playhead()
       const Wd = el.clientWidth, Ht = el.clientHeight
       if (!Wd || !Ht) return
@@ -37,7 +39,7 @@ export function Overview({ clips, curve, dur, cur, free, playhead, onClip, onPre
       g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, Wd, Ht)
       const D = Math.max(1, dur), n = curve.length, base = Ht - 14, acc = accent(el)
       for (const c of clips) {                         // clip ranges
-        const a = c.start / D * Wd, b = Math.max(a + 2, c.end / D * Wd), on = keyOf(c) === cur && !free
+        const [sa, sb] = span(c), a = sa / D * Wd, b = Math.max(a + 2, sb / D * Wd), on = keyOf(c) === cur && !free
         g.fillStyle = on ? rgba(acc, 0.18) : c.state === 'kept' ? rgba(acc, 0.07) : c.state === 'skipped' ? 'rgba(255,255,255,.025)'
           : isGem(c) ? 'rgba(201,167,255,.10)' : 'rgba(255,255,255,.06)'
         g.fillRect(a, 0, b - a, base)
@@ -50,11 +52,12 @@ export function Overview({ clips, curve, dur, cur, free, playhead, onClip, onPre
         g.fillRect(i * bw, base - h, Math.max(1, bw - (bw > 3 ? 1 : 0)), h)
       }
       g.font = '600 10.5px Inter, system-ui, sans-serif'; g.textAlign = 'center'
-      for (const { c, x, label } of markers(clips, cur, D, Wd)) {
+      for (const { c, x, label } of markers(clips, cur, D, Wd, span, !!live)) {
         g.fillStyle = keyOf(c) === cur && !free ? '#e9eaed' : c.state === 'kept' ? acc : c.state === 'skipped' ? '#4a4d56' : isGem(c) ? '#c9a7ff' : '#a3a6ae'
         g.fillText(label, x, Ht - 2)
       }
       if (ph != null) { g.fillStyle = '#e9eaed'; g.fillRect(Math.round(ph / D * Wd) - 1, 0, 2, base) }
+      if (live?.recording) { g.fillStyle = '#f2484d'; g.fillRect(Wd - 2, 0, 2, base) }      // the live edge
     }
     let t = 0
     // the playhead moves about four times a second; anything else is drawn on the next frame
@@ -70,10 +73,10 @@ export function Overview({ clips, curve, dur, cur, free, playhead, onClip, onPre
   }
   return (
     <div className="rv-overview" data-testid="rv-overview">
-      <div className="rv-ov-ruler tnum muted small"><span>0:00</span><span>Click a highlighted range to review it, or anywhere else to preview.</span><span>{fmt(dur)}</span></div>
+      <div className="rv-ov-ruler tnum muted small"><span>0:00</span><span>{live ? 'Whole stream so far. Click a moment to review it.' : 'Click a highlighted range to review it, or anywhere else to preview.'}</span><span>{fmt(dur)}</span></div>
       <canvas ref={ref} aria-label="Hype across the stream" data-testid="rv-heat"
-              onClick={e => { const { t } = at(e), hit = clipAt(clips, t); if (hit) onClip(hit); else onPreview(t) }}
-              onMouseMove={e => { const { x, t } = at(e), hit = clipAt(clips, t); setHover({ x, text: hit ? `${fmt(t)}  ${hit.title || 'clip'}` : fmt(t) }) }}
+              onClick={e => { const { t } = at(e), hit = clipAt(clips, t, span); if (hit) onClip(hit); else onPreview(t) }}
+              onMouseMove={e => { const { x, t } = at(e), hit = clipAt(clips, t, span); setHover({ x, text: hit ? `${fmt(t)}  ${hit.title || 'clip'}` : fmt(t) }) }}
               onMouseLeave={() => setHover(null)} />
       {hover && <div className="rv-ov-tag tnum" style={{ left: hover.x }}>{hover.text}</div>}
     </div>
