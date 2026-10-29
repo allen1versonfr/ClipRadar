@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Clip } from '../../api/schemas'
 import { fmt, isGem, keyOf } from './model'
-import { clipAt, heatLevel, markers } from './overview'
+import { clipAt, heatLevel, markers } from './streamMap'
 
 const accent = (el: Element) => getComputedStyle(el).getPropertyValue('--accent').trim() || '#2fe36f'
 const rgba = (hex: string, a: number) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})` }

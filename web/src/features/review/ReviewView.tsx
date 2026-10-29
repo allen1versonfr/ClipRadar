@@ -19,7 +19,7 @@ import { applied, fixSpans, flaggedList, isFlagged, previewPlan, FIX_LABEL } fro
 import { ContentCheck, type Proposal } from './ContentCheck'
 import { Timeline, type TimelineHandle } from './Timeline'
 import { Overview } from './Overview'
-import { filterFor } from './overview'
+import { filterFor } from './streamMap'
 import { DeepBox, type Detect, DetectDialog, HeadFacts, TitleChoices } from './StreamTools'
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Clip } from '../../api/schemas'
-import { clipAt, filterFor, heatLevel, markers } from './overview'
+import { clipAt, filterFor, heatLevel, markers } from './streamMap'
 import { trimNote } from './StreamTools'
 
 const clip = (id: number, start: number, extra: Record<string, unknown> = {}) => Clip.parse({ id, pid: 'p', start, end: start + 10, ...extra })
