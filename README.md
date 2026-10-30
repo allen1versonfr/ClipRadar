@@ -1,19 +1,17 @@
-<p align="center">
-  <img src="docs/images/banner.png" alt="Clip Radar: find the best moments in your Twitch streams and turn them into ready-to-post TikToks" width="100%">
-</p>
+<h1 align="center">Clip Radar</h1>
+<p align="center"><strong>Turn streams and videos into ready-to-post vertical clips — on Windows.</strong></p>
 
 <p align="center">
   <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.27.0" src="https://img.shields.io/badge/version-4.27.0-ffd21f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-keep%20a%20changelog-1f2329?style=flat-square"></a>
+  <a href="CHANGELOG.md"><img alt="Release notes" src="https://img.shields.io/badge/release-notes-1f2329?style=flat-square"></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest/download/ClipRadar-Setup.exe"><b>Download for Windows</b></a>
-  &nbsp;·&nbsp;
-  <a href="https://github.com/allen1versonfr/ClipRadar_macOs"><b>macOS port and downloads</b></a>
+
   &nbsp;·&nbsp;
   <a href="#features">Features</a>
   &nbsp;·&nbsp;
@@ -26,9 +24,17 @@
 
 Clip Radar watches a Twitch stream the way your chat does. It finds the moments where chat explodes and the audio spikes, cuts them into vertical 9:16 clips with captions and a title, and lets you review and post them to TikTok. It works on a past broadcast, or live while you're still streaming. Everything runs on your own PC.
 
-<p align="center">
-  <img src="docs/images/review.png" alt="Reviewing suggested clips in a 9:16 phone preview" width="100%">
-</p>
+## Latest Windows release: 4.26
+
+The redesigned Windows interface became the default in v4.25. The latest update improves everyday workflows:
+
+- **Review keeps your place** when you switch screens, including the selected clip, editing tab and undo history.
+- **Editing controls return beside the preview**, with a clearer clip panel and timeline.
+- **Settings is organized into groups with search** for faster navigation.
+- **TikTok actions are up front in Exports**: Upload to TikTok, Open TikTok Studio and Copy caption.
+- **The previous UI remains available** under Settings › About.
+
+[Full release notes](CHANGELOG.md#4260---2026-10-29) · [All releases](https://github.com/allen1versonfr/ClipRadar/releases)
 
 ## Features
 
@@ -68,6 +74,14 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
 
 ## Screenshots
 
+> [!NOTE]
+> These are archived screenshots of the previous interface, **not the current v4.26 Windows UI**. The redesigned interface has been the default since v4.25. Updated screenshots should be captured from a current Windows release.
+
+<details>
+<summary><strong>View previous-interface screenshots</strong></summary>
+
+<p><img src="docs/images/review.png" alt="Archived Review screen from the previous interface" width="100%"></p>
+
 <table>
   <tr>
     <td width="50%"><img src="docs/images/live.png" alt="Hands-free live clipping: moments are titled, checked and rendered while the stream runs"><p align="center"><sub><b>Hands-free live:</b> clips render on their own while you watch</sub></p></td>
@@ -82,6 +96,8 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
     <td width="50%"><img src="docs/images/captions.png" alt="Captions tab: fixing a caption line by typing"><p align="center"><sub><b>Captions:</b> fix what was heard, line by line</sub></p></td>
   </tr>
 </table>
+
+</details>
 
 ## Install
 
@@ -109,9 +125,9 @@ Clips are saved to `Videos\Clip Radar`. The full guide ships with the app as `RE
 
 ## Posting to TikTok
 
-Clip Radar gets each clip ready and you post it in **TikTok Studio**, TikTok's own upload page, so there's no developer app to set up. In Exports, select a clip, check the caption, and press **Open in TikTok Studio**. The caption (with your post hashtags) is copied, the video is selected in File Explorer to drag into the page, and TikTok Studio opens in your browser.
+Exports offers **Open TikTok Studio** for manual posting: it copies the caption, selects the video in File Explorer and opens TikTok Studio in your browser.
 
-Clip Radar can't see your browser, so it only ever says it opened TikTok Studio, never that a clip was posted. Earlier versions posted through TikTok's developer API; that sign-in is removed from your PC when you update.
+**Upload to TikTok** can also fill in the video and caption in Clip Radar’s own TikTok window. You can finish the post yourself, or opt in to **Press Post for me**. Automated posting may be affected by changes to TikTok’s site or its terms. Clip Radar only marks a post as completed after TikTok confirms it.
 
 ## Building from source
 
@@ -152,7 +168,8 @@ src/
   hotkey.py       Ctrl+Alt+C clip hotkey on Windows
   updater.py      in-app updates from GitHub releases
   tools_setup.py  downloads FFmpeg, yt-dlp and TwitchDownloader
-  ui/             HTML/CSS/JS interface, Inter and caption fonts (OFL / Apache)
+  ui/             previous HTML/CSS/JS interface and bundled fonts
+web/              current React/TypeScript interface (default since v4.25)
 scripts/          install, run and build scripts
 installer/        Inno Setup script
 tests/            unit tests, and end-to-end tests with a fake Twitch chat and mock Twitch and GitHub APIs
