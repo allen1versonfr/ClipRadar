@@ -5,6 +5,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.32.0] - 2026-10-30
+
+Finding clips is better at telling a real moment from a busy chat: it reads how chat reacts in many more ways, chat answering a question no longer passes for a moment, and a moment where the streamer and chat react together ranks higher. On simulated 3-hour streams with decoys, it found 98-100% of the real moments, against 71-92% before.
+
+### Changed
+- **Chat is read better.**
+  - Laughter typed out counts as a reaction in the languages chat is in: "hahaha", "hehehe", "jajaja" (Spanish), "kkkkk" (Portuguese), "wwww" and "草" (Japanese), "ㅋㅋㅋ" (Korean), "хахаха" (Russian), "mdr" and "ptdr" (French), "哈哈哈", "XDDD", "LOOOL", "LMFAOOO". Before, all of these counted like "hello".
+  - Stretched words count like the word: "LMAOOOO", "POGGGG", "KEKWWW", "LETSGOOOO", "WTFFFF". Ordinary words react only when stretched: "noooo", "whaaat", "yesss" count, "no", "what" and "yes" don't.
+  - More reactions: 😭, 🤯, "NO SHOT", "oh my god", "holy", "sheesh", "bruh", "huh", and a whole message in capitals ("WHY WOULD YOU DO THAT").
+  - One message repeating itself ("KEKW KEKW KEKW KEKW KEKW KEKW") counts a little more than one KEKW, not six times as much: it's one person.
+- **Chat answering a question counts for less.** When the streamer asks chat something, everyone answers ("germany", "texas", "2 hours ago") and chat surges with nothing to clip. Clip Radar now looks at what the extra chat in a surge is made of: when it's plain talk, well beyond how much this chat usually just talks, chat and its speeding up count for as little as a third. A chat that rarely uses emotes isn't marked down for it, and 7TV/BTTV/FFZ emotes count as reactions. The score breakdown shows it as **Chat just talking**. Live clipping does the same.
+- **Chat and the stream agreeing counts for more.** When the streamer laughs, screams or gets loud and chat reacts to it within 10 seconds, the moment gets a bonus (**Chat and stream agree** in the score breakdown), weighted by stream type (more for Gaming and Reactions, less for Interviews and Podcasts). A loud song or chat reacting alone gets nothing from it, and nothing is taken away from them. Ordinary ups and downs in loudness don't count: the sound must clearly stand out.
+- Detection is now v3. A video's analysis is worked out again the first time it's opened (chat is read differently), and clips found again with Find clips use the new rules; clips already in a project stay as they are.
+
+### Tests
+- `tests/test_reactions.py` (new, in CI): laughter in 20 forms, stretched and plain words, repeats in one message, capitals; plain talk counting for less and reactions in full, also in a chat that only ever talks; agreement for a laugh with chat, none for a loud song, ordinary sound, or chat alone; the cache keeping what talk needs; 3-hour simulated streams with real moments and decoys (chat answering a question with more people than any real moment, loud songs, blips, a spammer), with chat laughing in many ways and with the usual emotes; and live clipping of the same. On those streams the old rules found 71% and 92% of the real moments and picked 15 and 4 question decoys; the new ones find 100% and 98% and pick none. That's a simulation made for this, not real streams.
+- Reading chat is about 15% slower (100,000 messages: 0.97 s to 1.12 s).
+
 ## [4.31.0] - 2026-10-30
 
 Ordinary YouTube videos open sooner (nothing waits for the download any more, and nothing is downloaded twice), and a clip in Review that stayed blank, sound but no picture, now plays.

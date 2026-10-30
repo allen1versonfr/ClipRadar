@@ -12,6 +12,7 @@ Pipeline
 from __future__ import annotations
 
 import bisect
+import functools
 import json
 import math
 import os
@@ -1498,6 +1499,42 @@ HYPE = {
     "clip": 3.0, "clipit": 3.0, "clipped": 2.5,
 }
 _TOKEN = re.compile(r"[\w:]+|[^\w\s]")
+# 4.32: more of how chat reacts. Kept apart from HYPE, which chat titles also use as words to leave out.
+REACT = {
+    "😭": 1.5, "😹": 1.2, "🤯": 1.3, "😳": 1.0, "omfg": 1.5, "rofl": 1.5, "sheesh": 1.3, "holy": 1.2,
+    "bruh": 0.8, "huh": 1.0, "wow": 1.0, "ww": 1.0, "l": 0.8,
+}
+# ordinary words that react only when stretched: "noooo", "whaaat", "yesss", "gooo", "brooo", "ohhh"
+STRETCHED = {"no": 1.5, "what": 1.2, "yes": 1.0, "go": 1.0, "bro": 0.8, "oh": 0.8}
+REACT_PHRASES = (("no shot", 1.5), ("im dead", 1.2), ("i'm dead", 1.2), ("i cant", 1.0), ("i can't", 1.0),
+                 ("holy shit", 0.8), ("oh my god", 1.3))
+# laughter typed out, in the languages Twitch and YouTube chat is in: hahaha, hehehe, LMAOOO, LOOOL, XDDD,
+# jajaja (Spanish), kkkkk / kakaka (Portuguese), wwww / 草 (Japanese), ㅋㅋㅋ (Korean), хахаха (Russian),
+# mdr / ptdr (French), jsjsjs, 哈哈哈 (Chinese)
+LAUGH_TEXT = re.compile(
+    r"^(?:a?(?:ha){2,}h?|a?(?:ah){2,}a?|(?:he){3,}h?|(?:hi){3,}|(?:ja){2,}j?|(?:je){3,}|(?:ka){3,}|k{4,}|w{4,}|"
+    r"l+m+f*a+o+|lo{2,}l|lu{2,}l|x+d{2,}|ro+fl|ptdr|mdr|(?:js){3,}|(?:sk){3,}|[хx]?(?:[хx]а){2,}|(?:ㅋ){3,}|(?:ㅎ){3,}|"
+    r"草+|(?:哈){2,}|(?:笑){2,})$")
+_STRETCH = re.compile(r"(\w)\1{2,}")
+TOKEN_REPEAT = 0.3          # the same reaction again in one message ("KEKW KEKW KEKW"): each one after the first
+
+
+@functools.lru_cache(maxsize=1 << 16)          # chat repeats the same few thousand tokens all stream
+def _react_points(tok: str) -> float:
+    """What one token says about how chat is reacting (0 for ordinary words)."""
+    v = HYPE.get(tok) or REACT.get(tok)
+    if v:
+        return v
+    if LAUGH_TEXT.match(tok):
+        return 1.5
+    if _STRETCH.search(tok):
+        short = _STRETCH.sub(r"\1", tok)       # "lmaoooo" -> "lmao", "poggg" -> "pog", "noooo" -> "no"
+        v = HYPE.get(short) or REACT.get(short) or STRETCHED.get(short)
+        if v:
+            return v
+        if LAUGH_TEXT.match(short):
+            return 1.5
+    return 0.0
 
 
 def chat_weight(text: str) -> float:
@@ -1507,14 +1544,32 @@ def chat_weight(text: str) -> float:
         w += 3.0
     if "no way" in t or "lets go" in t or "let's go" in t:
         w += 1.5
+    for p, v in REACT_PHRASES:
+        if p in t:
+            w += v
+            break
+    seen: dict = {}
     for tok in _TOKEN.findall(t):
-        if tok in HYPE:
-            w += HYPE[tok]
+        v = _react_points(tok)
+        if v <= 0:
+            continue
+        key = _STRETCH.sub(r"\1", tok)
+        k = seen[key] = seen.get(key, 0) + 1
+        w += v if k == 1 else v * TOKEN_REPEAT if k <= 3 else 0.0
     if "???" in t:
         w += 1.0
     if re.search(r"(\w)\1{4,}", t):  # "LETSGOOOOO", "AAAAAA"
         w += 0.8
+    if not seen and len(text) >= 6 and text != t:
+        letters = [c for c in text if c.isalpha()]
+        if len(letters) >= 6 and sum(c.isupper() for c in letters) >= 0.85 * len(letters):
+            w += 0.5                      # shouting in capitals: "WHY WOULD YOU DO THAT"
     return min(w, 8.0)
+
+
+def is_reaction(text: str) -> bool:
+    """A message that reacts (a laugh, hype, shock, a clip request) rather than talks."""
+    return chat_weight(text or "") > 1.0
 
 
 FINE_HZ = 10        # loudness is also kept every 0.1 s, to find pauses between sentences
@@ -1646,6 +1701,7 @@ def _fit(a, n: int, fill: float = 0.0) -> np.ndarray:
 
 # how much a clear laugh / scream / cheer adds to a second's score (scores are roughly z-scores)
 EVENT_WEIGHTS = {"laugh": 4.0, "scream": 3.0, "cheer": 2.0}
+AGREE_WEIGHT = 0.5      # chat and the stream's sound both reacting (detect.agreement), when a preset doesn't say
 
 
 @dataclass
@@ -1676,6 +1732,11 @@ class Analysis:
     comments: Optional[np.ndarray] = None
     comment_people: Optional[np.ndarray] = None
     chapters: Optional[list] = None
+    # 4.32: messages per second and those that were plain talk (shifted by the delay), and how much chat
+    # counts where it's just talking (detect.talk_mult)
+    said_rate: Optional[np.ndarray] = None
+    talk_rate: Optional[np.ndarray] = None
+    talk: Optional[np.ndarray] = None
 
     @property
     def has_events(self) -> bool:
@@ -1707,18 +1768,27 @@ class Analysis:
             # a loud song isn't a moment: play down loudness while music is playing
             music = np.clip(_rolling(_fit(self.events["music"], len(audio)), 5, "mean") - 0.5, 0, 0.5) * 2
             audio = audio * (1 - 0.5 * music)
+        n = len(self.audio_z)
         parts = {"chat": wc * self.chat_z, "audio": (1 - wc) * audio}
         if self.has_events:
             for k in EVENT_WEIGHTS:
                 parts[k] = float(w.get(k, EVENT_WEIGHTS[k])) * self.event_level(k)
-        n = len(self.audio_z)
         for k, arr in (("emotes", self.emote_z), ("surge", self.surge), ("react", self.react)):
             if arr is not None and float(w.get(k, 0)) > 0:
                 parts[k] = float(w[k]) * _fit(arr, n)
+        if self.talk is not None and wc > 0:
+            # chat surging with plain talk (everyone answering a question) isn't chat reacting: what chat
+            # and its speeding up added counts for less, shown as a part of its own
+            chatty = np.clip(parts["chat"], 0, None) + parts.get("surge", 0)
+            parts["talk"] = (chatty * (_fit(self.talk, n, 1.0) - 1)).astype(np.float32)
         import ytextra
         for k, arr, gain in (("replay", self.replay, ytextra.REPLAY_GAIN), ("comments", self.comments, ytextra.COMMENT_GAIN)):
             if arr is not None:
                 parts[k] = float(w.get(k, 1.0)) * gain * _fit(arr, n)
+        ag = float(w.get("agree", AGREE_WEIGHT))
+        if ag > 0 and self.has_chat and self.has_audio and 0 < wc < 1:
+            import detect
+            parts["agree"] = ag * detect.agreement(self)
         s = sum(parts.values())
         if self.noise is not None:
             s = np.where(s > 0, s * _fit(self.noise, n, 1.0), s)
@@ -1736,7 +1806,8 @@ class Analysis:
                        chat_stats=self.chat_stats, weights=self.weights, chat_delay=self.chat_delay,
                        surge=cut(self.surge), emote_z=cut(self.emote_z), emote_rate=cut(self.emote_rate),
                        react=cut(self.react), noise=cut(self.noise), replay=cut(self.replay),
-                       comments=cut(self.comments), comment_people=cut(self.comment_people), chapters=self.chapters)
+                       comments=cut(self.comments), comment_people=cut(self.comment_people), chapters=self.chapters,
+                       said_rate=cut(self.said_rate), talk_rate=cut(self.talk_rate), talk=cut(self.talk))
         sub.combine(self.chat_weight_pct)
         return sub
 
@@ -1776,7 +1847,7 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
         loud = None
     if len(chat) > 20:
         log(f"Reading {len(chat):,} chat messages...")
-    rate = stats = None
+    rate = stats = said = talk = None
     used_delay = 6.0 if chat_delay == "auto" else float(chat_delay)
     sure = chat_delay != "auto"
     if chat_delay == "auto" and chat:
@@ -1784,6 +1855,7 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
         import detect
         progress(sound_share)
         rate0, sc = chat_rate(chat, n, 0.0)
+        said, talk = sc.said_rate, sc.talk_rate
         progress(sound_share + chat_share * 0.5)
         stats = sc.summary()
         az = _audio_z(loud, n) if loud is not None else np.zeros(n, dtype=np.float32)
@@ -1791,8 +1863,10 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
         log(f"Chat reacts about {used_delay:.0f} s after the stream." if sure
             else "Couldn't tell how late chat reacts; assuming 6 s.")
         rate = detect.shift(rate0, used_delay)
+        said, talk = detect.shift(said, used_delay), detect.shift(talk, used_delay)
         progress(sound_share + chat_share * 0.7)
-    an = score_signals(loud, chat, n, dur, used_delay, chat_weight_pct, rate=rate, stats=stats, events=ev, fine=fine)
+    an = score_signals(loud, chat, n, dur, used_delay, chat_weight_pct, rate=rate, stats=stats, events=ev, fine=fine,
+                       said=said, talk=talk)
     an.chat_delay = used_delay
     an.delay_sure = bool(sure)
     st = an.chat_stats or {}
@@ -1810,7 +1884,7 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
 
 # Bump when anything that feeds the analysis changes (chat scoring, loudness, detector use),
 # so a cached analysis.npz from an older version is thrown away instead of reused.
-ANALYSIS_VERSION = 3          # 4.9: YouTube chat emoji; 4.10: chat delay found on long streams too
+ANALYSIS_VERSION = 4          # 4.9: YouTube chat emoji; 4.10: chat delay found on long streams too; 4.32: chat reading, talk
 
 
 def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Optional[str]:
@@ -1828,7 +1902,7 @@ def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Op
 
 def _save_analysis(path: str, key: str, an: Analysis):
     arrays = {"chat_z": np.asarray(an.chat_z, dtype=np.float32), "audio_z": np.asarray(an.audio_z, dtype=np.float32)}
-    for name in ("loud", "fine"):
+    for name in ("loud", "fine", "said_rate", "talk_rate"):
         v = getattr(an, name)
         if v is not None:
             arrays[name] = np.asarray(v, dtype=np.float32)
@@ -1852,6 +1926,7 @@ def _load_analysis(path: str, key: str) -> Optional[Analysis]:
         events = {k: f["ev_" + k].copy() for k in meta.get("events", [])} or None
         return Analysis(float(meta["duration"]), f["chat_z"].copy(), f["audio_z"].copy(), bool(meta["has_chat"]),
                         bool(meta["has_audio"]), events=events, loud=get("loud"), fine=get("fine"),
+                        said_rate=get("said_rate"), talk_rate=get("talk_rate"),
                         chat_stats=meta.get("chat_stats"), chat_delay=float(meta.get("chat_delay", 6.0)),
                         delay_sure=bool(meta.get("delay_sure")))
 
@@ -1895,15 +1970,24 @@ def _finish(an: Analysis, chat: list, emote_set, weights: Optional[dict], chat_w
 
 
 def chat_rate(chat: list, n: int, chat_delay: float, scorer=None) -> tuple:
-    """(reaction rate per second, scorer). Chat reacts a few seconds late, so it's shifted back."""
+    """(reaction rate per second, scorer). Chat reacts a few seconds late, so it's shifted back.
+    scorer.said_rate, scorer.talk_rate: messages per second, and those that were plain talk rather than
+    reactions (detect.talk_mult)."""
     import chatsignal
     sc = scorer or chatsignal.ChatScorer(chat_weight)
     rate = np.zeros(n, dtype=np.float32)
+    said_rate = np.zeros(n, dtype=np.float32)
+    talk_rate = np.zeros(n, dtype=np.float32)
     if chat:
-        w = np.asarray(sc.feed(chat), dtype=np.float32)
+        talk: list = []
+        w = np.asarray(sc.feed(chat, talk), dtype=np.float32)
+        tw = np.asarray(talk, dtype=np.float32)
         idx = (np.asarray([m[0] for m in chat], dtype=np.float64) - chat_delay).astype(np.int64)
         ok = (idx >= 0) & (idx < n) & (w > 0)
         np.add.at(rate, idx[ok], w[ok])
+        np.add.at(said_rate, idx[ok], np.minimum(1.0, w[ok]))
+        np.add.at(talk_rate, idx[ok], tw[ok])
+    sc.said_rate, sc.talk_rate = said_rate, talk_rate
     return rate, sc
 
 
@@ -1922,9 +2006,11 @@ def _audio_z(loud: np.ndarray, n: int) -> np.ndarray:
 def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: float,
                   chat_delay: float = 6.0, chat_weight_pct: float = 60, rate: Optional[np.ndarray] = None,
                   stats: Optional[dict] = None, events: Optional[dict] = None,
-                  fine: Optional[np.ndarray] = None) -> "Analysis":
+                  fine: Optional[np.ndarray] = None, said: Optional[np.ndarray] = None,
+                  talk: Optional[np.ndarray] = None) -> "Analysis":
     """Per-second hype score from loudness (dB per second), chat and sound events. Shared by VODs and live.
-    rate: chat reaction per second already weighed (live mode keeps it up to date as chat arrives)."""
+    rate: chat reaction per second already weighed (live mode keeps it up to date as chat arrives).
+    said, talk: messages per second, and those that were plain talk (chat_rate), same timing."""
     if loud is not None and len(loud):
         loud = _fit(loud, n, -90.0)
         audio = _audio_z(loud, n)
@@ -1936,6 +2022,7 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
     if rate is None:
         rate, sc = chat_rate(chat, n, chat_delay)
         stats = sc.summary()
+        said, talk = sc.said_rate, sc.talk_rate
     rate = _fit(rate, n)
     has_chat = float((rate > 0).sum()) > 20
     if has_chat:
@@ -1949,7 +2036,9 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
 
     ev = {k: _fit(v, n) for k, v in events.items()} if events else None
     an = Analysis(duration, chat_z, audio, has_chat, has_audio, events=ev, loud=loud,
-                  fine=None if fine is None else _fit(fine, n * FINE_HZ, -100.0), chat_stats=stats)
+                  fine=None if fine is None else _fit(fine, n * FINE_HZ, -100.0), chat_stats=stats,
+                  said_rate=_fit(said, n) if has_chat and said is not None else None,
+                  talk_rate=_fit(talk, n) if has_chat and talk is not None else None)
     an.combine(chat_weight_pct)
     return an
 

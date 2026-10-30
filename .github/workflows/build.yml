@@ -98,6 +98,7 @@ jobs:
           python tests/test_checkflow.py
           python tests/test_editing.py
           python tests/test_detect.py
+          python tests/test_reactions.py
           python tests/test_titles.py
           python tests/test_exports.py
           python tests/test_live.py

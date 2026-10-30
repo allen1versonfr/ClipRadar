@@ -12,6 +12,8 @@ normal", so a big streamer and a small one are judged against themselves:
   surge      chat speeding up fast (the first seconds of a reaction)
   reaction   a sudden reaction right after a quiet stretch
   noise      a loud blip nobody reacted to counts for less
+  agree      chat and the stream's sound reacting together (4.32): the streamer laughs, chat laughs
+  talk       a chat surge that's plain talk (everyone answering a question) counts for less (4.32)
 
 None of this can promise a clip will do well. It ranks moments that look like reactions.
 """
@@ -24,29 +26,29 @@ from typing import Optional
 
 import numpy as np
 
-DETECTION_VERSION = 2
+DETECTION_VERSION = 3
 
 PRESETS = {
     # chat: default chat-vs-audio mix (%). laugh/scream/cheer: points for a clear event.
-    # emotes/surge/react: weight of the extra signals. min/max: clip length (s). back: how far back
+    # emotes/surge/react/agree: weight of the extra signals. min/max: clip length (s). back: how far back
     # (s) to look for what set off a late chat reaction.
     "any": {"label": "Any stream", "chat": 60, "laugh": 4.0, "scream": 3.0, "cheer": 2.0,
-            "emotes": 0.3, "surge": 0.3, "react": 1.0, "min": 15, "max": 90, "back": 25,
+            "emotes": 0.3, "surge": 0.3, "react": 1.0, "agree": 0.5, "min": 15, "max": 90, "back": 25,
             "hint": "Balanced. A good start for most streams."},
     "gaming": {"label": "Gaming", "chat": 55, "laugh": 3.5, "scream": 3.5, "cheer": 2.5,
-               "emotes": 0.35, "surge": 0.35, "react": 1.2, "min": 15, "max": 60, "back": 25,
+               "emotes": 0.35, "surge": 0.35, "react": 1.2, "agree": 0.6, "min": 15, "max": 60, "back": 25,
                "hint": "Clutches, fails and jump scares: screams and sudden reactions count more."},
     "irl": {"label": "IRL / Just Chatting", "chat": 65, "laugh": 4.5, "scream": 2.5, "cheer": 2.0,
-            "emotes": 0.35, "surge": 0.3, "react": 0.8, "min": 20, "max": 90, "back": 30,
+            "emotes": 0.35, "surge": 0.3, "react": 0.8, "agree": 0.5, "min": 20, "max": 90, "back": 30,
             "hint": "Chat and laughter lead; a little more setup before each moment."},
     "reactions": {"label": "Reactions", "chat": 50, "laugh": 5.0, "scream": 4.0, "cheer": 2.0,
-                  "emotes": 0.3, "surge": 0.3, "react": 1.5, "min": 15, "max": 60, "back": 20,
+                  "emotes": 0.3, "surge": 0.3, "react": 1.5, "agree": 0.6, "min": 15, "max": 60, "back": 20,
                   "hint": "The streamer's own reaction matters most: laughs, screams, sudden outbursts."},
     "interviews": {"label": "Interviews", "chat": 50, "laugh": 3.0, "scream": 1.5, "cheer": 1.5,
-                   "emotes": 0.2, "surge": 0.25, "react": 0.6, "min": 30, "max": 120, "back": 35,
+                   "emotes": 0.2, "surge": 0.25, "react": 0.6, "agree": 0.3, "min": 30, "max": 120, "back": 35,
                    "hint": "Longer clips that keep the question with the answer."},
     "podcasts": {"label": "Podcasts", "chat": 45, "laugh": 5.0, "scream": 1.5, "cheer": 1.5,
-                 "emotes": 0.2, "surge": 0.25, "react": 0.8, "min": 30, "max": 150, "back": 35,
+                 "emotes": 0.2, "surge": 0.25, "react": 0.8, "agree": 0.3, "min": 30, "max": 150, "back": 35,
                  "hint": "Long, talky clips around the big laughs."},
 }
 SENSITIVITY = {
@@ -97,6 +99,11 @@ def describe(s: dict, used_delay: Optional[float] = None, has_chat: bool = True)
 def _roll(x, win):
     import engine
     return engine._rolling(x, win, "mean")
+
+
+def _fit(a, n):
+    import engine
+    return engine._fit(a, n)
 
 
 def _rz(x):
@@ -196,6 +203,72 @@ def react_signal(an) -> np.ndarray:
     return out
 
 
+TALK_FLOOR = 0.35       # a chat surge that's all plain talk counts for this much of itself
+
+
+def talk_mult(said: Optional[np.ndarray], talk: Optional[np.ndarray], emote_rate: Optional[np.ndarray] = None):
+    """How much chat counts each second (TALK_FLOOR..1): less where what chat added on top of its usual
+    pace is plain talk ("germany", "pizza", "2 hours ago": the streamer asked chat something) rather than
+    reactions. Judged against how much this chat usually just talks, so a chat that rarely uses emotes
+    isn't marked down. said, talk: messages per second, and those that were plain talk (engine.chat_rate).
+    Counted as messages, not weighed: a reaction weighs about three times a message, so a few in the
+    background would hide a crowd answering a question. emote_rate: 7TV/BTTV/FFZ emote use per second, taken back out of the talk (a VOD's
+    chat is weighed before its emote lists are known)."""
+    if said is None or talk is None:
+        return None
+    n = len(said)
+    rate = np.asarray(said, dtype=np.float32)
+    tk = np.asarray(talk, dtype=np.float32)[:n]
+    if emote_rate is not None:
+        tk = np.maximum(0, tk - np.asarray(emote_rate, dtype=np.float32)[:n])
+    if float((rate > 0).sum()) < 60:
+        return None
+    import engine
+    tot = _roll(rate, 8)
+    usual = float(np.sum(tk)) / max(float(np.sum(rate)), 1e-6)      # how much of this chat is talk overall
+    more = tot - engine._rolling(rate, 300, "median")
+    more_talk = _roll(tk, 8) - engine._rolling(tk, 300, "median")
+    share = np.where(more > 1e-3, np.clip(more_talk / np.maximum(more, 1e-3), 0, 1), usual)
+    ref = max(usual, 0.5)
+    over = np.clip((share - ref) / max(0.1, 0.5 * (1 - ref)), 0, 1)        # all talk well before 100%
+    return (1 - (1 - TALK_FLOOR) * over).astype(np.float32)
+
+
+AGREE_LAG = 10          # seconds the stream's sound may come before chat (after the chat delay) and still agree
+AGREE_CHAT, AGREE_SOUND = 1.5, 3.0      # how far each must stand out (about z) before they count as agreeing
+
+
+def agreement(an) -> np.ndarray:
+    """Chat and the stream's sound reacting together: the streamer laughs or shouts, and chat laughs or
+    explodes with it (or within AGREE_LAG s after). Two separate signals saying the same thing is a far
+    surer moment than either alone: a loud song nobody reacts to, or chat answering a question while the
+    stream is calm, gets nothing here. 0..4 per second."""
+    n = len(an.audio_z)
+    if not (an.has_chat and an.has_audio) or n < 3:
+        return np.zeros(n, dtype=np.float32)
+    chat = np.clip(an.chat_z, 0, 6)
+    if an.talk is not None:
+        chat = chat * np.asarray(an.talk, dtype=np.float32)[:n]
+    for arr in (an.emote_z, an.surge):
+        if arr is not None and len(arr) >= n:
+            chat = np.maximum(chat, np.clip(np.asarray(arr[:n], dtype=np.float32), 0, 6))
+    snd = np.clip(an.audio_z, 0, 6).astype(np.float32)
+    if an.has_events and "music" in an.events:
+        # a song playing isn't the streamer reacting, however loud it is
+        music = np.clip(_roll(_fit(an.events["music"], n), 5) - 0.5, 0, 0.5) * 2
+        snd = snd * (1 - music)
+    if an.has_events:
+        ev = np.maximum(np.maximum(an.event_level("laugh"), an.event_level("scream")), an.event_level("cheer"))
+        snd = np.maximum(snd, 5.0 * ev)
+    if getattr(an, "react", None) is not None and len(an.react) >= n:
+        snd = np.maximum(snd, 2.0 * np.asarray(an.react[:n], dtype=np.float32))
+    # the loudest the sound got from AGREE_LAG s before each second to 2 s after
+    pad = np.concatenate([np.zeros(AGREE_LAG, dtype=np.float32), snd, np.zeros(2, dtype=np.float32)])
+    recent = np.lib.stride_tricks.sliding_window_view(pad, AGREE_LAG + 3).max(axis=1)[:n]
+    # both must clearly stand out: over 13 s, ordinary loudness reaches z 2 by chance alone
+    return np.clip(np.minimum(chat - AGREE_CHAT, recent - AGREE_SOUND), 0, 4).astype(np.float32)
+
+
 def noise_mult(an) -> np.ndarray:
     """1 everywhere, lower around a loud blip (under 2.5 s) that neither chat nor the sound detector
     reacted to: a door slam, an alert sound, a dropped mic."""
@@ -246,6 +319,8 @@ def enrich(an, chat: list, delay: float, es=None, rate: Optional[np.ndarray] = N
     an.emote_top = top
     an.react = react_signal(an)
     an.noise = noise_mult(an)
+    an.talk = talk_mult(getattr(an, "said_rate", None), getattr(an, "talk_rate", None), er if es else None) \
+        if an.has_chat else None
     an.emotes_known = len(es) if es else 0
 
 
