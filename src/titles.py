@@ -255,6 +255,9 @@ def garbled(text: str) -> bool:
     return symbols >= 2
 
 
+KIND_VIBE = {"laugh": "funny", "hype": "hype", "shock": "shock", "fail": "fail"}
+
+
 def _engine():
     import engine
     return engine
@@ -272,12 +275,17 @@ def _vibe(chat_msgs: list, words: list) -> tuple:
             toks.add("noway")
         if "let's go" in low or "lets go" in low or "letsgo" in low:
             toks.add("letsgo")
+        hit = False
         for k, v in VIBES.items():
             if toks & v["chat"]:
                 counts[k] += 1
+                hit = True
         kind = _engine().reaction_kind(msg)
         if kind in ("confused", "cringe"):
             counts[kind] += 1
+        elif not hit and kind:
+            # a message the word lists above don't know, often a 7TV emote ("CAUGHT", "AINTNOWAY", "Deadge")
+            counts[KIND_VIBE[kind]] += 1
     said = [re.sub(r"[^\w']", "", w["word"]).lower() for w in words]
     for k, v in VIBES.items():
         counts[k] += 0.5 * sum(1 for t in said if t in v["said"])

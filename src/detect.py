@@ -126,14 +126,15 @@ _TOK = re.compile(r"[\w:]+")
 
 
 def emote_in(text: str, user: str, kind: str, es):
-    """The channel emote a chat message reacts with, or None (noise and F-spam never count).
-    Shared by VODs (emote_rate) and live clipping (live.Session.add_chat)."""
+    """The channel emote a chat message reacts with, or None (noise and F-spam never count, and nor do emotes
+    for vibing, greetings and sleep: a song everyone catJAMs to isn't a moment). Shared by VODs (emote_rate)
+    and live clipping (live.Session.add_chat)."""
     import chatsignal
     if not es or chatsignal.is_noise(text, user, kind) or chatsignal.low_info(text):
         return None
     for tok in _TOK.findall(text or ""):
         e = es.find(tok)
-        if e:
+        if e and es.by_name[e][1] != "calm":
             return e
     return None
 
@@ -328,6 +329,7 @@ def enrich(an, chat: list, delay: float, es=None, rate: Optional[np.ndarray] = N
 
 def weigher(es):
     """chat_weight that also counts 7TV/BTTV/FFZ emotes (used by live mode's chat scorer)."""
+    import emotes
     import engine
 
     def w(text: str) -> float:
@@ -335,8 +337,8 @@ def weigher(es):
         extra = 0.0
         for tok in _TOK.findall(text or ""):
             e = es.find(tok) if es else None
-            if e and tok.lower() not in engine.HYPE:
-                extra += 0.5 + (0.5 if es.by_name[e][1] else 0.0)
+            if e and tok.lower() not in engine.HYPE and e not in emotes.POPULAR and es.by_name[e][1] != "calm":
+                extra += 0.5 + (0.5 if es.by_name[e][1] else 0.0)     # (popular ones count in chat_weight)
         return min(8.0, base + min(extra, 3.0))
     return w
 

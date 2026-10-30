@@ -5,6 +5,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.35.0] - 2026-10-30
+
+The 7TV emotes chat uses most are read for what they mean, and emotes for vibing, saying hi or going to bed no longer make moments.
+
+### Added
+- **98 of 7TV's most used emotes (from its top 300 of all time), each with the reaction it means**, by exact name ("CAUGHT" is the emote, "caught" a word):
+  - Laughing: OMEGALUL, KEKW, ICANT, PepeLaugh, xdd, xdding, peepoGiggles, sadKEK, KEKL, LOL...
+  - Hype: GIGACHAD, LETSGO, POGGERS, PogU, Pog, PagMan, HYPERCLAP, LETHIMCOOK, BASED, BANGER, WICKED...
+  - Shock: CAUGHT, CaughtIn4K, NOOOO, AINTNOWAY, NOWAYING, monkaW, WHAT, D:, FLASHBANG, OOOO, AAAA, Madge, RAGEY, Aware...
+  - Confused: HUH, Hmm, modCheck, Thinking, monkaHmm, buh, wuh, WOT, Shruge
+  - Awkward: DIESOFCRINGE, uuh, Awkward, Weirdge, WeirdChamp, Susge, Nerdge, WhoAsked, AYOOO, Concerned, MLADY
+  - It went wrong (new kind, *fail*): Sadge, PepeHands, Deadge, RIPBOZO, Despairge, SAJ, and **o7**, chat saluting after a death or a loss. o7 counted for nothing before, like "F"; F still does.
+- They count even when the channel's 7TV/BTTV/FFZ lists aren't loaded, and on YouTube and X, which have none. A wave of 40 people typing CAUGHT scored 1.4 without the lists and wasn't a clip; now 10.5, a clip. Titles, captions and hashtags read them too (a CAUGHT wave gets a shock title, o7 and Deadge a fail one).
+
+### Fixed
+- **A song, a raid saying hi or the stream ending could be a "moment".** Any channel emote counted toward an emote wave, and catJAM, VIBE and peepoHey were even called hype. With the channel's lists loaded, a wave of catJAM, peepoHey or Bedge scored 5.9 and was a clip; now 1.2, never. Emotes for vibing, dancing, greeting, leaving, sleeping and watching (catJAM, ratJAM, pepeJAM, VIBE, peepoHey, peepoBye, peepoArrive, Bedge, NODDERS, Listening, Chatting, PepoPopcorn... 44 of the top 300) are now *calm*: not a reaction, wherever they come from.
+
+### Changed
+- An emote's kind comes from this table first, then from its name, which now also knows confused, awkward, fail and calm emotes. "huh" and "hmm" in an emote's name mean confused, not shock.
+- A video's analysis is worked out again the first time it's opened.
+
+### Tests
+- `tests/test_reactions.py`: 24 popular emotes each read as their reaction; "caught" as a word is talk; 10 calm emotes add nothing; a catJAM wave isn't an emote wave, a CAUGHT wave is a clip without the channel's lists, a death saluted with o7 is a clip; live counts a channel's own emote and doesn't count a popular one twice; titles read emotes. `tests/test_signals.py`, `tests/test_detect.py`: o7 counts (less than a laugh), F and poll votes don't; catJAM is calm.
+
 ## [4.34.0] - 2026-10-30
 
 Awkward moments and confusing ones are found too, and told apart: a chat going "uhhh" isn't a chat going "???".

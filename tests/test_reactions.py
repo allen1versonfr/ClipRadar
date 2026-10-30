@@ -311,6 +311,38 @@ g1, g2 = titles.generate([], ["uhhh", "uhh", "😬", "yikes", "erm"]), titles.ge
 check("titles: an awkward moment gets an awkward title and tags", g1["vibe"] == "cringe" and "#awkward" in g1["hashtags"], g1)
 check("titles: a confused one gets its own", g2["vibe"] == "confused" and "#confused" in g2["hashtags"], g2)
 
+# ---------------------------------------------------------------- popular 7TV emotes (4.35)
+import emotes  # noqa: E402
+POP = {"CAUGHT": "shock", "CaughtIn4K": "shock", "AINTNOWAY": "shock", "NOOOO": "shock", "OOOO": "shock", "monkaW": "shock",
+       "xdd": "laugh", "ICANT": "laugh", "OMEGALUL": "laugh", "PepeLaugh": "laugh", "GIGACHAD": "hype", "LETSGO": "hype",
+       "PogU": "hype", "HUH": "confused", "modCheck": "confused", "Hmm": "confused", "DIESOFCRINGE": "cringe",
+       "Awkward": "cringe", "Weirdge": "cringe", "uuh": "cringe", "o7": "fail", "Deadge": "fail", "Sadge": "fail",
+       "PepeHands": "fail"}
+check("the 7TV emotes chat uses most react, each its own way", all(kind(t) == k and w(t) > 1.5 for t, k in POP.items()),
+      [(t, kind(t), w(t)) for t, k in POP.items() if kind(t) != k or w(t) <= 1.5])
+check("by their exact name: the word 'caught' is talk", w("caught") == 1.0 and w("i caught a fish") == 1.0
+      and kind("i caught a fish") == "")
+calm = ["catJAM", "ratJAM", "pepeJAM", "VIBE", "peepoHey", "peepoBye", "Bedge", "peepoArrive", "NODDERS", "Listening"]
+check("emotes for vibing, greetings and sleep aren't reactions", all(w(t) == 1.0 and kind(t) == "" for t in calm)
+      and all(emotes.kind_of(t) == "calm" for t in calm), [(t, w(t), emotes.kind_of(t)) for t in calm])
+check("an emote's kind from the table beats its name", emotes.kind_of("LOL") == "laugh" and emotes.kind_of("Madge") == "shock")
+ces = emotes.EmoteSet({"7tv": ["catJAM", "peepoHey", "CAUGHT", "Bedge", "myChannelLaugh"]})
+check("a wave of catJAM isn't an emote wave", detect.emote_in("catJAM catJAM", "u", "", ces) is None
+      and detect.emote_in("CAUGHT", "u", "", ces) == "CAUGHT" and detect.emote_in("catJAM CAUGHT", "u", "", ces) == "CAUGHT")
+cw = detect.weigher(ces)
+check("live: a channel emote not in the table still counts, a popular one isn't counted twice",
+      cw("myChannelLaugh") > 1.0 and cw("CAUGHT") == w("CAUGHT") and cw("catJAM") == 1.0, (cw("myChannelLaugh"), cw("CAUGHT")))
+caught = wave(["CAUGHT", "CaughtIn4K"])
+song = wave(["catJAM"])
+salute = wave(["o7", "Deadge", "o7"])
+# before 4.35: a CAUGHT wave scored 1.4 without the channel's emote lists (YouTube, X, or the lists didn't load),
+# and a catJAM wave scored 5.9 and was a clip with them
+check("a CAUGHT wave is a clip even without the channel's emote lists", caught is not None and caught.score > 6, caught and caught.score)
+check("a death saluted with o7 is a clip", salute is not None, salute)
+check("a song everyone catJAMs to isn't", song is None, song and song.score)
+g = titles.generate([], ["CAUGHT", "CaughtIn4K", "CAUGHT", "AINTNOWAY"])
+check("titles read emotes too", g["vibe"] == "shock" and titles.generate([], ["o7", "Deadge", "PepeHands"])["vibe"] == "fail", g["vibe"])
+
 # ---------------------------------------------------------------- live
 import live_replay as lr  # noqa: E402
 

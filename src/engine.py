@@ -30,6 +30,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+import emotes
 import paths
 import procjob
 
@@ -1551,7 +1552,8 @@ CRINGE_PHRASES = ("bro what", "why would you", "this is awkward", "so awkward", 
 _UHH = re.compile(r"^(?:u+h+|u+m{2,}|e+r+m+|e+h{2,})$")         # uh, uhh, uuuhhh, umm, errm, ehhh
 _HMM = re.compile(r"^h+m{2,}$")                                  # hmm, hmmmm: confused, thinking
 _CONFUSED_ASK = re.compile(r"^\W*(?:(?:what|huh|who|how|why|wait|bro|sorry|pardon|excuse me|what the|u+h+|u+m+|e+r+m+)\W*)?\?+[\s?!.]*$", re.I)
-KINDS = ("laugh", "hype", "shock", "confused", "cringe")
+KINDS = ("laugh", "hype", "shock", "confused", "cringe", "fail")
+_EMOTE_TOK = re.compile(r"[\w:]+")      # emote names keep their case: "CAUGHT" is the emote, "caught" a word
 _KIND_OF = {}
 for _k in ("kekw", "lul", "lol", "lmao", "lmfao", "omegalul", "icant", "😂", "🤣", "xd", "pepelaugh", "kekl", "lulw",
            "kek", "dead", "💀", "😭", "😹", "rofl", "omfg"):
@@ -1594,6 +1596,10 @@ def reaction_kind(text: str) -> str:
     for p in CRINGE_PHRASES:
         if p in t:
             votes["cringe"] += 1.5
+    for tok in _EMOTE_TOK.findall(text):
+        pe = emotes.POPULAR.get(tok)
+        if pe and pe[0] in votes:
+            votes[pe[0]] += 1.0
     toks = _TOKEN.findall(t)
     alone = len([x for x in toks if x.isalnum()]) <= 1
     for tok in toks:
@@ -1670,7 +1676,17 @@ def chat_weight(text: str) -> float:
     seen: dict = {}
     toks = _TOKEN.findall(t)
     alone = len([x for x in toks if x.isalnum()]) <= 1
+    popular: set = set()
+    for tok in _EMOTE_TOK.findall(text):
+        # the 7TV emotes chat uses most, by their exact name ("CAUGHT", not "caught")
+        pe = emotes.POPULAR.get(tok)
+        if pe and tok.lower() not in HYPE:
+            popular.add(tok.lower())
+            k = seen[tok.lower()] = seen.get(tok.lower(), 0) + 1
+            w += pe[1] if k == 1 else pe[1] * TOKEN_REPEAT if k <= 3 else 0.0
     for tok in toks:
+        if tok in popular:
+            continue                      # counted above by its exact name
         v = _react_points(tok) or _awkward_points(tok, alone)[0]
         if v <= 0:
             continue
@@ -2001,8 +2017,8 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
 
 # Bump when anything that feeds the analysis changes (chat scoring, loudness, detector use),
 # so a cached analysis.npz from an older version is thrown away instead of reused.
-ANALYSIS_VERSION = 5          # 4.9: YouTube chat emoji; 4.10: chat delay found on long streams too; 4.32: chat reading, talk;
-#                               4.34: confused and awkward reactions
+ANALYSIS_VERSION = 6          # 4.9: YouTube chat emoji; 4.10: chat delay found on long streams too; 4.32: chat reading, talk;
+#                               4.34: confused and awkward reactions; 4.35: popular 7TV emotes
 
 
 def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Optional[str]:

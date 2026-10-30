@@ -9,8 +9,8 @@ stream did something clip-worthy. So each message gets a weight:
   bots, !commands, sub/gift/raid notices      0
   someone who already chatted in the last 8 s  a quarter (counts chatters, not messages)
   the third+ copy of a long copypasta          0.15
-  low-information messages ("F", "o7", poll    0
-  votes "1"/"2", a lone "+")
+  low-information messages ("F", a poll      0
+  vote "1"/"2", a number, a lone "+")
   anything during a raid or gift-bomb flood    damped for a minute or so
 
 Chat messages are tuples (seconds, text, user, kind). user may be "" and kind is
@@ -50,7 +50,8 @@ _SYSTEM = re.compile(
 # "f f fff" as one run of letters and spaces: a nested repeat here ((?:f+\s*)+) took seconds on "ffff...f!" and
 # for ever on a longer one (4.33: a real chat had 120 f's in one message, and Find clips never finished)
 # 4.33: a number on its own too ("50", "5,000", "100"): a vote, an answer or a price, not a reaction
-LOW_INFO = re.compile(r"^\s*(?:f[f\s]*|o7|07|\$?[0-9][0-9,.]*k?|[+\-.^]+)\s*$", re.I)
+# 4.35: "o7" (chat saluting after a death or a loss) counts again, a little, as a fail (emotes.POPULAR)
+LOW_INFO = re.compile(r"^\s*(?:f[f\s]*|\$?[0-9][0-9,.]*k?|[+\-.^]+)\s*$", re.I)
 LOW_INFO_WEIGHT = 0.0
 _NORM = re.compile(r"[^\w\s]")
 _SP = re.compile(r"\s+")
@@ -61,7 +62,7 @@ def _norm(text: str) -> str:
 
 
 def low_info(text: str) -> bool:
-    """'F', 'o7', '1', '+' and the like: a reply, not a reaction to what's on stream."""
+    """'F', '1', '+' and the like: a reply, not a reaction to what's on stream."""
     return bool(LOW_INFO.match(text or ""))
 
 

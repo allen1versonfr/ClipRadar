@@ -51,15 +51,17 @@ before = sc2.weight(100, "LETSGO", "x1")
 sc2.weight(101, "", "raider", "raid")
 after = sc2.weight(105, "LETSGO", "x2")
 check("a raid damps chat for a while", after < before * 0.3 and sc2.summary()["raids"] == 1, f"{before:.2f} -> {after:.2f}")
-# F-spam (and salutes, poll votes) can't make a moment on its own
+# F-spam (and poll votes) can't make a moment on its own. A salute (o7) counts again since 4.35, as chat
+# reacting to a death or a loss, though less than a laugh
 sc3 = chatsignal.ChatScorer()
 w_f = sc3.weight(10, "F", "u1")
 w_o7 = sc3.weight(11, "o7", "u2")
 w_vote = sc3.weight(12, "2", "u3")
 w_laugh = sc3.weight(13, "KEKW", "u4")
 w_l = sc3.weight(14, "L", "u5")
-check("an F, a salute or a poll vote counts for nothing", max(w_f, w_o7, w_vote) == 0 and w_laugh >= 2, [w_f, w_o7, w_vote, w_laugh])
-check("and is counted in the chat summary", sc3.summary()["low_info"] == 3, sc3.summary())
+check("an F or a poll vote counts for nothing", max(w_f, w_vote) == 0 and w_laugh >= 2, [w_f, w_vote, w_laugh])
+check("a salute counts, less than a laugh", 1.0 < w_o7 < w_laugh, [w_o7, w_laugh])
+check("and is counted in the chat summary", sc3.summary()["low_info"] == 2, sc3.summary())
 check("'L' still counts as a reaction", w_l >= 1.0, w_l)
 
 n_s = 1800
