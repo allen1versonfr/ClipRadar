@@ -217,6 +217,9 @@ class Handler(BaseHTTPRequestHandler):
                 if watermarks.clean_mark({"kind": "image", "image": img}):
                     return self._send_file(img, cache=True)
             return self._err("no watermark image", 404)
+        if p == "/api/gpu":
+            import gpu
+            return self._json(gpu.status())
         if p == "/api/status":
             ts = tools_setup.status()
             return self._json({
@@ -480,6 +483,24 @@ class Handler(BaseHTTPRequestHandler):
                 return res
             S.run_job(job, go)
             return self._json({"job": job["id"]})
+
+        if p == "/api/gpu/install":
+            # Settings › Performance › GPU support: NVIDIA's CUDA libraries, for Whisper on the graphics card
+            import gpu
+            job = S.new_job("gpu")
+
+            def go_gpu():
+                S.job_step(job)("Downloading GPU support for Whisper")
+                res = gpu.install(progress=S.job_progress(job, 0, 1), log=S.job_logger(job), check=S.job_check(job))
+                engine.release_whisper()          # loaded on the CPU: the next one loads on the GPU
+                return res
+            S.run_job(job, go_gpu)
+            return self._json({"job": job["id"]})
+
+        if p == "/api/gpu/remove":
+            import gpu
+            engine.release_whisper()
+            return self._json(gpu.remove())
 
         if p == "/api/watermark/image":
             # a watermark layer's image: a copy is kept, so moving the original doesn't break exports

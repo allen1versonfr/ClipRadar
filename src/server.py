@@ -830,13 +830,10 @@ def do_analyze(job, body: dict):
 def _deep_model(choice: str) -> str:
     if choice and choice != "auto":
         return choice
-    try:
-        import ctranslate2
-        if ctranslate2.get_cuda_device_count() > 0:
-            return "small"
-    except Exception:
-        pass
-    return "base"
+    # small only where Whisper really runs on the GPU: a CUDA device without NVIDIA's libraries ran "small" on
+    # the CPU, several times slower than "base" (4.36)
+    import gpu
+    return "small" if gpu.whisper_gpu_ok() else "base"
 
 
 def deep_status(pr: dict) -> dict:

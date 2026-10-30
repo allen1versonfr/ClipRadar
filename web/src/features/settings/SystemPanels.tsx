@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { ErrorLog, ExportPerf, Hotkey, JobStarted, Ok, Perf, Storage, type Status } from '../../api/schemas'
+import { ErrorLog, ExportPerf, Gpu, Hotkey, JobStarted, Ok, Perf, Storage, type Status } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
@@ -60,7 +60,63 @@ export function PerformancePanel() {
           {speeds ? ` · renders so far: ${speeds}` : ' · render speed is measured as clips render, for the time estimates'}
         </p>
       )}
+      <GpuSupport />
     </section>
+  )
+}
+
+/** Settings › Performance › Graphics card: what runs on it, and the GPU support download for Whisper (4.36). */
+export function GpuSupport() {
+  const toast = useToast()
+  const ask = useConfirm()
+  const g = usePoll(() => api(Gpu, '/api/gpu'), 30_000)
+  const refreshGpu = g.refresh
+  const [jobId, setJobId] = useState<string>()
+  const dl = useJob(jobId)
+  useEffect(() => {
+    if (!jobId || !dl.job || dl.job.status === 'running') return
+    if (dl.job.status === 'done') toast('GPU support is installed: Whisper runs on the graphics card.')
+    else if (dl.job.error) toast(dl.job.error, 'err')
+    setJobId(undefined)
+    void refreshGpu()
+  }, [jobId, dl.job, refreshGpu, toast])
+  const d = g.data
+  if (!d) return null
+  async function install() {
+    if (!await ask({ title: 'Download GPU support?', ok: 'Download',
+      body: `NVIDIA's CUDA libraries for Whisper, about ${(d!.download_mb / 1000).toFixed(1)} GB, once. Titles, captions and Deep scan then run on your ${d!.nvidia}, several times faster.` })) return
+    try {
+      setJobId((await api(JobStarted, '/api/gpu/install', {})).job)
+    } catch (e) {
+      toast(errText(e), 'err')
+    }
+  }
+  async function remove() {
+    if (!await ask({ title: 'Remove GPU support?', ok: 'Remove', danger: true, body: 'Whisper goes back to the CPU. You can download it again any time.' })) return
+    try {
+      await api(Gpu, '/api/gpu/remove', {})
+    } catch (e) {
+      toast(errText(e), 'err')
+    }
+    await g.refresh()
+  }
+  const whisper = d.whisper_gpu ? `on the ${d.nvidia}` : 'on the CPU'
+  return (
+    <div className="fld" data-testid="gpu">Graphics card
+      <p className="fine" data-testid="gpu-state">
+        {d.nvidia || 'No NVIDIA card found'} · video {d.encoder && d.encoder !== 'CPU' ? `encoded on the GPU (${d.encoder})` : d.encoder === 'CPU' ? 'encoded on the CPU (no GPU encoder found)' : 'encoder checked at the first render'}
+        {d.hw_decode ? ', decoded on the GPU when it can' : ', decoded on the CPU'} · Whisper {whisper}
+      </p>
+      {d.nvidia && !d.whisper_gpu && (
+        <p className="row">
+          <button className="btn primary" type="button" disabled={!!jobId} onClick={() => void install()} data-testid="gpu-install">
+            {jobId ? `Downloading… ${Math.round((dl.job?.progress ?? 0) * 100)}%` : 'Download GPU support for Whisper'}
+          </button>
+          <span className="fine">About {(d.download_mb / 1000).toFixed(1)} GB, once. Whisper on your {d.nvidia} makes titles, captions and Deep scan several times faster.</span>
+        </p>
+      )}
+      {d.pack && <p className="row"><button className="btn" type="button" onClick={() => void remove()} data-testid="gpu-remove">Remove GPU support</button></p>}
+    </div>
   )
 }
 
