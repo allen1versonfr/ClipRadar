@@ -54,8 +54,9 @@ PRESETS = {
 SENSITIVITY = {
     # floor: weakest moment considered when the number of clips is automatic. rel (4.33): and how close it
     # must come to the stream's own best moments (engine.standout_bar); quality first, so an automatic list
-    # is the moments that stand out, not a number per hour
-    "fewer": {"label": "Fewer, stronger", "floor": 2.3, "rel": 0.65},
+    # is the moments that stand out, not a number per hour. count: and Fewer keeps the best 60% of those, so
+    # it's fewer even when a stream's moments are all about as strong
+    "fewer": {"label": "Fewer, stronger", "floor": 2.3, "rel": 0.65, "count": 0.6},
     "normal": {"label": "Normal", "floor": 1.5, "rel": 0.5},
     "more": {"label": "More", "floor": 1.0, "rel": 0.3},
 }

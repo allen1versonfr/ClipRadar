@@ -2227,12 +2227,17 @@ def estimate(an: Analysis, sensitivity: str = "normal") -> dict:
     # good moments, and a busy one 60 (real-world test: a 4.4-hour IShowSpeed stream, 60 clips, many of them
     # chat begging or answering)
     bar = standout_bar(an, sensitivity)
-    peaks = moment_scores(an, edge=min(60, int(n * 0.03)))
-    suggest = int(min(MAX_AUTO_CLIPS, max(MIN_AUTO_CLIPS, int((peaks >= bar).sum()))))
+    # counted as far apart as two clips can be (STANDOUT_GAP), not the 45 s scores are graded at: a short
+    # video with four loud moments 25 s apart has four clips in it, not two
+    peaks = moment_scores(an, edge=min(60, int(n * 0.03)), gap=STANDOUT_GAP)
+    import detect
+    share = detect.SENSITIVITY.get(sensitivity, detect.SENSITIVITY["normal"]).get("count", 1.0)
+    suggest = int(min(MAX_AUTO_CLIPS, max(MIN_AUTO_CLIPS, round(int((peaks >= bar).sum()) * share))))
     return {"strong": strong, "good": good, "hours": round(hours, 2), "suggest": suggest}
 
 
 MAX_AUTO_CLIPS = 40        # an automatic list never goes past this (pick a number to get more)
+STANDOUT_GAP = 20          # seconds between two moments that would still be clips of their own
 
 
 def standout_bar(an: Analysis, sensitivity: str = "normal") -> float:
@@ -2430,14 +2435,14 @@ def clip_features(an: Analysis, start: float, end: float, peak: float, chat: Opt
     return {k: round(v, 3) for k, v in f.items()}
 
 
-def moment_scores(an: Analysis, edge: int = 0) -> np.ndarray:
-    """Scores of the stream's separate moments (peaks at least 45 s apart), best first. What a clip's
+def moment_scores(an: Analysis, edge: int = 0, gap: int = 45) -> np.ndarray:
+    """Scores of the stream's separate moments (peaks at least gap s apart), best first. What a clip's
     score is graded against (grades). edge: leave out moments this close to the start or end."""
     s = an.score
     if s is None or not len(s):
         return np.zeros(0)
     cached = getattr(an, "_moments", None)
-    if cached is not None and cached[0] is s and cached[2] == edge:
+    if cached is not None and cached[0] is s and cached[2] == (edge, gap):
         return cached[1]
     order = np.argsort(-s, kind="stable")
     blocked = np.zeros(len(s), dtype=bool)
@@ -2448,12 +2453,12 @@ def moment_scores(an: Analysis, edge: int = 0) -> np.ndarray:
             break
         if blocked[i]:
             continue
-        blocked[max(0, i - 45): i + 46] = True
+        blocked[max(0, i - gap): i + gap + 1] = True
         if edge and (i < edge or i > len(s) - 1 - edge):
             continue
         out.append(v)
     arr = np.array(out)
-    an._moments = (s, arr, edge)
+    an._moments = (s, arr, (edge, gap))
     return arr
 
 

@@ -250,6 +250,14 @@ spread = score_only(H4, [(200 + k * 140, 2.0 + 10.0 * ((k * 37) % 60) / 60) for 
 n_by = {k: engine.estimate(spread, k)["suggest"] for k in ("fewer", "normal", "more")}
 check("fewer, normal, more", n_by["fewer"] < n_by["normal"] < n_by["more"], n_by)
 check("a number you choose is still met", len(engine.pick_clips(few, count=20)) == 20)
+# CI (tests/test_ui.py): four loud moments 25 s apart in a 2-minute video were counted as two (moments 45 s apart,
+# as scores are graded) and got 3 clips
+close = score_only(120, [(20, 8.0), (45, 8.0), (70, 8.0), (95, 8.0)])
+check("moments close together are each a clip", len(engine.pick_clips(close, count=0)) == 4,
+      [int(c.peak) for c in engine.pick_clips(close, count=0)])
+same = score_only(H4, [(200 + k * 300, 8.0 + 0.1 * (k % 3)) for k in range(40)])
+check("Fewer is fewer even when every moment is about as strong", engine.estimate(same, "fewer")["suggest"]
+      < engine.estimate(same, "normal")["suggest"], {k: engine.estimate(same, k)["suggest"] for k in ("fewer", "normal")})
 
 # ---------------------------------------------------------------- clips up to 2 minutes (4.33)
 check("every stream type allows 2-minute clips", all(p["max"] >= 120 for p in detect.PRESETS.values())
