@@ -307,6 +307,14 @@ def act(d: dict, action: str, args: dict, cfg: Optional[dict] = None, has_audio:
             log(d, "reopen", f"Back to review: {describe(f) if f else 'a flag'}")
     elif action == "fix":                                   # C: a supported automatic fix
         return apply_fix(d, args.get("fp", ""), args.get("kind", ""), cfg, has_audio)
+    elif action == "fix_all":                               # Mute all / Bleep all: every open flag in what's said
+        kind = args.get("kind", "")
+        if kind not in ("mute", "bleep"):
+            raise ValueError("Mute all and Bleep all are the only fixes for every flag at once.")
+        if not has_audio:
+            raise ValueError("This clip has no sound to mute or bleep.")
+        done = [apply_fix(d, f["fp"], kind, cfg, has_audio) for f in open_ if f.get("source") == "speech"]
+        return {"kind": kind, "count": len(done), "ids": [fx["id"] for fx in done]}
     elif action == "undo":
         undo_fix(d, args.get("fix", ""))
     elif action == "exclude":                               # E: keep out of rendering (or let back in)

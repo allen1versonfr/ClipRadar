@@ -21,6 +21,8 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+import spelling
+
 VIBES = {
     # templates: titles about how the clip went over, all backed by the vibe's evidence (chat and speech)
     # named: the same with the streamer's name ({n})
@@ -257,10 +259,6 @@ def _vibe(chat_msgs: list, words: list) -> tuple:
     return best, counts, clip_req
 
 
-_FIX = [(re.compile(r"\bi\b"), "I"), (re.compile(r"\bim\b", re.I), "I'm"), (re.compile(r"\bdont\b", re.I), "don't"),
-        (re.compile(r"\bcant\b", re.I), "can't"), (re.compile(r"\bwont\b", re.I), "won't"),
-        (re.compile(r"\bdidnt\b", re.I), "didn't"), (re.compile(r"\bthats\b", re.I), "that's"),
-        (re.compile(r"\bwhats\b", re.I), "what's"), (re.compile(r"\bive\b", re.I), "I've")]
 TRAIL_FILLER = {"like", "so", "and", "but", "um", "uh", "the", "a", "to", "of", "or", "you", "know"}
 
 
@@ -270,8 +268,7 @@ def polish(text: str) -> str:
     letters = [c for c in t if c.isalpha()]
     if len(letters) > 4 and sum(c.isupper() for c in letters) > 0.6 * len(letters):
         t = t.lower()                                          # SHOUTING -> normal case
-    for rx, rep in _FIX:
-        t = rx.sub(rep, t)
+    t = spelling.fix(t)[0]                                     # "dont", "im", "teh", a lone "i"
     # "no no no no no" -> "no no no"; "the the" -> "the"
     t = re.sub(r"\b(\w+)(?:[ ,]+\1\b){3,}", lambda m: " ".join([m.group(1)] * 3), t, flags=re.I)
     t = re.sub(r"\b(\w{2,})(?: \1\b)+", lambda m: m.group(1) if len(m.group(1)) > 3 else m.group(0), t, flags=re.I)

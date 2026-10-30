@@ -93,7 +93,7 @@ const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cams: [], cam_heigh
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
   caption_style: 'pop', caption_font: 'classic', caption_anim: true, caption_motion: 'pop', caption_speed: 100,
   caption_emph: false, caption_filler: true, caption_punct: true, caption_spacing: 100, caption_offset: 0, cap_x: 0.5, cap_y: 0.7,
-  title_style: 'box', title_font: 'classic', title_size: 100, title_x: 0.5, title_y: 0.05,
+  title_style: 'box', title_font: 'classic', title_size: 100, title_color: '#ffffff', title_outline: 100, title_x: 0.5, title_y: 0.05,
   whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16', cap_outline: 100, cap_shadow: 100,
   track: 'auto', track_target: 'auto', focus_y: 0.4 };
 const opts = Object.assign({}, DEFAULTS, store.get('opts', {}));
@@ -1489,8 +1489,8 @@ const hit = { title: null, cap: null };   // where the title and captions were d
 
 function drawTitle(g, text, Wd, Ht) {
   const k = Wd / OUT()[0], st = opts.title_style;
-  const fs = 64 * clamp(opts.title_size, 50, 160) / 100 * fontOf(opts.title_font).scale * k;
-  const pad = Math.max(8, Math.floor(64 * clamp(opts.title_size, 50, 160) / 100 * fontOf(opts.title_font).scale / 4)) * k;
+  const fs = 64 * clamp(opts.title_size, 50, 300) / 100 * fontOf(opts.title_font).scale * k;
+  const pad = Math.max(8, Math.floor(64 * clamp(opts.title_size, 50, 300) / 100 * fontOf(opts.title_font).scale / 4)) * k;
   g.font = fontCss(opts.title_font, fs); g.textAlign = 'center'; g.textBaseline = 'top';
   const words = text.trim().split(/\s+/), lines = []; let line = '';
   const x = clamp(opts.title_x, .3, .7) * Wd, top = clamp(opts.title_y, 0, .92) * Ht;
@@ -1498,10 +1498,10 @@ function drawTitle(g, text, Wd, Ht) {
   for (const w of words) { const t = line ? line + ' ' + w : w; if (g.measureText(t).width > wrapW && line) { lines.push(line); line = w; } else line = t; }
   if (line) lines.push(line);
   const lh = fs * 1.19, tw = Math.max(...lines.map(l => g.measureText(l).width));
-  if (st === 'outline') {
-    const ob = Math.max(4, Math.floor(fs / k / 10)) * k;
-    g.lineJoin = 'round'; g.lineWidth = ob * 2; g.strokeStyle = '#000'; g.fillStyle = '#fff';
-    lines.forEach((l, i) => { g.strokeText(l, x, top + i * lh); g.fillText(l, x, top + i * lh); });
+  if (st === 'outline' || st === 'yellow') {     // yellow, colour and border: set in the new UI (engine.title_border)
+    const ob = Math.round(Math.max(4, Math.floor(fs / k / 10)) * (st === 'yellow' ? 1.25 : 1) * clamp(opts.title_outline ?? 100, 0, 300) / 100) * k;
+    g.lineJoin = 'round'; g.lineWidth = ob * 2; g.strokeStyle = '#000'; g.fillStyle = st === 'yellow' ? '#ffe600' : (opts.title_color || '#fff');
+    lines.forEach((l, i) => { if (ob > 0) g.strokeText(l, x, top + i * lh); g.fillText(l, x, top + i * lh); });
     hit.title = { x: x - tw / 2 - ob, y: top - ob, w: tw + 2 * ob, h: lines.length * lh + ob };
     return;
   }

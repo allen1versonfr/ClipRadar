@@ -16,7 +16,8 @@ import type { Hits } from './draw'
 import { LayoutPanel, savePresets, TextPanel } from './StylePanels'
 import { addLine, editLine, resetLines } from './captions'
 import { CaptionsPanel } from './CaptionsPanel'
-import { applied, fixSpans, flaggedList, isFlagged, previewPlan, FIX_LABEL } from './checks'
+import { SpellHint } from '../spelling/SpellHint'
+import { applied, fixSpans, flaggedList, flagsOf, isFlagged, previewPlan, FIX_LABEL } from './checks'
 import { ContentCheck, type Proposal } from './ContentCheck'
 import { Timeline, type TimelineHandle } from './Timeline'
 import { Overview } from './Overview'
@@ -562,11 +563,14 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
       const v = r.clips[0]
       if (v) update(keyOf(x), y => ({ ...y, ...applied(y, v) }), 'no')
       if (action === 'fix') toast(`${FIX_LABEL[String(args.kind)] ?? 'Fix'}: done. Undo is next to the flag.`)
+      if (action === 'fix_all') toast(`${args.kind === 'bleep' ? 'Bleeped' : 'Muted'} ${plural(r.fixed, 'flagged word')}. Undo is next to each one.`)
       if (action === 'exclude') { epoch.current++; void queue.refresh() }
     } catch (e) { toast(err(e), 'err') }
   }
   async function flagBatch(action: string, args: Record<string, unknown>, verb: string, what: string) {
-    const pick = action === 'exclude' ? list.filter(x => !x.check?.excluded) : list.filter(x => x.state !== 'kept' && (x.safety?.open ?? 0) > 0)
+    const pick = action === 'exclude' ? list.filter(x => !x.check?.excluded)
+      : action === 'fix_all' ? list.filter(x => x.state !== 'kept' && flagsOf(x).some(f => f.status === 'open' && f.source === 'speech' && (f.fixes ?? []).includes('mute')))
+      : list.filter(x => x.state !== 'kept' && (x.safety?.open ?? 0) > 0)
     if (!pick.length) return toast('Nothing in this list needs that.')
     if (!await confirm({ title: `${verb} for ${plural(pick.length, 'clip')}?`, ok: verb, body: what })) return
     try {
@@ -808,6 +812,8 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
               <button className="btn sm" title="Leave every listed clip as it is" onClick={() => void flagBatch('leave', {}, 'Leave as is', 'The clips stay exactly as they are and their open flags are marked as reviewed. You can undo it on each clip.')}>Leave all</button>
               <button className="btn sm" title="Dismiss the open flags on every listed clip" onClick={() => void flagBatch('dismiss', {}, 'Dismiss flags', "Their open flags are dismissed (they come back if the words change or the rules do). Dismissing doesn't make a clip safe.")}>Dismiss all</button>
               <button className="btn sm" title="Keep every listed clip out of rendering" onClick={() => void flagBatch('exclude', { on: true }, 'Exclude from export', "They stay in the project but won't render until you include them again. Unfinished renders of them are taken out of the queue.")}>Exclude all</button>
+              <button className="btn sm" data-testid="flag-mute-all" title="Silence every flagged word that's said, in every listed clip" onClick={() => void flagBatch('fix_all', { kind: 'mute' }, 'Mute flagged words', "Every flagged word that's said in them is silenced. Flags in a title or post caption stay for you to look at. You can undo each one.")}>Mute all</button>
+              <button className="btn sm" data-testid="flag-bleep-all" title="Bleep every flagged word that's said, in every listed clip" onClick={() => void flagBatch('fix_all', { kind: 'bleep' }, 'Bleep flagged words', "Every flagged word that's said in them is bleeped. Flags in a title or post caption stay for you to look at. You can undo each one.")}>Bleep all</button>
             </div>
           )}
           {list.length ? (
@@ -995,17 +1001,19 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                 {c.held && !kept && <p className="notice"><b>{c.held}.</b>&nbsp;Hands-free didn't render this one. Watch it, then keep or skip it.</p>}
                 <label className="fld">Title
                   <span className="row">
-                    <input className="input grow" value={c.title} disabled={kept} maxLength={120} data-testid="rv-title-input"
+                    <input className="input grow" value={c.title} disabled={kept} maxLength={120} data-testid="rv-title-input" spellCheck
                            onChange={e => edit(c, 'title change', { title: e.target.value, userTitle: true }, 'title')} />
                     <button className="btn sm" disabled={kept || c.titles.length < 2} onClick={nextTitle} title="Another suggested title (T)">Another title</button>
                   </span>
                 </label>
+                <SpellHint text={c.title} disabled={kept} onFix={t => edit(c, 'spelling fix', { title: t, userTitle: true })} />
                 <TitleChoices clip={c} name={meta.streamer_name} kept={kept} onName={isLive ? undefined : setStreamer}
                               onPick={(t, k) => edit(c, `title ${k}`, { title: t, userTitle: true })} />
                 <label className="fld">Post caption
-                  <textarea className="input" rows={3} value={postFor(c, hashtagsOn)} disabled={kept}
+                  <textarea className="input" rows={3} value={postFor(c, hashtagsOn)} disabled={kept} spellCheck
                             onChange={e => edit(c, 'post caption change', { userPost: true, postText: e.target.value }, 'post')} />
                 </label>
+                <SpellHint text={postFor(c, hashtagsOn)} disabled={kept} onFix={t => edit(c, 'spelling fix', { userPost: true, postText: t })} />
                 <div className="row wrap">
                   <label className="fld inline" title="Add hashtags to post captions (all clips)">
                     <input type="checkbox" checked={hashtagsOn} data-testid="rv-tags-on" onChange={async e => {

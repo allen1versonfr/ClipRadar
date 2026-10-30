@@ -109,7 +109,31 @@ checkflow.act(d, "undo", {"fix": fx["id"]}, cfg)
 r = checkflow.check(d, cfg)
 check("undo brings the flag back", next(f for f in r["flags"] if f["fp"] == swear["fp"])["status"] == "open"
       and not checkflow.render_spans(d))
-phone = next(f for f in r["flags"] if f["cat"] == "personal")
+# Mute all / Bleep all: every open flag in what's said, in one go; the title's flag stays for you
+dm = clip()
+checkflow.check(dm, cfg)
+got = checkflow.act(dm, "fix_all", {"kind": "mute"}, cfg)
+r = checkflow.check(dm, cfg)
+speech = [f for f in r["flags"] if f["source"] == "speech"]
+check("Mute all: every flag in what's said is muted", got["count"] == len(speech) == 2
+      and all(f["status"] == "corrected" and f["fixed"] == "mute" for f in speech), [(f["text"], f["status"]) for f in speech])
+check("the title's flag is left for you", next(f for f in r["flags"] if f["source"] == "title")["status"] == "open")
+check("one mute span per flag", [k for _, _, k in checkflow.render_spans(dm)] == ["mute", "mute"], checkflow.render_spans(dm))
+check("Mute all again: nothing left to do", checkflow.act(dm, "fix_all", {"kind": "mute"}, cfg)["count"] == 0)
+checkflow.act(dm, "undo", {"fix": got["ids"][0]}, cfg)
+check("each one can be undone on its own", len(checkflow.render_spans(dm)) == 1)
+db = clip()
+checkflow.check(db, cfg)
+check("Bleep all bleeps them", checkflow.act(db, "fix_all", {"kind": "bleep"}, cfg)["count"] == 2
+      and {k for _, _, k in checkflow.render_spans(db)} == {"bleep"})
+for kind, audio, why in (("cut_end", True, "only mute and bleep"), ("mute", False, "no sound")):
+    try:
+        checkflow.act(clip(), "fix_all", {"kind": kind}, cfg, has_audio=audio)
+        check(f"Mute all refused: {why}", False)
+    except ValueError:
+        check(f"Mute all refused: {why}", True)
+
+phone = next(f for f in checkflow.check(d, cfg)["flags"] if f["cat"] == "personal")
 fx = checkflow.act(d, "fix", {"fp": phone["fp"], "kind": "cut_end"}, cfg)
 r = checkflow.check(d, cfg)
 check("cut: the clip ends before the flag and the flag is gone", d["end"] < 121.2 and d["userTrim"]

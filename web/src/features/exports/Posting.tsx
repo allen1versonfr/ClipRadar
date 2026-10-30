@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { type Campaigns, DiscordSent, Job, JobStarted, Ok, type QueueItem, Studio } from '../../api/schemas'
 import { useToast } from '../../components/Toasts'
+import { SpellHint } from '../spelling/SpellHint'
 import { discordStatus, handoffStatus, submission } from './postStatus'
 
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -96,7 +97,8 @@ export function TikTokPanel({ q, onChanged, children }: { q: QueueItem; onChange
   const captionBox = (
     <section className="post-panel" aria-label="TikTok caption">
       <label className="fld">Caption for TikTok
-        <textarea className="input" rows={4} maxLength={2200} value={caption} onChange={e => setCaption(e.target.value)} data-testid="tt-caption" />
+        <textarea className="input" rows={4} maxLength={2200} value={caption} spellCheck onChange={e => setCaption(e.target.value)} data-testid="tt-caption" />
+        <SpellHint text={caption} onFix={setCaption} />
         <span className="hint tnum">{caption.length} / 2200 · {studio.available
           ? "Upload to TikTok opens TikTok Studio in Clip Radar's own browser window, puts the video in and types this caption."
           : 'Open TikTok Studio copies this caption, selects the video in File Explorer and opens the upload page.'}</span>

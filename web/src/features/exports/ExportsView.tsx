@@ -1,10 +1,11 @@
 import { useCallback, useState } from 'react'
 import { api } from '../../api/client'
-import { Campaigns, Ok, Queue, type QueueItem } from '../../api/schemas'
+import { Campaigns, Ok, Queue, QueueCleared, type QueueItem } from '../../api/schemas'
 import { handoffCell } from './postStatus'
 import { SubmitPanel, TikTokPanel, useCopy } from './Posting'
 import { usePoll } from '../../hooks/usePoll'
 import { useNow } from '../../hooks/useNow'
+import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { attemptLine, statusText, summary } from './renderStatus'
 import { fmtTime } from './renderStatus'
@@ -48,12 +49,32 @@ export function ExportsView() {
   const now = useNow(1000, active)
   const [selId, setSelId] = useState<string>()
   const toast = useToast()
+  const confirm = useConfirm()
   // newest first, like the original page
   const rows = items.slice().reverse()
   const sel = rows.find(q => q.id === selId) ?? rows[0]
   const failed = items.filter(q => q.status === 'error').length
   const camps = usePoll(useCallback(() => api(Campaigns, '/api/campaigns'), []), 30_000).data
   const campaign = camps?.list.find(c => c.id === camps.active)
+
+  /** Exports › Clear queue: the list emptied (files stay), waiting renders cancelled, the one rendering left to finish. */
+  async function clearQueue() {
+    const waiting = items.filter(q => q.status === 'queued').length
+    const running = items.filter(q => q.status === 'rendering').length
+    const what = src ? `this video's ${items.length} clip${items.length === 1 ? '' : 's'}` : `all ${items.length} clip${items.length === 1 ? '' : 's'}`
+    const body = [`Takes ${what} off the list. Rendered files stay in your clips folder.`,
+      waiting ? `${waiting} waiting to render ${waiting === 1 ? 'is' : 'are'} cancelled.` : '',
+      running ? `${running === 1 ? 'The clip' : `The ${running} clips`} rendering now ${running === 1 ? 'finishes' : 'finish'}; cancel ${running === 1 ? 'it' : 'them'} with × if you don't want ${running === 1 ? 'it' : 'them'}.` : ''].filter(Boolean).join(' ')
+    if (!await confirm({ title: 'Clear the queue?', body, ok: 'Clear queue', danger: waiting > 0 })) return
+    try {
+      const r = await api(QueueCleared, '/api/queue/clear', src ? { pid: src } : {})
+      toast(`Cleared ${r.removed} clip${r.removed === 1 ? '' : 's'}.`)
+      setSelId(undefined)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'err')
+    }
+    await queue.refresh()
+  }
 
   async function act(path: string, body: object, done?: string) {
     try {
@@ -84,6 +105,7 @@ export function ExportsView() {
             </select>
           </label>
         )}
+        {items.length > 0 && <button className="btn ghost" data-testid="clear-queue" onClick={() => void clearQueue()}>Clear queue</button>}
         <button className="btn ghost" onClick={() => act('/api/open_folder', { folder: 'root' })}>Open clips folder</button>
       </header>
       {campaign && <a className="notice" href="#settings/campaigns" data-testid="ex-campaign">Campaign: {campaign.name}. Clips you keep now follow its rules. Change it in Settings › Campaigns.</a>}

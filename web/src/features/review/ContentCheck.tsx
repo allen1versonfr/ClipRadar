@@ -32,6 +32,8 @@ export function ContentCheck({ clip: c, safety, flaggedTab, proposal, onAct, onP
     return <div className="cc">{summary} <span className="muted">{plural(c.safety?.open ?? 0, 'flag')} waiting in the Flagged tab.</span> <button className="link" onClick={() => setShow(true)}>Review now</button></div>
   }
   const fps = new Set(flags.map(f => f.fp)), extra = fixes.filter(fx => !fps.has(fx.fp))
+  // Mute all / Bleep all: every open flag in what's said, in one go (when the clip has sound to mute)
+  const spoken = flags.filter(f => f.status === 'open' && f.source === 'speech' && (f.fixes ?? []).includes('mute')).length
   return (
     <section className="cc" aria-label="Content check" data-testid="content-check">
       <div className="cc-head"><b>Content check</b> {summary}<span className="muted small">Clip Radar's own check, not TikTok's decision</span></div>
@@ -89,6 +91,12 @@ export function ContentCheck({ clip: c, safety, flaggedTab, proposal, onAct, onP
         </ul>
       )}
       <div className="row wrap">
+        {!kept && spoken > 0 && <>
+          <button className="btn sm" data-testid="cc-mute-all" title="Silence every flagged word that's said in this clip"
+                  onClick={() => onAct('fix_all', { kind: 'mute' })}>{spoken > 1 ? `Mute all ${spoken}` : 'Mute it'}</button>
+          <button className="btn sm" data-testid="cc-bleep-all" title="Bleep every flagged word that's said in this clip"
+                  onClick={() => onAct('fix_all', { kind: 'bleep' })}>{spoken > 1 ? `Bleep all ${spoken}` : 'Bleep it'}</button>
+        </>}
         {!kept && (c.safety?.open ?? 0) > 0 && <button className="btn sm" title="Keep the clip exactly as it is" onClick={() => onAct('leave')}>Leave as is</button>}
         {!kept && flags.some(f => f.source === 'speech' && f.status !== 'corrected') && <button className="btn sm" title="Jump to the flagged words in the Captions tab" onClick={onEdit}>Review and edit</button>}
         {c.check?.excluded

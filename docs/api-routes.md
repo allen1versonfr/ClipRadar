@@ -33,6 +33,7 @@ POST bodies are JSON objects (`Content-Type: application/json`, at most 16 MB).
 | GET | `/api/queue` |
 | GET | `/api/export` |
 | GET | `/api/errors` |
+| GET | `/api/spelling` |
 | GET | `/api/campaigns` |
 | GET | `/api/sources` |
 | GET | `/api/locations` |
@@ -93,6 +94,7 @@ POST bodies are JSON objects (`Content-Type: application/json`, at most 16 MB).
 | POST | `/api/listen` |
 | POST | `/api/queue/add` |
 | POST | `/api/queue/remove` |
+| POST | `/api/queue/clear` |
 | POST | `/api/queue/retry` |
 | POST | `/api/test/hotkey` |
 | POST | `/api/test/yt_hls` |

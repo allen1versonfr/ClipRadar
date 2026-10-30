@@ -40,6 +40,7 @@ import locations
 import paths
 import persist
 import safety
+import spelling
 import studio
 import studio_auto
 import tools_setup
@@ -275,6 +276,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"items": items, "eta": S.queue_eta(), "workers": S.MAX_WORKERS[0]})
         if p == "/api/export":
             return self._json(S.export_view())
+        if p == "/api/spelling":
+            # the spelling fixes (spelling.py), for suggestions as you type a title or post caption
+            return self._json(spelling.view())
         if p == "/api/errors":
             # Settings › About › Error log: every failure recorded, newest first (errorlog.py)
             return self._json(errorlog.view())
@@ -909,9 +913,9 @@ class Handler(BaseHTTPRequestHandler):
             has_audio = pr["info"].get("has_audio", True)
             ids = body["ids"] if isinstance(body.get("ids"), list) else [body.get("id")]
             action = str(body.get("action") or "")
-            if len(ids) > 1 and action not in ("leave", "dismiss", "exclude"):
+            if len(ids) > 1 and action not in ("leave", "dismiss", "exclude", "fix_all"):
                 return self._err("That can't be done to several clips at once.")
-            out, fix = [], None
+            out, fix, fixed = [], None, 0
             preview = action == "fix" and bool((body.get("args") or {}).get("preview"))
             for cid in ids:
                 d = S._find_clip(pr, cid)
@@ -921,7 +925,10 @@ class Handler(BaseHTTPRequestHandler):
                     d = copy.deepcopy(d)
                 if len(ids) == 1 and any(k in body for k in ("start", "title", "state", "words_edit", "postText")):
                     S._apply_clip_state(pr, d, body)       # the clip as it is in the app right now
-                if d.get("state") == "kept" and action in ("fix", "undo"):
+                if d.get("state") == "kept" and action in ("fix", "undo", "fix_all"):
+                    if len(ids) > 1:
+                        out.append(S._check_view(d))       # a clip already rendering is left as it is
+                        continue
                     return self._err("This clip is already in the render queue. Remove it from the queue to change it.")
                 if not d.get("safety") and action not in ("", "recheck", "exclude"):
                     checkflow.check(d, cfg, has_audio)
@@ -929,11 +936,13 @@ class Handler(BaseHTTPRequestHandler):
                     fix = checkflow.act(d, action, body.get("args") or {}, cfg, has_audio) if action else None
                 except ValueError as e:
                     return self._err(str(e))
-                if action in ("", "recheck") or (action in ("fix", "undo") and cfg.get("auto_recheck", True)):
+                if action == "fix_all" and fix:
+                    fixed += fix["count"]
+                if action in ("", "recheck") or (action in ("fix", "undo", "fix_all") and cfg.get("auto_recheck", True)):
                     checkflow.check(d, cfg, has_audio)
                 else:
                     checkflow.refresh(d, cfg, has_audio)
-                    if action in ("fix", "undo"):
+                    if action in ("fix", "undo", "fix_all"):
                         checkflow.mark_changed(d)
                 if action == "exclude" and (body.get("args") or {}).get("on", True):
                     if S._drop_from_queue(pid, d["id"]) and d.get("state") == "kept":
@@ -941,7 +950,7 @@ class Handler(BaseHTTPRequestHandler):
                 out.append(S._check_view(d))
             if not pr.get("live") and not preview:
                 S.save_project_soon(pid, 0.2)
-            return self._json({"clips": out, "fix": fix})
+            return self._json({"clips": out, "fix": fix, "fixed": fixed})
 
         if p in ("/api/clip_remove", "/api/clip_restore"):
             # F: take a clip out of the project (its source video and rendered files stay), or undo that
@@ -1087,6 +1096,23 @@ class Handler(BaseHTTPRequestHandler):
                     S.queue.remove(it)
             S.save_queue_soon()
             return self._json({"ok": True})
+
+        if p == "/api/queue/clear":
+            # Exports › Clear queue: every clip off the list (the rendered files stay where they are), and
+            # those waiting to render are cancelled. A clip rendering right now finishes; cancel it on its
+            # own. With a pid, only that video's clips (Exports › Source)
+            removed = left = 0
+            with S.queue_lock:
+                for it in list(S.queue):
+                    if body.get("pid") and it.get("pid") != body["pid"]:
+                        continue
+                    if it["status"] == "rendering":
+                        left += 1
+                        continue
+                    S.queue.remove(it)
+                    removed += 1
+            S.save_queue_soon()
+            return self._json({"ok": True, "removed": removed, "rendering": left})
 
         if p == "/api/queue/retry":
             n = 0

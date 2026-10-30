@@ -83,6 +83,9 @@ export const ErrorLog = z.looseObject({
   path: z.string().default(''), session: z.number().default(0), items: z.array(ErrorEntry).default([]),
 })
 
+/** Exports › Clear queue (/api/queue/clear): how many came off the list, and how many are still rendering. */
+export const QueueCleared = z.looseObject({ removed: z.number().default(0), rendering: z.number().default(0) })
+
 export const Queue = z.looseObject({
   items: z.array(QueueItem),
   eta: z.number().nullable(),
@@ -554,6 +557,8 @@ export const FramingSuggest = z.looseObject({
 /** /api/check: the content check's answer for the clips it looked at. */
 export const Rechecked = z.looseObject({
   clips: z.array(z.looseObject({ id: z.number(), safety: Clip.shape.safety, check: Clip.shape.check, state: z.string().optional() })).default([]),
+  /** Mute all / Bleep all: how many flags were fixed */
+  fixed: z.number().default(0),
 })
 /** /api/clip_restore: the clip back, after Remove's Undo. */
 export const Restored = z.looseObject({ clip: Clip.optional() })

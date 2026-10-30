@@ -2,7 +2,7 @@
 Unit tests for the error log (src/errorlog.py): failures from jobs, the UI and crashes on any thread are
 written to errors.jsonl with what was going on, secrets blanked; the newest come back first; the file
 starts over (keeping one older file) when it gets big; a UI stuck in a loop can't fill it; and the
-Exports › Source "Retry failed" only retries that video's clips. Also: Downloads at once has no limit
+Exports › Source "Retry failed" only retries that video's clips, and Clear queue empties the list. Also: Downloads at once has no limit
 unless you chose one.
 
   python tests/test_errorlog.py
@@ -156,6 +156,19 @@ server.queue_wake = threading.Event()        # no render worker in this test
 st, r = post("/api/queue/retry", {"id": "all", "pid": "p1"})
 check("Retry failed for one source retries only its clips", st == 200 and r.get("retried") == 1
       and [x["status"] for x in server.queue] == ["queued", "error"], (st, r, [x["status"] for x in server.queue]))
+# Exports › Clear queue: everything but what's rendering comes off, per source when one is picked
+with server.queue_lock:
+    server.queue[:] = [{"id": "d1", "pid": "p1", "status": "done", "history": []},
+                       {"id": "q1", "pid": "p1", "status": "queued", "history": []},
+                       {"id": "r1", "pid": "p1", "status": "rendering", "history": []},
+                       {"id": "e2", "pid": "p2", "status": "error", "history": []}]
+st, r = post("/api/queue/clear", {"pid": "p1"})
+check("Clear queue for one source: its finished and waiting clips go, the one rendering stays, others untouched",
+      st == 200 and r == {"ok": True, "removed": 2, "rendering": 1} and [x["id"] for x in server.queue] == ["r1", "e2"],
+      (r, [x["id"] for x in server.queue]))
+st, r = post("/api/queue/clear", {})
+check("Clear queue: everything but what's rendering", r.get("removed") == 1 and [x["id"] for x in server.queue] == ["r1"],
+      (r, [x["id"] for x in server.queue]))
 with server.queue_lock:
     server.queue[:] = []
 httpd.shutdown()

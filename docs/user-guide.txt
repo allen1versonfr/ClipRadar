@@ -185,7 +185,9 @@ USE
     A retry replaces its own file instead of making a "(2)" copy, and every
     finished file is checked before it shows as done. Exports and any renders
     that hadn't finished are kept when you close Clip Radar; unfinished
-    renders start again the next time you open it.
+    renders start again the next time you open it. Clear queue takes every
+    clip off the list (the files stay in your clips folder) and cancels the
+    ones waiting to render; a clip rendering right now finishes.
 
 CONTENT CHECK (Settings > Content check)
   Checks what each clip says, its title and its post caption for things that
@@ -212,7 +214,14 @@ CONTENT CHECK (Settings > Content check)
     Remove (takes it out of the project for good; Undo brings it back).
     Every clip gets a status: Needs review, Reviewed, Corrected, Dismissed
     or Excluded from export. The Flagged tab lists flagged clips with a
-    status filter and Leave all / Dismiss all / Exclude all.
+    status filter and Leave all / Dismiss all / Exclude all / Mute all /
+    Bleep all. Mute all and Bleep all (also on each clip) silence or bleep
+    every flagged word that's said; flags in a title or post caption stay for
+    you. Each one can be undone on its own.
+    The check knows ordinary words and phrases that only look like a flag
+    ("spicy", "Suicide Squad", "terrorists win", inventory "slots"), catches
+    swear words Whisper wrote with stars ("f***") and phone numbers said one
+    digit at a time.
     A decision sticks to that flag: it doesn't come back by itself, but it
     does if the words change, if you press Check again from scratch, or if
     you change what the check looks for. History on each clip lists what was
@@ -414,6 +423,13 @@ CAPTIONS
   right. Lines it invents over silence or music ("thanks for watching") are
   dropped. Replace words swaps a word everywhere in captions (leave the
   replacement empty to remove it); timing stays the same.
+  Titles: White box, Dark box, Color box, Outline (pick its text colour) and
+  Yellow on black (yellow text, black border); Border sets how thick the
+  outline is, and Size goes up to 300% (captions up to 250%).
+  Spelling: under a title or post caption, Clip Radar points out common
+  mistakes and chat-style typing ("dont", "teh", a lone "i") with a Fix
+  spelling button; titles from chat come out fixed. The boxes you type in
+  also underline anything else misspelled (right-click for suggestions).
   The Text tab has Outline and Shadow sliders, Templates (Signature yellow,
   Karaoke, Boxed, Bold bounce, Clean subtitles, Word by word), and Saved
   styles: save the look of your captions and title, then apply it to any clip
