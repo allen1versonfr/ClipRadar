@@ -3,6 +3,9 @@ A stand-in for TikTok Studio's upload page, for tests of studio_auto (the real o
 account). It behaves like the parts Clip Radar relies on: a hidden video file box; once a file is in, a
 rich text caption box that starts with the file's name; a Post button that's off while the video
 "uploads"; a "Post now" confirmation; the content page after posting. ?login=1 asks to sign in first.
+Modes (4.36): "leave" asks "Leave site?" once a video is in; "fails" says the upload failed; "short" keeps only
+the first 120 characters of a caption (TikTok's limit, smaller); "es" is the page in Spanish, without the
+Post button's data-e2e.
 
     srv = fake_studio.start()          # srv.url, srv.posted (what was posted), srv.shutdown()
 """
@@ -27,6 +30,19 @@ UPLOAD = """<!doctype html><meta charset=utf-8><title>TikTok Studio</title>
 <script>
 let file = null;
 const FLAKY = location.search.includes('flaky=1');      // a page that ignores the first file and the first typing
+const MODE = document.body.dataset.mode || '';
+if (MODE === 'es') {
+  document.getElementById('post').removeAttribute('data-e2e');
+  document.getElementById('post').innerText = 'Publicar';
+  document.getElementById('postnow').innerText = 'Publicar ahora';
+  document.getElementById('draft').innerText = 'Guardar borrador';
+}
+if (MODE === 'short') {
+  document.getElementById('cap').addEventListener('input', () => {
+    const c = document.getElementById('cap');
+    if (c.innerText.length > 120) c.innerText = c.innerText.slice(0, 120);
+  });
+}
 let ignoredFile = false, ignoredTyping = false;
 document.getElementById('cap').addEventListener('input', () => {
   if (FLAKY && !ignoredTyping) { ignoredTyping = true; setTimeout(() => { document.getElementById('cap').innerText = file.name; }, 100); }
@@ -34,10 +50,12 @@ document.getElementById('cap').addEventListener('input', () => {
 document.getElementById('f').addEventListener('change', e => {
   if (FLAKY && !ignoredFile) { ignoredFile = true; e.target.value = ''; return; }
   file = e.target.files[0];
+  if (MODE === 'leave') window.addEventListener('beforeunload', ev => { ev.preventDefault(); ev.returnValue = ''; });
   document.getElementById('pick').hidden = true;
   document.getElementById('editor').hidden = false;
   document.getElementById('cap').innerText = file.name.replace(/\\.[^.]+$/, '');   // TikTok starts with the file name
   let pct = 0;
+  if (MODE === 'fails') { setTimeout(() => { document.getElementById('status').innerText = "Couldn't upload. The video format isn't supported."; }, 400); return; }
   const t = setInterval(() => { pct += 25; document.getElementById('status').innerText = pct < 100 ? 'Uploading ' + pct + '%' : 'Uploaded';
     if (pct >= 100) { clearInterval(t); document.getElementById('post').disabled = false; } }, 300);
 });
@@ -83,7 +101,7 @@ class _H(BaseHTTPRequestHandler):
                 self.send_header("Location", "/tiktokstudio/upload?flaky=1")
                 self.end_headers()
                 return
-            return self._send(UPLOAD)
+            return self._send(UPLOAD.replace("<body>", f"<body data-mode={srv.mode or 'none'}>", 1))
         if u.path == "/login":
             return self._send(LOGIN)
         if u.path == "/tiktokstudio/content":
