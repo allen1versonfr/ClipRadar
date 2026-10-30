@@ -76,7 +76,8 @@ check("bad input never raises", chattitles.find([(None, None), ("x", None), (123
 t = titles.generate([], ["KEKW"] * 20, peak_rel=5, chat_title='Chat: "The dog walked in"')
 check("with nothing said on stream, chat's phrase is title A", t["title_a"] == 'Chat: "The dog walked in"', t["title_a"])
 check("and it's reported as the chat title", t["chat_title"] == 'Chat: "The dog walked in"')
-check("the reaction templates are still there to pick", any("laugh" in x.lower() for x in t["titles"]), t["titles"])
+check("the reaction templates are still there to pick",
+      any(x in [titles.polish(p) for p in titles.VIBES["funny"]["templates"]] for x in t["titles"]), t["titles"])
 words = [{"start": 4.0 + i * 0.3, "end": 4.25 + i * 0.3, "word": w} for i, w in enumerate("No way he just did that!".split())]
 t = titles.generate(words, ["KEKW"] * 20, peak_rel=5, chat_title='Chat: "The dog walked in"')
 check("a strong line said on stream still comes first", t["title_a"].startswith("No way"), t["title_a"])
@@ -120,7 +121,7 @@ same = True
 for start in (0.0, 5.0, 1234.5, 3590.0):
     lo, hi = start + 4.0 - 2, start + 20 + 4.0 + 8
     want = [m[1] for m in chatsignal.human(long_chat) if lo <= m[0] <= hi]
-    same = same and server._chat_window(lp, start, start + 20) == want
+    same = same and [m[1] for m in server._chat_near(lp, start, start + 20)] == want
 check("the chat near a clip is the same as filtering the whole chat", same)
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")

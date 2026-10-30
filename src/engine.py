@@ -516,7 +516,8 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         log(f"{desc['label']}: {desc['title'] or url}" + (f" by {desc['uploader']}" if desc["uploader"] else "")
             + (f", {fmt_ts(desc['duration'])}" if desc["duration"] else ""))
         _save_meta(workdir, platform=c["platform"], kind=desc["kind"], label=desc["label"], uploader=desc["uploader"],
-                   uploaded=desc["uploaded"], **({"streamer": desc["uploader_id"].lower()} if desc["uploader_id"] else {}))
+                   uploaded=desc["uploaded"], category=desc.get("category", ""),
+                   **({"streamer": desc["uploader_id"].lower()} if desc["uploader_id"] else {}))
     elif vod_id:
         _save_meta(workdir, platform="twitch", kind="vod", label="Twitch past broadcast")
 
@@ -613,7 +614,8 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         log("No chat for this video, ranking by audio.")
     streamer = _meta(workdir).get("streamer") or info.get("streamer", "")
     _save_meta(workdir, title=title, source=url, local=False, streamer=streamer, start=c["start"],
-               **({"streamer_id": info["streamer_id"]} if info.get("streamer_id") else {}))
+               **({"streamer_id": info["streamer_id"]} if info.get("streamer_id") else {}),
+               **({"game": info["game"]} if info.get("game") else {}), **({"games": info["games"]} if info.get("games") else {}))
     m = _meta(workdir)
     return Source(video, chat, title, workdir, streamer, start=c["start"],
                   info={k: m.get(k, "") for k in ("platform", "kind", "label", "uploader", "uploaded")},
@@ -1388,7 +1390,8 @@ def _sidecar_chat(video: str, workdir: str, log: Log, info: Optional[dict] = Non
 def load_chat(path: str, info: Optional[dict] = None) -> list:
     """Parse TwitchDownloader / yt-dlp rechat / generic chat JSON into [(sec, text, user, kind)].
     kind is "" for normal chat, or the Twitch notice type ("sub", "subgift", "raid", "bits"...).
-    If info is given, it gets the streamer's channel name when the file has it."""
+    If info is given, it gets the streamer's channel name when the file has it, and the game (4.36): "game",
+    and "games" [{start, end, game}] when the stream changed game (TwitchDownloader's chapters)."""
     import gzip
     opener = gzip.open if path.endswith(".gz") else open
     with opener(path, "rt", encoding="utf-8", errors="replace") as f:
@@ -1426,6 +1429,7 @@ def load_chat(path: str, info: Optional[dict] = None) -> list:
                 info["streamer"] = str(s["name"]).lower()
             if isinstance(s, dict) and s.get("id"):
                 info["streamer_id"] = str(s["id"])
+            info.update(_chat_games(data.get("video")))
         for c in items or []:
             take(c)
     except json.JSONDecodeError:
@@ -1440,6 +1444,44 @@ def load_chat(path: str, info: Optional[dict] = None) -> list:
                 take(obj)
     msgs.sort(key=lambda m: m[0])
     return msgs
+
+
+def _chat_games(video) -> dict:
+    """{"game", "games"} from a TwitchDownloader chat file's "video": the game it was in, and each chapter's
+    (seconds) when it changed game. Empty when the file doesn't say."""
+    out: dict = {}
+    if not isinstance(video, dict):
+        return out
+    games = []
+    for ch in video.get("chapters") or []:
+        if not isinstance(ch, dict):
+            continue
+        g = str(ch.get("gameDisplayName") or ch.get("description") or "").strip()
+        try:
+            a = float(ch.get("startMilliseconds") or 0) / 1000.0
+            b = a + float(ch.get("lengthMilliseconds") or 0) / 1000.0
+        except (TypeError, ValueError):
+            continue
+        if g and b > a:
+            games.append({"start": round(a, 1), "end": round(b, 1), "game": g[:60]})
+    g = video.get("game") or video.get("gameDisplayName")
+    if isinstance(g, dict):
+        g = g.get("displayName") or g.get("name")
+    if g:
+        out["game"] = str(g).strip()[:60]
+    elif games:
+        out["game"] = max(games, key=lambda c: c["end"] - c["start"])["game"]      # the one played longest
+    if len(games) > 1:
+        out["games"] = games
+    return out
+
+
+def game_at(meta: dict, t: float) -> str:
+    """The game being played at t seconds into the video ('' when unknown)."""
+    for ch in meta.get("games") or []:
+        if isinstance(ch, dict) and ch.get("start", 0) <= t < ch.get("end", 0):
+            return str(ch.get("game") or "")
+    return str(meta.get("game") or "")
 
 
 def _yt_chat(obj: dict) -> list:

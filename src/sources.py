@@ -130,6 +130,8 @@ def describe(info: dict, c: Optional[dict] = None) -> dict:
            "uploader": info.get("uploader") or info.get("channel") or info.get("uploader_id") or "",
            "uploader_id": str(info.get("uploader_id") or info.get("channel_id") or ""),
            "uploaded": f"{up[:4]}-{up[4:6]}-{up[6:8]}" if re.fullmatch(r"\d{8}", up) else "",
+           # 4.36: YouTube's category ("Gaming", "Entertainment"...), for hashtags; Twitch's game comes from chat
+           "category": str((info.get("categories") or [""])[0] or "") if isinstance(info.get("categories"), list) else "",
            "problem": ""}
     if kind == "upcoming":
         out["problem"] = "That livestream hasn't started yet. Use Live clipping with 'Wait for the stream to start', or come back after it ends."

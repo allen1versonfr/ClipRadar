@@ -407,10 +407,6 @@ def _chat_near(pr: dict, start: float, end: float) -> list:
     return [m for m in chatsignal.human(chat[a:b]) if isinstance(m[1], str)]
 
 
-def _chat_window(pr: dict, start: float, end: float) -> list:
-    return [m[1] for m in _chat_near(pr, start, end)]
-
-
 def _chat_title(pr: dict, start: float, end: float) -> str:
     """Settings › Titles: a title from a phrase many chatters typed around the clip ('' if none)."""
     msgs = [(m[1], m[2] if len(m) > 2 else "") for m in _chat_near(pr, start, end)]
@@ -455,10 +451,13 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     ct = _chat_title(pr, d["start"], d["end"]) if tp["chat_titles"] else ""
     if not ct and tp["chat_titles"] and pr.get("yt"):
         ct = ytextra.comment_title(pr["yt"], d["start"], d["end"], _streamer_name(pr))   # a YouTube video's comments
-    info = titles.generate(rel, _chat_window(pr, d["start"], d["end"]),
+    meta = engine._meta(pr["workdir"]) if pr.get("workdir") else {}
+    # who said what (each chatter counts once for the mood and the topic), and the game at the clip (4.36)
+    info = titles.generate(rel, _chat_near(pr, d["start"], d["end"]),
                            peak_rel=d.get("peak", d["start"]) - d["start"], used=used,
                            streamer=_streamer_name(pr), with_tags=tp["hashtags"], pick=tp["pick"], chat_title=ct,
-                           platform=_origin(pr)["platform"] if pr.get("workdir") else "twitch")
+                           platform=_origin(pr)["platform"] if pr.get("workdir") else "twitch",
+                           game=engine.game_at(meta, float(d.get("peak", d["start"]))), category=meta.get("category", ""))
     cfg = safety.load_config()
     if not d.get("user_title") and not d.get("userTitle"):
         d["title"] = safety.mask_text(info["title"], cfg)
@@ -478,7 +477,9 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     d["emoji"] = info["emoji"]
     if cfg.get("auto", True) or d.get("safety"):
         checkflow.check(d, cfg, pr["info"].get("has_audio", True))
-    used.add(d["title"].lower())
+    # 4.36: both titles and the caption, so the next clips get others (only the title on the video was, and
+    # every clip of one mood got the same title B and caption)
+    used.update(t.lower() for t in (d["title"], info["title_a"], info["title_b"], info["description"]) if t)
 
 
 def rescan_all():

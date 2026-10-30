@@ -82,7 +82,7 @@ check("tidy: long lines end on a word", len(titles.polish(long)) <= 61 and title
 check("description isn't the title", r["description"] != r["title_a"] and r["description"] != r["title_b"], r["description"])
 check("description names the stream when known", "JasonTheWeen" in r["description"], r["description"])
 check("a few relevant hashtags", 2 <= len(r["hashtags"]) <= titles.MAX_TAGS and "#jasontheween" in r["hashtags"]
-      and "#funny" in r["hashtags"] and "#fyp" not in r["hashtags"], r["hashtags"])
+      and {"#funny", "#funnymoments"} & set(r["hashtags"]) and "#fyp" not in r["hashtags"], r["hashtags"])
 check("hashtags in the post when switched on", r["post"].endswith(" ".join(r["hashtags"])))
 off = titles.generate(words, laugh, 4.0, set(), streamer="JasonTheWeen", with_tags=False)
 check("no hashtags when switched off", "#" not in off["post"] and off["post"] == off["description"], off["post"])
@@ -128,6 +128,66 @@ ry = titles.generate(words, laugh, 4.0, set(), streamer="GeminiTay", platform="y
 check("YouTube: no Twitch tags", not any("twitch" in t for t in ry["hashtags"]) and "#youtube" in ry["hashtags"], ry["hashtags"])
 check("YouTube: the description says YouTube", "Twitch" not in ry["description"], ry["description"])
 check("Twitch is still the default", "#twitch" in titles.generate(words, laugh, 4.0, set(), streamer="X1")["hashtags"])
+
+# ---------------------------------------------------------------- 4.36: mood, topic, variety, game hashtags
+people = lambda texts: [(float(i), t, f"u{i}") for i, t in enumerate(texts)]  # noqa: E731
+mixed = people(["KEKW", "LMAOOO", "L", "😂😂", "L", "hahaha", "OMEGALUL", "L", "xdd", "ICANT"])
+check("a laughing wave with some L's in it is funny, not a fail", titles.generate([], mixed)["vibe"] == "funny")
+one = [(float(i), "L", "same") for i in range(10)] + people(["KEKW", "LMAO", "😂"])
+check("one person typing L ten times is one chatter", titles.generate([], one)["vibe"] == "funny")
+hair = people(["NOOO not the hair", "dont cut the hair", "the hair 😭", "his hair was fine", "save the hair",
+               "bro the hair", "hair cut LMAO", "KEKW", "noooo", "W"])
+th = titles.generate([], hair, streamer="Speedy")
+check("what chat talks about becomes the topic", th["topic"] == "hair", th["topic"])
+check("and is in a title and a hashtag", any("the hair" in t for t in th["titles"]) and "#hair" in th["hashtags"], th)
+for bad in (["thats cap", "CAP", "the cap is crazy", "big cap", "cap cap", "that cap"],
+            ["the speedy show", "the speedy fans", "speedy speedy", "go speedy", "speedy W", "speedy pls"],
+            ["the KEKW", "a KEKW", "KEKW", "KEKW", "KEKW", "KEKW"],
+            ["the stream", "this stream", "stream lag", "stream", "stream ok", "the stream"]):
+    tb = titles.generate([], people(bad * 2), streamer="Speedy")
+    check(f"not a topic: {bad[0]!r}", tb["topic"] == "", tb["topic"])
+check("a few people aren't a topic", titles.topic(people(["the car", "the car", "the car"])) == "")
+
+# a stream's clips: titles, titles B and captions vary
+used, got = set(), {"a": [], "b": [], "d": []}
+for k in range(12):
+    g = titles.generate([], people(["POGGG", "LETSGOOO", "W", "W", "INSANE", "🔥"] + ["W"] * k), peak_rel=k * 1.3,
+                        used=used, streamer="Kai")
+    used.update(x.lower() for x in (g["title"], g["title_a"], g["title_b"], g["description"]))
+    got["a"].append(g["title_a"])
+    got["b"].append(g["title_b"])
+    got["d"].append(g["description"])
+check("12 hype clips: 12 titles", len(set(got["a"])) == 12, got["a"])
+check("and at least 10 different titles B and captions", len(set(got["b"])) >= 10 and len(set(got["d"])) >= 10, got)
+
+check("the game is a hashtag, in the form people search", titles.hashtags("hype", "Kai", "Grand Theft Auto V")[:2] == ["#kai", "#gta5"]
+      and "#minecraft" in titles.hashtags("funny", "x", "Minecraft"))
+check("#gaming only for a game", "#gaming" in titles.hashtags("funny", "x", "Minecraft")
+      and "#gaming" not in titles.hashtags("funny", "x", "Just Chatting") and "#gaming" not in titles.hashtags("funny", "x"))
+check("Just Chatting has its own tag", "#justchatting" in titles.hashtags("funny", "x", "Just Chatting"))
+check("YouTube's Gaming category is a game", "#gaming" in titles.hashtags("funny", "x", platform="youtube", category="Gaming")
+      and "#gaming" not in titles.hashtags("funny", "x", platform="youtube", category="Entertainment"))
+check("the streamer's clips tag when there's room", "#kaiclips" in titles.hashtags("funny", "Kai"))
+full = titles.hashtags("funny", "Kai", "Minecraft", topic_word="creeper")
+check("five at most, the platform's tag kept", len(full) == 5 and full[-1] == "#twitch" and full[:3] == ["#kai", "#minecraft", "#creeper"],
+      full)
+check("no #twitchclips on every clip any more", "#twitchclips" not in titles.hashtags("funny", "Kai"))
+
+import engine  # noqa: E402
+import json  # noqa: E402
+import tempfile  # noqa: E402
+cf = tempfile.mktemp(suffix=".json")
+json.dump({"streamer": {"name": "Kai", "id": "1"}, "video": {"chapters": [
+    {"startMilliseconds": 0, "lengthMilliseconds": 600000, "gameDisplayName": "Just Chatting"},
+    {"startMilliseconds": 600000, "lengthMilliseconds": 3000000, "gameDisplayName": "Minecraft"}]}, "comments": []},
+    open(cf, "w"))
+info = {}
+engine.load_chat(cf, info)
+check("Twitch chat replay: the game, and each chapter's", info.get("game") == "Minecraft" and len(info.get("games", [])) == 2
+      and engine.game_at(info, 30) == "Just Chatting" and engine.game_at(info, 900) == "Minecraft", info)
+check("no game known: ''", engine.game_at({}, 5) == "")
+import sources  # noqa: E402
+check("YouTube's category from the link check", sources.describe({"categories": ["Gaming"], "title": "x"})["category"] == "Gaming")
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)
