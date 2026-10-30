@@ -26,7 +26,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
-import detect  # noqa: E402
+import detect  # noqa: E402,F401  (test_live.py uses lr.detect)
 import engine  # noqa: E402
 import live  # noqa: E402
 
@@ -53,9 +53,11 @@ class ReplaySession(live.LiveSession):
     def _make_moment(self, start, end, peak, reason, an, chat, manual=False, lat=None, aired=None):
         self.taken.append((start, end))
         self._moment_n += 1
+        sc = round(float(an.score[min(int(peak), len(an.score) - 1)]), 2)
         self.found.append({"start": float(start), "end": float(end), "peak": float(peak), "manual": manual,
                            "emitted": float(len(self.loud)), "lat": dict(lat or {}), "reason": reason,
-                           "quality": detect.quality(float(an.score[min(int(peak), len(an.score) - 1)]))})
+                           "quality": self.grade(sc, an), "score": sc})     # graded as LiveSession._make_moment does
+        self.clip_scores.append(sc)
 
 
 def replay(loud, fine=None, chat=None, step: float = 2.0, chat_on: bool = True, chat_lost_at: float = None,

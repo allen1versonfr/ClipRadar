@@ -2391,6 +2391,10 @@ def live_on_moment(sess, m: dict):
              at=round(m["offset"] + clip.peak, 1), abs_start=round(m["offset"] + clip.start, 1),
              abs_end=round(m["offset"] + clip.end, 1), len_mode=sess.length, lat=dict(m.get("lat") or {}))
     sess.moments.append(mid)
+    # more of the stream is known now: every moment's score again, so 90+ stays the session's best few
+    ds = [projects[x]["clips"][0] for x in sess.moments if x in projects and projects[x].get("clips")]
+    for c, q in zip(ds, sess.grades([float(c.get("score") or 0) for c in ds])):
+        c["quality"] = q
     extra = sess.extra
     aired = m.get("aired")
 
