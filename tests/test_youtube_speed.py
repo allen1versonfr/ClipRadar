@@ -137,7 +137,10 @@ def open_video(name):
     root = tempfile.mkdtemp(prefix="vc_ytw_")
     logs = []
     t0 = time.monotonic()
-    s = engine.acquire("https://www.youtube.com/watch?v=abcdefghijk", root, log=logs.append, early_sound=True, events=False)
+    # max_height 0 (Best available): its format, bv*+ba/b, has none of the < > ^ that cmd.exe would take for
+    # redirection or escapes when it runs the stand-in's .bat on Windows (the real yt-dlp.exe isn't a .bat)
+    s = engine.acquire("https://www.youtube.com/watch?v=abcdefghijk", root, max_height=0, log=logs.append,
+                       early_sound=True, events=False)
     took = time.monotonic() - t0
     sound = s.sound() if s.sound else None
     calls = [json.loads(ln) for ln in open(logf)]
