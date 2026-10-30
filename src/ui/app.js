@@ -2762,7 +2762,8 @@ $('#lrForgetAll').onclick = async () => {
 
 /* =============================================================== detection (3.5): score, settings, feedback */
 const PART_LABEL = { chat: 'Chat', audio: 'Volume', laugh: 'Laughter', scream: 'Screams', cheer: 'Cheering', emotes: 'Emotes',
-  surge: 'Chat surge', react: 'Sudden reaction', noise: 'Isolated noise', tuned: 'Your picks' };
+  surge: 'Chat surge', react: 'Sudden reaction', agree: 'Chat and stream agree', talk: 'Chat just talking',
+  noise: 'Isolated noise', tuned: 'Your picks' };
 function renderScore(c) {
   const el = $('#cScore');
   if (!c.quality) { el.innerHTML = '<span class="muted">–</span>'; return; }

@@ -37,15 +37,63 @@ UA = {"User-Agent": "ClipRadar (+https://github.com/allen1versonfr/ClipRadar)"}
 _lock = threading.Lock()
 _mem: dict = {}
 
-# what kind of reaction an emote usually means, from its name
+# what kind of reaction an emote usually means, from its name. Checked in this order. "calm" (4.35): an
+# emote people use while nothing is happening (vibing to a song, saying hi or bye, going to bed): it isn't a
+# reaction, and a wave of it (a song everyone catJAMs to, a raid saying peepoHey) isn't a moment
 KINDS = [
-    ("laugh", re.compile(r"(kek|lul|omegalul|icant|laugh|lmao|lmfao|xd|haha|jaja|dead|skull|crying|wheeze|rofl|pepela)", re.I)),
-    ("hype", re.compile(r"(pog|letsgo|hype|gigachad|ez|clap|goat|fire|peepohey|catjam|ratjam|vibe|dance|cheer|wow)", re.I)),
-    ("shock", re.compile(r"(monka|wtf|wide|omg|shock|stare|sus|hmm|what|huh|nope|nooo|dent|aware|scared|panic)", re.I)),
+    ("laugh", re.compile(r"(kek|lul|omegalul|icant|laugh|lmao|lmfao|xd|haha|jaja|dead$|skull|crying|wheeze|rofl|pepela|giggle)", re.I)),
+    ("cringe", re.compile(r"(cringe|awkward|weirdge|weirdchamp|sus|nerd|whoasked|concerned|mlady|uuh|eeeh|oopsie)", re.I)),
+    ("confused", re.compile(r"(huh|hmm|modcheck|thinking|^wot$|^buh$|^wuh$|shruge|confused|clueless\?)", re.I)),
+    ("fail", re.compile(r"(sadge|pepehands|deadge|ripbozo|despair|trisad|feelsweakman|feelsbadman|^saj$|^o7$)", re.I)),
+    ("calm", re.compile(r"(jam|vibe|danc|pls$|bedge|sleep|comfy|hey$|bye$|^hi+$|arrive|leave|listening|chatting|nodders|"
+                        r"^yep$|^ok$|okayg|wave|peeposit|coffee|popcorn|cinema|watching|waiting)", re.I)),
+    ("hype", re.compile(r"(pog|letsgo|hype|gigachad|^ez$|clap|goat|fire|cheer|riot|based|banger|wicked|cook|slay|pagman|cogg)", re.I)),
+    ("shock", re.compile(r"(monka|wtf|wide|omg|shock|stare|nope|nooo|dent|aware|scared|panic|what|caught|noway|flashbang|"
+                         r"^o+$|^aaa+$|ohno|meltdown|scatter|^d:$|:0|mad|rage)", re.I)),
 ]
+# 4.35: the 7TV emotes chat uses most (7TV's top of all time), with the reaction each one means and what it
+# adds to a message (like engine.HYPE). Exact names: "CAUGHT" is the emote, "caught" a word. Counted even when
+# the channel's emote lists couldn't be loaded, and on YouTube and X. Emotes for vibing, greetings and sleep
+# aren't here: they add nothing.
+POPULAR = {
+    # laughing
+    "OMEGALUL": ("laugh", 2.0), "KEKW": ("laugh", 2.0), "ICANT": ("laugh", 1.8), "PepeLaugh": ("laugh", 1.8),
+    "xdd": ("laugh", 1.5), "xdding": ("laugh", 1.5), "xdx": ("laugh", 1.2), "peepoGiggles": ("laugh", 1.5),
+    "sadKEK": ("laugh", 1.5), "KEKL": ("laugh", 1.8), "LOL": ("laugh", 1.5), "HAH": ("laugh", 1.2),
+    "TrollDespair": ("laugh", 1.2), "LULW": ("laugh", 1.8),
+    # hype
+    "GIGACHAD": ("hype", 1.5), "LETSGO": ("hype", 1.8), "POGGERS": ("hype", 1.8), "PogU": ("hype", 1.8),
+    "Pog": ("hype", 1.8), "HYPERS": ("hype", 1.5), "VeryPog": ("hype", 1.8), "POGGIES": ("hype", 1.8),
+    "PagMan": ("hype", 1.8), "gachiHYPER": ("hype", 1.5), "HYPERCLAP": ("hype", 1.5), "peepoClap": ("hype", 1.0),
+    "Clap": ("hype", 1.0), "LETHIMCOOK": ("hype", 1.2), "BASED": ("hype", 1.0), "BANGER": ("hype", 1.2),
+    "WICKED": ("hype", 1.2), "COGGERS": ("hype", 1.2), "peepoCheer": ("hype", 1.0), "Cheergi": ("hype", 1.0),
+    "peepoRiot": ("hype", 1.2), "PauseChamp": ("hype", 0.8),
+    # shock
+    "NOOOO": ("shock", 1.8), "AINTNOWAY": ("shock", 1.8), "NOWAYING": ("shock", 1.8), "monkaW": ("shock", 1.5),
+    "monkaS": ("shock", 1.5), "MONKA": ("shock", 1.5), "monkaChrist": ("shock", 1.5), "WHAT": ("shock", 1.5),
+    "D:": ("shock", 1.2), "FLASHBANG": ("shock", 1.5), "AAAA": ("shock", 1.5), "OOOO": ("shock", 1.5),
+    "ohno": ("shock", 1.2), "pepeMeltdown": ("shock", 1.2), "SCATTER": ("shock", 1.2), ":0": ("shock", 1.0),
+    "CAUGHT": ("shock", 1.8), "CaughtIn4K": ("shock", 1.8), "Caught": ("shock", 1.5), "RAGEY": ("shock", 1.2),
+    "Madge": ("shock", 1.0), "ReallyMad": ("shock", 1.2), "UltraMad": ("shock", 1.2), "Aware": ("shock", 1.0),
+    # confused
+    "HUH": ("confused", 1.5), "Hmm": ("confused", 1.0), "modCheck": ("confused", 1.0), "Thinking": ("confused", 1.0),
+    "Thinking2": ("confused", 1.0), "hmmMeeting": ("confused", 1.0), "monkaHmm": ("confused", 1.0),
+    "buh": ("confused", 1.0), "wuh": ("confused", 1.0), "WOT": ("confused", 1.2), "Shruge": ("confused", 0.8),
+    # awkward, cringe
+    "DIESOFCRINGE": ("cringe", 1.8), "uuh": ("cringe", 1.2), "Awkward": ("cringe", 1.5), "Weirdge": ("cringe", 1.2),
+    "WeirdChamp": ("cringe", 1.2), "Susge": ("cringe", 1.2), "SUSSY": ("cringe", 1.2), "Nerdge": ("cringe", 1.0),
+    "Nerd": ("cringe", 1.0), "WhoAsked": ("cringe", 1.0), "AYOOO": ("cringe", 1.2), "Concerned": ("cringe", 1.0),
+    "eeeh": ("cringe", 1.0), "MLADY": ("cringe", 1.0), "oopsie": ("cringe", 0.8),
+    # it went wrong: a death, a loss, a fail ("o7": chat saluting)
+    "Sadge": ("fail", 1.0), "SadgeCry": ("fail", 1.2), "PepeHands": ("fail", 1.2), "Deadge": ("fail", 1.2),
+    "RIPBOZO": ("fail", 1.2), "Despairge": ("fail", 1.2), "TriSad": ("fail", 1.0), "SAJ": ("fail", 1.0),
+    "FeelsWeakMan": ("fail", 1.0), "FeelsBadMan": ("fail", 1.0), "o7": ("fail", 0.8), "O7": ("fail", 0.8),
+}
 
 
 def kind_of(name: str) -> str:
+    if name in POPULAR:
+        return POPULAR[name][0]
     for k, rx in KINDS:
         if rx.search(name):
             return k

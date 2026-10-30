@@ -194,7 +194,8 @@ es = emotes.for_channel("77")
 check("7TV, BTTV and FFZ emotes for the channel and globals", {"ICANT", "Aware", "catJAM", "KEKW", "LULW", "OMEGALUL", "EZ"} <= set(es.by_name),
       sorted(es.by_name))
 check("emote names match whatever case chat types", es.find("icant") == "ICANT" and es.find("ok") is None)
-check("emote kinds from their names", es.by_name["ICANT"][1] == "laugh" and es.by_name["catJAM"][1] == "hype")
+# catJAM was "hype" before 4.35; vibing to a song isn't a reaction
+check("emote kinds from their names", es.by_name["ICANT"][1] == "laugh" and es.by_name["catJAM"][1] == "calm")
 n0 = HITS["n"]
 emotes._mem.clear()
 es2 = emotes.for_channel("77")
@@ -212,8 +213,9 @@ er, top = detect.emote_rate(sorted(chat), 200, 0.0, es)
 check("emote waves count chatters, not spam, bots or commands", float(er.sum()) == 30, float(er.sum()))
 check("the emote a wave was made of", any(e == "ICANT" for e, _ in top.values()), top)
 w = detect.weigher(es)
-check("emotes add to a message's weight (live)", w("catJAM catJAM") > engine.chat_weight("catJAM catJAM")
-      and w("KEKW") == engine.chat_weight("KEKW"))
+check("emotes add to a message's weight (live), each once, and vibing adds nothing",
+      w("Aware") == engine.chat_weight("Aware") > 1.0 and w("KEKW") == engine.chat_weight("KEKW")
+      and w("catJAM catJAM") == engine.chat_weight("catJAM catJAM") == 1.0)
 
 # ---------------------------------------------------------------- learning from trims
 for i in range(6):

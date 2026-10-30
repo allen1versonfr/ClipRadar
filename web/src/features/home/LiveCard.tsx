@@ -82,8 +82,8 @@ export function LiveCard({ status }: { status: Status | undefined }) {
         </label>
         <label>Clip length
           <select className="input" value={length} onChange={e => save('liveLength2', setLength)(e.target.value)}>
-            <option value="0">Auto (15–90 s)</option><option value="20">20 s</option><option value="30">30 s</option>
-            <option value="45">45 s</option><option value="60">60 s</option>
+            <option value="0">Auto (15–120 s)</option><option value="20">20 s</option><option value="30">30 s</option>
+            <option value="45">45 s</option><option value="60">60 s</option><option value="90">90 s</option><option value="120">2 min</option>
           </select>
         </label>
       </div>

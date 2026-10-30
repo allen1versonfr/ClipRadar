@@ -97,7 +97,7 @@ export function TitleChoices({ clip: c, name, kept, onPick, onName }: {
 
 const SENS = [['fewer', 'Fewer, stronger'], ['normal', 'Normal'], ['more', 'More']] as const
 const COUNTS = ['0', '5', '10', '15', '20', '25', '30', '40', '50', '60', '80', '100']
-const LENGTHS = [['0', 'Auto (15 to 90 s)'], ['15', '15 s'], ['20', '20 s'], ['30', '30 s'], ['45', '45 s'], ['60', '60 s'], ['90', '90 s']] as const
+const LENGTHS = [['0', 'Auto (15 to 120 s)'], ['15', '15 s'], ['20', '20 s'], ['30', '30 s'], ['45', '45 s'], ['60', '60 s'], ['90', '90 s'], ['120', '2 min']] as const
 
 /** Detection settings: stream type, how many moments, clip lengths, chat or audio. Try compares with the list
  *  you have; Apply re-ranks it, and clips you kept, skipped, trimmed or added stay. */

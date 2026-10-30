@@ -51,7 +51,7 @@ VIBES = {
     "shock": {
         "emoji": "😳",
         "tags": ["#unexpected"],
-        "chat": {"wtf", "omg", "monkas", "noway", "wideeyes", "nooo", "what", "d:", "😱", "😳", "huh"},
+        "chat": {"wtf", "omg", "monkas", "noway", "wideeyes", "nooo", "what", "d:", "😱", "😳"},
         "said": {"what", "wait", "how", "huh", "wtf", "omg", "no", "way", "holy", "god"},
         "templates": ["Wait for it...", "Chat was not ready for this", "What just happened",
                       "Nobody saw this coming"],
@@ -66,6 +66,28 @@ VIBES = {
         "templates": ["This did not go as planned", "It was all going so well...", "Chat felt this one"],
         "named": ["It was all going so well for {n}...", "This did not go as planned for {n}", "{n}'s chat felt this one"],
         "describe": "It was all going so well",
+    },
+    # 4.34: chat not getting it ("???", "huh", "wdym") and an awkward moment ("uhhh", "😬", "yikes") are told
+    # apart by engine.reaction_kind; "huh" and "???" used to count as shock
+    "confused": {
+        "emoji": "🤔",
+        "tags": ["#confused"],
+        "chat": set(),
+        "said": {"huh", "confused", "understand", "wait", "what"},
+        "templates": ["Chat was so confused", "Nobody understood what just happened", "Can someone explain this",
+                      "Wait, what just happened?"],
+        "named": ["{n} left chat so confused", "Can someone explain what {n} just did", "Nobody understood {n} here"],
+        "describe": "Chat had no idea what just happened",
+    },
+    "cringe": {
+        "emoji": "😬",
+        "tags": ["#awkward", "#cringe"],
+        "chat": set(),
+        "said": {"awkward", "uh", "um", "uhh", "umm", "sorry", "cringe", "embarrassing"},
+        "templates": ["This got awkward fast", "The silence after this", "Chat could not handle this",
+                      "Secondhand embarrassment"],
+        "named": ["{n} made it so awkward", "This got awkward fast for {n}", "{n}'s chat could not handle this"],
+        "describe": "This got awkward fast",
     },
     "wholesome": {
         "emoji": "🥹",
@@ -233,6 +255,14 @@ def garbled(text: str) -> bool:
     return symbols >= 2
 
 
+KIND_VIBE = {"laugh": "funny", "hype": "hype", "shock": "shock", "fail": "fail"}
+
+
+def _engine():
+    import engine
+    return engine
+
+
 def _vibe(chat_msgs: list, words: list) -> tuple:
     counts = {k: 0.0 for k in VIBES}
     clip_req = 0
@@ -245,11 +275,17 @@ def _vibe(chat_msgs: list, words: list) -> tuple:
             toks.add("noway")
         if "let's go" in low or "lets go" in low or "letsgo" in low:
             toks.add("letsgo")
-        if "???" in low:
-            toks.add("what")
+        hit = False
         for k, v in VIBES.items():
             if toks & v["chat"]:
                 counts[k] += 1
+                hit = True
+        kind = _engine().reaction_kind(msg)
+        if kind in ("confused", "cringe"):
+            counts[kind] += 1
+        elif not hit and kind:
+            # a message the word lists above don't know, often a 7TV emote ("CAUGHT", "AINTNOWAY", "Deadge")
+            counts[KIND_VIBE[kind]] += 1
     said = [re.sub(r"[^\w']", "", w["word"]).lower() for w in words]
     for k, v in VIBES.items():
         counts[k] += 0.5 * sum(1 for t in said if t in v["said"])

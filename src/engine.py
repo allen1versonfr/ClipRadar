@@ -12,6 +12,7 @@ Pipeline
 from __future__ import annotations
 
 import bisect
+import functools
 import json
 import math
 import os
@@ -29,6 +30,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+import emotes
 import paths
 import procjob
 
@@ -1498,6 +1500,162 @@ HYPE = {
     "clip": 3.0, "clipit": 3.0, "clipped": 2.5,
 }
 _TOKEN = re.compile(r"[\w:]+|[^\w\s]")
+# 4.32: more of how chat reacts. Kept apart from HYPE, which chat titles also use as words to leave out.
+REACT = {
+    "😭": 1.5, "😹": 1.2, "🤯": 1.3, "😳": 1.0, "omfg": 1.5, "rofl": 1.5, "sheesh": 1.3, "holy": 1.2,
+    "bruh": 0.8, "wow": 1.0, "ww": 1.0, "l": 0.8,
+}
+# ordinary words that react only when stretched: "noooo", "whaaat", "yesss", "gooo", "brooo", "ohhh"
+STRETCHED = {"no": 1.5, "what": 1.2, "yes": 1.0, "go": 1.0, "bro": 0.8, "oh": 0.8}
+REACT_PHRASES = (("no shot", 1.5), ("im dead", 1.2), ("i'm dead", 1.2), ("i cant", 1.0), ("i can't", 1.0),
+                 ("holy shit", 0.8), ("oh my god", 1.3))
+# laughter typed out, in the languages Twitch and YouTube chat is in: hahaha, hehehe, LMAOOO, LOOOL, XDDD,
+# jajaja (Spanish), kkkkk / kakaka (Portuguese), wwww / 草 (Japanese), ㅋㅋㅋ (Korean), хахаха (Russian),
+# mdr / ptdr (French), jsjsjs, 哈哈哈 (Chinese)
+LAUGH_TEXT = re.compile(
+    r"^(?:a?(?:ha){2,}h?|a?(?:ah){2,}a?|(?:he){3,}h?|(?:hi){3,}|(?:ja){2,}j?|(?:je){3,}|(?:ka){3,}|k{4,}|w{4,}|"
+    r"l+m+f*a+o+|lo{2,}l|lu{2,}l|x+d{2,}|ro+fl|ptdr|mdr|(?:js){3,}|(?:sk){3,}|[хx]?(?:[хx]а){2,}|(?:ㅋ){3,}|(?:ㅎ){3,}|"
+    r"草+|(?:哈){2,}|(?:笑){2,})$")
+_STRETCH = re.compile(r"(\w)\1{2,}")
+TOKEN_REPEAT = 0.3          # the same reaction again in one message ("KEKW KEKW KEKW"): each one after the first
+
+
+@functools.lru_cache(maxsize=1 << 16)          # chat repeats the same few thousand tokens all stream
+def _react_points(tok: str) -> float:
+    """What one token says about how chat is reacting (0 for ordinary words)."""
+    v = HYPE.get(tok) or REACT.get(tok)
+    if v:
+        return v
+    if LAUGH_TEXT.match(tok):
+        return 1.5
+    if _STRETCH.search(tok):
+        short = _STRETCH.sub(r"\1", tok)       # "lmaoooo" -> "lmao", "poggg" -> "pog", "noooo" -> "no"
+        v = HYPE.get(short) or REACT.get(short) or STRETCHED.get(short)
+        if v:
+            return v
+        if LAUGH_TEXT.match(short):
+            return 1.5
+    return 0.0
+
+
+# 4.34: two reactions told apart from each other (and from shock). Confused: chat doesn't get what just
+# happened ("???", "huh", "wdym", 🤔). Cringe: chat is uncomfortable with it, an awkward moment ("uhhh",
+# "ummm", "erm", 😬, "yikes"). Both are reactions worth a clip; reaction_kind says which one a message is.
+CONFUSED = {"huh": 1.0, "wdym": 1.0, "wym": 0.8, "confused": 1.0, "🤔": 0.8, "❓": 1.0, "😕": 0.8, "🧐": 0.8,
+            "monkahmm": 1.0, "hmm": 0.6}
+CRINGE = {"yikes": 1.2, "cringe": 1.2, "awkward": 1.2, "erm": 1.0, "ick": 1.0, "oof": 0.8, "ayo": 1.0,
+          "weirdchamp": 1.2, "weird": 0.6, "😬": 1.2, "😐": 1.0, "😑": 1.0, "🫠": 1.0, "🙃": 0.8, "🦗": 1.0}
+CONFUSED_PHRASES = ("wait what", "what just happened", "what is happening", "what is going on", "im lost",
+                    "i'm lost", "what did he", "what did she", "what did i just")
+CRINGE_PHRASES = ("bro what", "why would you", "this is awkward", "so awkward", "second hand embarrassment",
+                  "secondhand embarrassment", "im uncomfortable", "i'm uncomfortable")
+_UHH = re.compile(r"^(?:u+h+|u+m{2,}|e+r+m+|e+h{2,})$")         # uh, uhh, uuuhhh, umm, errm, ehhh
+_HMM = re.compile(r"^h+m{2,}$")                                  # hmm, hmmmm: confused, thinking
+_CONFUSED_ASK = re.compile(r"^\W*(?:(?:what|huh|who|how|why|wait|bro|sorry|pardon|excuse me|what the|u+h+|u+m+|e+r+m+)\W*)?\?+[\s?!.]*$", re.I)
+KINDS = ("laugh", "hype", "shock", "confused", "cringe", "fail")
+_EMOTE_TOK = re.compile(r"[\w:]+")      # emote names keep their case: "CAUGHT" is the emote, "caught" a word
+_KIND_OF = {}
+for _k in ("kekw", "lul", "lol", "lmao", "lmfao", "omegalul", "icant", "😂", "🤣", "xd", "pepelaugh", "kekl", "lulw",
+           "kek", "dead", "💀", "😭", "😹", "rofl", "omfg"):
+    _KIND_OF[_k] = "laugh"
+for _k in ("pog", "pogchamp", "poggers", "pogu", "w", "ez", "letsgo", "hypers", "gg", "goat", "insane", "🔥", "clip",
+           "clipit", "clipped", "ww", "sheesh", "yes", "go"):
+    _KIND_OF[_k] = "hype"
+for _k in ("monkas", "wtf", "omg", "😱", "d:", "nooo", "noway", "wideeyes", "holy", "🤯", "😳", "wow", "no", "what", "oh"):
+    _KIND_OF[_k] = "shock"
+_KIND_OF.update({k: "confused" for k in CONFUSED})
+_KIND_OF.update({k: "cringe" for k in CRINGE})
+
+
+def _awkward_points(tok: str, alone: bool) -> tuple:
+    """(points, kind) for the confused and cringe words. alone: the token is the whole message, so a
+    plain "uh" or "hmm" counts (inside a sentence they're just filler)."""
+    if tok in CRINGE:
+        return CRINGE[tok], "cringe"
+    if tok in CONFUSED:
+        return CONFUSED[tok], "confused"
+    if _UHH.match(tok) and (alone or len(tok) >= 3):
+        return 1.2, "cringe"
+    if _HMM.match(tok) and (alone or len(tok) >= 4):
+        return 0.6, "confused"
+    return 0.0, ""
+
+
+def reaction_kind(text: str) -> str:
+    """What kind of reaction a chat message is: laugh, hype, shock, confused, cringe, or '' (talk). Used to
+    tell a confused chat ("???", "huh", "wdym") from an awkward, cringe moment ("uhhh", "😬", "yikes")."""
+    t = (text or "").lower().strip()
+    if not t:
+        return ""
+    votes = {k: 0.0 for k in KINDS}
+    if _CONFUSED_ASK.match(t) or "???" in t:
+        votes["confused"] += 1.5
+    for p in CONFUSED_PHRASES:
+        if p in t:
+            votes["confused"] += 1.5
+    for p in CRINGE_PHRASES:
+        if p in t:
+            votes["cringe"] += 1.5
+    for tok in _EMOTE_TOK.findall(text):
+        pe = emotes.POPULAR.get(tok)
+        if pe and pe[0] in votes:
+            votes[pe[0]] += 1.0
+    toks = _TOKEN.findall(t)
+    alone = len([x for x in toks if x.isalnum()]) <= 1
+    for tok in toks:
+        v, kind = _awkward_points(tok, alone)
+        if kind:
+            votes[kind] += 1.0
+            continue
+        short = _STRETCH.sub(r"\1", tok)
+        kind = _KIND_OF.get(tok) or (_KIND_OF.get(short) if short != tok else None)
+        if kind in ("hype", "shock") and tok in ("yes", "go", "no", "what", "oh"):
+            kind = None                     # these react only when stretched ("noooo", "whaaat")
+        if not kind and (LAUGH_TEXT.match(tok) or LAUGH_TEXT.match(short)):
+            kind = "laugh"
+        if kind:
+            votes[kind] += 1.0
+    best = max(KINDS, key=lambda k: votes[k])      # ties: the order of KINDS
+    return best if votes[best] > 0 else ""
+
+
+MOOD_LABEL = {"confused": "chat confused", "cringe": "awkward moment", "both": "awkward and confusing"}
+MOOD_MIN = 5            # chatters reacting the same way before a moment is called confused or awkward
+
+
+def chat_mood(msgs: list) -> tuple:
+    """How chat reacted around a moment: (mood, {kind: chatters}). msgs: (seconds, text, user, kind) without
+    the noise. Each chatter counts once, for what they reacted with most. mood is 'confused' or 'cringe'
+    when that's clearly how chat took it: at least MOOD_MIN people, a third of everyone reacting, and well
+    ahead of the other one ("???" and "huh" against "uhhh" and "😬"); 'both' when chat was split between
+    them. Otherwise '', and laughs, hype and shock speak for themselves in the reason."""
+    per: dict = {}
+    for m in msgs:
+        k = reaction_kind(m[1])
+        if k:
+            d = per.setdefault((m[2] if len(m) > 2 else "") or id(m), {})
+            d[k] = d.get(k, 0) + 1
+    counts = {k: 0 for k in KINDS}
+    for d in per.values():
+        counts[max(d, key=lambda k: (d[k], -KINDS.index(k)))] += 1
+    total = sum(counts.values())
+    a, b = counts["confused"], counts["cringe"]
+    mood = ""
+    for k, n_, other in (("confused", a, b), ("cringe", b, a)):
+        if n_ >= MOOD_MIN and n_ >= total / 3 and n_ >= 1.5 * other and n_ >= max(counts.values()):
+            mood = k
+    if not mood and min(a, b) >= MOOD_MIN and a + b >= total / 3 and a + b >= max(counts.values()):
+        mood = "both"
+    return mood, counts
+
+
+def _awkward_word(tok: str) -> str:
+    """One spelling for the reason: "uuhhhh" -> "uhh", "ummmm" -> "umm", "hmmmm" -> "hmm"."""
+    for rx, word in ((re.compile(r"^u+h+$"), "uhh"), (re.compile(r"^u+m+$"), "umm"), (re.compile(r"^e+r+m+$"), "erm"),
+                     (re.compile(r"^e+h+$"), "ehh"), (_HMM, "hmm")):
+        if rx.match(tok):
+            return word
+    return tok
 
 
 def chat_weight(text: str) -> float:
@@ -1507,14 +1665,44 @@ def chat_weight(text: str) -> float:
         w += 3.0
     if "no way" in t or "lets go" in t or "let's go" in t:
         w += 1.5
-    for tok in _TOKEN.findall(t):
-        if tok in HYPE:
-            w += HYPE[tok]
+    for p, v in REACT_PHRASES:
+        if p in t:
+            w += v
+            break
+    if _CONFUSED_ASK.match(t) and "???" not in t:
+        w += 0.8                          # "?", "huh?", "what??": chat didn't get it
+    if any(p in t for p in CONFUSED_PHRASES + CRINGE_PHRASES):
+        w += 1.0
+    seen: dict = {}
+    toks = _TOKEN.findall(t)
+    alone = len([x for x in toks if x.isalnum()]) <= 1
+    popular: set = set()
+    for tok in _EMOTE_TOK.findall(text):
+        # the 7TV emotes chat uses most, by their exact name ("CAUGHT", not "caught")
+        pe = emotes.POPULAR.get(tok)
+        if pe and tok.lower() not in HYPE:
+            popular.add(tok.lower())
+            k = seen[tok.lower()] = seen.get(tok.lower(), 0) + 1
+            w += pe[1] if k == 1 else pe[1] * TOKEN_REPEAT if k <= 3 else 0.0
+    for tok in toks:
+        if tok in popular:
+            continue                      # counted above by its exact name
+        v = _react_points(tok) or _awkward_points(tok, alone)[0]
+        if v <= 0:
+            continue
+        key = _STRETCH.sub(r"\1", tok)
+        k = seen[key] = seen.get(key, 0) + 1
+        w += v if k == 1 else v * TOKEN_REPEAT if k <= 3 else 0.0
     if "???" in t:
         w += 1.0
     if re.search(r"(\w)\1{4,}", t):  # "LETSGOOOOO", "AAAAAA"
         w += 0.8
     return min(w, 8.0)
+
+
+def is_reaction(text: str) -> bool:
+    """A message that reacts (a laugh, hype, shock, a clip request) rather than talks."""
+    return chat_weight(text or "") > 1.0
 
 
 FINE_HZ = 10        # loudness is also kept every 0.1 s, to find pauses between sentences
@@ -1646,6 +1834,7 @@ def _fit(a, n: int, fill: float = 0.0) -> np.ndarray:
 
 # how much a clear laugh / scream / cheer adds to a second's score (scores are roughly z-scores)
 EVENT_WEIGHTS = {"laugh": 4.0, "scream": 3.0, "cheer": 2.0}
+AGREE_WEIGHT = 0.5      # chat and the stream's sound both reacting (detect.agreement), when a preset doesn't say
 
 
 @dataclass
@@ -1676,6 +1865,11 @@ class Analysis:
     comments: Optional[np.ndarray] = None
     comment_people: Optional[np.ndarray] = None
     chapters: Optional[list] = None
+    # 4.32: messages per second and those that were plain talk (shifted by the delay), and how much chat
+    # counts where it's just talking (detect.talk_mult)
+    said_rate: Optional[np.ndarray] = None
+    talk_rate: Optional[np.ndarray] = None
+    talk: Optional[np.ndarray] = None
 
     @property
     def has_events(self) -> bool:
@@ -1707,18 +1901,27 @@ class Analysis:
             # a loud song isn't a moment: play down loudness while music is playing
             music = np.clip(_rolling(_fit(self.events["music"], len(audio)), 5, "mean") - 0.5, 0, 0.5) * 2
             audio = audio * (1 - 0.5 * music)
+        n = len(self.audio_z)
         parts = {"chat": wc * self.chat_z, "audio": (1 - wc) * audio}
         if self.has_events:
             for k in EVENT_WEIGHTS:
                 parts[k] = float(w.get(k, EVENT_WEIGHTS[k])) * self.event_level(k)
-        n = len(self.audio_z)
         for k, arr in (("emotes", self.emote_z), ("surge", self.surge), ("react", self.react)):
             if arr is not None and float(w.get(k, 0)) > 0:
                 parts[k] = float(w[k]) * _fit(arr, n)
+        if self.talk is not None and wc > 0:
+            # chat surging with plain talk (everyone answering a question) isn't chat reacting: what chat
+            # and its speeding up added counts for less, shown as a part of its own
+            chatty = np.clip(parts["chat"], 0, None) + parts.get("surge", 0)
+            parts["talk"] = (chatty * (_fit(self.talk, n, 1.0) - 1)).astype(np.float32)
         import ytextra
         for k, arr, gain in (("replay", self.replay, ytextra.REPLAY_GAIN), ("comments", self.comments, ytextra.COMMENT_GAIN)):
             if arr is not None:
                 parts[k] = float(w.get(k, 1.0)) * gain * _fit(arr, n)
+        ag = float(w.get("agree", AGREE_WEIGHT))
+        if ag > 0 and self.has_chat and self.has_audio and 0 < wc < 1:
+            import detect
+            parts["agree"] = ag * detect.agreement(self)
         s = sum(parts.values())
         if self.noise is not None:
             s = np.where(s > 0, s * _fit(self.noise, n, 1.0), s)
@@ -1736,7 +1939,8 @@ class Analysis:
                        chat_stats=self.chat_stats, weights=self.weights, chat_delay=self.chat_delay,
                        surge=cut(self.surge), emote_z=cut(self.emote_z), emote_rate=cut(self.emote_rate),
                        react=cut(self.react), noise=cut(self.noise), replay=cut(self.replay),
-                       comments=cut(self.comments), comment_people=cut(self.comment_people), chapters=self.chapters)
+                       comments=cut(self.comments), comment_people=cut(self.comment_people), chapters=self.chapters,
+                       said_rate=cut(self.said_rate), talk_rate=cut(self.talk_rate), talk=cut(self.talk))
         sub.combine(self.chat_weight_pct)
         return sub
 
@@ -1776,7 +1980,7 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
         loud = None
     if len(chat) > 20:
         log(f"Reading {len(chat):,} chat messages...")
-    rate = stats = None
+    rate = stats = said = talk = None
     used_delay = 6.0 if chat_delay == "auto" else float(chat_delay)
     sure = chat_delay != "auto"
     if chat_delay == "auto" and chat:
@@ -1784,6 +1988,7 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
         import detect
         progress(sound_share)
         rate0, sc = chat_rate(chat, n, 0.0)
+        said, talk = sc.said_rate, sc.talk_rate
         progress(sound_share + chat_share * 0.5)
         stats = sc.summary()
         az = _audio_z(loud, n) if loud is not None else np.zeros(n, dtype=np.float32)
@@ -1791,8 +1996,10 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
         log(f"Chat reacts about {used_delay:.0f} s after the stream." if sure
             else "Couldn't tell how late chat reacts; assuming 6 s.")
         rate = detect.shift(rate0, used_delay)
+        said, talk = detect.shift(said, used_delay), detect.shift(talk, used_delay)
         progress(sound_share + chat_share * 0.7)
-    an = score_signals(loud, chat, n, dur, used_delay, chat_weight_pct, rate=rate, stats=stats, events=ev, fine=fine)
+    an = score_signals(loud, chat, n, dur, used_delay, chat_weight_pct, rate=rate, stats=stats, events=ev, fine=fine,
+                       said=said, talk=talk)
     an.chat_delay = used_delay
     an.delay_sure = bool(sure)
     st = an.chat_stats or {}
@@ -1810,7 +2017,8 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
 
 # Bump when anything that feeds the analysis changes (chat scoring, loudness, detector use),
 # so a cached analysis.npz from an older version is thrown away instead of reused.
-ANALYSIS_VERSION = 3          # 4.9: YouTube chat emoji; 4.10: chat delay found on long streams too
+ANALYSIS_VERSION = 6          # 4.9: YouTube chat emoji; 4.10: chat delay found on long streams too; 4.32: chat reading, talk;
+#                               4.34: confused and awkward reactions; 4.35: popular 7TV emotes
 
 
 def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Optional[str]:
@@ -1828,7 +2036,7 @@ def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Op
 
 def _save_analysis(path: str, key: str, an: Analysis):
     arrays = {"chat_z": np.asarray(an.chat_z, dtype=np.float32), "audio_z": np.asarray(an.audio_z, dtype=np.float32)}
-    for name in ("loud", "fine"):
+    for name in ("loud", "fine", "said_rate", "talk_rate"):
         v = getattr(an, name)
         if v is not None:
             arrays[name] = np.asarray(v, dtype=np.float32)
@@ -1852,6 +2060,7 @@ def _load_analysis(path: str, key: str) -> Optional[Analysis]:
         events = {k: f["ev_" + k].copy() for k in meta.get("events", [])} or None
         return Analysis(float(meta["duration"]), f["chat_z"].copy(), f["audio_z"].copy(), bool(meta["has_chat"]),
                         bool(meta["has_audio"]), events=events, loud=get("loud"), fine=get("fine"),
+                        said_rate=get("said_rate"), talk_rate=get("talk_rate"),
                         chat_stats=meta.get("chat_stats"), chat_delay=float(meta.get("chat_delay", 6.0)),
                         delay_sure=bool(meta.get("delay_sure")))
 
@@ -1895,15 +2104,24 @@ def _finish(an: Analysis, chat: list, emote_set, weights: Optional[dict], chat_w
 
 
 def chat_rate(chat: list, n: int, chat_delay: float, scorer=None) -> tuple:
-    """(reaction rate per second, scorer). Chat reacts a few seconds late, so it's shifted back."""
+    """(reaction rate per second, scorer). Chat reacts a few seconds late, so it's shifted back.
+    scorer.said_rate, scorer.talk_rate: messages per second, and those that were plain talk rather than
+    reactions (detect.talk_mult)."""
     import chatsignal
     sc = scorer or chatsignal.ChatScorer(chat_weight)
     rate = np.zeros(n, dtype=np.float32)
+    said_rate = np.zeros(n, dtype=np.float32)
+    talk_rate = np.zeros(n, dtype=np.float32)
     if chat:
-        w = np.asarray(sc.feed(chat), dtype=np.float32)
+        talk: list = []
+        w = np.asarray(sc.feed(chat, talk), dtype=np.float32)
+        tw = np.asarray(talk, dtype=np.float32)
         idx = (np.asarray([m[0] for m in chat], dtype=np.float64) - chat_delay).astype(np.int64)
         ok = (idx >= 0) & (idx < n) & (w > 0)
         np.add.at(rate, idx[ok], w[ok])
+        np.add.at(said_rate, idx[ok], np.minimum(1.0, w[ok]))
+        np.add.at(talk_rate, idx[ok], tw[ok])
+    sc.said_rate, sc.talk_rate = said_rate, talk_rate
     return rate, sc
 
 
@@ -1922,9 +2140,11 @@ def _audio_z(loud: np.ndarray, n: int) -> np.ndarray:
 def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: float,
                   chat_delay: float = 6.0, chat_weight_pct: float = 60, rate: Optional[np.ndarray] = None,
                   stats: Optional[dict] = None, events: Optional[dict] = None,
-                  fine: Optional[np.ndarray] = None) -> "Analysis":
+                  fine: Optional[np.ndarray] = None, said: Optional[np.ndarray] = None,
+                  talk: Optional[np.ndarray] = None) -> "Analysis":
     """Per-second hype score from loudness (dB per second), chat and sound events. Shared by VODs and live.
-    rate: chat reaction per second already weighed (live mode keeps it up to date as chat arrives)."""
+    rate: chat reaction per second already weighed (live mode keeps it up to date as chat arrives).
+    said, talk: messages per second, and those that were plain talk (chat_rate), same timing."""
     if loud is not None and len(loud):
         loud = _fit(loud, n, -90.0)
         audio = _audio_z(loud, n)
@@ -1936,6 +2156,7 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
     if rate is None:
         rate, sc = chat_rate(chat, n, chat_delay)
         stats = sc.summary()
+        said, talk = sc.said_rate, sc.talk_rate
     rate = _fit(rate, n)
     has_chat = float((rate > 0).sum()) > 20
     if has_chat:
@@ -1949,7 +2170,9 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
 
     ev = {k: _fit(v, n) for k, v in events.items()} if events else None
     an = Analysis(duration, chat_z, audio, has_chat, has_audio, events=ev, loud=loud,
-                  fine=None if fine is None else _fit(fine, n * FINE_HZ, -100.0), chat_stats=stats)
+                  fine=None if fine is None else _fit(fine, n * FINE_HZ, -100.0), chat_stats=stats,
+                  said_rate=_fit(said, n) if has_chat and said is not None else None,
+                  talk_rate=_fit(talk, n) if has_chat and talk is not None else None)
     an.combine(chat_weight_pct)
     return an
 
@@ -1958,7 +2181,7 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
 # 3. pick clips
 # --------------------------------------------------------------------------
 
-MIN_LEN, MAX_LEN = 15.0, 90.0
+MIN_LEN, MAX_LEN = 15.0, 120.0          # 4.33: up to 2 minutes (was 90 s)
 STRONG, GOOD = 3.0, 2.0
 
 
@@ -1999,12 +2222,32 @@ def estimate(an: Analysis, sensitivity: str = "normal") -> dict:
             good += 1
             if v >= STRONG:
                 strong += 1
-    base = strong + (good - strong) // 2
-    suggest = int(min(60, max(5, base, round(3 * hours))))
+    # quality first (4.33): suggest the moments that stand out against this stream's best, however long it is.
+    # Before, at least 3 an hour were suggested (5 at least), so a 4-hour stream got 13+ clips even with a few
+    # good moments, and a busy one 60 (real-world test: a 4.4-hour IShowSpeed stream, 60 clips, many of them
+    # chat begging or answering)
+    bar = standout_bar(an, sensitivity)
+    # counted as far apart as two clips can be (STANDOUT_GAP), not the 45 s scores are graded at: a short
+    # video with four loud moments 25 s apart has four clips in it, not two
+    peaks = moment_scores(an, edge=min(60, int(n * 0.03)), gap=STANDOUT_GAP)
+    import detect
+    share = detect.SENSITIVITY.get(sensitivity, detect.SENSITIVITY["normal"]).get("count", 1.0)
+    suggest = int(min(MAX_AUTO_CLIPS, max(MIN_AUTO_CLIPS, round(int((peaks >= bar).sum()) * share))))
+    return {"strong": strong, "good": good, "hours": round(hours, 2), "suggest": suggest}
+
+
+MAX_AUTO_CLIPS = 40        # an automatic list never goes past this (pick a number to get more)
+STANDOUT_GAP = 20          # seconds between two moments that would still be clips of their own
+
+
+def standout_bar(an: Analysis, sensitivity: str = "normal") -> float:
+    """The weakest moment an automatic list takes: above the sensitivity's floor, and a share of how strong
+    the stream's best moments are (its third best, so one freak moment doesn't set the bar)."""
     import detect
     sens = detect.SENSITIVITY.get(sensitivity, detect.SENSITIVITY["normal"])
-    suggest = int(min(100, max(3, round(suggest * sens["count"]))))
-    return {"strong": strong, "good": good, "hours": round(hours, 2), "suggest": suggest}
+    peaks = moment_scores(an)
+    ref = float(peaks[min(2, len(peaks) - 1)]) if len(peaks) else 0.0
+    return max(sens["floor"], sens["rel"] * ref)
 
 
 def _snap(fine: Optional[np.ndarray], t: float, before: float, after: float) -> float:
@@ -2025,7 +2268,7 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
                  min_len: float = MIN_LEN, max_len: float = MAX_LEN, final: bool = False,
                  trigger: Optional[float] = None) -> tuple:
     """Where a clip around a peak should start and end: back far enough to show what led up to it,
-    on until the reaction has died down, 15 to 90 seconds. Returns (start, end, complete); complete is
+    on until the reaction has died down, 15 to 120 seconds. Returns (start, end, complete); complete is
     False while live mode hasn't seen the reaction end yet."""
     s = an.score
     n = len(s) if avail is None else min(len(s), int(avail))
@@ -2034,8 +2277,11 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
     top = float(s[p])
     calm = max(0.8, 0.35 * top)            # the reaction is over below this
     calm_back = max(0.6, 0.25 * top)       # and it hadn't started yet below this
+    # how far the setup and the reaction may reach: further for longer clips, so a 2-minute clip can keep a
+    # long reaction (90 s clips used to stop 45 s after the peak, whatever was still going on)
+    back_room, on_room = max(55, int(0.5 * max_len)), max(45, int(0.75 * max_len))
     # build-up: walk back to where things were calm for 3 seconds
-    lim = max(0, p - 60)
+    lim = max(0, p - back_room - 5)
     build = lim
     quiet = 0
     for i in range(p - 1, lim - 1, -1):
@@ -2047,7 +2293,7 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
         else:
             quiet = 0
     start = min(build - 7.0, p - 6.0)               # a little setup before it kicks off
-    start = max(start, p - 55.0, 0.0)
+    start = max(start, p - float(back_room), 0.0)
     keep_from = p - 8.0
     if trigger is not None and trigger < p:
         # chat reacted late: start before what it reacted to
@@ -2056,7 +2302,7 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
     # reaction: walk forward until it has been calm for 4 seconds
     end = None
     quiet = 0
-    for j in range(p + 1, min(n, p + 46)):
+    for j in range(p + 1, min(n, p + on_room + 1)):
         if s[j] < calm:
             quiet += 1
             if quiet >= 4:
@@ -2064,9 +2310,9 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
                 break
         else:
             quiet = 0
-    complete = end is not None or avail is None or final or n >= p + 46
+    complete = end is not None or avail is None or final or n >= p + on_room + 1
     if end is None:
-        end = min(float(n), p + 45.0)
+        end = min(float(n), p + float(on_room))
     end = max(end, p + 5.0)
     # length rules: longer clips trim the setup first, short ones grow mostly backwards
     L = end - start
@@ -2189,14 +2435,14 @@ def clip_features(an: Analysis, start: float, end: float, peak: float, chat: Opt
     return {k: round(v, 3) for k, v in f.items()}
 
 
-def moment_scores(an: Analysis) -> np.ndarray:
-    """Scores of the stream's separate moments (peaks at least 45 s apart), best first. What a clip's
-    score is graded against (grades)."""
+def moment_scores(an: Analysis, edge: int = 0, gap: int = 45) -> np.ndarray:
+    """Scores of the stream's separate moments (peaks at least gap s apart), best first. What a clip's
+    score is graded against (grades). edge: leave out moments this close to the start or end."""
     s = an.score
     if s is None or not len(s):
         return np.zeros(0)
     cached = getattr(an, "_moments", None)
-    if cached is not None and cached[0] is s:
+    if cached is not None and cached[0] is s and cached[2] == (edge, gap):
         return cached[1]
     order = np.argsort(-s, kind="stable")
     blocked = np.zeros(len(s), dtype=bool)
@@ -2207,10 +2453,12 @@ def moment_scores(an: Analysis) -> np.ndarray:
             break
         if blocked[i]:
             continue
-        blocked[max(0, i - 45): i + 46] = True
+        blocked[max(0, i - gap): i + gap + 1] = True
+        if edge and (i < edge or i > len(s) - 1 - edge):
+            continue
         out.append(v)
     arr = np.array(out)
-    an._moments = (s, arr)
+    an._moments = (s, arr, (edge, gap))
     return arr
 
 
@@ -2254,8 +2502,7 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
     # automatic: only moments that really stand out; a number you chose gets filled with weaker ones
     # too, down to anything above the stream's normal level (fewer only when there aren't that many
     # separate moments; the caller says so)
-    sens = detect.SENSITIVITY.get(sensitivity, detect.SENSITIVITY["normal"])
-    floor = max(sens["floor"], 0.15 * top) if auto else 0.0
+    floor = max(standout_bar(an, sensitivity), 0.15 * top) if auto else 0.0
     skip_edge = min(60, int(n * 0.03))  # ignore "starting soon"/outro edges a bit
     chat_t = chat_times(chat) if chat else []
     # candidate peaks, a little apart from each other
@@ -2362,14 +2609,30 @@ def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: flo
         lo = bisect.bisect_left(chat_t, i + delay - 4)
         hi = bisect.bisect_right(chat_t, i + delay + 14)
         words: dict = {}
-        emoji = {"😂", "🤣", "💀", "🔥", "😱"}
-        for m in chatsignal.human(chat[lo:hi]):
-            for tok in set(re.findall(r"\w+|[😂🤣💀🔥😱]", m[1])):
+        emoji = {"😂", "🤣", "💀", "🔥", "😱", "😬", "🤔", "😐"}
+        near = chatsignal.human(chat[lo:hi])
+        mood, _ = chat_mood(near)
+        if mood:
+            parts.insert(0, MOOD_LABEL[mood])
+        for m in near:
+            seen = set()
+            if mood in ("confused", "both") and _CONFUSED_ASK.match(m[1].strip()) and "?" not in seen:
+                seen.add("?")
+                words["???"] = words.get("???", 0) + 1
+            for tok in set(re.findall(r"\w+|[😂🤣💀🔥😱😬🤔😐]", m[1])):
                 e = es.find(tok) if es else None
+                low = tok.lower()
                 if e:
-                    words[e] = words.get(e, 0) + 1
-                elif (len(tok) > 1 and tok.lower() in HYPE) or tok in emoji:
-                    words[tok] = words.get(tok, 0) + 1
+                    key = e
+                elif (len(tok) > 1 and low in HYPE) or tok in emoji:
+                    key = tok
+                elif mood and (_awkward_points(low, True)[1] or "-") in ((mood,) if mood != "both" else ("confused", "cringe")):
+                    key = _awkward_word(low)
+                else:
+                    continue
+                if key not in seen:
+                    seen.add(key)
+                    words[key] = words.get(key, 0) + 1
         top = sorted(words.items(), key=lambda kv: -kv[1])[:3]
         if top:
             parts.append(", ".join(f"{w} ×{k}" for w, k in top))

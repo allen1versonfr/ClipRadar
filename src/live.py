@@ -222,7 +222,7 @@ class LiveSession:
         os.makedirs(self.moment_dir, exist_ok=True)
         engine._save_meta(self.dir, title=self.title, source=self.source, live=True, streamer=self.channel or "")
 
-        self.length = float(length or 0)          # 0 = each moment gets its own length (15-90 s)
+        self.length = float(length or 0)          # 0 = each moment gets its own length (15-120 s)
         self.set_frequency(sensitivity)
         self.wait_for_live = bool(wait_for_live)
         self.waited = 0.0
@@ -252,6 +252,8 @@ class LiveSession:
         import chatsignal
         self.scorer = chatsignal.ChatScorer(engine.chat_weight)
         self._raw: list = []                   # chat reaction per media second it arrived (weighed, not shifted)
+        self._said_raw: list = []              # messages per media second (counted, not weighed), and those
+        self._talk_raw: list = []              # that were plain talk, not reactions (detect.talk_mult)
         self.emote_set = None                  # the channel's 7TV/BTTV/FFZ emotes, once loaded (server.load_emotes)
         self._emote_raw: list = []             # chatters reacting with an emote, per media second (like VODs)
         self._emote_last: dict = {}            # user -> media time their emote last counted (once per 8 s)
@@ -898,6 +900,8 @@ class LiveSession:
         ev = self.events.result(n) if self.events is not None else None
         with self.chat_lock:
             raw = np.asarray(self._raw[: n + 20], dtype=np.float32)
+            said_raw = np.asarray(self._said_raw[: n + 20], dtype=np.float32)
+            talk_raw = np.asarray(self._talk_raw[: n + 20], dtype=np.float32)
             emo = np.asarray(self._emote_raw[: n + 20], dtype=np.float32) if self.emote_set is not None else None
         if self.delay_auto and n >= 300 and n - self._delay_at >= self.DELAY_EVERY:
             # how late chat reacts, worked out again as the stream goes on
@@ -911,11 +915,12 @@ class LiveSession:
         # chat that dropped or went quiet: rank by what's on stream instead of waiting for chat
         use_chat = self.chat_usable()
         cw = self.chat_weight if use_chat else 0.0
+        said, talk = (engine._fit(detect.shift(engine._fit(x, n + 20), self.chat_delay)[:n], n) for x in (said_raw, talk_raw))
         if not use_chat:
             rate = np.zeros(n, dtype=np.float32)
         an = engine.score_signals(loud, [], n, float(n), self.chat_delay,
                                   cw, rate=rate, stats=self.scorer.summary(), events=ev,
-                                  fine=np.asarray(self.fine[: n * engine.FINE_HZ], dtype=np.float32))
+                                  fine=np.asarray(self.fine[: n * engine.FINE_HZ], dtype=np.float32), said=said, talk=talk)
         an.surge = detect.surge_signal(rate) if an.has_chat else None
         if emo is not None and use_chat:
             # emote waves count for live the same way they do for VODs
@@ -923,6 +928,8 @@ class LiveSession:
             an.emote_z = detect.emote_signal(an.emote_rate)
         an.react = detect.react_signal(an)
         an.noise = detect.noise_mult(an)
+        an.talk = detect.talk_mult(an.said_rate, an.talk_rate, an.emote_rate if emo is not None and use_chat else None) \
+            if an.has_chat else None
         an.combine(cw, getattr(self, "weights", None) or detect.preset("any"))
         return an
 
@@ -1206,6 +1213,11 @@ class LiveSession:
                     if s >= len(self._raw):
                         self._raw.extend([0.0] * (s + 1 - len(self._raw)))
                     self._raw[s] += w
+                    c = self.scorer.count(w)
+                    for arr, v in ((self._said_raw, c), (self._talk_raw, c if self.scorer.plain() else 0.0)):
+                        if s >= len(arr):
+                            arr.extend([0.0] * (s + 1 - len(arr)))
+                        arr[s] += v
             if self.emote_set is not None and t >= 0:
                 import detect
                 if detect.emote_in(text, user, kind, self.emote_set):

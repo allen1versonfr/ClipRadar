@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.31.0" src="https://img.shields.io/badge/version-4.31.0-ffd21f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.35.0" src="https://img.shields.io/badge/version-4.35.0-ffd21f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -35,9 +35,12 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
 - **Twitch, YouTube and X.** Open a Twitch VOD, a YouTube video, Short or finished livestream (with its chat replay), an X video, or a file on your PC. Clip Twitch and YouTube livestreams as they happen, several at once, and follow everything under Home › Running now.
 - **Finds the moments for you.** Clips are ranked by chat surges (KEKW, POG, "clip it", `?????`), audio spikes measured against the surrounding minutes, and laughter, screams and cheering heard by a small built-in sound detector. Twitch's muted DMCA sections are ignored.
   - Chat is counted by chatters, not messages: bots, `!commands`, giveaways, sub notices, gift bombs, raids and copypasta don't create fake moments.
+  - It reads how chat reacts, not just how much it types: laughter in many languages ("hahaha", "jajaja", "kkkk", "ㅋㅋㅋ", "草") and stretched words ("LMAOOOO", "noooo"). Chat answering a question the streamer asked ("germany", "2 hours ago", "50") counts for less, and a moment where the streamer and chat react together counts for more.
+  - The 7TV emotes chat uses most are read for what they mean (CAUGHT, AINTNOWAY, xdd, HUH, DIESOFCRINGE, o7...), even on YouTube or when the channel's emote lists don't load; emotes for vibing, greetings and sleep (catJAM, peepoHey, Bedge) never make a moment.
+  - Awkward moments and confusing ones are clips too, and told apart: "uhhh", "ummm", 😬 and "yikes" make an *awkward moment*; "???", "huh" and "wdym" mean *chat confused*. Each gets a title and hashtags to match.
   - Ordinary YouTube videos have no chat, so they're ranked with YouTube's Most replayed graph and the timestamps people leave in the top comments ("3:45 when he fell"), next to the sound. YouTube's own captions title the clips straight away, and comments people agree on can title them too.
-  - Each clip gets its own length (15–90 s): it starts with the setup, runs until the reaction dies down, and never cuts mid-sentence.
-  - The review header estimates how many strong moments the stream has, and the number of suggestions scales with it.
+  - Each clip gets its own length (15 s to 2 minutes): it starts with the setup, runs until the reaction dies down, and never cuts mid-sentence.
+  - Quality over quantity: on Automatic it suggests only the moments that stand out against the stream's own best ones, not a set number per hour.
   - **Deep scan** (optional) transcribes the whole stream and finds *quiet gems*: lines that landed even though chat and volume stayed calm.
   - It learns from the clips you keep, skip and post, separately for each streamer.
 - **Hands-free live clipping.** Start it and go watch the stream. Every strong moment is titled, checked and rendered on its own, and finished clips land in Exports.

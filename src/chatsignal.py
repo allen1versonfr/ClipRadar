@@ -9,8 +9,8 @@ stream did something clip-worthy. So each message gets a weight:
   bots, !commands, sub/gift/raid notices      0
   someone who already chatted in the last 8 s  a quarter (counts chatters, not messages)
   the third+ copy of a long copypasta          0.15
-  low-information messages ("F", "o7", poll    0
-  votes "1"/"2", a lone "+")
+  low-information messages ("F", a poll      0
+  vote "1"/"2", a number, a lone "+")
   anything during a raid or gift-bomb flood    damped for a minute or so
 
 Chat messages are tuples (seconds, text, user, kind). user may be "" and kind is
@@ -47,7 +47,11 @@ _SYSTEM = re.compile(
 # F wave in a calm chat read as "chat explodes" in live mode, so they count for nothing, like bot posts;
 # the moment itself is still found from the stream's sound and the rest of chat. "?", "!" and "W"/"L"
 # are left alone: they carry a reaction.
-LOW_INFO = re.compile(r"^\s*(?:(?:f+\s*)+|o7|07|[0-9]|[+\-.^]+)\s*$", re.I)
+# "f f fff" as one run of letters and spaces: a nested repeat here ((?:f+\s*)+) took seconds on "ffff...f!" and
+# for ever on a longer one (4.33: a real chat had 120 f's in one message, and Find clips never finished)
+# 4.33: a number on its own too ("50", "5,000", "100"): a vote, an answer or a price, not a reaction
+# 4.35: "o7" (chat saluting after a death or a loss) counts again, a little, as a fail (emotes.POPULAR)
+LOW_INFO = re.compile(r"^\s*(?:f[f\s]*|\$?[0-9][0-9,.]*k?|[+\-.^]+)\s*$", re.I)
 LOW_INFO_WEIGHT = 0.0
 _NORM = re.compile(r"[^\w\s]")
 _SP = re.compile(r"\s+")
@@ -58,7 +62,7 @@ def _norm(text: str) -> str:
 
 
 def low_info(text: str) -> bool:
-    """'F', 'o7', '1', '+' and the like: a reply, not a reaction to what's on stream."""
+    """'F', '1', '+' and the like: a reply, not a reaction to what's on stream."""
     return bool(LOW_INFO.match(text or ""))
 
 
@@ -94,6 +98,7 @@ class ChatScorer:
         self.damp = 1.0
         self.first_t = None
         self.last_raid = -1e18
+        self.last_hype = None                  # the last message's reaction weight (None: not counted at all)
         self.stats = {"messages": 0, "bots": 0, "commands": 0, "notices": 0, "repeats": 0, "copypasta": 0,
                       "raids": 0, "floods": 0, "low_info": 0}
         self._n = 0
@@ -129,6 +134,7 @@ class ChatScorer:
     def weight(self, t: float, text: str, user: str = "", kind: str = "") -> float:
         st = self.stats
         st["messages"] += 1
+        self.last_hype = None
         if self.first_t is None:
             self.first_t = t
         text = text or ""
@@ -152,6 +158,7 @@ class ChatScorer:
                 self._event(t, "subgift")
             return 0.0
         w = float(self.hype(text))
+        self.last_hype = w
         if LOW_INFO.match(text):
             st["low_info"] += 1
             w *= LOW_INFO_WEIGHT
@@ -195,12 +202,25 @@ class ChatScorer:
             self.pasta = {k: v for k, v in self.pasta.items() if v and v[-1] >= t - 90}
         return w
 
-    def feed(self, chat: list) -> list:
-        """Weights for messages in time order, one per message."""
+    def feed(self, chat: list, talk: list = None) -> list:
+        """Weights for messages in time order, one per message. talk: if given, gets how much each message
+        counts as a message (count()) when it's plain talk (no laugh, hype, shock or emote in it), else 0."""
         out = []
         for m in chat:
-            out.append(self.weight(m[0], m[1], m[2] if len(m) > 2 else "", m[3] if len(m) > 3 else ""))
+            w = self.weight(m[0], m[1], m[2] if len(m) > 2 else "", m[3] if len(m) > 3 else "")
+            out.append(w)
+            if talk is not None:
+                talk.append(self.count(w) if self.plain() else 0.0)
         return out
+
+    def count(self, w: float) -> float:
+        """How much a message weighed w counts as one message: 1, or less for a repeat or during a flood.
+        Reactions weigh more than talk, so shares of chat are taken from this, not from the weight."""
+        return min(1.0, w / self.last_hype) if self.last_hype else 0.0
+
+    def plain(self) -> bool:
+        """The last message counted, but only as talk: "where are you from" answered, not a reaction."""
+        return self.last_hype is not None and self.last_hype <= 1.0
 
     @property
     def chatters(self) -> int:
