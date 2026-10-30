@@ -5,6 +5,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.36.0] - 2026-10-30
+
+Better titles, captions and hashtags; Upload to TikTok gets past more of what used to stop it; the graphics card does more of the work; and Clip Radar lets go of memory it held on to.
+
+### Changed
+- **Titles and captions.**
+  - The mood is read the way clip detection reads chat, each chatter once: a laughing wave with some "L"s in it is funny, not a fail.
+  - What chat was talking about becomes part of the title when chat clearly agrees on it ("Chat lost it over the haircut", "Can someone explain the car"): a thing at least 4 people mention, and say "the hair" or "his phone" about, never a reaction, emote, slang ("cap"), name or swear word.
+  - Larger pools for every mood, and title B and the post caption no longer repeat across a stream's clips: on 25 clips from a real IShowSpeed stream, 25 different titles, 24 titles B and 24 captions, against 20, 6 and 5 in 4.35. The caption credits the streamer a few different ways.
+- **Hashtags.** The streamer, the game being played at the clip (Twitch's chat replay says which, chapter by chapter, for a stream that changed game; #gta5, #minecraft, #justchatting), what chat was talking about, the mood (#funny or #funnymoments, #awkward or #cringe...), the streamer's clips tag (#ishowspeedclips) when there's room, then the platform. #gaming only on a game (every YouTube video got it), no #twitchclips on every clip, and no #lol (it's League of Legends too).
+- **The graphics card does more.**
+  - H.265 clips encode on the GPU (NVIDIA, Intel or AMD); they were always encoded on the CPU, the slowest way.
+  - The GPU decodes the source video too. A video it can't decode, or a black first frame, is redone with the CPU decoding.
+  - At most 3 clips encode on the GPU at once (NVIDIA's cards refuse more); more renders encode on the CPU alongside instead of failing.
+  - Whisper tries float16, then int8_float16 (half the graphics memory), then the CPU; a card float16 didn't fit on went straight to the CPU.
+
+### Added
+- **Settings › Performance › Graphics card**: what runs on it (encoding, decoding, Whisper), and with an NVIDIA card **Download GPU support for Whisper**. Whisper only runs on the GPU with NVIDIA's CUDA libraries (cuBLAS, cuDNN 9), which Windows doesn't have and Clip Radar doesn't ship: about 1.3 GB, downloaded once from NVIDIA's packages on PyPI (each checked against PyPI's SHA-256), with only their library files kept. Without them Whisper ran on the CPU and didn't say why; now the log says so and points here. It can be removed again. `GET /api/gpu`, `POST /api/gpu/install`, `POST /api/gpu/remove`.
+
+### Fixed
+- **One GPU hiccup turned the GPU off until Clip Radar restarted.** Any failed GPU encode, even the GPU being busy for a moment (several renders at once, a game holding its memory), sent every later clip to the CPU. Now that clip is redone on the CPU and the next one tries the GPU again; only two failures in a row that aren't "busy" turn it off. The CPU redo keeps the clip's codec and speed: an H.265 clip came out H.264.
+- **Deep scan picked the bigger Whisper model whenever a CUDA device was there**, even when Whisper couldn't use it, so it ran on the CPU slower than the right one.
+- **Upload to TikTok:**
+  - After Clip Radar restarted with its TikTok window still open, every upload failed ("The browser window didn't open"): the browser hands a second start to the open window and exits. That window is found and used again.
+  - A clip left in TikTok's editor made the next upload's fresh page ask "Leave site?", which stopped everything until someone answered. It's answered as soon as it shows.
+  - TikTok saying it couldn't take a video (couldn't upload, too large, format not supported) is said at once, with TikTok's words. Before, Clip Radar waited 15 minutes for Post.
+  - A caption past TikTok's limit is shortened on a whole word, keeping its hashtags. TikTok's editor cut it off wherever it hit the limit and the upload failed at the caption.
+  - Post and Post now are found when TikTok is in another language.
+- **Memory:**
+  - Every video opened stayed in memory with all its chat until Clip Radar closed (a big stream's chat is a few hundred MB). A video's chat now goes to disk after 10 minutes unused (not the 2 used last, not one being worked on) and comes back the moment anything reads it. In a test with 5 videos open, Python's memory went from 60 to 26 MB once 3 were unused.
+  - An ended live session kept its whole chat, its loudness ten times a second and every chatter it had seen, and "Keep watching" starts a new session for every stream: a hands-free setup grew stream after stream. It now keeps what its page shows (curve, totals, moments): in a test, each 1-hour stream added about 0.7 MB instead of about 7 MB.
+  - Finished jobs are cleared after an hour on their own (only when a new job started, before), and the small projects rebuilt to render clips after a restart once nothing queued needs them (they were kept for good).
+
+### Tests
+- `tests/test_titles.py`: mood per chatter, topics and what isn't one, 12 clips of one mood with 12 titles and 10+ titles B and captions, game tags, #gaming only for games, the game per chapter from a chat replay, YouTube's category.
+- `tests/test_studio_auto.py` (against the stand-in TikTok page, in a real browser): after a restart, "Leave site?", an upload TikTok refuses, a caption past the limit, TikTok in Spanish. Each failed before its fix.
+- `tests/test_gpu.py` (new, in CI): failures that do and don't turn the GPU off, H.265 on the GPU, the CPU redo keeping H.265, decoding on the GPU and its fallback, the 3-clip limit and its slots given back, Whisper's fallbacks and Deep scan's model, and the GPU support download from a stand-in PyPI (the major version Whisper needs, a damaged download refused, only library files kept, reinstall, remove). There's no GPU in CI: the GPU encoder is a stand-in, so real NVENC, QSV, AMF, hardware decoding and CUDA weren't run.
+- `tests/test_memory.py`: a project's chat set aside and read back the same, its memory freed, what trim_memory keeps; an ended live session's memory let go with its page unchanged.
+- `web/`: the Graphics card panel (Vitest).
+
 ## [4.35.0] - 2026-10-30
 
 Finding clips got a lot better at telling a real moment from a busy chat: fewer clips and better ones, clips up to 2 minutes, chat read for how it reacts (laughter in many languages, awkward and confused moments told apart, 7TV's most used emotes), and a chat that could make Find clips hang for ever no longer does. Tried on a real 4.4-hour IShowSpeed YouTube stream (its chat replay; the sound couldn't be downloaded for the test).

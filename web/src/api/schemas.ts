@@ -229,6 +229,24 @@ export const Perf = z.looseObject({
   speeds: z.record(z.string(), z.number()).default({}),
 })
 
+/** /api/gpu: the graphics card and what runs on it (4.36). */
+export const Gpu = z.looseObject({
+  /** the NVIDIA card's name, '' when there's none */
+  nvidia: z.string().default(''),
+  /** Whisper can run on the card: the card and NVIDIA's CUDA libraries */
+  whisper_gpu: z.boolean().default(false),
+  cuda_libs: z.boolean().default(false),
+  /** Clip Radar's own download of those libraries is installed */
+  pack: z.boolean().default(false),
+  /** where Whisper last ran: 'cuda', 'cpu' or '' (not loaded yet) */
+  whisper_device: z.string().default(''),
+  /** the video encoder found ('' until checked, 'CPU' when none) */
+  encoder: z.string().default(''),
+  hw_decode: z.boolean().default(true),
+  download_mb: z.number().default(1300),
+})
+export type Gpu = z.infer<typeof Gpu>
+
 /** Only the Performance part of the export settings (/api/export); the rest isn't ported yet. */
 export const ExportPerf = z.looseObject({
   prefs: z.looseObject({

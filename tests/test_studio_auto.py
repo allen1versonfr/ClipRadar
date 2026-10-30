@@ -156,6 +156,70 @@ try:
           and any("before it" in x for x in said), (out, len(srv.posted), said[:3]))
     srv.shutdown()
 
+    # 9 (4.36). Clip Radar restarted while its TikTok window stayed open: it finds that window again (the
+    # browser hands a second start with the same profile to the open window and exits, so waiting for a new
+    # one failed with "The browser window didn't open")
+    proc = studio_auto._state["proc"]
+    studio_auto._state.update(proc=None, port=0)
+    srv = fake_studio.start()
+    try:
+        r = studio_auto.upload(clip, CAPTION, True, srv.url, steps.append)
+        check("after a restart, the open TikTok window is used again", r["posted"] and len(srv.posted) == 1, r)
+    except studio_auto.StudioError as e:
+        check("after a restart, the open TikTok window is used again", False, str(e))
+    if studio_auto._state["proc"] is None:
+        studio_auto._state["proc"] = proc
+    srv.shutdown()
+
+    # 10. a clip left in TikTok's editor asks "Leave site?" when the next upload opens a fresh page
+    srv = fake_studio.start(mode="leave")
+    try:
+        studio_auto.upload(clip, CAPTION, False, srv.url, steps.append)       # stays in the editor, typed in
+        t0 = time.time()
+        r = studio_auto.upload(clip, CAPTION, True, srv.url, steps.append)
+        check("a 'Leave site?' question doesn't stop the next upload", r["posted"] and len(srv.posted) == 1, r)
+        check("and doesn't hold it up", time.time() - t0 < 30, round(time.time() - t0, 1))
+    except studio_auto.StudioError as e:
+        check("a 'Leave site?' question doesn't stop the next upload", False, (e.step, str(e)))
+    srv.shutdown()
+
+    # 11. TikTok says the upload failed: said at once, with TikTok's words (it waited 15 minutes)
+    srv = fake_studio.start(mode="fails")
+    t0 = time.time()
+    try:
+        studio_auto.upload(clip, CAPTION, True, srv.url, steps.append)
+        check("TikTok refusing the video is a named failure", False, "no error")
+    except studio_auto.StudioError as e:
+        check("TikTok refusing the video is a named failure, with what TikTok said",
+              e.step == "upload" and "format" in str(e), (e.step, str(e)))
+    check("and is said within seconds", time.time() - t0 < 30, round(time.time() - t0, 1))
+    srv.shutdown()
+
+    # 12. a caption longer than TikTok takes: shortened to fit, keeping the hashtags, instead of failing
+    srv = fake_studio.start(mode="short")
+    long_cap = "This is a very long caption " * 8 + "\n\n#twitch #kaicenat"
+    old_max = studio_auto.CAPTION_MAX
+    studio_auto.CAPTION_MAX = 120
+    try:
+        r = studio_auto.upload(clip, long_cap, True, srv.url, steps.append)
+        got_cap = srv.posted[0]["caption"] if srv.posted else ""
+        check("a caption past TikTok's limit is shortened, and posted", r["posted"] and len(got_cap) <= 120, (r, len(got_cap)))
+        check("keeping its hashtags", got_cap.split()[-2:] == ["#twitch", "#kaicenat"], got_cap)
+    except studio_auto.StudioError as e:
+        check("a caption past TikTok's limit is shortened, and posted", False, (e.step, str(e)))
+    finally:
+        studio_auto.CAPTION_MAX = old_max
+    srv.shutdown()
+
+    # 13. TikTok in another language: Post and Post now found without English words
+    srv = fake_studio.start(mode="es")
+    try:
+        r = studio_auto.upload(clip, CAPTION, True, srv.url, steps.append)
+        check("TikTok in Spanish: posts", r == {"posted": True, "pressed": True} and len(srv.posted) == 1, r)
+    except studio_auto.StudioError as e:
+        check("TikTok in Spanish: posts", False, (e.step, str(e)))
+    srv.shutdown()
+
     # 5. a clip whose file is gone
     try:
         studio_auto.upload(os.path.join(tmp, "gone.mp4"), CAPTION, False, "http://127.0.0.1:9/", steps.append)

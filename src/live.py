@@ -316,7 +316,8 @@ class LiveSession:
 
     @property
     def recorded(self) -> float:
-        return float(len(self.loud))
+        fin = getattr(self, "_final", None)
+        return fin["recorded"] if fin else float(len(self.loud))
 
     def live_edge(self) -> float:
         """Media time of 'now' (what viewers are seeing right now). Ads are left out of the media
@@ -333,9 +334,12 @@ class LiveSession:
         self._anchor = (_now(), self._media)
 
     def public(self) -> dict:
+        fin = getattr(self, "_final", None)
         n = len(self.score)
         pts = 900
-        if n > pts:
+        if fin is not None:
+            curve = fin["curve"]
+        elif n > pts:
             edges = np.linspace(0, n, pts + 1).astype(int)
             curve = [round(float(self.score[a:b].max()), 2) for a, b in zip(edges[:-1], edges[1:])]
         else:
@@ -348,14 +352,15 @@ class LiveSession:
             "id": self.id, "channel": self.channel, "title": self.title, "source": self.source,
             "status": self.status, "error": self.error, "recorded": self.recorded,
             "edge": edge, "started": self.started, "curve": curve,
-            "chat_per_min": recent, "chat_total": total_chat, "chat_connected": self.irc_ok,
-            "chatters": self.scorer.chatters, "chat_ignored": self.scorer.summary()["ignored"],
+            "chat_per_min": recent, "chat_total": fin["chat_total"] if fin else total_chat, "chat_connected": self.irc_ok,
+            "chatters": fin["chatters"] if fin else self.scorer.chatters,
+            "chat_ignored": fin["ignored"] if fin else self.scorer.summary()["ignored"],
             "moments": list(self.moments), "length": self.length, "sensitivity": self.sensitivity,
             "frequency": self.frequency, "wait_for_live": self.wait_for_live,
             "pending_manual": len(self.manual), "log": self.log_lines[-12:], "dir": self.dir, "seg_dir": self.seg_dir,
             "warming_up": self.recorded < self.warmup, "in_ad": self.in_ad,
             "ads_skipped": round(self.ads_skipped, 1), "ad_breaks": self.ad_breaks, "mode": self.mode,
-            "signed_in": self.signed_in, "laughter": self.events is not None,
+            "signed_in": self.signed_in, "laughter": fin["laughter"] if fin else self.events is not None,
             "chat_state": self.chat_state(), "chat_delay": self.chat_delay, "delay_sure": self.delay_sure,
             "delay_auto": self.delay_auto, "min_quality": self.min_quality,
             "forming": sorted(self.forming.values(), key=lambda f: f["at"]),
@@ -633,7 +638,29 @@ class LiveSession:
         self._safe_detect(final=True)
         if self.temp_buffer:
             self.delete_buffer()                 # every moment is cut out by now; the raw buffer was temporary
+        self.release_memory()
         self.log("Recording stopped.")
+
+    def release_memory(self):
+        """The stream is over and every moment is cut: let go of what was only needed to find more (4.36). An
+        ended session stays listed (and 'keep watching' starts a new one for each stream), and each kept its whole
+        chat, its loudness ten times a second and every chatter it had seen, for as long as Clip Radar ran.
+        What the session page shows is kept: the curve, the chat totals. The analysis stays for grading."""
+        self._final = {"curve": self.public()["curve"], "recorded": float(len(self.loud)),
+                       "chat_total": self.scorer.stats["messages"],
+                       "chatters": self.scorer.chatters, "ignored": self.scorer.summary()["ignored"],
+                       "laughter": self.events is not None}
+        with self.chat_lock:
+            self.chat = []
+            self._raw, self._said_raw, self._talk_raw, self._emote_raw = [], [], [], []
+            self._emote_last = {}
+        self.fine = []
+        self.loud = []
+        self._pending_audio = np.zeros(0, dtype=np.float32)
+        self.events = None
+        import chatsignal
+        self.scorer = chatsignal.ChatScorer(self.scorer.hype)
+        self._cand.clear()
 
     # ---- Clip Radar's own HLS reader (skips ads)
     def _get(self, url: str, timeout: float = 15) -> bytes:

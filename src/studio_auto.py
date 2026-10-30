@@ -30,6 +30,7 @@ import cdp
 PROFILE = "studio-browser"
 LOGIN_WAIT = 15 * 60          # time to sign in to TikTok the first time
 UPLOAD_WAIT = 15 * 60         # a long clip on a slow connection
+CAPTION_MAX = 4000            # TikTok Studio's caption limit (characters); longer ones are shortened to fit
 _state: dict = {"proc": None, "port": 0}
 
 # How the upload page is recognised. Each is a JavaScript expression run in the page.
@@ -40,19 +41,30 @@ SELECTORS = {
     "caption": ("document.querySelector('[data-e2e=caption_container] [contenteditable=true]')"
                 " || document.querySelector('.public-DraftEditor-content[contenteditable=true]')"
                 " || document.querySelector('[contenteditable=true]')"),
-    # the Post button (not "Save draft", not "Discard"), and whether it can be pressed yet
+    # the Post button (not "Save draft", not "Discard"), and whether it can be pressed yet. By TikTok's own mark
+    # first; by its word in the languages TikTok Studio is in after that (4.36: English only before)
     "post": ("document.querySelector('button[data-e2e=post_video_button]') || [...document.querySelectorAll('button')]"
-             ".find(b => /^\\s*post\\s*$/i.test(b.innerText || ''))"),
+             ".find(b => /^\\s*(post|publicar|publier|posten|veröffentlichen|pubblica|postar|опубликовать|"
+             "投稿|게시|发布|發佈|yayınla|opublikuj|publiceren|đăng|โพสต์|kirim|posting)\\s*$/i.test(b.innerText || ''))"),
     # TikTok asking you to sign in first
     "login": "/\\/login/.test(location.pathname) || !!document.querySelector('[data-e2e=login-modal], #login-modal')",
     # TikTok saying the post went through
     "posted": ("/\\/tiktokstudio\\/content/.test(location.pathname) || /(video|post) (has been|was) "
                "(uploaded|posted|published)|your video is being uploaded/i.test(document.body.innerText || '')"),
+    # TikTok saying it couldn't take the video (4.36: before, Clip Radar waited the full 15 minutes for Post)
+    "upload_error": ("(() => { const t = document.body.innerText || ''; const m = t.match(/[^\\n]*(upload failed|"
+                     "couldn.t upload|could not upload|couldn.t be uploaded|unable to upload|failed to upload|"
+                     "file is too (large|big)|exceeds the (maximum|size)|(format|file type) (isn.t|is not) supported|"
+                     "unsupported (video|file|format))[^\\n]*/i); return m ? m[0].trim().slice(0, 200) : '' })()"),
 }
 # the video went in: the caption box is showing (it can be in the page, hidden, before TikTok takes the file)
 SHOWN_CAPTION = f"((e) => !!e && !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length))({SELECTORS['caption']})"
-# TikTok's "Post now", when it asks to confirm a post
-POST_NOW = "[...document.querySelectorAll('button')].find(x => /^\\s*post now\\s*$/i.test(x.innerText || ''))"
+# TikTok's "Post now", when it asks to confirm a post (in the languages TikTok Studio is in)
+POST_NOW = ("[...document.querySelectorAll('button')].find(x => /^\\s*(post now|publicar ahora|publier maintenant|"
+            "jetzt posten|jetzt veröffentlichen|pubblica ora|postar agora|publicar agora|опубликовать сейчас|"
+            "今すぐ投稿|지금 게시|立即发布|立即發佈|şimdi yayınla|opublikuj teraz|nu publiceren|đăng ngay|"
+            "posting sekarang)\\s*$/i.test(x.innerText || ''))")
+
 
 
 class StudioError(RuntimeError):
@@ -100,10 +112,42 @@ def _profile_dir() -> str:
     return d
 
 
+PORT_FILE = "clipradar-port"
+
+
+def _profile_port() -> int:
+    """The DevTools port of a browser already open with Clip Radar's TikTok profile, or 0: the one Clip Radar
+    noted in the profile when it opened the window, or the browser's own note (DevToolsActivePort), if it
+    still answers."""
+    for name in (PORT_FILE, "DevToolsActivePort"):
+        try:
+            with open(os.path.join(_profile_dir(), name), encoding="utf-8") as f:
+                port = int((f.readline() or "0").strip() or 0)
+        except (OSError, ValueError):
+            continue
+        if port and cdp.alive(port):
+            return port
+    return 0
+
+
+def _note_port(port: int) -> None:
+    try:
+        with open(os.path.join(_profile_dir(), PORT_FILE), "w", encoding="utf-8") as f:
+            f.write(str(port))
+    except OSError:
+        pass
+
+
 def open_browser(url: str) -> int:
     """The DevTools port of Clip Radar's TikTok window, opening it (at url) if it isn't open."""
     port = _state["port"]
     if port and cdp.alive(port):
+        return port
+    # 4.36: the window may still be open from before Clip Radar restarted. Starting the browser again with the
+    # same profile only hands the link to that window and exits, so the new port never answered and it failed
+    port = _profile_port()
+    if port:
+        _state["port"] = port
         return port
     exe = find_browser()
     if not exe:
@@ -122,18 +166,66 @@ def open_browser(url: str) -> int:
     while time.time() < end:
         if cdp.alive(port):
             _state["port"] = port
+            _note_port(port)
             return port
         if _state["proc"].poll() is not None:
+            # it handed over to a window already open with this profile: use that one
+            got = _profile_port()
+            if got:
+                _state["port"] = got
+                return got
             break
         time.sleep(0.3)
     raise StudioError("browser", "The browser window didn't open. If Edge is already open with another "
                                  "Clip Radar window, close it and try again.")
 
 
+def _answer_dialogs(page: cdp.Page) -> bool:
+    """Answer a question the page put up ("Leave site?", an alert): it stops the page, and every script run in
+    it, until someone clicks. True if there was one."""
+    asked = [e for e in page.events if e.get("method") == "Page.javascriptDialogOpening"]
+    if not asked:
+        return False
+    page.events = [e for e in page.events if e.get("method") != "Page.javascriptDialogOpening"]
+    try:
+        page.call("Page.handleJavaScriptDialog", timeout=5, accept=True)
+    except cdp.CDPError:
+        pass                                        # already gone
+    return True
+
+
+def _clear_dialog(page: cdp.Page) -> None:
+    """A question left open on the page from before (it stops every script, and even Page.enable): answered."""
+    try:
+        page.call("Page.handleJavaScriptDialog", timeout=3, accept=True)
+    except cdp.CDPError:
+        pass                                        # none showing: the usual case
+
+
+def _navigate(page: cdp.Page, url: str, check: Callable, seconds: float = 30) -> None:
+    """Open url in the tab. Started from inside the page, so a "Leave site?" question (a clip left in TikTok's
+    editor) can be answered as soon as it shows: Page.navigate doesn't return until someone answers it, and
+    answering only after it gave up left the page half-way (4.36)."""
+    page.eval("window.__clipradar_old = true", timeout=5)
+    page.eval(f"setTimeout(() => location.assign({json.dumps(url)}), 0), true", timeout=5)
+    end = time.time() + seconds
+    while time.time() < end:
+        check()
+        _answer_dialogs(page)
+        try:
+            if page.eval("!window.__clipradar_old && document.readyState !== 'loading'", timeout=1.5):
+                return
+        except cdp.CDPError:
+            pass                                    # navigating, or held by a question (answered next time round)
+        time.sleep(0.2)
+    raise cdp.CDPError(f"The TikTok page didn't open ({url}).")
+
+
 def _wait(page: cdp.Page, what: str, seconds: float, check: Callable, every: float = 0.25) -> bool:
     end = time.time() + seconds
     while time.time() < end:
         check()
+        _answer_dialogs(page)
         try:
             if page.eval(f"!!({what})", timeout=10):
                 return True
@@ -151,6 +243,7 @@ def _first(page: cdp.Page, whats: dict, seconds: float, check: Callable, every: 
     end = time.time() + seconds
     while time.time() < end:
         check()
+        _answer_dialogs(page)
         try:
             got = page.eval(expr, timeout=10)
             if got:
@@ -217,6 +310,32 @@ def _type_caption(page: cdp.Page, caption: str) -> None:
     raise StudioError("caption", "The caption didn't go in as written. Paste it yourself (it's copied).")
 
 
+def fit_caption(caption: str, limit: Optional[int] = None) -> str:
+    """The caption within TikTok's limit: the words before the hashtags are shortened (ending on a whole word,
+    with '…'), the hashtags kept; only when the hashtags alone don't fit do the last ones go. TikTok's editor
+    cuts a longer caption off wherever it hits the limit, and the caption then never read back as written."""
+    limit = limit or CAPTION_MAX
+    caption = (caption or "").strip()
+    if len(caption) <= limit:
+        return caption
+    words = caption.split(" ")
+    tags_at = len(words)
+    while tags_at > 0 and words[tags_at - 1].lstrip("\n").startswith("#"):
+        tags_at -= 1
+    head, tags = " ".join(words[:tags_at]).rstrip(), " ".join(words[tags_at:]).strip()
+    sep = "\n\n" if tags and "\n" in caption else " "
+    room = limit - (len(tags) + len(sep) if tags else 0) - 1
+    if room < 10:                                   # the hashtags alone don't fit: drop the last ones
+        keep = []
+        for t in tags.split():
+            if len(" ".join(keep + [t])) > limit:
+                break
+            keep.append(t)
+        return " ".join(keep)
+    cut = head[:room].rsplit(" ", 1)[0].rstrip(" ,.;:-") if " " in head[:room] else head[:room]
+    return (cut + "…" + (sep + tags if tags else "")).strip()
+
+
 def _caption_ok(page: cdp.Page, want: list) -> bool:
     return (page.eval(f"(({SELECTORS['caption']}).innerText || '').trim()") or "").split() == want
 
@@ -231,6 +350,7 @@ def upload(path: str, caption: str, press_post: bool, url: str, step: Callable[[
     (closed, crashed), it starts again once in a fresh one; a step TikTok's page refused is not retried."""
     if not os.path.isfile(path):
         raise StudioError("file", "That clip's file isn't there any more. Render it again first.")
+    caption = fit_caption(caption)
     if not _one_at_a_time.acquire(blocking=False):
         step("Waiting for the upload before it to finish")
         while not _one_at_a_time.acquire(timeout=1.0):
@@ -255,10 +375,12 @@ def _upload_once(path: str, caption: str, press_post: bool, url: str, step: Call
     port = open_browser(url)
     page = _tab(port, url)
     try:
+        _clear_dialog(page)
         page.call("Page.enable")
         # a fresh upload page every time: after an upload, the window is still on the page but with that
-        # clip in its editor (no upload box), so the next clip would wait for one that never comes
-        page.call("Page.navigate", url=url)
+        # clip in its editor (no upload box), so the next clip would wait for one that never comes. A clip left
+        # in the editor makes the page ask "Leave site?" (4.36: answered, see _navigate)
+        _navigate(page, url, check)
         page.call("Page.bringToFront")
         # signed in? the first time, TikTok asks; wait for you to sign in, in that window
         first = _first(page, {"file": SELECTORS["file"], "login": SELECTORS["login"]}, 30, check)
@@ -277,7 +399,17 @@ def _upload_once(path: str, caption: str, press_post: bool, url: str, step: Call
         step("Uploading the video to TikTok")
         ready = (f"(() => {{ const b = {SELECTORS['post']}; return !!b && !b.disabled && "
                  "b.getAttribute('aria-disabled') !== 'true' && !/disabled/i.test(b.className) })()")
-        if not _wait(page, ready, UPLOAD_WAIT, check, every=0.5):     # TikTok keeps Post off until the upload is in
+        # TikTok keeps Post off until the upload is in, or says it couldn't take the video
+        got = _first(page, {"ready": ready, "error": SELECTORS["upload_error"]}, UPLOAD_WAIT, check, every=0.5)
+        if got == "error":
+            said = ""
+            try:
+                said = page.eval(SELECTORS["upload_error"], timeout=5) or ""
+            except cdp.CDPError:
+                pass
+            raise StudioError("upload", f"TikTok couldn't take the video: {said or 'the upload failed'}. "
+                                        "Render it again, or try it in the window yourself.")
+        if got != "ready":
             raise StudioError("upload", "TikTok didn't finish taking the video in time. Check the window.")
         if caption and not _caption_ok(page, caption.split()):
             _type_caption(page, caption)            # the page changed the caption while the video went up

@@ -516,7 +516,8 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         log(f"{desc['label']}: {desc['title'] or url}" + (f" by {desc['uploader']}" if desc["uploader"] else "")
             + (f", {fmt_ts(desc['duration'])}" if desc["duration"] else ""))
         _save_meta(workdir, platform=c["platform"], kind=desc["kind"], label=desc["label"], uploader=desc["uploader"],
-                   uploaded=desc["uploaded"], **({"streamer": desc["uploader_id"].lower()} if desc["uploader_id"] else {}))
+                   uploaded=desc["uploaded"], category=desc.get("category", ""),
+                   **({"streamer": desc["uploader_id"].lower()} if desc["uploader_id"] else {}))
     elif vod_id:
         _save_meta(workdir, platform="twitch", kind="vod", label="Twitch past broadcast")
 
@@ -613,7 +614,8 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         log("No chat for this video, ranking by audio.")
     streamer = _meta(workdir).get("streamer") or info.get("streamer", "")
     _save_meta(workdir, title=title, source=url, local=False, streamer=streamer, start=c["start"],
-               **({"streamer_id": info["streamer_id"]} if info.get("streamer_id") else {}))
+               **({"streamer_id": info["streamer_id"]} if info.get("streamer_id") else {}),
+               **({"game": info["game"]} if info.get("game") else {}), **({"games": info["games"]} if info.get("games") else {}))
     m = _meta(workdir)
     return Source(video, chat, title, workdir, streamer, start=c["start"],
                   info={k: m.get(k, "") for k in ("platform", "kind", "label", "uploader", "uploaded")},
@@ -1388,7 +1390,8 @@ def _sidecar_chat(video: str, workdir: str, log: Log, info: Optional[dict] = Non
 def load_chat(path: str, info: Optional[dict] = None) -> list:
     """Parse TwitchDownloader / yt-dlp rechat / generic chat JSON into [(sec, text, user, kind)].
     kind is "" for normal chat, or the Twitch notice type ("sub", "subgift", "raid", "bits"...).
-    If info is given, it gets the streamer's channel name when the file has it."""
+    If info is given, it gets the streamer's channel name when the file has it, and the game (4.36): "game",
+    and "games" [{start, end, game}] when the stream changed game (TwitchDownloader's chapters)."""
     import gzip
     opener = gzip.open if path.endswith(".gz") else open
     with opener(path, "rt", encoding="utf-8", errors="replace") as f:
@@ -1426,6 +1429,7 @@ def load_chat(path: str, info: Optional[dict] = None) -> list:
                 info["streamer"] = str(s["name"]).lower()
             if isinstance(s, dict) and s.get("id"):
                 info["streamer_id"] = str(s["id"])
+            info.update(_chat_games(data.get("video")))
         for c in items or []:
             take(c)
     except json.JSONDecodeError:
@@ -1440,6 +1444,44 @@ def load_chat(path: str, info: Optional[dict] = None) -> list:
                 take(obj)
     msgs.sort(key=lambda m: m[0])
     return msgs
+
+
+def _chat_games(video) -> dict:
+    """{"game", "games"} from a TwitchDownloader chat file's "video": the game it was in, and each chapter's
+    (seconds) when it changed game. Empty when the file doesn't say."""
+    out: dict = {}
+    if not isinstance(video, dict):
+        return out
+    games = []
+    for ch in video.get("chapters") or []:
+        if not isinstance(ch, dict):
+            continue
+        g = str(ch.get("gameDisplayName") or ch.get("description") or "").strip()
+        try:
+            a = float(ch.get("startMilliseconds") or 0) / 1000.0
+            b = a + float(ch.get("lengthMilliseconds") or 0) / 1000.0
+        except (TypeError, ValueError):
+            continue
+        if g and b > a:
+            games.append({"start": round(a, 1), "end": round(b, 1), "game": g[:60]})
+    g = video.get("game") or video.get("gameDisplayName")
+    if isinstance(g, dict):
+        g = g.get("displayName") or g.get("name")
+    if g:
+        out["game"] = str(g).strip()[:60]
+    elif games:
+        out["game"] = max(games, key=lambda c: c["end"] - c["start"])["game"]      # the one played longest
+    if len(games) > 1:
+        out["games"] = games
+    return out
+
+
+def game_at(meta: dict, t: float) -> str:
+    """The game being played at t seconds into the video ('' when unknown)."""
+    for ch in meta.get("games") or []:
+        if isinstance(ch, dict) and ch.get("start", 0) <= t < ch.get("end", 0):
+            return str(ch.get("game") or "")
+    return str(meta.get("game") or "")
 
 
 def _yt_chat(obj: dict) -> list:
@@ -3028,10 +3070,22 @@ def _load_whisper(model_size: str, log: Log):
         _whisper_cache.pop(next(iter(_whisper_cache)))
         import gc
         gc.collect()
+    import gpu
+    gpu.setup_dll_path()           # GPU support downloaded in Settings › Performance (4.36)
     from faster_whisper import WhisperModel
     silence = np.zeros(16000, dtype=np.float32)
     errors = []
-    for device, ctype in (("cuda", "float16"), ("cpu", "int8")):
+    tries = [("cpu", "int8")]
+    if gpu.nvidia_gpu():
+        if gpu.cuda_libs():
+            # float16 first; int8_float16 takes about half the graphics memory, for cards float16 doesn't fit on
+            # (4.36: before, a card that ran out of memory went straight to the CPU)
+            tries[:0] = [("cuda", "float16"), ("cuda", "int8_float16")]
+        elif not _whisper_said.get("libs"):
+            _whisper_said["libs"] = True
+            log(f"Whisper is on the CPU: your {gpu.nvidia_gpu()} needs NVIDIA's CUDA support files to run it. "
+                "Settings › Performance › GPU support installs them (about 1.3 GB, once).")
+    for device, ctype in tries:
         try:
             log(f"Loading Whisper '{model_size}' on {'GPU' if device == 'cuda' else 'CPU'} "
                 f"(the first time downloads the model)...")
@@ -3039,13 +3093,26 @@ def _load_whisper(model_size: str, log: Log):
             # tiny dry run so missing CUDA libraries fail here, not mid-render
             list(model.transcribe(silence, beam_size=1, language="en", without_timestamps=True)[0])
             _whisper_cache[model_size] = model
+            _whisper_device[model_size] = device
             return model
         except Exception as e:
             msg = str(e).splitlines()[0][:140] if str(e) else type(e).__name__
-            errors.append(f"{device}: {msg}")
-            if device == "cuda":
-                log("  GPU not usable for Whisper, using CPU.")
+            errors.append(f"{device} {ctype}: {msg}")
+            if device == "cuda" and ctype == "int8_float16":
+                log(f"  The GPU couldn't run Whisper ({msg}); using the CPU.")
     raise RuntimeError("Couldn't load Whisper. " + " | ".join(errors))
+
+
+_whisper_device: dict = {}         # model size -> "cuda" or "cpu", for the ones loaded
+_whisper_said: dict = {}
+
+
+def whisper_device() -> str:
+    """Where Whisper last ran: "cuda", "cpu", or "" before it has been loaded."""
+    for size in reversed(list(_whisper_cache)):
+        if size in _whisper_device:
+            return _whisper_device[size]
+    return next(reversed(list(_whisper_device.values())), "") if _whisper_device else ""
 
 
 _HALLUCINATION = re.compile(r"thank(s| you) (so much )?for watching|please subscribe|like and subscribe|"
@@ -3515,6 +3582,42 @@ _HW = [
     ("h264_amf", ["-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp",
                   "-qp_i", "20", "-qp_p", "22", "-qp_b", "24"]),
 ]
+# 4.36: H.265 on the GPU too (it was always x265 on the CPU, the slowest way to make a clip)
+_HW_HEVC = [
+    ("hevc_nvenc", ["-c:v", "hevc_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq", "25", "-b:v", "0",
+                    "-tag:v", "hvc1"]),
+    ("hevc_qsv", ["-c:v", "hevc_qsv", "-preset", "medium", "-global_quality", "25", "-tag:v", "hvc1"]),
+    ("hevc_amf", ["-c:v", "hevc_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "24", "-qp_p", "26",
+                  "-tag:v", "hvc1"]),
+]
+CPU_ENCODERS = {"libx264", "libx265", "libvpx-vp9"}
+# GPU encodes at once: NVIDIA's consumer cards open 3 to 8 sessions (by driver), and one more fails to start.
+# Renders past this encode on the CPU, side by side, instead of failing (and turning the GPU off, before 4.36)
+HW_SLOTS = 3
+_hw_slots = threading.BoundedSemaphore(HW_SLOTS)
+_hw_fails = {"n": 0}
+# FFmpeg's words when the GPU is busy rather than unusable: too many encodes, out of memory for a moment
+_HW_BUSY = re.compile(r"OpenEncodeSession|incompatible client key|out of memory|No capable devices found|"
+                      r"too many|session limit|resource temporarily|device busy|MFX_ERR_DEVICE_BUSY", re.I)
+# decode the source on the GPU (D3D11, CUDA, QSV...: FFmpeg picks), frames back in memory for the filters
+HW_DECODE = ["-hwaccel", "auto"]
+
+
+def hw_failed(name: str, err: str) -> bool:
+    """A GPU encode failed: True when the GPU should be left alone for the rest of this session. One failure,
+    or the GPU being busy, isn't that: the render is redone on the CPU and the next one tries the GPU again.
+    Before 4.36 any failure turned the GPU off until Clip Radar restarted."""
+    if _HW_BUSY.search(err or ""):
+        return False
+    _hw_fails["n"] += 1
+    if _hw_fails["n"] >= 2:
+        _encoder_cache.update(hw=None, hevc=None)
+        return True
+    return False
+
+
+def hw_worked() -> None:
+    _hw_fails["n"] = 0
 
 
 def _rate_args(o: RenderOpts) -> list:
@@ -3533,7 +3636,11 @@ def video_encoder(o: RenderOpts) -> tuple:
     if vc == "hevc":
         x_pre, dq, _nv = SPEEDS.get(getattr(o, "speed", "balanced"), SPEEDS["balanced"])
         q = _rate_args(o) or ["-crf", str(o.crf + 4 + dq)]
-        return "libx265", ["-c:v", "libx265", "-preset", x_pre, *q, "-tag:v", "hvc1"]
+        x265 = ("libx265", ["-c:v", "libx265", "-preset", x_pre, *q, "-tag:v", "hvc1"])
+        hw = _probe_hw("hevc", _HW_HEVC) if o.hw_encode else None
+        if not hw:
+            return x265
+        return _with_rate(hw, _rate_args(o), _nv)
     rate = _rate_args(o)
     x_pre, dq, _nv = SPEEDS.get(getattr(o, "speed", "balanced"), SPEEDS["balanced"])
     crf = min(max(o.crf + dq, 12), 36)
@@ -3541,25 +3648,35 @@ def video_encoder(o: RenderOpts) -> tuple:
                         "-profile:v", "high"])
     if not o.hw_encode:
         return x264
-    if "hw" not in _encoder_cache:
-        _encoder_cache["hw"] = None
-        try:
-            listing = run([ffmpeg(), "-hide_banner", "-encoders"], timeout=20).stdout
-        except Exception:
-            listing = ""
-        for name, args in _HW:
-            if name not in listing:
+    hw = _probe_hw("hw", _HW)
+    return _with_rate(hw, rate, _nv) if hw else x264
+
+
+def _probe_hw(key: str, choices: list):
+    """The first of choices this PC's FFmpeg and GPU can encode with (name, args), checked once a session."""
+    if key not in _encoder_cache:
+        _encoder_cache[key] = None
+        if "listing" not in _encoder_cache:
+            try:
+                _encoder_cache["listing"] = run([ffmpeg(), "-hide_banner", "-encoders"], timeout=20).stdout
+            except Exception:
+                _encoder_cache["listing"] = ""
+        for name, args in choices:
+            if name not in _encoder_cache["listing"]:
                 continue
             try:
                 run([ffmpeg(), "-v", "error", "-f", "lavfi", "-i", "color=black:s=1080x1920:d=0.2",
                      "-pix_fmt", "yuv420p", *args, "-f", "null", "-"], timeout=30)
-                _encoder_cache["hw"] = (name, args)
+                _encoder_cache[key] = (name, args)
                 break
             except Exception:
                 continue
-    hw = _encoder_cache["hw"]
-    if hw and rate:          # a target bitrate: swap the GPU encoder's quality setting for it
-        name, args = hw
+    return _encoder_cache[key]
+
+
+def _with_rate(hw: tuple, rate: list, nv_preset: str) -> tuple:
+    name, args = hw
+    if rate:          # a target bitrate: swap the GPU encoder's quality setting for it
         keep, skip = [], {"-cq", "-global_quality", "-qp_i", "-qp_p", "-qp_b", "-b:v", "-rc"}
         i = 0
         while i < len(args):
@@ -3569,9 +3686,9 @@ def video_encoder(o: RenderOpts) -> tuple:
             keep.append(args[i])
             i += 1
         return name, keep + rate
-    if hw and hw[0] == "h264_nvenc":       # the effort setting picks NVENC's preset too (p3 / p5 / p7)
-        return hw[0], [_nv if a == "p5" else a for a in hw[1]]
-    return hw or x264
+    if name.endswith("_nvenc"):       # the effort setting picks NVENC's preset too (p3 / p5 / p7)
+        return name, [nv_preset if a == "p5" else a for a in args]
+    return name, args
 
 
 def write_srt(words: list, o: "RenderOpts", path: str, clip_len: float):
@@ -3865,9 +3982,9 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     tmp_name = f"vc_{tag}.part.{cont}"
     tmp_path = os.path.join(work, tmp_name)
 
-    def encode(enc_args: list):
+    def encode(enc_args: list, hwdec: bool = False):
         cmd = [ffmpeg(), "-v", "error", "-y", "-nostdin", "-progress", "pipe:1", "-nostats",
-               "-ss", f"{clip_start:.3f}", "-t", f"{length:.3f}", "-i", video]
+               *(HW_DECODE if hwdec else []), "-ss", f"{clip_start:.3f}", "-t", f"{length:.3f}", "-i", video]
         for m in wm_imgs:
             cmd += ["-i", m["image"]]
         cmd += ["-filter_complex", vf, "-map", "[v]"]
@@ -3938,18 +4055,43 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         return code, err
 
     enc_name, enc_args = video_encoder(o)
+    cpu_name, cpu_args = video_encoder(replace(o, hw_encode=False))      # same codec, speed and quality
+    slot = False
+    if enc_name not in CPU_ENCODERS:
+        slot = _hw_slots.acquire(blocking=False)
+        if not slot:
+            # the GPU is already making HW_SLOTS clips: this one on the CPU, alongside, rather than failing
+            diag["fallback"] = f"{HW_SLOTS} renders already on the GPU, used the CPU"
+            enc_name, enc_args = cpu_name, cpu_args
+    # the GPU decodes the source too when it's allowed to encode (4.36): a 1080p60 or 4K recording's decoding
+    # was all on the CPU before
+    hwdec = bool(o.hw_encode) and _encoder_cache.get("hwdec", True)
     layout = effective_layout(o)
     following = layout == "full" and "'clip(" in vf          # a crop that moves (framing.x_expr)
     chosen = LAYOUT_NAMES.get(layout, layout) + (", following the face" if following else "")
-    diag.update(encoder=enc_name, fallback="", layout_used=chosen)
+    diag.update(encoder=enc_name, fallback=diag.get("fallback", ""), layout_used=chosen, hw_decode=hwdec)
     try:
-        code, err = encode(enc_args)
-        if code != 0 and enc_name != "libx264" and not _graph_failed(err):
-            log(f"GPU encoder ({enc_name}) failed, re-encoding on CPU.")
-            _encoder_cache["hw"] = None
-            enc_args = video_encoder(RenderOpts(hw_encode=False, crf=o.crf, vbitrate=getattr(o, "vbitrate", 0)))[1]
-            diag.update(encoder="libx264", fallback=f"{enc_name} failed, used the CPU")
-            code, err = encode(enc_args)
+        code, err = encode(enc_args, hwdec)
+        if code != 0 and hwdec and not _graph_failed(err):
+            # decoding on the GPU didn't work for this video: again with the CPU decoding, same encoder
+            log("Decoding on the GPU failed for this video; decoding on the CPU.")
+            hwdec = False
+            diag.update(hw_decode=False, fallback=(diag["fallback"] + "; " if diag["fallback"] else "")
+                        + "GPU decoding failed, decoded on the CPU")
+            code, err = encode(enc_args, hwdec)
+            if code == 0:
+                _encoder_cache["hwdec_fails"] = _encoder_cache.get("hwdec_fails", 0) + 1
+                if _encoder_cache["hwdec_fails"] >= 2:
+                    _encoder_cache["hwdec"] = False       # twice: this PC's GPU decoding isn't worth trying
+        if code != 0 and enc_name not in CPU_ENCODERS and not _graph_failed(err):
+            off = hw_failed(enc_name, err)
+            log(f"GPU encoder ({enc_name}) failed, re-encoding on CPU" + (" (and for the rest of this session)." if off else "."))
+            enc_name, enc_args = cpu_name, cpu_args
+            diag.update(encoder=cpu_name, fallback=(diag["fallback"] + "; " if diag["fallback"] else "")
+                        + f"{diag['encoder']} failed, used the CPU")
+            code, err = encode(enc_args, hwdec)
+        elif code == 0 and enc_name not in CPU_ENCODERS:
+            hw_worked()
         if code != 0 and _crop_failed(err) and (layout != "blur" or _num(o.game_zoom, 1.0, 1.0, MAX_ZOOM) > 1):
             # Every crop is checked before FFmpeg runs (crop_filter), so this is FFmpeg refusing a crop that
             # fits: a source it can't handle the way it's set up. The first failure is kept as the attempt's
@@ -3973,7 +4115,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                 if vf == failed_vf:
                     continue          # the same graph would fail the same way
                 log(f"The layout couldn't be built ({_first_reason(err)}); trying {used}.")
-                code, err = encode(enc_args)
+                code, err = encode(enc_args, hwdec)
                 if code == 0 or not _crop_failed(err):
                     break
             note = f"{chosen} failed (exit {first['exit']}: {_first_reason(first['reason'])})"
@@ -3987,18 +4129,24 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                 diag.update(kept)               # the attempt shows the first failure, not the fallback's
                 raise RuntimeError(f"ffmpeg render failed: the layout ({chosen}) couldn't be built, and {used} failed "
                                    f"too.\n{first['reason']}\n\n{used}:\n{_ffmpeg_reason(err)}")
+        if code == 0 and black_start(tmp_path, length) and hwdec:
+            # first without decoding on the GPU (a decoder that drops the first frame), same encoder
+            log("The first frame came out black; decoding on the CPU instead.")
+            hwdec = False
+            diag.update(hw_decode=False, fallback=(diag.get("fallback", "") + "; " if diag.get("fallback") else "")
+                        + "GPU decoding gave a black first frame, decoded on the CPU")
+            code, err = encode(enc_args, hwdec)
         if code == 0 and black_start(tmp_path, length):
             # TikTok takes the frame at 0:00 as the cover: a black one there is a black cover
             used = diag.get("encoder", enc_name)
-            if used != "libx264" and o.vcodec in ("h264", "") and cont != "webm":
+            if used not in CPU_ENCODERS and cont != "webm":
                 log(f"The GPU encoder ({used}) made a black first frame; rendering on the CPU instead.")
-                _encoder_cache["hw"] = None                 # and for the rest of this session
+                _encoder_cache["hw" if used.startswith("h264") else "hevc"] = None   # and for the rest of this session
                 _encoder_cache["black_start"] = used
-                enc_args = video_encoder(RenderOpts(hw_encode=False, crf=o.crf, vbitrate=getattr(o, "vbitrate", 0),
-                                                    speed=getattr(o, "speed", "balanced")))[1]
-                diag.update(encoder="libx264", fallback=(diag.get("fallback", "") + "; " if diag.get("fallback") else "")
+                enc_args = cpu_args
+                diag.update(encoder=cpu_name, fallback=(diag.get("fallback", "") + "; " if diag.get("fallback") else "")
                             + f"{used} made a black first frame, used the CPU")
-                code, err = encode(enc_args)
+                code, err = encode(enc_args, hwdec)
             diag["black_start"] = code == 0 and black_start(tmp_path, length)
             if diag["black_start"]:
                 warn("This clip's first frame came out black, so TikTok may show a black cover. Pick a cover "
@@ -4007,6 +4155,8 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             raise RuntimeError("ffmpeg render failed:\n" + _ffmpeg_reason(err))
         os.replace(tmp_path, out_path)
     finally:
+        if slot:
+            _hw_slots.release()
         shutil.rmtree(font_dir, ignore_errors=True)
         for p in (tmp_path, ass_path):
             try:

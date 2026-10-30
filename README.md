@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.35.0" src="https://img.shields.io/badge/version-4.35.0-ffd21f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.36.0" src="https://img.shields.io/badge/version-4.36.0-ffd21f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -52,13 +52,13 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
   - Flagged words can be hidden in captions, muted or bleeped.
   - Hands-free holds risky clips back for you to look at first.
 - **Review in TikTok format.** Each suggestion plays in a phone-sized preview with its layout, title and word-by-word captions. Keep it with <kbd>Enter</kbd>, skip it with <kbd>X</kbd>, and move between clips with <kbd>↑</kbd> <kbd>↓</kbd>.
-- **Auto titles and captions.** Whisper transcribes each clip. The title is the best line said near the peak, or one that fits the mood, and every clip gets a post caption with hashtags.
+- **Auto titles and captions.** Whisper transcribes each clip. The title is the best line said near the peak, what chat agreed on or was talking about ("Chat lost it over the haircut"), or one that fits the mood, and every clip of a stream gets its own. Each gets a post caption and hashtags: the streamer, the game being played, what chat talked about and the mood.
 - **Edit like CapCut.** Drag the title and captions anywhere on the frame, fix any caption line by typing over it, and add your own captions.
   - Five caption styles: Pop, Highlight, Karaoke, Glow and Clean.
   - Four title styles.
   - Eight bundled fonts, including Montserrat, Anton, Bebas Neue and Bangers.
 - **Layouts and framing:** facecam above gameplay, the whole frame (following the streamer's face), the facecam alone, or a blurred fit. Auto-frame finds a facecam or a person and picks the layout.
-- **Background render queue.** Clips render to 1080×1920 MP4 on your GPU's encoder (NVIDIA, Intel or AMD), falling back to the CPU automatically. If one fails, Clip Radar says why in plain words and gives you a Retry button.
+- **Background render queue.** Clips render to 1080×1920 MP4 on your GPU (NVIDIA, Intel or AMD): it decodes the video and encodes H.264 or H.265, falling back to the CPU for a clip when it has to. With an NVIDIA card, Settings › Performance can add GPU support for Whisper (a one-time download), so titles, captions and Deep scan run on it too. If a render fails, Clip Radar says why in plain words and gives you a Retry button.
 - **Watermarks you can move and share.** Up to six layers of text (any bundled font, colour, outline or box) and logo images, in a corner or dragged anywhere on the clip preview, each with its own size, opacity, rotation and timing. Save sets of them, and share one as a single file (images inside) or import one from a file or a Discord link.
 - **Clipping campaigns and Discords.** Keep each clipping organisation's rules together under **Settings › Campaigns**: text and hashtags every post must carry, minimum and maximum clip length, the campaign's own watermark, and its Discord submission channel (a webhook).
   - Clips you keep while a campaign is active follow its rules, and Exports warns about clips that are too short or too long for it.

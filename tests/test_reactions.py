@@ -316,7 +316,8 @@ check("each chatter counts once, for what they did most", counts["cringe"] == 5 
 check("a few people aren't a mood", engine.chat_mood([(0.0, "uhh", f"p{k}") for k in range(3)])[0] == "")
 import titles  # noqa: E402
 g1, g2 = titles.generate([], ["uhhh", "uhh", "😬", "yikes", "erm"]), titles.generate([], ["???", "huh?", "wdym", "what?"])
-check("titles: an awkward moment gets an awkward title and tags", g1["vibe"] == "cringe" and "#awkward" in g1["hashtags"], g1)
+check("titles: an awkward moment gets an awkward title and tags", g1["vibe"] == "cringe"
+      and {"#awkward", "#cringe"} & set(g1["hashtags"]), g1)
 check("titles: a confused one gets its own", g2["vibe"] == "confused" and "#confused" in g2["hashtags"], g2)
 
 # ---------------------------------------------------------------- popular 7TV emotes (4.35)
