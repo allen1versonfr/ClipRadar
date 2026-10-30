@@ -7,88 +7,52 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [4.35.0] - 2026-10-30
 
-The 7TV emotes chat uses most are read for what they mean, and emotes for vibing, saying hi or going to bed no longer make moments.
+Finding clips got a lot better at telling a real moment from a busy chat: fewer clips and better ones, clips up to 2 minutes, chat read for how it reacts (laughter in many languages, awkward and confused moments told apart, 7TV's most used emotes), and a chat that could make Find clips hang for ever no longer does. Tried on a real 4.4-hour IShowSpeed YouTube stream (its chat replay; the sound couldn't be downloaded for the test).
+
+### Changed
+- **Quality over quantity.** On Automatic, the clips suggested are the moments that stand out against the stream's own best ones: Normal takes moments at least half as strong as its third-best moment (Fewer two thirds, More under a third), at least 3 and at most 40. Before, at least 3 an hour were suggested (5 at least), up to 60, however few good moments there were. A number you choose is still met.
+- **Clips up to 2 minutes.** Automatic lengths now go from 15 s to 2 minutes for every stream type (90 s before; 60 s for Gaming and Reactions; Podcasts stays at 2½ minutes). A clip is only long when the reaction keeps going: it can run 90 s past the peak (45 s before) and start a minute before it. Clip length has a **2 min** choice, on Home and for live clipping, which also gains 90 s.
+- **Chat is read for how it reacts, not just how much it types.**
+  - Laughter typed out, in the languages chat is in: "hahaha", "hehehe", "jajaja", "kkkkk", "wwww", "草", "ㅋㅋㅋ", "хахаха", "mdr", "ptdr", "哈哈哈", "XDDD", "LOOOL", "LMFAOOO". Before, all of these counted like "hello".
+  - Stretched words count like the word: "LMAOOOO", "POGGGG", "KEKWWW", "LETSGOOOO", "WTFFFF". Ordinary words react only when stretched: "noooo", "whaaat", "yesss" count, "no", "what" and "yes" don't.
+  - More reactions: 😭, 🤯, "NO SHOT", "oh my god", "holy", "sheesh", "bruh".
+  - One message repeating itself ("KEKW KEKW KEKW KEKW KEKW KEKW") counts a little more than one KEKW, not six times as much: it's one person.
+  - A number on its own ("50", "5,000", "$20", "4k") is an answer, a vote or a price, and counts for nothing, like "F".
+- **Chat answering a question counts for less.** When the streamer asks chat something, everyone answers ("germany", "texas", "2 hours ago") and chat surges with nothing to clip. Clip Radar looks at what the extra chat in a surge is made of: when it's plain talk, well beyond how much this chat usually just talks, chat and its speeding up count for as little as a third. A chat that rarely uses emotes isn't marked down for it. The score breakdown shows it as **Chat just talking**. Live clipping too.
+- **Chat and the stream agreeing counts for more.** When the streamer laughs, screams or gets loud and chat reacts within 10 seconds, the moment gets a bonus (**Chat and stream agree** in the score breakdown), more for Gaming and Reactions, less for Interviews and Podcasts. A loud song or chat reacting alone gets nothing from it, and nothing is taken away from them.
+- An emote's kind comes from Clip Radar's table first, then from its name, which now also knows confused, awkward, fail and calm emotes.
+- Detection v4: a video's analysis is worked out again the first time it's opened, and Find clips uses the new rules; clips already in a project stay as they are. Reading chat is about 15% slower (100,000 messages: 0.97 s to 1.12 s).
 
 ### Added
+- **Awkward moments**, and **confused chat told apart from them.** "uh", "uhhh", "ummm", "erm", 😬, 😐, "yikes", "cringe", "awkward", "ayo", "bro what" are an awkward reaction; "?", "???", "huh", "what?", "wdym", "wait what", "hmm", 🤔 are confusion. A question mark is the tell: "uhh?" is confused, "uhhh" awkward. A question or a filler inside a sentence ("what game is this?", "uh i think he left") is still talk. A wave of 40 people typing "uhhh" scored 1.4 and wasn't a clip; now 8.9, about as high as a laughing wave of the same size.
+- **Each moment says which it was.** Every chatter counts once, by how they reacted; when one kind clearly leads (at least 5 people, a third of everyone reacting, half again as many as the other), the reason starts with **Awkward moment** ("uhh ×28, 😬 ×6") or **Chat confused** ("??? ×27, huh ×13"), or **Awkward and confusing** when chat is split. Titles, captions and hashtags match: "This got awkward fast", 😬, #awkward #cringe; "Chat was so confused", 🤔, #confused.
 - **98 of 7TV's most used emotes (from its top 300 of all time), each with the reaction it means**, by exact name ("CAUGHT" is the emote, "caught" a word):
   - Laughing: OMEGALUL, KEKW, ICANT, PepeLaugh, xdd, xdding, peepoGiggles, sadKEK, KEKL, LOL...
   - Hype: GIGACHAD, LETSGO, POGGERS, PogU, Pog, PagMan, HYPERCLAP, LETHIMCOOK, BASED, BANGER, WICKED...
   - Shock: CAUGHT, CaughtIn4K, NOOOO, AINTNOWAY, NOWAYING, monkaW, WHAT, D:, FLASHBANG, OOOO, AAAA, Madge, RAGEY, Aware...
   - Confused: HUH, Hmm, modCheck, Thinking, monkaHmm, buh, wuh, WOT, Shruge
   - Awkward: DIESOFCRINGE, uuh, Awkward, Weirdge, WeirdChamp, Susge, Nerdge, WhoAsked, AYOOO, Concerned, MLADY
-  - It went wrong (new kind, *fail*): Sadge, PepeHands, Deadge, RIPBOZO, Despairge, SAJ, and **o7**, chat saluting after a death or a loss. o7 counted for nothing before, like "F"; F still does.
-- They count even when the channel's 7TV/BTTV/FFZ lists aren't loaded, and on YouTube and X, which have none. A wave of 40 people typing CAUGHT scored 1.4 without the lists and wasn't a clip; now 10.5, a clip. Titles, captions and hashtags read them too (a CAUGHT wave gets a shock title, o7 and Deadge a fail one).
-
-### Fixed
-- **A song, a raid saying hi or the stream ending could be a "moment".** Any channel emote counted toward an emote wave, and catJAM, VIBE and peepoHey were even called hype. With the channel's lists loaded, a wave of catJAM, peepoHey or Bedge scored 5.9 and was a clip; now 1.2, never. Emotes for vibing, dancing, greeting, leaving, sleeping and watching (catJAM, ratJAM, pepeJAM, VIBE, peepoHey, peepoBye, peepoArrive, Bedge, NODDERS, Listening, Chatting, PepoPopcorn... 44 of the top 300) are now *calm*: not a reaction, wherever they come from.
-
-### Changed
-- An emote's kind comes from this table first, then from its name, which now also knows confused, awkward, fail and calm emotes. "huh" and "hmm" in an emote's name mean confused, not shock.
-- A video's analysis is worked out again the first time it's opened.
-
-### Tests
-- `tests/test_reactions.py`: 24 popular emotes each read as their reaction; "caught" as a word is talk; 10 calm emotes add nothing; a catJAM wave isn't an emote wave, a CAUGHT wave is a clip without the channel's lists, a death saluted with o7 is a clip; live counts a channel's own emote and doesn't count a popular one twice; titles read emotes. `tests/test_signals.py`, `tests/test_detect.py`: o7 counts (less than a laugh), F and poll votes don't; catJAM is calm.
-
-## [4.34.0] - 2026-10-30
-
-Awkward moments and confusing ones are found too, and told apart: a chat going "uhhh" isn't a chat going "???".
-
-### Added
-- **Awkward moments.** "uh", "uhhh", "uuhh", "ummm", "erm", "ehhh", 😬, 😐, 😑, 🫠, "yikes", "cringe", "awkward", "ick", "ayo", "WeirdChamp", "bro what", "why would you" count as a reaction (before, "uhhh" counted like "hello", and "uhhhhh" a little more only for being stretched). A wave of 40 people typing them now makes a clip scoring about as high as a laughing wave of the same size (8.9 against 10.8); before it scored 1.4 and wasn't one.
-- **Confused chat, told apart from awkward.** "?", "???", "huh", "huh?", "what?", "wdym", "wait what", "what just happened", "hmm", 🤔 are confusion. A question mark is the tell: "uhh?" is confused, "uhhh" awkward. A question inside a sentence ("what game is this?") or a filler inside one ("uh i think he left") is still talk.
-- **Each moment says which it was.** Clip Radar counts every chatter once, by how they reacted, and when one kind clearly leads (at least 5 people, a third of everyone reacting, half again as many as the other kind) the reason starts with **Awkward moment** ("uhh ×28, 😬 ×6") or **Chat confused** ("??? ×27, huh ×13"). When chat is split between them, **Awkward and confusing**. Laughs, hype and shock aren't called either. Live clipping too.
-- **Titles, captions and hashtags to match**: an awkward moment gets "This got awkward fast", "Secondhand embarrassment"..., 😬, #awkward #cringe; a confused one "Chat was so confused", "Can someone explain this"..., 🤔, #confused. "huh" and "???" counted as shock in titles before.
-
-### Changed
-- Detection v4: a video's analysis is worked out again the first time it's opened.
-- On the IShowSpeed stream from 4.33 (chat only), Automatic now also takes a moment at 28:44 where 71 people sent 😐 at donations chat found weird ("Awkward moment"): 25 clips instead of 22.
-
-### Tests
-- `tests/test_reactions.py`: 13 awkward and 11 confused messages read as such, laughs, hype and shock keep theirs, fillers and questions inside sentences stay talk; waves of "uhhh", of "???", of both and of laughter are clips with the right name (or none); each chatter counted once; three people aren't a mood; titles and hashtags for both.
-
-## [4.33.0] - 2026-10-30
-
-Fewer, better clips, clips up to 2 minutes, and a stream whose chat had one long "ffff…" message no longer hangs Find clips. Tried on a real 4.4-hour IShowSpeed YouTube stream (its chat replay; YouTube wouldn't let the sound be downloaded for the test).
-
-### Changed
-- **Quality over quantity.** On Automatic, the clips suggested are the moments that stand out against the stream's own best ones: Normal takes moments at least half as strong as its third-best moment (Fewer two thirds, More under a third), at least 3 and at most 40. Before, at least 3 an hour were suggested (5 at least), up to 60, however few good moments there were. On the IShowSpeed stream: 60 clips before, 22 now. A number you choose is still met.
-- **Clips up to 2 minutes.** Automatic lengths now go from 15 s to 2 minutes for every stream type (90 s before; 60 s for Gaming and Reactions; Podcasts stays at 2½ minutes). A clip is only long when the reaction keeps going: it can now run 90 s past the peak (45 s before) and start a minute before it. Clip length has a **2 min** choice, on Home and for live clipping too, which also gains 90 s.
-- **Chat demands and answers count less.** Capitals no longer count as a reaction: YouTube chat types in capitals, and 4.32 took "CALL HIM" and "SHOW ON SCREEN" for reactions. A number on its own ("50", "5,000", "$20", "4k") is an answer, a vote or a price, and counts for nothing, like "F".
+  - It went wrong: Sadge, PepeHands, Deadge, RIPBOZO, Despairge, SAJ, and **o7**, chat saluting after a death or a loss (it counted for nothing before, like "F"; F still does).
+  - They count even when the channel's 7TV/BTTV/FFZ lists aren't loaded, and on YouTube and X. A wave of 40 people typing CAUGHT scored 1.4 without the lists; now 10.5, a clip. Titles read them too.
 
 ### Fixed
 - **Find clips could hang for ever on a stream's chat.** A message made of a long run of f's followed by anything else ("ffff…f!") made the rule that ignores F waves backtrack: about a second at 24 f's, doubling with each more. That IShowSpeed stream has one with 120, so Find clips never got past "Finding the best moments". Every chat check was tried with 200-character messages of every kind and now takes milliseconds.
+- **A song, a raid saying hi or the stream ending could be a "moment".** Any channel emote counted toward an emote wave, and catJAM, VIBE and peepoHey were even called hype: with the channel's lists loaded, a wave of catJAM, peepoHey or Bedge scored 5.9 and was a clip. Emotes for vibing, dancing, greeting, leaving, sleeping and watching (44 of 7TV's top 300) now never make a moment.
 
 ### On the real stream (chat only)
-| | 4.31 | 4.32 | 4.33 |
-|---|---|---|---|
-| Clips on Automatic | 60 | 60 | 22 |
-| Chat in a clip's window that is reacting (laughs, W/L, NOOO, WTF, 💀) | 29.5% | 37.6% | 48.9% |
-| ...that is begging, numbers or demands (add me, my epic, call him, 500) | 13.9% | 10.8% | 6.2% |
-| Clips where under a quarter of chat reacts | 32 | 22 | 4 |
-| Longest clip | 90 s | 90 s | 110 s |
+| | 4.31 | 4.35 |
+|---|---|---|
+| Clips on Automatic | 60 | 25 |
+| Chat in a clip's window that is reacting (laughs, W/L, NOOO, WTF, 💀) | 29.5% | 45.8% |
+| ...that is begging, numbers or demands (add me, my epic, call him, 500) | 13.9% | 5.8% |
+| Clips where under a quarter of chat reacts | 32 | 6 |
+| Longest clip | 90 s | 110 s |
 
-Measured with a simple pattern, not by watching the clips; 4.31 and 4.32 had the hang fixed for this.
-
-### Tests
-- `tests/test_reactions.py`: capitals and numbers, a long run of f's (under half a second for four such messages, where it used to hang), a 4-hour stream with 3 big moments getting those 3 and not 12, a busy stream held to 40, Fewer < Normal < More, a chosen number still met, 2-minute clips for a long reaction and short ones for a short reaction. `tests/test_signals.py`: a very long moment cut to 2 minutes, or to the longest you set.
-
-## [4.32.0] - 2026-10-30
-
-Finding clips is better at telling a real moment from a busy chat: it reads how chat reacts in many more ways, chat answering a question no longer passes for a moment, and a moment where the streamer and chat react together ranks higher. On simulated 3-hour streams with decoys, it found 98-100% of the real moments, against 71-92% before.
-
-### Changed
-- **Chat is read better.**
-  - Laughter typed out counts as a reaction in the languages chat is in: "hahaha", "hehehe", "jajaja" (Spanish), "kkkkk" (Portuguese), "wwww" and "草" (Japanese), "ㅋㅋㅋ" (Korean), "хахаха" (Russian), "mdr" and "ptdr" (French), "哈哈哈", "XDDD", "LOOOL", "LMFAOOO". Before, all of these counted like "hello".
-  - Stretched words count like the word: "LMAOOOO", "POGGGG", "KEKWWW", "LETSGOOOO", "WTFFFF". Ordinary words react only when stretched: "noooo", "whaaat", "yesss" count, "no", "what" and "yes" don't.
-  - More reactions: 😭, 🤯, "NO SHOT", "oh my god", "holy", "sheesh", "bruh", "huh", and a whole message in capitals ("WHY WOULD YOU DO THAT").
-  - One message repeating itself ("KEKW KEKW KEKW KEKW KEKW KEKW") counts a little more than one KEKW, not six times as much: it's one person.
-- **Chat answering a question counts for less.** When the streamer asks chat something, everyone answers ("germany", "texas", "2 hours ago") and chat surges with nothing to clip. Clip Radar now looks at what the extra chat in a surge is made of: when it's plain talk, well beyond how much this chat usually just talks, chat and its speeding up count for as little as a third. A chat that rarely uses emotes isn't marked down for it, and 7TV/BTTV/FFZ emotes count as reactions. The score breakdown shows it as **Chat just talking**. Live clipping does the same.
-- **Chat and the stream agreeing counts for more.** When the streamer laughs, screams or gets loud and chat reacts to it within 10 seconds, the moment gets a bonus (**Chat and stream agree** in the score breakdown), weighted by stream type (more for Gaming and Reactions, less for Interviews and Podcasts). A loud song or chat reacting alone gets nothing from it, and nothing is taken away from them. Ordinary ups and downs in loudness don't count: the sound must clearly stand out.
-- Detection is now v3. A video's analysis is worked out again the first time it's opened (chat is read differently), and clips found again with Find clips use the new rules; clips already in a project stay as they are.
+Measured with a simple pattern, not by watching the clips; 4.31 had the hang fixed for this. One of the new picks is an awkward moment (71 people sending 😐), which that pattern doesn't count as reacting.
 
 ### Tests
-- `tests/test_reactions.py` (new, in CI): laughter in 20 forms, stretched and plain words, repeats in one message, capitals; plain talk counting for less and reactions in full, also in a chat that only ever talks; agreement for a laugh with chat, none for a loud song, ordinary sound, or chat alone; the cache keeping what talk needs; 3-hour simulated streams with real moments and decoys (chat answering a question with more people than any real moment, loud songs, blips, a spammer), with chat laughing in many ways and with the usual emotes; and live clipping of the same. On those streams the old rules found 71% and 92% of the real moments and picked 15 and 4 question decoys; the new ones find 100% and 98% and pick none. That's a simulation made for this, not real streams.
-- Reading chat is about 15% slower (100,000 messages: 0.97 s to 1.12 s).
+- `tests/test_reactions.py` (new, in CI): laughter in 20 forms, stretched and plain words, repeats in one message, numbers; a long run of f's (where it used to hang); plain talk counting for less and reactions in full; agreement for a laugh with chat, none for a loud song, ordinary sound or chat alone; the cache keeping what talk needs; 3-hour simulated streams with real moments and decoys (chat answering a question with more people than any real moment, loud songs, blips, a spammer): the old rules found 71% and 92% of the real moments and picked 15 and 4 question decoys, the new ones 100% and 98% and none (a simulation made for this, not real streams); a 4-hour stream with 3 big moments getting those 3, not 12; Fewer < Normal < More; 2-minute clips for a long reaction and short ones for a short one; awkward, confused, laughing and mixed waves named right; 24 popular emotes, "caught" as a word, 10 calm emotes, a catJAM wave not a clip, a CAUGHT wave a clip without the channel's lists; live clipping of question bursts; titles and hashtags for every mood.
+- `tests/test_signals.py`, `tests/test_detect.py`: a very long moment cut to 2 minutes or the longest you set; o7 counts, F and poll votes don't; catJAM is calm.
 
 ## [4.31.0] - 2026-10-30
 
