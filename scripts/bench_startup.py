@@ -42,7 +42,12 @@ def rss_mb():
                 "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
                 "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
         c = PMC(); c.cb = ctypes.sizeof(c)
-        ctypes.windll.psapi.GetProcessMemoryInfo(ctypes.windll.kernel32.GetCurrentProcess(), ctypes.byref(c), c.cb)
+        k = ctypes.windll.kernel32
+        # without these ctypes passes the process handle as a 32-bit int: the call fails and reads 0 MB
+        k.GetCurrentProcess.restype = w.HANDLE
+        k.K32GetProcessMemoryInfo.argtypes = [w.HANDLE, ctypes.POINTER(PMC), w.DWORD]
+        if not k.K32GetProcessMemoryInfo(k.GetCurrentProcess(), ctypes.byref(c), c.cb):
+            return 0.0
         return c.WorkingSetSize / 2**20
     except Exception:
         return 0.0
@@ -63,7 +68,7 @@ print(json.dumps({
     "ready_ms": round((t_status - t0) * 1000),
     "rss_started_mb": round(mem_started, 1),
     "rss_after_status_mb": round(rss_mb(), 1),
-}))
+}), flush=True)                                        # os._exit skips the flush
 server.SHUTTING_DOWN[0] = True
 os._exit(0)
 """

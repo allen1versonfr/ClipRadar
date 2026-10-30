@@ -15,6 +15,7 @@ import bisect
 import json
 import math
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -432,6 +433,9 @@ class Source:
     streamer: str = ""      # channel name when known (for learning what you like per streamer)
     start: float = 0.0      # where the link said to start (YouTube ?t=, Twitch ?t=)
     info: dict = field(default_factory=dict)   # what the source is (sources.describe)
+    # the stream's sound already listened to while the video downloaded: a wait() giving measure_audio's
+    # (loud, fine, events), or None when that didn't work out (analyze then listens to the video itself)
+    sound: Optional[Callable] = None
 
 
 def _meta(workdir: str) -> dict:
@@ -443,7 +447,10 @@ def _meta(workdir: str) -> dict:
 
 def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1080,
             cookies_browser: str = "", log: Log = _noop, progress: Progress = _noop,
-            step: Log = _noop, check: Check = _noop, cookie_file: str = "") -> Source:
+            step: Log = _noop, check: Check = _noop, cookie_file: str = "",
+            early_sound: bool = False, events: bool = True) -> Source:
+    """early_sound: for a Twitch VOD not downloaded yet, also download its sound-only version and listen to it
+    (loudness, and laughter etc. when events) while the video downloads; the result is Source.sound."""
     source = source.strip().strip('"').strip("'")
     chat_file = (chat_file or "").strip().strip('"').strip("'")
     if chat_file and not os.path.isfile(chat_file):
@@ -494,7 +501,7 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     if not vod_id and not project_video(workdir):
         # YouTube, X and others: find out what it is first (a video, a finished stream, a live one...)
         step("Checking the link")
-        meta, err = probe_url(url, cookies_browser, cookie_file)
+        meta, err = probe_url(url, cookies_browser, cookie_file, _video_format(max_height))
         if meta is None and err:
             raise RuntimeError(sources.explain(err, c["platform"]))
         desc = sources.describe(meta or {}, c)
@@ -503,8 +510,7 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
                                "or wait until it ends and paste the link again.")
         if desc["problem"]:
             raise RuntimeError(desc["problem"])
-        need = float((meta or {}).get("filesize") or (meta or {}).get("filesize_approx") or 0)
-        _check_download_space(workdir, need)
+        _check_download_space(workdir, _size_of(meta))
         log(f"{desc['label']}: {desc['title'] or url}" + (f" by {desc['uploader']}" if desc["uploader"] else "")
             + (f", {fmt_ts(desc['duration'])}" if desc["duration"] else ""))
         _save_meta(workdir, platform=c["platform"], kind=desc["kind"], label=desc["label"], uploader=desc["uploader"],
@@ -512,18 +518,44 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     elif vod_id:
         _save_meta(workdir, platform="twitch", kind="vod", label="Twitch past broadcast")
 
-    if vod_id and not project_video(workdir):
-        _check_download_space(workdir, 0)
+    fresh = not project_video(workdir)
+    if vod_id and fresh:
+        step("Checking the VOD")
+        tmeta, _err = probe_url(url, cookies_browser, cookie_file, _video_format(max_height))
+        _check_download_space(workdir, _size_of(tmeta))
+    # Chat replay and the stream's sound don't need the video: get them while it downloads. A 9-hour VOD
+    # (measured): the video takes 18 minutes, its chat 1 minute after it, then listening to the sound 2.5
+    # minutes more. Twitch's sound-only version (about 1 GB) downloads in under a minute.
+    # Neither may outlive this call with cookie_file: it's the Twitch sign-in, deleted when this returns, and
+    # yt-dlp writes its cookies back when it exits. Twitch chat comes from TwitchDownloaderCLI (no cookies);
+    # YouTube chat gets the browser's cookies only; the early sound download is stopped before returning.
+    info: dict = {}
+    chat_soon = None
+    if not chat_file and c["platform"] == "twitch":
+        chat_soon = _Soon.start(("chat", workdir), lambda s: _with_info(lambda inf: _download_chat(url, vod_id, workdir, log, inf)))
+    elif not chat_file and c["platform"] == "youtube" and _meta(workdir).get("kind") == "vod":
+        chat_soon = _Soon.start(("chat", workdir), lambda s: (_youtube_chat(url, workdir, log, cookies_browser), {}))
+    sound = None
+    if early_sound and vod_id and fresh:
+        sound = _Soon.start(("sound", workdir), lambda s: _early_sound(s, url, workdir, cookies_browser, cookie_file,
+                                                                       events, log, check))
     step("Downloading the VOD" if c["platform"] == "twitch" else "Downloading the video")
+    got_video = False
     try:
         video, title = _download_video(url, vod_id, workdir, max_height, cookies_browser,
                                        log, progress, step, check, cookie_file)
+        got_video = True
     except Cancelled:
         raise
     except RuntimeError as e:
         if c["platform"] == "twitch":
             raise
         raise RuntimeError(sources.explain(str(e), c["platform"])) from None
+    finally:
+        if sound is not None:
+            if not got_video:
+                sound.cancel.set()            # the video failed or was stopped: so does the sound
+            sound.mark.wait()                 # its download is over either way (see cookie_file above)
     check()
     if c["platform"] == "youtube" and meta:
         # no chat on an ordinary video: what YouTube knows about it (Most replayed, comments, captions)
@@ -533,16 +565,17 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
                        else ["--cookies-from-browser", cookies_browser] if cookies_browser else [])
         check()
     step("Getting chat replay")
-    info: dict = {}
     if chat_file:
         shutil.copyfile(chat_file, os.path.join(workdir, "chat.json"))
         chat = load_chat(chat_file, info)
-    elif c["platform"] == "youtube":
-        chat = _youtube_chat(url, workdir, log, cookies_browser, cookie_file) if _meta(workdir).get("kind") == "vod" else []
-        if not chat:
+    elif chat_soon is not None:
+        chat, got = chat_soon.wait()
+        info.update(got)
+        if not chat and c["platform"] == "youtube":
             log("No chat replay for this video, ranking by audio.")
-    elif c["platform"] == "twitch":
-        chat = _download_chat(url, vod_id, workdir, log, info)
+    elif c["platform"] == "youtube":
+        chat = []
+        log("No chat replay for this video, ranking by audio.")
     else:
         chat = []
         log("No chat for this video, ranking by audio.")
@@ -551,7 +584,64 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
                **({"streamer_id": info["streamer_id"]} if info.get("streamer_id") else {}))
     m = _meta(workdir)
     return Source(video, chat, title, workdir, streamer, start=c["start"],
-                  info={k: m.get(k, "") for k in ("platform", "kind", "label", "uploader", "uploaded")})
+                  info={k: m.get(k, "") for k in ("platform", "kind", "label", "uploader", "uploaded")},
+                  sound=sound.wait if sound is not None else None)
+
+
+def _video_format(max_height: int) -> str:
+    """yt-dlp's format choice: H.264 up to max_height (every browser and FFmpeg build plays it), else the best."""
+    return (f"bv*[height<={max_height}][vcodec^=avc1]+ba/"
+            f"b[height<={max_height}][vcodec^=avc1]/"
+            f"bv*[height<={max_height}]+ba/b[height<={max_height}]/bv*+ba/b")
+
+
+def _size_of(meta: Optional[dict]) -> float:
+    """Bytes a download will take, from yt-dlp's metadata (0 if it can't tell). Twitch gives no size, only the
+    bitrate: bitrate x length (9-hour VOD: 32.75 GB estimated, 32.7 GB downloaded)."""
+    m = meta or {}
+    size = float(m.get("filesize") or m.get("filesize_approx") or 0)
+    if not size and m.get("tbr") and m.get("duration"):
+        size = float(m["tbr"]) * 1000 / 8 * float(m["duration"])
+    return size
+
+
+class _Soon:
+    """Work started in the background now and collected later. One per key at a time: a paused download that's
+    resumed picks up its chat download still running instead of starting a second one into the same file."""
+    _running: dict = {}
+    _lock = threading.Lock()
+
+    def __init__(self, fn):
+        self._box: dict = {}
+        self.cancel = threading.Event()        # asks fn to stop
+        self.mark = threading.Event()          # fn's own milestone (_early_sound: its download is over)
+        self._t = threading.Thread(target=self._run, args=(fn,), daemon=True)
+
+    def _run(self, fn):
+        try:
+            self._box["v"] = fn(self)
+        except BaseException as e:
+            self._box["e"] = e
+        finally:
+            self.mark.set()
+
+    @classmethod
+    def start(cls, key, fn) -> "_Soon":
+        with cls._lock:
+            s = cls._running.get(key)
+            if s is None or not s._t.is_alive():
+                s = cls._running[key] = cls(fn)
+                s._t.start()
+            return s
+
+    def done(self) -> bool:
+        return not self._t.is_alive()
+
+    def wait(self):
+        self._t.join()
+        if "e" in self._box:
+            raise self._box["e"]
+        return self._box.get("v")
 
 
 def _check_download_space(workdir: str, need: float):
@@ -561,18 +651,23 @@ def _check_download_space(workdir: str, need: float):
     free = locations.free_space(dl)
     if free is None:
         return
-    need = need * 1.1 + 300e6 if need else 2e9          # unknown size: a stream download needs a few GB
+    # x2: yt-dlp's last step (joining a Twitch download's pieces, or a video and its sound) writes a new copy
+    # before it deletes the old one (measured: 32.7 GB + 31.6 GB on disk at once for a 9-hour VOD)
+    need = need * 2.1 + 300e6 if need else 2e9          # unknown size: a stream download needs a few GB
     if free < need:
         raise RuntimeError(f"Not enough space to download this: {free / 1e9:.1f} GB free on that drive, about "
                            f"{need / 1e9:.1f} GB needed. Free up space (Settings › Storage) or choose another folder for "
                            "downloaded videos.")
 
 
-def probe_url(url: str, cookies_browser: str = "", cookie_file: str = "") -> tuple:
-    """yt-dlp's metadata for a link, without downloading: (info or None, error text)."""
+def probe_url(url: str, cookies_browser: str = "", cookie_file: str = "", fmt: str = "") -> tuple:
+    """yt-dlp's metadata for a link, without downloading: (info or None, error text).
+    fmt: the format the download will pick, so the size in the result is that format's."""
     exe = which("yt-dlp")
     if exe:
         cmd = [exe, "-J", "--skip-download", "--no-warnings", "--ignore-config", "--no-playlist"]
+        if fmt:
+            cmd += ["-f", fmt]
         if cookie_file:
             cmd += ["--cookies", cookie_file]
         elif cookies_browser:
@@ -593,6 +688,8 @@ def probe_url(url: str, cookies_browser: str = "", cookie_file: str = "") -> tup
     except ImportError:
         return None, "yt-dlp isn't installed"
     opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+    if fmt:
+        opts["format"] = fmt
     if cookie_file:
         opts["cookiefile"] = cookie_file
     elif cookies_browser:
@@ -660,9 +757,7 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
                 pass
         return existing, title
 
-    fmt = (f"bv*[height<={max_height}][vcodec^=avc1]+ba/"
-           f"b[height<={max_height}][vcodec^=avc1]/"
-           f"bv*[height<={max_height}]+ba/b[height<={max_height}]/bv*+ba/b")
+    fmt = _video_format(max_height)
     errs = []
 
     # 1) standalone yt-dlp.exe (kept up to date by the app, so Twitch changes don't need a rebuild)
@@ -745,11 +840,16 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
 class _Stepper:
     """Turns raw download numbers into progress + a friendly step line."""
 
+    # A download in pieces (Twitch) is joined into one file after the last piece, which took a third of the
+    # time (measured, 9-hour VOD: 687 s of pieces, then 355 s joining), so the bar leaves that much for it
+    PIECES_SHARE = 0.66
+
     def __init__(self, progress: Progress, step: Log, log: Log):
         self.progress, self.step, self.log = progress, step, log
         self.t = 0.0
         self.pct = -1
         self.frac = 0.0
+        self.share = 1.0
 
     def update(self, done, total, frag_i, frag_n, speed, eta):
         frac = None
@@ -757,9 +857,11 @@ class _Stepper:
             frac = done / total if done is not None else None
         elif frag_n:
             frac = (frag_i or 0) / frag_n
+        if frag_n:
+            self.share = self.PIECES_SHARE
         if frac is not None:
             self.frac = frac
-            self.progress(min(0.999, max(0.0, frac)))
+            self.progress(min(0.999, max(0.0, frac * self.share)))
         now = time.time()
         if now - self.t > 1.0:
             self.t = now
@@ -772,6 +874,11 @@ class _Stepper:
             if frac is not None and int(frac * 10) > self.pct:
                 self.pct = int(frac * 10)
                 self.log(f"Download {int(frac * 100)}%")
+
+    def joined(self, frac: float):
+        """How far the join after the download has got, 0..1."""
+        self.progress(min(0.999, self.share + (1 - self.share) * max(0.0, frac)))
+        self.step(f"Putting the video together, {int(frac * 100)}%")
 
 
 def _finish_download(workdir: str, title: str, duration, progress: Progress, log: Log, streamer: str = "", out_dir: str = ""):
@@ -800,7 +907,7 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
            "%(progress.fragment_count)s %(progress.speed)s %(progress.eta)s",
            "-f", fmt, "-o", os.path.join(out_dir, "vod.%(ext)s"), "--merge-output-format", "mp4",
            "-N", "8", "--socket-timeout", "30", "--retries", "10", "--fragment-retries", "20",
-           "--match-filters", "!is_live"]
+           "--match-filters", "!is_live", *NO_FASTSTART]
     ff = which("ffmpeg")
     if ff:
         cmd += ["--ffmpeg-location", os.path.dirname(ff)]
@@ -838,6 +945,10 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
                 told = True
                 step("Putting the video together (a few minutes for a long stream)")
                 log("Download finished; joining it into one video.")
+            if told:
+                j = _join_progress(out_dir)
+                if j is not None:
+                    st.joined(j)
             if time.monotonic() - last_output[0] > DOWNLOAD_STALL_S:
                 stalled[0] = True
                 kill_tree(p)
@@ -882,6 +993,12 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
 
 DOWNLOAD_STALL_S = 180       # no output and no file growth for this long: the download is stuck
 
+# yt-dlp joins a Twitch download's pieces with FFmpeg and +faststart, which writes the whole MP4 and then
+# reads and rewrites all of it again to put the index first: only useful for playing over the internet.
+# Clip Radar plays the VOD from disk (the index is read from the end with a range request; checked in the
+# app's player). Measured, 9-hour VOD: the join read and wrote 65 GB for a 32.7 GB file.
+NO_FASTSTART = ["--ppa", "FixupM3u8:-movflags -faststart"]
+
 
 def _download_bytes(folder: str) -> int:
     """Bytes in the download's files so far (vod.*: parts, fragments, the file being joined)."""
@@ -896,6 +1013,20 @@ def _download_bytes(folder: str) -> int:
     except OSError:
         pass
     return total
+
+
+def _join_progress(folder: str) -> Optional[float]:
+    """While yt-dlp joins a download into vod.temp.<ext>: how much of it is written, 0..1 (None if it isn't
+    joining). The joined file comes out about as big as what goes in (32.7 GB in, 31.7 GB out)."""
+    try:
+        sizes = {f: os.path.getsize(os.path.join(folder, f)) for f in os.listdir(folder) if f.startswith("vod.")}
+    except OSError:
+        return None
+    out = sum(s for f, s in sizes.items() if f.startswith("vod.temp."))
+    src = sum(s for f, s in sizes.items() if not f.startswith("vod.temp.") and not f.endswith((".part", ".ytdl")))
+    if not out or not src:
+        return None
+    return min(1.0, out / src)
 
 
 def kill_tree(p: subprocess.Popen):
@@ -943,6 +1074,7 @@ def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, ste
         "file_access_retries": 3,
         "continuedl": True,
         "match_filter": yt_dlp.utils.match_filter_func("!is_live"),
+        "postprocessor_args": {"fixupm3u8": ["-movflags", "-faststart"]},      # see NO_FASTSTART
     }
     ff = which("ffmpeg")
     if ff:
@@ -1007,6 +1139,84 @@ def _download_chat(url: str, vod_id: Optional[str], workdir: str, log: Log, info
     log("No chat replay available, ranking by audio only. "
         "(Run install.bat to add TwitchDownloaderCLI for chat.)")
     return []
+
+
+def _with_info(fn) -> tuple:
+    """(fn(info), info) for a chat download in the background: a resumed download that picks it up still
+    gets the streamer's name and id it found."""
+    info: dict = {}
+    return fn(info), info
+
+
+def _early_sound(soon: "_Soon", url: str, workdir: str, cookies_browser: str, cookie_file: str, events: bool,
+                 log: Log, check: Check) -> Optional[tuple]:
+    """Download a Twitch VOD's sound-only version and listen to it, while the video downloads alongside.
+    Returns measure_audio's (loud, fine, events), or None if anything went wrong (the video is listened to
+    instead, as before). soon.mark is set as soon as the download part is over."""
+    d = os.path.join(workdir, "sound_first")
+    exe = which("yt-dlp")
+
+    def stop():
+        if soon.cancel.is_set():
+            raise Cancelled()
+        check()
+    try:
+        if not exe:
+            return None
+        shutil.rmtree(d, ignore_errors=True)
+        os.makedirs(d, exist_ok=True)
+        cmd = [exe, "--ignore-config", "--no-progress", "--no-warnings", "-f", "Audio_Only/ba", "-N", "4", *NO_FASTSTART,
+               "--socket-timeout", "30", "--retries", "10", "--fragment-retries", "20",
+               "-o", os.path.join(d, "sound.%(ext)s")]
+        ff = which("ffmpeg")
+        if ff:
+            cmd += ["--ffmpeg-location", os.path.dirname(ff)]
+        if cookie_file:
+            cmd += ["--cookies", cookie_file]
+        elif cookies_browser:
+            cmd += ["--cookies-from-browser", cookies_browser]
+        t0 = time.monotonic()
+        errlog = os.path.join(d, "yt-dlp.log")
+        with open(errlog, "wb") as ef:
+            p = subprocess.Popen(cmd + [url], stdout=subprocess.DEVNULL, stderr=ef, stdin=subprocess.DEVNULL,
+                                 creationflags=CREATE_NO_WINDOW, **({} if os.name == "nt" else {"start_new_session": True}))
+        procjob.adopt(p)
+        try:
+            while p.poll() is None:
+                try:
+                    stop()
+                except Cancelled:
+                    kill_tree(p)
+                    raise
+                time.sleep(0.5)
+        finally:
+            p.wait()
+            soon.mark.set()
+        names = [f for f in os.listdir(d) if f.startswith("sound.") and not f.endswith((".part", ".ytdl"))
+                 and ".part-Frag" not in f and ".temp." not in f]
+        if p.returncode != 0 or not names:
+            with open(errlog, encoding="utf-8", errors="replace") as ef:
+                why = [ln.strip() for ln in ef if ln.strip()]
+            raise RuntimeError(_clean_ytdlp_error(why[-1]) if why else f"yt-dlp exited with code {p.returncode}")
+        sound = os.path.join(d, names[0])
+        dur = float(run([ffprobe(), "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1",
+                         sound], timeout=60).stdout.strip() or 0)
+        if dur <= 0:
+            return None
+        took = time.monotonic() - t0
+        res = measure_audio(sound, dur, events, check=stop, log=log)
+        log(f"Listened to the stream's sound while the video downloads (sound-only copy in {took:.0f} s, "
+            f"listening {time.monotonic() - t0 - took:.0f} s).")
+        return res
+    except Cancelled:
+        return None
+    except Exception as e:
+        log(f"Listening ahead didn't work ({str(e).splitlines()[0][:120] if str(e) else type(e).__name__}); "
+            "listening to the video once it's here.")
+        return None
+    finally:
+        soon.mark.set()
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def _sidecar_chat(video: str, workdir: str, log: Log, info: Optional[dict] = None) -> list:
@@ -1182,9 +1392,26 @@ def measure_audio(video: str, duration: float, events: bool = False, progress: P
     scanner = audio_events.Scanner() if use_ev else None
     got = 0
     ev_failed = False
+    # FFmpeg decodes the next stretch while this thread listens to the last one. Read straight from the
+    # pipe, FFmpeg sat idle whenever the laughter model ran (measured on a 9-hour VOD: 42 s of decoding
+    # plus about 140 s of listening, one after the other). A few chunks ahead keeps memory small.
+    chunks: queue.Queue = queue.Queue(maxsize=4)
+
+    def read_ahead():
+        try:
+            while True:
+                c = p.stdout.read(sr * bps * 30)
+                chunks.put(c)
+                if not c:
+                    return
+        except (OSError, ValueError):
+            chunks.put(b"")
+
+    reader = threading.Thread(target=read_ahead, daemon=True)
+    reader.start()
     try:
         while True:
-            chunk = p.stdout.read(sr * bps * 30)
+            chunk = chunks.get()
             if not chunk:
                 break
             check()
@@ -1218,6 +1445,11 @@ def measure_audio(video: str, duration: float, events: bool = False, progress: P
         if p.poll() is None:
             p.kill()
         p.wait()
+        while reader.is_alive():               # cancelled with the queue full: let the reader finish
+            try:
+                chunks.get(timeout=0.5)
+            except queue.Empty:
+                pass
     pw = np.concatenate(pows) if pows else np.zeros(0, dtype=np.float32)
     fine = np.full(n * FINE_HZ, -100.0, dtype=np.float32)
     k = min(fine.size, pw.size)
@@ -1363,7 +1595,8 @@ class Analysis:
 
 def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: float = 60,
             log: Log = _noop, progress: Progress = _noop, check: Check = _noop,
-            events: bool = True) -> Analysis:
+            events: bool = True, sound: Optional[Callable] = None) -> Analysis:
+    """sound: Source.sound, the sound already listened to while the video downloaded (same settings)."""
     info = probe(video)
     dur = info["duration"]
     if dur <= 0:
@@ -1373,8 +1606,16 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
     if info["has_audio"]:
         import audio_events
         with_ev = events and audio_events.available()
-        log(f"VOD length {fmt_ts(dur)}. Listening for loud moments" + (", laughter and screams..." if with_ev else "..."))
-        loud, fine, ev = measure_audio(video, dur, with_ev, progress, check, log)
+        early = None
+        if sound is not None:
+            log(f"VOD length {fmt_ts(dur)}. Finishing listening to its sound...")
+            early = sound()
+            check()
+        if early is not None:
+            loud, fine, ev = early
+        else:
+            log(f"VOD length {fmt_ts(dur)}. Listening for loud moments" + (", laughter and screams..." if with_ev else "..."))
+            loud, fine, ev = measure_audio(video, dur, with_ev, progress, check, log)
         loud = _fit(loud, n, -90.0)
         if loud is not None and (loud < -75).mean() > 0.2:
             log(f"{int((loud < -75).mean() * 100)}% of the audio is silent or muted.")
@@ -1462,7 +1703,8 @@ def _load_analysis(path: str, key: str) -> Optional[Analysis]:
 
 def analyze_cached(workdir: str, video: str, chat: list, chat_delay=6.0, chat_weight_pct: float = 60,
                    log: Log = _noop, progress: Progress = _noop, check: Check = _noop,
-                   events: bool = True, emote_set=None, weights: Optional[dict] = None) -> Analysis:
+                   events: bool = True, emote_set=None, weights: Optional[dict] = None,
+                   sound: Optional[Callable] = None) -> Analysis:
     """analyze(), but a VOD you've opened before is ready instantly (cached in workdir/analysis.npz)."""
     path = os.path.join(workdir, "analysis.npz")
     key = _analysis_key(video, chat, chat_delay, events)
@@ -1476,7 +1718,7 @@ def analyze_cached(workdir: str, video: str, chat: list, chat_delay=6.0, chat_we
             progress(1.0)
             return _finish(an, chat, emote_set, weights, chat_weight_pct, workdir)
     an = analyze(video, chat, chat_delay=chat_delay, chat_weight_pct=chat_weight_pct, log=log,
-                 progress=progress, check=check, events=events)
+                 progress=progress, check=check, events=events, sound=sound)
     if key:
         try:
             _save_analysis(path, key, an)
