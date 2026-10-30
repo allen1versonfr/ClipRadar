@@ -5,6 +5,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.34.0] - 2026-10-30
+
+Awkward moments and confusing ones are found too, and told apart: a chat going "uhhh" isn't a chat going "???".
+
+### Added
+- **Awkward moments.** "uh", "uhhh", "uuhh", "ummm", "erm", "ehhh", 😬, 😐, 😑, 🫠, "yikes", "cringe", "awkward", "ick", "ayo", "WeirdChamp", "bro what", "why would you" count as a reaction (before, "uhhh" counted like "hello", and "uhhhhh" a little more only for being stretched). A wave of 40 people typing them now makes a clip scoring about as high as a laughing wave of the same size (8.9 against 10.8); before it scored 1.4 and wasn't one.
+- **Confused chat, told apart from awkward.** "?", "???", "huh", "huh?", "what?", "wdym", "wait what", "what just happened", "hmm", 🤔 are confusion. A question mark is the tell: "uhh?" is confused, "uhhh" awkward. A question inside a sentence ("what game is this?") or a filler inside one ("uh i think he left") is still talk.
+- **Each moment says which it was.** Clip Radar counts every chatter once, by how they reacted, and when one kind clearly leads (at least 5 people, a third of everyone reacting, half again as many as the other kind) the reason starts with **Awkward moment** ("uhh ×28, 😬 ×6") or **Chat confused** ("??? ×27, huh ×13"). When chat is split between them, **Awkward and confusing**. Laughs, hype and shock aren't called either. Live clipping too.
+- **Titles, captions and hashtags to match**: an awkward moment gets "This got awkward fast", "Secondhand embarrassment"..., 😬, #awkward #cringe; a confused one "Chat was so confused", "Can someone explain this"..., 🤔, #confused. "huh" and "???" counted as shock in titles before.
+
+### Changed
+- Detection v4: a video's analysis is worked out again the first time it's opened.
+- On the IShowSpeed stream from 4.33 (chat only), Automatic now also takes a moment at 28:44 where 71 people sent 😐 at donations chat found weird ("Awkward moment"): 25 clips instead of 22.
+
+### Tests
+- `tests/test_reactions.py`: 13 awkward and 11 confused messages read as such, laughs, hype and shock keep theirs, fillers and questions inside sentences stay talk; waves of "uhhh", of "???", of both and of laughter are clips with the right name (or none); each chatter counted once; three people aren't a mood; titles and hashtags for both.
+
 ## [4.33.0] - 2026-10-30
 
 Fewer, better clips, clips up to 2 minutes, and a stream whose chat had one long "ffff…" message no longer hangs Find clips. Tried on a real 4.4-hour IShowSpeed YouTube stream (its chat replay; YouTube wouldn't let the sound be downloaded for the test).

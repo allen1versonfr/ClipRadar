@@ -26,7 +26,7 @@ from typing import Optional
 
 import numpy as np
 
-DETECTION_VERSION = 3
+DETECTION_VERSION = 4
 
 PRESETS = {
     # chat: default chat-vs-audio mix (%). laugh/scream/cheer: points for a clear event.

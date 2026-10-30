@@ -1502,7 +1502,7 @@ _TOKEN = re.compile(r"[\w:]+|[^\w\s]")
 # 4.32: more of how chat reacts. Kept apart from HYPE, which chat titles also use as words to leave out.
 REACT = {
     "😭": 1.5, "😹": 1.2, "🤯": 1.3, "😳": 1.0, "omfg": 1.5, "rofl": 1.5, "sheesh": 1.3, "holy": 1.2,
-    "bruh": 0.8, "huh": 1.0, "wow": 1.0, "ww": 1.0, "l": 0.8,
+    "bruh": 0.8, "wow": 1.0, "ww": 1.0, "l": 0.8,
 }
 # ordinary words that react only when stretched: "noooo", "whaaat", "yesss", "gooo", "brooo", "ohhh"
 STRETCHED = {"no": 1.5, "what": 1.2, "yes": 1.0, "go": 1.0, "bro": 0.8, "oh": 0.8}
@@ -1537,6 +1537,121 @@ def _react_points(tok: str) -> float:
     return 0.0
 
 
+# 4.34: two reactions told apart from each other (and from shock). Confused: chat doesn't get what just
+# happened ("???", "huh", "wdym", 🤔). Cringe: chat is uncomfortable with it, an awkward moment ("uhhh",
+# "ummm", "erm", 😬, "yikes"). Both are reactions worth a clip; reaction_kind says which one a message is.
+CONFUSED = {"huh": 1.0, "wdym": 1.0, "wym": 0.8, "confused": 1.0, "🤔": 0.8, "❓": 1.0, "😕": 0.8, "🧐": 0.8,
+            "monkahmm": 1.0, "hmm": 0.6}
+CRINGE = {"yikes": 1.2, "cringe": 1.2, "awkward": 1.2, "erm": 1.0, "ick": 1.0, "oof": 0.8, "ayo": 1.0,
+          "weirdchamp": 1.2, "weird": 0.6, "😬": 1.2, "😐": 1.0, "😑": 1.0, "🫠": 1.0, "🙃": 0.8, "🦗": 1.0}
+CONFUSED_PHRASES = ("wait what", "what just happened", "what is happening", "what is going on", "im lost",
+                    "i'm lost", "what did he", "what did she", "what did i just")
+CRINGE_PHRASES = ("bro what", "why would you", "this is awkward", "so awkward", "second hand embarrassment",
+                  "secondhand embarrassment", "im uncomfortable", "i'm uncomfortable")
+_UHH = re.compile(r"^(?:u+h+|u+m{2,}|e+r+m+|e+h{2,})$")         # uh, uhh, uuuhhh, umm, errm, ehhh
+_HMM = re.compile(r"^h+m{2,}$")                                  # hmm, hmmmm: confused, thinking
+_CONFUSED_ASK = re.compile(r"^\W*(?:(?:what|huh|who|how|why|wait|bro|sorry|pardon|excuse me|what the|u+h+|u+m+|e+r+m+)\W*)?\?+[\s?!.]*$", re.I)
+KINDS = ("laugh", "hype", "shock", "confused", "cringe")
+_KIND_OF = {}
+for _k in ("kekw", "lul", "lol", "lmao", "lmfao", "omegalul", "icant", "😂", "🤣", "xd", "pepelaugh", "kekl", "lulw",
+           "kek", "dead", "💀", "😭", "😹", "rofl", "omfg"):
+    _KIND_OF[_k] = "laugh"
+for _k in ("pog", "pogchamp", "poggers", "pogu", "w", "ez", "letsgo", "hypers", "gg", "goat", "insane", "🔥", "clip",
+           "clipit", "clipped", "ww", "sheesh", "yes", "go"):
+    _KIND_OF[_k] = "hype"
+for _k in ("monkas", "wtf", "omg", "😱", "d:", "nooo", "noway", "wideeyes", "holy", "🤯", "😳", "wow", "no", "what", "oh"):
+    _KIND_OF[_k] = "shock"
+_KIND_OF.update({k: "confused" for k in CONFUSED})
+_KIND_OF.update({k: "cringe" for k in CRINGE})
+
+
+def _awkward_points(tok: str, alone: bool) -> tuple:
+    """(points, kind) for the confused and cringe words. alone: the token is the whole message, so a
+    plain "uh" or "hmm" counts (inside a sentence they're just filler)."""
+    if tok in CRINGE:
+        return CRINGE[tok], "cringe"
+    if tok in CONFUSED:
+        return CONFUSED[tok], "confused"
+    if _UHH.match(tok) and (alone or len(tok) >= 3):
+        return 1.2, "cringe"
+    if _HMM.match(tok) and (alone or len(tok) >= 4):
+        return 0.6, "confused"
+    return 0.0, ""
+
+
+def reaction_kind(text: str) -> str:
+    """What kind of reaction a chat message is: laugh, hype, shock, confused, cringe, or '' (talk). Used to
+    tell a confused chat ("???", "huh", "wdym") from an awkward, cringe moment ("uhhh", "😬", "yikes")."""
+    t = (text or "").lower().strip()
+    if not t:
+        return ""
+    votes = {k: 0.0 for k in KINDS}
+    if _CONFUSED_ASK.match(t) or "???" in t:
+        votes["confused"] += 1.5
+    for p in CONFUSED_PHRASES:
+        if p in t:
+            votes["confused"] += 1.5
+    for p in CRINGE_PHRASES:
+        if p in t:
+            votes["cringe"] += 1.5
+    toks = _TOKEN.findall(t)
+    alone = len([x for x in toks if x.isalnum()]) <= 1
+    for tok in toks:
+        v, kind = _awkward_points(tok, alone)
+        if kind:
+            votes[kind] += 1.0
+            continue
+        short = _STRETCH.sub(r"\1", tok)
+        kind = _KIND_OF.get(tok) or (_KIND_OF.get(short) if short != tok else None)
+        if kind in ("hype", "shock") and tok in ("yes", "go", "no", "what", "oh"):
+            kind = None                     # these react only when stretched ("noooo", "whaaat")
+        if not kind and (LAUGH_TEXT.match(tok) or LAUGH_TEXT.match(short)):
+            kind = "laugh"
+        if kind:
+            votes[kind] += 1.0
+    best = max(KINDS, key=lambda k: votes[k])      # ties: the order of KINDS
+    return best if votes[best] > 0 else ""
+
+
+MOOD_LABEL = {"confused": "chat confused", "cringe": "awkward moment", "both": "awkward and confusing"}
+MOOD_MIN = 5            # chatters reacting the same way before a moment is called confused or awkward
+
+
+def chat_mood(msgs: list) -> tuple:
+    """How chat reacted around a moment: (mood, {kind: chatters}). msgs: (seconds, text, user, kind) without
+    the noise. Each chatter counts once, for what they reacted with most. mood is 'confused' or 'cringe'
+    when that's clearly how chat took it: at least MOOD_MIN people, a third of everyone reacting, and well
+    ahead of the other one ("???" and "huh" against "uhhh" and "😬"); 'both' when chat was split between
+    them. Otherwise '', and laughs, hype and shock speak for themselves in the reason."""
+    per: dict = {}
+    for m in msgs:
+        k = reaction_kind(m[1])
+        if k:
+            d = per.setdefault((m[2] if len(m) > 2 else "") or id(m), {})
+            d[k] = d.get(k, 0) + 1
+    counts = {k: 0 for k in KINDS}
+    for d in per.values():
+        counts[max(d, key=lambda k: (d[k], -KINDS.index(k)))] += 1
+    total = sum(counts.values())
+    a, b = counts["confused"], counts["cringe"]
+    mood = ""
+    for k, n_, other in (("confused", a, b), ("cringe", b, a)):
+        if n_ >= MOOD_MIN and n_ >= total / 3 and n_ >= 1.5 * other and n_ >= max(counts.values()):
+            mood = k
+    if not mood and min(a, b) >= MOOD_MIN and a + b >= total / 3 and a + b >= max(counts.values()):
+        mood = "both"
+    return mood, counts
+
+
+def _awkward_word(tok: str) -> str:
+    """One spelling for the reason: "uuhhhh" -> "uhh", "ummmm" -> "umm", "hmmmm" -> "hmm"."""
+    for rx, word in ((re.compile(r"^u+h+$"), "uhh"), (re.compile(r"^u+m+$"), "umm"), (re.compile(r"^e+r+m+$"), "erm"),
+                     (re.compile(r"^e+h+$"), "ehh"), (_HMM, "hmm")):
+        if rx.match(tok):
+            return word
+    return tok
+
+
 def chat_weight(text: str) -> float:
     t = text.lower()
     w = 1.0
@@ -1548,9 +1663,15 @@ def chat_weight(text: str) -> float:
         if p in t:
             w += v
             break
+    if _CONFUSED_ASK.match(t) and "???" not in t:
+        w += 0.8                          # "?", "huh?", "what??": chat didn't get it
+    if any(p in t for p in CONFUSED_PHRASES + CRINGE_PHRASES):
+        w += 1.0
     seen: dict = {}
-    for tok in _TOKEN.findall(t):
-        v = _react_points(tok)
+    toks = _TOKEN.findall(t)
+    alone = len([x for x in toks if x.isalnum()]) <= 1
+    for tok in toks:
+        v = _react_points(tok) or _awkward_points(tok, alone)[0]
         if v <= 0:
             continue
         key = _STRETCH.sub(r"\1", tok)
@@ -1880,7 +2001,8 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
 
 # Bump when anything that feeds the analysis changes (chat scoring, loudness, detector use),
 # so a cached analysis.npz from an older version is thrown away instead of reused.
-ANALYSIS_VERSION = 4          # 4.9: YouTube chat emoji; 4.10: chat delay found on long streams too; 4.32: chat reading, talk
+ANALYSIS_VERSION = 5          # 4.9: YouTube chat emoji; 4.10: chat delay found on long streams too; 4.32: chat reading, talk;
+#                               4.34: confused and awkward reactions
 
 
 def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Optional[str]:
@@ -2466,14 +2588,30 @@ def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: flo
         lo = bisect.bisect_left(chat_t, i + delay - 4)
         hi = bisect.bisect_right(chat_t, i + delay + 14)
         words: dict = {}
-        emoji = {"😂", "🤣", "💀", "🔥", "😱"}
-        for m in chatsignal.human(chat[lo:hi]):
-            for tok in set(re.findall(r"\w+|[😂🤣💀🔥😱]", m[1])):
+        emoji = {"😂", "🤣", "💀", "🔥", "😱", "😬", "🤔", "😐"}
+        near = chatsignal.human(chat[lo:hi])
+        mood, _ = chat_mood(near)
+        if mood:
+            parts.insert(0, MOOD_LABEL[mood])
+        for m in near:
+            seen = set()
+            if mood in ("confused", "both") and _CONFUSED_ASK.match(m[1].strip()) and "?" not in seen:
+                seen.add("?")
+                words["???"] = words.get("???", 0) + 1
+            for tok in set(re.findall(r"\w+|[😂🤣💀🔥😱😬🤔😐]", m[1])):
                 e = es.find(tok) if es else None
+                low = tok.lower()
                 if e:
-                    words[e] = words.get(e, 0) + 1
-                elif (len(tok) > 1 and tok.lower() in HYPE) or tok in emoji:
-                    words[tok] = words.get(tok, 0) + 1
+                    key = e
+                elif (len(tok) > 1 and low in HYPE) or tok in emoji:
+                    key = tok
+                elif mood and (_awkward_points(low, True)[1] or "-") in ((mood,) if mood != "both" else ("confused", "cringe")):
+                    key = _awkward_word(low)
+                else:
+                    continue
+                if key not in seen:
+                    seen.add(key)
+                    words[key] = words.get(key, 0) + 1
         top = sorted(words.items(), key=lambda kv: -kv[1])[:3]
         if top:
             parts.append(", ".join(f"{w} ×{k}" for w, k in top))

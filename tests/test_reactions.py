@@ -263,6 +263,54 @@ long_an.score[400:408] = 6.0
 st, en, _ = engine.smart_bounds(long_an, 404)
 check("a short one stays short", en - st <= 40, (st, en))
 
+# ---------------------------------------------------------------- confused or awkward (4.34)
+kind = engine.reaction_kind
+cringe = ["uuh", "uhhh", "uuhh", "UHHHHH", "uh", "umm", "erm", "😬😬", "yikes", "cringe", "awkward", "😐", "bro what"]
+confused = ["???", "?", "huh?", "huh", "wdym", "wait what", "what?", "uhh?", "hmm", "🤔", "what just happened"]
+check("an awkward reaction reads as cringe", all(kind(t) == "cringe" for t in cringe), [(t, kind(t)) for t in cringe])
+check("not getting it reads as confused", all(kind(t) == "confused" for t in confused), [(t, kind(t)) for t in confused])
+check("and the others keep theirs", kind("KEKW") == "laugh" and kind("POGGG") == "hype" and kind("WTF") == "shock"
+      and kind("hahaha") == "laugh" and kind("noooo") == "shock")
+check("both count as reactions", all(engine.is_reaction(t) for t in cringe + confused))
+check("a filler or a question inside a sentence is talk", all(not engine.is_reaction(t) and kind(t) == ""
+      for t in ("uh i think he left", "um ok", "what game is this?", "where are you from?", "hello")))
+
+
+def wave(pool, people=40, seed=1):
+    r = np.random.default_rng(seed)
+    n = 1800
+    chat = [(float(t), ["hi", "lol", "what game", "KEKW", "nice"][r.integers(5)], f"u{r.integers(300)}", "")
+            for t in np.sort(r.uniform(0, n, int(n * 1.2)))]
+    chat += [(905 + r.uniform(0, 10), pool[j % len(pool)], f"w{j}", "") for j in range(people)]
+    chat.sort(key=lambda m: m[0])
+    a = engine.score_signals(None, chat, n + 1, float(n), 5.0, 60)
+    detect.enrich(a, chat, 5.0, None)
+    a.combine(60, detect.preset("any"))
+    return next((c for c in engine.pick_clips(a, count=0, chat=chat, chat_delay=5.0) if c.start <= 905 <= c.end), None)
+
+
+uh = wave(["uuh", "uhhh", "uuhh", "UHHHH", "erm", "😬"])
+huh = wave(["???", "huh?", "what?", "wdym", "??", "huh"])
+both = wave(["uhhh", "???", "uhh", "huh?"])
+laugh = wave(["KEKW", "LMAOOO", "😂"])
+check("an 'uhhh' wave is a clip, called an awkward moment", uh is not None and uh.reason.startswith("Awkward moment")
+      and "uhh ×" in uh.reason, uh and uh.reason)
+check("a '???' wave is a clip, called chat confused", huh is not None and huh.reason.startswith("Chat confused")
+      and "??? ×" in huh.reason, huh and huh.reason)
+check("a wave of both says so", both is not None and both.reason.startswith("Awkward and confusing"), both and both.reason)
+check("a laughing wave isn't called either", laugh is not None and not laugh.reason.startswith(("Awkward", "Chat confused")),
+      laugh and laugh.reason)
+check("an awkward moment ranks close to a laughing one", uh.score >= 0.6 * laugh.score, (uh.score, laugh.score))
+mood, counts = engine.chat_mood([(0.0, "uhhh", "a"), (1.0, "???", "a"), (2.0, "uhh", "a")] +
+                                [(0.0, "uhh", f"p{k}") for k in range(4)])
+check("each chatter counts once, for what they did most", counts["cringe"] == 5 and counts["confused"] == 0 and mood == "cringe",
+      (mood, counts))
+check("a few people aren't a mood", engine.chat_mood([(0.0, "uhh", f"p{k}") for k in range(3)])[0] == "")
+import titles  # noqa: E402
+g1, g2 = titles.generate([], ["uhhh", "uhh", "😬", "yikes", "erm"]), titles.generate([], ["???", "huh?", "wdym", "what?"])
+check("titles: an awkward moment gets an awkward title and tags", g1["vibe"] == "cringe" and "#awkward" in g1["hashtags"], g1)
+check("titles: a confused one gets its own", g2["vibe"] == "confused" and "#confused" in g2["hashtags"], g2)
+
 # ---------------------------------------------------------------- live
 import live_replay as lr  # noqa: E402
 
