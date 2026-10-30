@@ -229,7 +229,7 @@ function ErrorLogBlock() {
         doing, so problems can be fixed later. {log.data && (items.length
           ? `${items.length === 50 ? 'The last 50' : items.length} recorded${log.data.session ? `, ${log.data.session} since Clip Radar started` : ''}.`
           : 'Nothing has gone wrong so far.')}
-        {log.data?.path && <> File: <code>{log.data.path}</code> (with clipradar.log, everything the app prints).</>}
+        {log.data?.path && <> File: <code className="errpath">{log.data.path}</code> (with clipradar.log, everything the app prints).</>}
       </p>
       {items.length > 0 && (
         <ul className="errlist" data-testid="error-list">

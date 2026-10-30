@@ -1,0 +1,1 @@
+{"preset": "tiktok", "custom": {}, "template": "{title}", "subtitles": "burn", "quality": "balanced", "denoise": false, "voice": false, "replace": [], "vocab": [], "renders": 2, "downloads": 0, "downloads_v": 2, "priority": "fast", "lives": 2, "cap_presets": [], "frame_presets": [], "sounds": true, "watermark": {"on": false, "marks": []}, "wm_presets": []}
