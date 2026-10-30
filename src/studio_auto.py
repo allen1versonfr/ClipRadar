@@ -21,6 +21,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from typing import Callable, Optional
 
@@ -48,6 +49,10 @@ SELECTORS = {
     "posted": ("/\\/tiktokstudio\\/content/.test(location.pathname) || /(video|post) (has been|was) "
                "(uploaded|posted|published)|your video is being uploaded/i.test(document.body.innerText || '')"),
 }
+# the video went in: the caption box is showing (it can be in the page, hidden, before TikTok takes the file)
+SHOWN_CAPTION = f"((e) => !!e && !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length))({SELECTORS['caption']})"
+# TikTok's "Post now", when it asks to confirm a post
+POST_NOW = "[...document.querySelectorAll('button')].find(x => /^\\s*post now\\s*$/i.test(x.innerText || ''))"
 
 
 class StudioError(RuntimeError):
@@ -125,7 +130,7 @@ def open_browser(url: str) -> int:
                                  "Clip Radar window, close it and try again.")
 
 
-def _wait(page: cdp.Page, what: str, seconds: float, check: Callable, every: float = 0.5) -> bool:
+def _wait(page: cdp.Page, what: str, seconds: float, check: Callable, every: float = 0.25) -> bool:
     end = time.time() + seconds
     while time.time() < end:
         check()
@@ -138,14 +143,117 @@ def _wait(page: cdp.Page, what: str, seconds: float, check: Callable, every: flo
     return False
 
 
+def _first(page: cdp.Page, whats: dict, seconds: float, check: Callable, every: float = 0.25) -> str:
+    """Which of several things the page shows first (its key), or "" if none in time. Waiting for the upload
+    box OR the sign-in page answers "signed in?" as soon as the page is up, instead of always waiting 4 s
+    for a sign-in page that isn't coming."""
+    expr = "(() => {" + "".join(f"if ({w}) return {json.dumps(k)};" for k, w in whats.items()) + "return ''})()"
+    end = time.time() + seconds
+    while time.time() < end:
+        check()
+        try:
+            got = page.eval(expr, timeout=10)
+            if got:
+                return got
+        except cdp.CDPError:
+            pass
+        time.sleep(every)
+    return ""
+
+
+def _tab(port: int, url: str) -> cdp.Page:
+    """A tab in Clip Radar's TikTok window: the one already on TikTok Studio, else any, else a new one
+    (you closed the tab but not the window)."""
+    try:
+        return cdp.Page.connect(port, url_prefix=url.split("/tiktokstudio")[0])
+    except cdp.CDPError:
+        cdp.new_tab(port, url)
+        return cdp.Page.connect(port)
+
+
+def _set_file(page: cdp.Page, path: str, check: Callable) -> None:
+    """Put the clip in TikTok's file box, and make sure TikTok took it: once in a while the page ignores
+    the first file (its box was swapped while it loaded), so it's put in again, once."""
+    for attempt in range(2):
+        if not _wait(page, SELECTORS["file"], 60 if attempt == 0 else 10, check):
+            raise StudioError("file box", "Couldn't find TikTok Studio's upload box. TikTok may have changed the page.")
+        page.call("DOM.getDocument", depth=0)          # the DOM agent needs a document before files can be set
+        node = page.call("Runtime.evaluate", expression=SELECTORS["file"])["result"]
+        if node.get("subtype") == "null" or "objectId" not in node:
+            raise StudioError("file box", "Couldn't find TikTok Studio's upload box. TikTok may have changed the page.")
+        page.call("DOM.setFileInputFiles", files=[os.path.abspath(path)], objectId=node["objectId"])
+        if _wait(page, SHOWN_CAPTION, 12 if attempt == 0 else 120, check):
+            return
+    raise StudioError("caption box", "The video went in, but the caption box didn't appear.")
+
+
+def _type_caption(page: cdp.Page, caption: str) -> None:
+    """Replace TikTok's caption (it starts with the file name) with ours. TikTok's editor sometimes drops
+    or doubles typed text while it's still setting up, or opens a hashtag list that eats the end, so the
+    result is read back and typed again (three tries) until it's exactly the caption."""
+    want = caption.split()
+    for _ in range(3):
+        page.eval(f"(() => {{ const e = {SELECTORS['caption']}; e.focus(); return true }})()")
+        page.call("Input.dispatchKeyEvent", type="keyDown", key="a", code="KeyA", modifiers=2,
+                  windowsVirtualKeyCode=65, commands=["selectAll"])
+        page.call("Input.dispatchKeyEvent", type="keyUp", key="a", code="KeyA", modifiers=2, windowsVirtualKeyCode=65)
+        page.call("Input.dispatchKeyEvent", type="keyDown", key="Backspace", code="Backspace", windowsVirtualKeyCode=8)
+        page.call("Input.dispatchKeyEvent", type="keyUp", key="Backspace", code="Backspace", windowsVirtualKeyCode=8)
+        page.call("Input.insertText", text=caption)
+        # Escape closes a hashtag or mention list without picking from it; then leave the box
+        page.call("Input.dispatchKeyEvent", type="keyDown", key="Escape", code="Escape", windowsVirtualKeyCode=27)
+        page.call("Input.dispatchKeyEvent", type="keyUp", key="Escape", code="Escape", windowsVirtualKeyCode=27)
+        page.eval("document.activeElement && document.activeElement.blur && document.activeElement.blur(), true")
+        # the editor settles a moment after typing (and can still change it): right for half a second in a row
+        end, since = time.time() + 2.0, None
+        while time.time() < end:
+            if _caption_ok(page, want):
+                since = since or time.time()
+                if time.time() - since >= 0.5:
+                    return
+            else:
+                since = None
+            time.sleep(0.1)
+    raise StudioError("caption", "The caption didn't go in as written. Paste it yourself (it's copied).")
+
+
+def _caption_ok(page: cdp.Page, want: list) -> bool:
+    return (page.eval(f"(({SELECTORS['caption']}).innerText || '').trim()") or "").split() == want
+
+
+_one_at_a_time = threading.Lock()
+
+
 def upload(path: str, caption: str, press_post: bool, url: str, step: Callable[[str], None],
            check: Callable[[], None] = lambda: None) -> dict:
-    """Drive TikTok Studio's upload page. Returns {"posted": bool, "pressed": bool}; raises StudioError."""
+    """Drive TikTok Studio's upload page. Returns {"posted": bool, "pressed": bool}; raises StudioError.
+    One upload at a time (two would fight over the same tab). If the window or its tab goes away midway
+    (closed, crashed), it starts again once in a fresh one; a step TikTok's page refused is not retried."""
     if not os.path.isfile(path):
         raise StudioError("file", "That clip's file isn't there any more. Render it again first.")
+    if not _one_at_a_time.acquire(blocking=False):
+        step("Waiting for the upload before it to finish")
+        while not _one_at_a_time.acquire(timeout=1.0):
+            check()
+    try:
+        for attempt in range(2):
+            try:
+                return _upload_once(path, caption, press_post, url, step, check)
+            except (cdp.CDPError, OSError) as e:
+                if attempt:
+                    raise StudioError("browser", f"Lost Clip Radar's TikTok window ({e}). Try again.") from None
+                step("The TikTok window went away; opening it again")
+                _state["port"] = 0 if not cdp.alive(_state["port"]) else _state["port"]
+    finally:
+        _one_at_a_time.release()
+    raise StudioError("browser", "Lost Clip Radar's TikTok window. Try again.")
+
+
+def _upload_once(path: str, caption: str, press_post: bool, url: str, step: Callable[[str], None],
+                 check: Callable[[], None]) -> dict:
     step("Opening TikTok Studio")
     port = open_browser(url)
-    page = cdp.Page.connect(port)
+    page = _tab(port, url)
     try:
         page.call("Page.enable")
         # a fresh upload page every time: after an upload, the window is still on the page but with that
@@ -153,52 +261,38 @@ def upload(path: str, caption: str, press_post: bool, url: str, step: Callable[[
         page.call("Page.navigate", url=url)
         page.call("Page.bringToFront")
         # signed in? the first time, TikTok asks; wait for you to sign in, in that window
-        if _wait(page, SELECTORS["login"], 4, check) and not _wait(page, SELECTORS["file"], 1, check):
+        first = _first(page, {"file": SELECTORS["file"], "login": SELECTORS["login"]}, 30, check)
+        if first == "login":
             step("Sign in to TikTok in the window that opened. Clip Radar carries on when you're in.")
-            if not _wait(page, SELECTORS["file"], LOGIN_WAIT, check, every=1.5):
+            if not _wait(page, SELECTORS["file"], LOGIN_WAIT, check, every=1.0):
                 raise StudioError("sign-in", "TikTok Studio didn't open after signing in. Sign in in Clip Radar's "
                                              "TikTok window, then try again.")
         step("Putting the video in")
-        if not _wait(page, SELECTORS["file"], 60, check):
-            raise StudioError("file box", "Couldn't find TikTok Studio's upload box. TikTok may have changed the page.")
-        page.call("DOM.getDocument", depth=0)          # the DOM agent needs a document before files can be set
-        node = page.call("Runtime.evaluate", expression=SELECTORS["file"])["result"]
-        if node.get("subtype") == "null" or "objectId" not in node:
-            raise StudioError("file box", "Couldn't find TikTok Studio's upload box. TikTok may have changed the page.")
-        page.call("DOM.setFileInputFiles", files=[os.path.abspath(path)], objectId=node["objectId"])
+        _set_file(page, path, check)
 
         step("Typing the caption")
-        if not _wait(page, SELECTORS["caption"], 120, check):
-            raise StudioError("caption box", "The video went in, but the caption box didn't appear.")
         if caption:
-            page.eval(f"(() => {{ const e = {SELECTORS['caption']}; e.focus(); return true }})()")
-            page.call("Input.dispatchKeyEvent", type="keyDown", key="a", code="KeyA", modifiers=2,
-                      windowsVirtualKeyCode=65, commands=["selectAll"])
-            page.call("Input.dispatchKeyEvent", type="keyUp", key="a", code="KeyA", modifiers=2, windowsVirtualKeyCode=65)
-            page.call("Input.dispatchKeyEvent", type="keyDown", key="Backspace", code="Backspace", windowsVirtualKeyCode=8)
-            page.call("Input.dispatchKeyEvent", type="keyUp", key="Backspace", code="Backspace", windowsVirtualKeyCode=8)
-            page.call("Input.insertText", text=caption)
-            page.eval("document.activeElement && document.activeElement.blur && document.activeElement.blur(), true")
-            typed = page.eval(f"(({SELECTORS['caption']}).innerText || '').trim()") or ""
-            if typed.split() != caption.split():
-                raise StudioError("caption", "The caption didn't go in as written. Paste it yourself (it's copied).")
+            _type_caption(page, caption)
 
         step("Uploading the video to TikTok")
         ready = (f"(() => {{ const b = {SELECTORS['post']}; return !!b && !b.disabled && "
                  "b.getAttribute('aria-disabled') !== 'true' && !/disabled/i.test(b.className) })()")
-        if not _wait(page, ready, UPLOAD_WAIT, check, every=1.0):     # TikTok keeps Post off until the upload is in
+        if not _wait(page, ready, UPLOAD_WAIT, check, every=0.5):     # TikTok keeps Post off until the upload is in
             raise StudioError("upload", "TikTok didn't finish taking the video in time. Check the window.")
+        if caption and not _caption_ok(page, caption.split()):
+            _type_caption(page, caption)            # the page changed the caption while the video went up
         if not press_post:
             page.call("Page.bringToFront")
             return {"posted": False, "pressed": False}
 
         step("Pressing Post")
         page.eval(f"({SELECTORS['post']}).click(), true")
-        # TikTok can ask to confirm (for example "Post now" after its content check)
-        time.sleep(1.5)
-        page.eval("(() => { const b = [...document.querySelectorAll('button')].find(x => "
-                  "/^\\s*post now\\s*$/i.test(x.innerText || '')); if (b) b.click(); return true })()")
-        posted = _wait(page, SELECTORS["posted"], 90, check, every=1.0)
+        # TikTok can ask to confirm (for example "Post now" after its content check): pressed as soon as it
+        # shows, rather than after a fixed pause
+        got = _first(page, {"posted": SELECTORS["posted"], "confirm": POST_NOW}, 10, check)
+        if got == "confirm":
+            page.eval(f"({POST_NOW}).click(), true")
+        posted = got == "posted" or _wait(page, SELECTORS["posted"], 90, check, every=0.5)
         page.call("Page.bringToFront")
         return {"posted": posted, "pressed": True}
     finally:

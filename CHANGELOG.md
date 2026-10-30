@@ -5,6 +5,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.29.0] - 2026-10-30
+
+Upload to TikTok is faster and gets past more hiccups, clips can have up to four facecams, and a clip someone already cut (an X post) opens ready for captions and a layout.
+
+### Changed
+- **Upload to TikTok is faster**: about 6½ seconds less of Clip Radar's own waiting per clip (measured against the stand-in page: 8.6 s to 2.0 s, on top of TikTok's upload). It no longer waits 4 seconds every time to see whether TikTok asks you to sign in (it carries on as soon as the upload box or the sign-in page shows), presses "Post now" as soon as TikTok asks instead of after a fixed pause, and checks more often whether Post can be pressed.
+
+### Fixed
+- **Upload to TikTok is more reliable:**
+  - When TikTok's page ignores the video (its upload box swapped while the page loaded), the video is put in again instead of the upload stopping. The video only counts as in once TikTok shows the caption box; before, a caption box hidden in the page could pass for it.
+  - The caption is checked after TikTok's editor settles and typed again (up to three times) if the editor dropped or changed it; a hashtag or mention list it opened is closed first. It's checked again just before Post, in case the page changed it while the video went up.
+  - If you closed the tab in Clip Radar's TikTok window (or the window itself), it opens a new one and carries on, instead of failing.
+  - Two uploads at once go one after the other ("Waiting for the upload before it to finish"), instead of fighting over the same tab.
+
+### Added
+- **More than one facecam.** Layout › Facecam › **Add a facecam** (up to four), for duos, podcasts and co-streams. Drag a box around each camera (Cam 1, Cam 2, ... pick which one you're drawing; Remove takes one out). In Cam + game they sit side by side above the gameplay; in Cam only they're stacked, one above the other, with the captions on the first seam. The preview shows them as they'll render, and saved framings keep them.
+- **Clips that are already cut.** Home › **The video is**: *Automatic*, *A stream or long video: find the clips in it*, or *Already a clip: just add captions and crop it*. Already a clip opens the whole video (up to 15 minutes) as one clip in Review, with nothing to find: captions, a layout, then Keep and render. Automatic does this for an X video under 3 minutes with no chat, since those are mostly clips cut from a stream already. A whole-video clip has no score.
+
+### Tests
+- `tests/test_studio_auto.py`: a page that ignores the first file and drops the first typing (both done again, then posted), a closed tab (a new one, then posted), and two uploads at once (one after the other).
+- `tests/test_layout_geometry.py`: Cam + game with 3 facecams and Cam only with 2 on every source (landscape, portrait, square, odd, tiny, VFR, rotated, changing size) and shape, rendered in the layout chosen; the filter for 1, 2, 3 and 4 facecams; an empty extra box named as a setting to fix.
+- `tests/test_precut.py` (new, in CI): when a video is taken as a clip, and the real job opening a 20-second clip whole, reopening it, and rendering it with two facecams.
+- `web/`: 146 Vitest tests, including the preview with several facecams, adding and removing them in the Layout tab, and Home's "The video is".
+
 ## [4.28.0] - 2026-10-30
 
 Scores mean something again on long streams, Exports keeps each video's clips apart, downloads have no limits, every failure is written down for fixing, and progress bars tell the truth.

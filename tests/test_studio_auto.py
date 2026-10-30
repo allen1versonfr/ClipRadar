@@ -114,15 +114,46 @@ try:
     # 4. TikTok changed the page: the step that failed is named
     srv = fake_studio.start(mode="changed")
     try:
-        orig = studio_auto._wait
+        orig, orig_first = studio_auto._wait, studio_auto._first
         studio_auto._wait = lambda page, what, seconds, check, every=0.5: orig(page, what, min(seconds, 3), check, every)
+        studio_auto._first = lambda page, whats, seconds, check, every=0.25: orig_first(page, whats, min(seconds, 3), check, every)
         studio_auto.upload(clip, CAPTION, False, srv.url, steps.append)
         check("a page without the upload box is a named failure", False, "no error")
     except studio_auto.StudioError as e:
         check("a page without the upload box is a named failure", e.step == "file box" and "TikTok may have changed" in str(e),
               (e.step, str(e)))
     finally:
-        studio_auto._wait = orig
+        studio_auto._wait, studio_auto._first = orig, orig_first
+    srv.shutdown()
+
+    # 6. a page that ignores the first file and drops the first typing: both done again, and it still works
+    srv = fake_studio.start(mode="flaky")
+    steps.clear()
+    r = studio_auto.upload(clip, CAPTION, True, srv.url, steps.append)
+    check("a page that ignores the first file and typing: tried again, posted", r == {"posted": True, "pressed": True}
+          and srv.posted and srv.posted[0]["caption"].split() == CAPTION.split(), (r, srv.posted))
+
+    # 7. you closed the tab (the window stays): a new tab, not a failure
+    for t in cdp.targets(studio_auto._state["port"]):
+        if t.get("type") == "page":
+            import urllib.request
+            urllib.request.urlopen(f"http://127.0.0.1:{studio_auto._state['port']}/json/close/{t['id']}", timeout=5).read()
+    time.sleep(0.5)
+    srv.posted.clear()
+    r = studio_auto.upload(clip, CAPTION, True, srv.url, steps.append)
+    check("the tab was closed: it opens one and posts", r == {"posted": True, "pressed": True} and len(srv.posted) == 1, r)
+
+    # 8. two uploads at once: one after the other, both posted
+    srv.posted.clear()
+    out, errs, said = [], [], []
+    ths = [threading.Thread(target=lambda: (out.append(studio_auto.upload(clip, CAPTION, True, srv.url, said.append))))
+           for _ in range(2)]
+    for t in ths:
+        t.start()
+    for t in ths:
+        t.join(120)
+    check("two uploads at once go one after the other", len(out) == 2 and all(x["posted"] for x in out) and len(srv.posted) == 2
+          and any("before it" in x for x in said), (out, len(srv.posted), said[:3]))
     srv.shutdown()
 
     # 5. a clip whose file is gone

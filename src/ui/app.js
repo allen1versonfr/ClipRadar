@@ -89,7 +89,7 @@ let vodJob = null, ttJob = null, setupJob = null;
 // the accent from the stylesheet (DESIGN.md), for what's drawn on canvases
 const ACCENT = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#2fe36f';
 const accentA = a => { const n = parseInt(ACCENT.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
-const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, game_x: 0.5, game_zoom: 1.0,
+const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cams: [], cam_height: 0.33, game_x: 0.5, game_zoom: 1.0,
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
   caption_style: 'pop', caption_font: 'classic', caption_anim: true, caption_motion: 'pop', caption_speed: 100,
   caption_emph: false, caption_filler: true, caption_punct: true, caption_spacing: 100, caption_offset: 0, cap_x: 0.5, cap_y: 0.7,

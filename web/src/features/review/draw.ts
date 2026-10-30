@@ -13,6 +13,11 @@ export const outSize = (o: RenderOpts): [number, number] => SHAPES[String(o.aspe
 export const layoutOf = (o: RenderOpts) => (o.layout === 'split' && o.aspect === '16:9' ? 'full' : String(o.layout))
 
 export interface Box { x: number; y: number; w: number; h: number }
+
+/** Facecams in a clip: cam, then the others (cams), at most 4 (engine.MAX_CAMS). */
+export const MAX_CAMS = 4
+export const camRects = (o: RenderOpts): number[][] =>
+  [o.cam as number[], ...((Array.isArray(o.cams) ? o.cams : []) as number[][])].slice(0, MAX_CAMS)
 export type Hits = Record<string, Box | null>
 
 const bg = typeof document !== 'undefined' ? document.createElement('canvas') : null
@@ -21,22 +26,29 @@ const bg = typeof document !== 'undefined' ? document.createElement('canvas') : 
 export function drawLayout(g: CanvasRenderingContext2D, src: CanvasImageSource, sw: number, sh: number, Wd: number, Ht: number,
   o: RenderOpts, follow: number | null, face: { y: number; h: number } | null): number {
   const z = Math.max(1, Number(o.game_zoom) || 1), lay = layoutOf(o), oh = outSize(o)[1]
-  const cam = o.cam as number[]
   const gameCrop = (ow: number, ohh: number): [number, number, number, number] => {
     const a = ow / ohh, cw = Math.min(sw, sh * a) / z, ch = cw / a
     const fx = follow ?? Number(o.game_x)
     return [Math.min(Math.max(0, fx * sw - cw / 2), sw - cw), (sh - ch) / 2, cw, ch]
   }
-  const camBox = () => [cam[0]! * sw, cam[1]! * sh, Math.max(4, cam[2]! * sw), Math.max(4, cam[3]! * sh)] as const
+  const rects = camRects(o)
+  // one facecam filling a cell of the frame (scaled up to cover it, centred, as the render crops it)
+  const camCell = (c: number[], dx: number, dy: number, dw: number, dh: number) => {
+    const x = c[0]! * sw, y = c[1]! * sh, w = Math.max(4, c[2]! * sw), h = Math.max(4, c[3]! * sh)
+    const s = Math.max(dw / w, dh / h), vw = dw / s, vh = dh / s
+    g.drawImage(src, x + (w - vw) / 2, y + (h - vh) / 2, vw, vh, dx, dy, dw, dh)
+  }
   if (lay === 'cam') {
-    const [x, y, w, h] = camBox(), s = Math.max(Wd / w, Ht / h), vw = Wd / s, vh = Ht / s
-    g.drawImage(src, x + (w - vw) / 2, y + (h - vh) / 2, vw, vh, 0, 0, Wd, Ht)
-    return Ht * 0.78
+    // several facecams: one above the other
+    const ch = Ht / rects.length
+    rects.forEach((c, i) => camCell(c, 0, i * ch, Wd, ch))
+    return rects.length > 1 ? ch : Ht * 0.78
   }
   if (lay === 'split') {
     const th = Math.round(Ht * clamp(Number(o.cam_height), 0.2, 0.5))
-    const [x, y, w, h] = camBox(), s = Math.max(Wd / w, th / h), vw = Wd / s, vh = th / s
-    g.drawImage(src, x + (w - vw) / 2, y + (h - vh) / 2, vw, vh, 0, 0, Wd, th)
+    // several facecams: side by side above the gameplay
+    const cw = Wd / rects.length
+    rects.forEach((c, i) => camCell(c, i * cw, 0, cw, th))
     const [gx, gy, gw, gh] = gameCrop(Wd, Ht - th)
     g.drawImage(src, gx, gy, gw, gh, 0, th, Wd, Ht - th)
     return th
