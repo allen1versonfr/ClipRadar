@@ -100,4 +100,26 @@ describe('Exports', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy source link' }))
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://twitch.tv/videos/1?t=0h1m0s')
   })
+  it('a dropdown keeps each source\'s clips apart when clipping several videos', async () => {
+    const calls: Array<[string, unknown]> = []
+    const mixed = [
+      { id: 'a1', pid: 'p1', source_title: 'Monday stream', status: 'done', title: 'A one', duration: 10, history: [] },
+      { id: 'b1', pid: 'p2', source_title: 'Tuesday stream', status: 'error', title: 'B one', duration: 10, error: 'x', history: [] },
+      { id: 'a2', pid: 'p1', source_title: 'Monday stream', status: 'error', title: 'A two', duration: 10, error: 'x', history: [] },
+    ]
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      calls.push([path, init?.body ? JSON.parse(String(init.body)) : undefined])
+      const body = path === '/api/queue' ? { items: mixed, eta: null, workers: 1 } : { ok: true, retried: 1 }
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    localStorage.clear()
+    render(<ToastProvider><ExportsView /></ToastProvider>)
+    const pick = await screen.findByTestId('exports-source') as HTMLSelectElement
+    expect([...pick.options].map(o => o.textContent)).toEqual(['All sources (3)', 'Monday stream (2)', 'Tuesday stream (1)'])
+    expect(screen.getAllByTestId('export-row')).toHaveLength(3)
+    fireEvent.change(pick, { target: { value: 'p1' } })
+    expect(screen.getAllByTestId('export-row').map(r => r.dataset.id)).toEqual(['a2', 'a1'])
+    fireEvent.click(screen.getByTestId('retry-all'))
+    await waitFor(() => expect(calls).toContainEqual(['/api/queue/retry', { id: 'all', pid: 'p1' }]))
+  })
 })

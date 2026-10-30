@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.27.0" src="https://img.shields.io/badge/version-4.27.0-ffd21f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.28.0" src="https://img.shields.io/badge/version-4.28.0-ffd21f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -151,6 +151,7 @@ src/
   safety.py       content check (TOS scanner) and censoring
   hotkey.py       Ctrl+Alt+C clip hotkey on Windows
   updater.py      in-app updates from GitHub releases
+  errorlog.py     every failure, kept in errors.jsonl for fixing later
   tools_setup.py  downloads FFmpeg, yt-dlp and TwitchDownloader
   ui/             HTML/CSS/JS interface, Inter and caption fonts (OFL / Apache)
 scripts/          install, run and build scripts

@@ -168,5 +168,28 @@ except ZeroDivisionError:
     raised = True
 check("an error in the background reaches whoever waits for it", raised and d.mark.is_set())
 
+# ---------------------------------------------------------------- one bar for a video and its sound
+seen = []
+st = engine._Stepper(seen.append, lambda s: None, lambda s: None)
+st.parts([900, 100])
+for d in range(0, 901, 300):
+    st.update(d, 900, None, None, None, None)
+after_video = seen[-1]
+for d in (0, 50, 100):
+    st.update(d, 100, None, None, None, None)
+check("video then sound: the bar doesn't start again for the sound", seen == sorted(seen), seen)
+check("the video is its share of the bar, by size", abs(after_video - 0.9 * 0.98) < 0.01, after_video)
+check("and the sound brings it to the end", seen[-1] > 0.97, seen[-1])
+seen2 = []
+st = engine._Stepper(seen2.append, lambda s: None, lambda s: None)
+st.parts([0, 0])
+st.update(500, 1000, None, None, None, None)
+check("sizes unknown: the video counts for 90%", abs(seen2[-1] - 0.45 * 0.98) < 0.01, seen2)
+seen3 = []
+st = engine._Stepper(seen3.append, lambda s: None, lambda s: None)
+for i, n in ((10, 100), (50, 100), (40, 100)):     # a piece count that goes back never moves the bar back
+    st.update(None, None, i, n, None, None)
+check("the bar never goes backwards", seen3 == sorted(seen3), seen3)
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

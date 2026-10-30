@@ -69,6 +69,9 @@ h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 /* exports */
 .view-head { display: flex; align-items: center; gap: var(--gap); padding: 14px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .empty { padding: 40px 16px; color: var(--tx1); text-align: center; }
+.errlist { margin: 6px 0; padding-left: 18px; font-size: 13px; overflow-wrap: anywhere; }
+.ex-source { display: flex; align-items: center; gap: 8px; color: var(--tx1); }
+.ex-source select.input { width: auto; max-width: 320px; }
 .ex-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; align-items: start; }
 @media (max-width: 900px) { .ex-split { grid-template-columns: 1fr; } }
 .ex-table { width: 100%; border-collapse: collapse; }

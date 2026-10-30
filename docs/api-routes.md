@@ -32,6 +32,7 @@ POST bodies are JSON objects (`Content-Type: application/json`, at most 16 MB).
 | GET | `/api/learning/explain` |
 | GET | `/api/queue` |
 | GET | `/api/export` |
+| GET | `/api/errors` |
 | GET | `/api/campaigns` |
 | GET | `/api/sources` |
 | GET | `/api/locations` |
@@ -105,4 +106,5 @@ POST bodies are JSON objects (`Content-Type: application/json`, at most 16 MB).
 | POST | `/api/twitch/token` |
 | POST | `/api/twitch/logout` |
 | POST | `/api/twitch/login` |
+| POST | `/api/client_error` |
 | POST | `/api/open_folder` |

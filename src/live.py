@@ -233,7 +233,7 @@ class LiveSession:
         self._delay_at = 0
         self.min_quality = int(min(max(int(min_quality or 0), 0), 95))
         self.chat_weight = float(chat_weight)
-        self.max_height = int(max_height)
+        self.max_height = int(max_height) or 100_000          # 0: Download quality › Best available
         self.cookies = cookies
         self.warmup = float(warmup)
         self.buffer_s = max(1.0, float(buffer_minutes)) * 60
@@ -550,16 +550,16 @@ class LiveSession:
             if not final:
                 self._cleanup()
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            import errorlog
+            errorlog.exc("live:detect", channel=self.channel or self.source)
             self.log(f"Moment detection hit a problem ({str(e)[:120]}); still recording")
 
     def _record_loop(self):
         try:
             self._record_loop_inner()
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            import errorlog
+            errorlog.exc("live:record", channel=self.channel or self.source)
             self.status = "error"
             self.error = f"Recording stopped unexpectedly: {str(e)[:200]}"
             self.log(self.error)
@@ -588,16 +588,23 @@ class LiveSession:
                     self.status = "error"
                     self.error = str(e)
                     self.log(str(e))
+                    import errorlog
+                    errorlog.record("live:not-live", str(e), channel=self.channel or self.source)
                 break
             except Exception as e:
                 self.status = "reconnecting" if self.segments else "starting"
                 self.log(f"Couldn't reach the stream ({str(e)[:120]}), retrying in {backoff}s")
+                import errorlog
+                errorlog.record("live:reconnect", f"Couldn't reach the stream, retrying in {backoff}s: {e}",
+                                channel=self.channel or self.source)
                 if self.stop_flag.wait(backoff):
                     break
                 backoff = min(60, backoff * 2)
                 if not self.segments and _now() - self.started - self.waited > 180:
                     self.status = "error"
                     self.error = f"Couldn't start recording: {str(e)[:200]}"
+                    import errorlog
+                    errorlog.record("live:start", self.error, exc=e, channel=self.channel or self.source)
                     break
                 continue
             backoff = 3
@@ -1101,8 +1108,8 @@ class LiveSession:
                                   "manual": manual, "number": self._moment_n,
                                   "lat": {k: round(v, 2) for k, v in lat.items()}, "aired": aired})
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            import errorlog
+            errorlog.exc("live:moment", channel=self.channel or self.source)
             self.log(f"Couldn't add moment {self._moment_n}: {str(e)[:150]}")
 
     # ------------------------------------------------------------------ disk

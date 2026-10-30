@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { ExportPerf, Hotkey, JobStarted, Ok, Perf, Storage, type Status } from '../../api/schemas'
+import { ErrorLog, ExportPerf, Hotkey, JobStarted, Ok, Perf, Storage, type Status } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
@@ -11,6 +11,8 @@ import { getPref, setPref } from '../../prefs'
 
 const errText = (e: unknown) => e instanceof Error ? e.message : String(e)
 const ONE_TO_THREE = ['1', '2', '3']
+/** Downloads at once can also be 0: no limit (the default). */
+const DOWNLOADS = [['0', 'No limit'], ['1', '1'], ['2', '2'], ['3', '3']]
 
 /** Settings › Performance: how much runs at once (part of the export settings on the server). */
 export function PerformancePanel() {
@@ -35,7 +37,7 @@ export function PerformancePanel() {
   const select = (label: string, key: 'renders' | 'downloads' | 'lives') => (
     <label>{label}
       <select className="input" value={String(pr?.[key] ?? 1)} disabled={!pr} onChange={e => void save({ [key]: Number(e.target.value) })}>
-        {ONE_TO_THREE.map(n => <option key={n} value={n}>{n}</option>)}
+        {(key === 'downloads' ? DOWNLOADS : ONE_TO_THREE.map(n => [n, n])).map(([v, t]) => <option key={v} value={v}>{t}</option>)}
       </select>
     </label>
   )
@@ -131,6 +133,7 @@ export function ToolsPanel({ status, refreshStatus }: { status: Status | undefin
         <label>Download quality
           <select className="input" value={maxh} onChange={e => { setMaxh(e.target.value); setPref('maxh', e.target.value) }}>
             <option value="720">720p (faster)</option><option value="1080">1080p</option><option value="1440">1440p</option>
+            <option value="0">Best available</option>
           </select>
         </label>
         <label>Use cookies from
@@ -194,11 +197,49 @@ export function AboutPanel() {
         {storage.data?.uninstaller && !gone && <button className="btn danger" onClick={() => void uninstall()}>Uninstall…</button>}
       </div>
       {gone && <p className="notice" role="status">Uninstalling Clip Radar. Follow the uninstaller window.</p>}
-      <p className="fine">If something goes wrong, the log file is at %LOCALAPPDATA%\ClipRadar\clipradar.log.</p>
+      <ErrorLogBlock />
       <div className="row wrap">
         <span className="grow">The previous look of Clip Radar is still here for a while, with the same clips and settings.</span>
         <a className="btn" href="/legacy/" data-testid="open-previous-ui">Open the previous UI</a>
       </div>
     </section>
+  )
+}
+
+/** Every failure Clip Radar has recorded (errors.jsonl), to attach to a bug report or look into later. */
+function ErrorLogBlock() {
+  const toast = useToast()
+  const log = usePoll(() => api(ErrorLog, '/api/errors'), 60_000)
+  const items = log.data?.items ?? []
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(items.map(e => JSON.stringify(e)).join('\n'))
+      toast(`Copied ${items.length} error${items.length === 1 ? '' : 's'}`)
+    } catch {
+      toast("Couldn't copy. Open the logs folder and attach errors.jsonl instead.", 'err')
+    }
+  }
+  async function open() {
+    try { await api(Ok, '/api/open_folder', { folder: 'logs' }) } catch (e) { toast(errText(e), 'err') }
+  }
+  return (
+    <div className="fld" data-testid="error-log">Error log
+      <p className="fine">
+        Clip Radar writes down every failure (downloads, renders, live clipping, the app itself) with what it was
+        doing, so problems can be fixed later. {log.data && (items.length
+          ? `${items.length === 50 ? 'The last 50' : items.length} recorded${log.data.session ? `, ${log.data.session} since Clip Radar started` : ''}.`
+          : 'Nothing has gone wrong so far.')}
+        {log.data?.path && <> File: <code>{log.data.path}</code> (with clipradar.log, everything the app prints).</>}
+      </p>
+      {items.length > 0 && (
+        <ul className="errlist" data-testid="error-list">
+          {items.slice(0, 5).map((e, i) => <li key={i}><span className="muted">{e.at} · {e.where}</span> {e.message}</li>)}
+        </ul>
+      )}
+      <div className="row wrap">
+        <button className="btn sm" onClick={() => void open()}>Open logs folder</button>
+        {items.length > 0 && <button className="btn sm" data-testid="copy-errors" onClick={() => void copy()}>Copy recent errors</button>}
+      </div>
+    </div>
   )
 }

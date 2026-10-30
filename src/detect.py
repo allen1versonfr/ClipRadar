@@ -337,8 +337,23 @@ def find_trigger(an, peak: int, back: float = 25.0) -> Optional[float]:
 
 
 def quality(rank: float) -> int:
-    """0-100. 50 is a clear moment, 75 a strong one, 90+ the stream's best. Not a promise of views."""
+    """0-100 from how strong a moment is on its own. 50 is a clear moment, 75 a strong one. Not a promise
+    of views. A stream's clips are graded with ceiling() too (engine.grades), so 90+ stays its best few."""
     return int(round(100 * (1 - math.exp(-max(0.0, rank) / 3.5))))
+
+
+def ceiling(pos: int, total: int) -> int:
+    """The highest score the moment at pos (0 = the stream's best) of total separate moments can get.
+    Strength alone let a busy 9-hour stream grade 60 clips 90+; a score is also where a moment stands
+    in its stream: 90+ is only its best few (about 8%, at most 5), 75+ its top quarter (at most 20)."""
+    total = max(1, total, pos + 1)
+    top = min(5, max(1, round(total * 0.08)))
+    strong = min(20, max(top + 1, round(total * 0.25)))
+    if pos < top:
+        return int(round(99 - 9 * pos / max(1, top - 1)))
+    if pos < strong:
+        return int(round(89 - 14 * (pos - top) / max(1, strong - top - 1)))
+    return int(round(74 - 24 * min(1.0, (pos - strong) / max(1, total - strong - 1))))
 
 
 def breakdown(an, peak: float, tuned: float = 0.0) -> dict:

@@ -45,7 +45,7 @@ export function RunningNow() {
     <section className="panel src-dash" aria-labelledby="run-h" data-testid="running-now">
       <header>
         <h2 id="run-h">Running now</h2>
-        {lim && <span className="hint">Up to {plural(lim.downloads, 'download')} and {plural(lim.lives, 'live stream')} at once (Settings › Performance)</span>}
+        {lim && <span className="hint">{lim.downloads ? `Up to ${plural(lim.downloads, 'download')}` : 'Any number of downloads'} and {plural(lim.lives, 'live stream')} at once (Settings › Performance)</span>}
       </header>
       {items.map(x => {
         const live = x.type === 'live'

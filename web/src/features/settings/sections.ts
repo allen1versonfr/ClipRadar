@@ -20,7 +20,7 @@ export const SECTIONS: Section[] = [
   { id: 'tools', title: 'Downloads and tools', group: 'App', words: 'ffmpeg yt-dlp twitchdownloader whisper laughter download quality cookies browser' },
   { id: 'storage', title: 'Storage', group: 'App', words: 'folders disk space cleanup delete vods clips projects' },
   { id: 'updates', title: 'Updates', group: 'App', words: 'update version new release automatic token' },
-  { id: 'about', title: 'About', group: 'App', words: 'about version log uninstall previous ui old look legacy' },
+  { id: 'about', title: 'About', group: 'App', words: 'about version log error errors crash bug report uninstall previous ui old look legacy' },
 ]
 
 /** A section matches a search when every word typed is in its title, its keywords or what it says. */
