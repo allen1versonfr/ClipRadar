@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ConfirmProvider } from '../../components/Confirm'
 import { ToastProvider } from '../../components/Toasts'
 import { ExportsView } from './ExportsView'
 
@@ -121,5 +122,26 @@ describe('Exports', () => {
     expect(screen.getAllByTestId('export-row').map(r => r.dataset.id)).toEqual(['a2', 'a1'])
     fireEvent.click(screen.getByTestId('retry-all'))
     await waitFor(() => expect(calls).toContainEqual(['/api/queue/retry', { id: 'all', pid: 'p1' }]))
+  })
+  it('clears the queue after asking: waiting renders cancelled, the files kept', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      calls.push([path, init?.body ? JSON.parse(String(init.body)) : undefined])
+      const body = path === '/api/queue' ? { items: [...items, { id: 'q1', status: 'queued', title: 'Next', duration: 5, history: [] }], eta: null, workers: 1 }
+        : path === '/api/queue/clear' ? { ok: true, removed: 3, rendering: 1 } : { ok: true }
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    render(<ToastProvider><ConfirmProvider><ExportsView /></ConfirmProvider></ToastProvider>)
+    fireEvent.click(await screen.findByTestId('clear-queue'))
+    const ask = await screen.findByRole('alertdialog')
+    expect(ask.textContent).toMatch(/all 4 clips off the list. Rendered files stay/)
+    expect(ask.textContent).toMatch(/1 waiting to render is cancelled/)
+    expect(ask.textContent).toMatch(/The clip rendering now finishes/)
+    fireEvent.click(screen.getByTestId('confirm-no'))
+    expect(calls.some(c => c[0] === '/api/queue/clear')).toBe(false)              // Cancel: nothing cleared
+    fireEvent.click(screen.getByTestId('clear-queue'))
+    fireEvent.click(await screen.findByTestId('confirm-yes'))
+    await waitFor(() => expect(calls).toContainEqual(['/api/queue/clear', {}]))
+    expect(await screen.findByText('Cleared 3 clips.')).toBeTruthy()
   })
 })

@@ -58,6 +58,24 @@ check("a category can be switched off", not r["flags"])
 r = safety.scan(words("holy shit"), cfg=dict(CFG, enabled=False))
 check("scanner can be switched off", r == {"level": "clean", "flags": [], "enabled": False})
 
+# accuracy (4.30): ordinary words and phrases that only looked like a flag, and flags that were missed
+for text in ("that was spicy", "late again so tardy", "he's so cocky", "suicide squad is a good game", "terrorists win",
+             "the counter terrorists won", "my inventory slots are full", "I'm betting he dies", "shoot up the stairs",
+             "magna cum laude", "weed out the bad ones", "one two three four five six seven eight nine"):
+    r = safety.scan(words(text), cfg=CFG)
+    check(f"not flagged: {text!r}", not r["flags"], r["flags"])
+for text, want in (("that was f*** crazy", "profanity"), ("what the sh*t", "profanity"), ("f**king hell", "profanity"),
+                   ("call me five five five one two three four five six seven", "personal"),
+                   ("five oh five five five five one two one two", "personal"), ("let's play slots", "gambling"),
+                   ("sports betting is bad", "gambling"), ("you dumbass", "profanity"), ("this is bullshitting", "profanity"),
+                   ("shoot up the school", "violence"), ("she's a slut", "sexual")):
+    r = safety.scan(words(text), cfg=CFG)
+    check(f"flagged: {text!r} ({want})", cats(r) == [want], r["flags"])
+r = safety.scan([], title="F*** this", cfg=CFG)
+check("a title already masked isn't flagged again (it's the fix)", not r["flags"], r["flags"])
+r = safety.scan(words("go to springfield squad"), cfg=dict(CFG, custom=["springfield"]))
+check("your own words are flagged whatever is around them", cats(r) == ["custom"])
+
 w = words("what the fuck man")
 r = safety.scan(w, cfg=CFG)
 nw, spans, mode = safety.censored(w, r, dict(CFG, censor="bleep"))

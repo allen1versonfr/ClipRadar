@@ -109,6 +109,29 @@ check("line spacing: normal spacing leaves the wrapping to libass",
 check("line spacing: a short caption stays on one line",
       not any("\\N" in d[2] for d in dialogues(engine.build_ass(WORDS[:2], R(caption_spacing=200), 1300, 5.0))))
 
+# ---- titles: Yellow outline, a colour for Outline, the border, and a bigger size range
+def title_style(o):
+    return next(ln for ln in engine.build_ass(WORDS, o, 1300, 5.0, title="Chat lost it").splitlines() if ln.startswith("Style: Title,"))
+
+
+def fields(ln):
+    return ln.split(":", 1)[1].split(",")
+
+
+y = fields(title_style(R(title_style="yellow")))
+check("Yellow outline: yellow text with a black border", y[3] == "&H0000E6FF" and y[5] == "&H00000000" and y[15] == "1", y[3:6])
+w = fields(title_style(R(title_style="outline")))
+check("Outline keeps white text by default", w[3] == "&H00FFFFFF", w[3])
+c = fields(title_style(R(title_style="outline", title_color="#00D1FF")))
+check("Outline takes the colour you pick", c[3] == "&H00FFD100", c[3])
+b100, b300 = int(fields(title_style(R(title_style="yellow")))[16]), int(fields(title_style(R(title_style="yellow", title_outline=300)))[16])
+check("the border is about 3 times thicker at 300%", abs(b300 - 3 * b100) <= 2 and b100 >= 7, (b100, b300))
+check("and gone at 0%", fields(title_style(R(title_style="outline", title_outline=0)))[16] == "0")
+s100, s300 = int(fields(title_style(R(title_size=100)))[2]), int(fields(title_style(R(title_size=300)))[2])
+check("titles go up to 300% (they stopped at 160%)", s300 == 3 * s100, (s100, s300))
+cap = lambda o: int(fields(next(ln for ln in engine.build_ass(WORDS, o, 1300, 5.0).splitlines() if ln.startswith("Style: Cap,")))[2])  # noqa: E731
+check("captions go up to 250% (they stopped at 160%)", cap(R(caption_size=250)) == int(86 * 2.5) and cap(R(caption_size=900)) == cap(R(caption_size=250)))
+
 if shutil.which("ffmpeg"):
     tmp = tempfile.mkdtemp(prefix="vc_cap_")
     src = os.path.join(tmp, "s.mp4")
@@ -147,6 +170,18 @@ if shutil.which("ffmpeg"):
     check("line spacing 200% makes the caption taller than 100% (measured on the rendered frame)",
           heights[200] > heights[100] * 1.25, heights)
     print(f"  caption height on the frame: {heights}")
+    # measured: a Yellow outline title on a black frame is yellow inside a black border
+    out = os.path.join(tmp, "yellow.mp4")
+    engine.render_clip(black, 0.0, 1.0, out, R(layout="full", hw_encode=False, speed="fast", captions=False,
+                                               title_style="yellow", title_size=250, title_outline=200), title="CHAT",
+                       log=lambda m: None)
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", "0.5", "-i", out, "-frames:v", "1", "-f", "rawvideo",
+                          "-pix_fmt", "rgb24", "-"], capture_output=True).stdout
+    px = np.frombuffer(raw, np.uint8).reshape(1920, 1080, 3).astype(int)
+    yellow = (px[..., 0] > 200) & (px[..., 1] > 190) & (px[..., 2] < 90)
+    rows = np.where(yellow.any(axis=1))[0]
+    check("the rendered title is yellow, and big", rows.size and rows.max() - rows.min() > 90 and yellow.sum() > 10000,
+          (int(rows.size), int(yellow.sum())))
     check(f"every preset renders with every caption style ({len(engine.CAPTION_MOTIONS) * len(engine.CAPTION_STYLES)} renders)", not bad, bad[:3])
 else:
     print("[skip] no ffmpeg here: renders not checked")

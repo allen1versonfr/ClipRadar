@@ -2321,9 +2321,11 @@ class RenderOpts:
     caption_offset: int = 0         # move captions earlier (-) or later (+), milliseconds
     cap_x: float = 0.5              # custom caption centre, fractions of the frame
     cap_y: float = 0.7
-    title_style: str = "box"        # box | dark | accent | outline
+    title_style: str = "box"        # box | dark | accent | outline | yellow (yellow text, black border)
     title_font: str = "classic"
-    title_size: int = 100           # percent
+    title_size: int = 100           # percent (50-300)
+    title_color: str = "#FFFFFF"    # the text's colour in the Outline style
+    title_outline: int = 100        # border thickness of the Outline and Yellow styles, percent of normal (0-300)
     title_x: float = 0.5            # title centre x and top y, fractions of the frame
     title_y: float = 0.05           # top of the title box
     whisper_model: str = "small"
@@ -2791,7 +2793,9 @@ FONTS = {
 # condensed faces look small at the same point size; scale them up to a similar visual size
 FONT_SCALE = {"inter": 1.05, "anton": 1.3, "bebas": 1.4, "bangers": 1.25}
 CAPTION_STYLES = ("pop", "box", "karaoke", "glow", "clean")
-TITLE_STYLES = ("box", "dark", "accent", "outline")
+TITLE_STYLES = ("box", "dark", "accent", "outline", "yellow")
+TITLE_YELLOW = "#FFE600"
+MAX_TEXT_SIZE = {"title": 300, "caption": 250}     # percent: Text tab › Size goes this far
 
 
 def fonts_dir() -> Path:
@@ -2990,6 +2994,15 @@ def _join_lines(parts: list, texts: list, fs: int, spacing: int, width: int, upp
     return " ".join(parts[:k]) + f"\\N{{\\fs{gap}}}\\h{{\\fs{fs}}}\\N" + " ".join(parts[k:])
 
 
+def title_border(o: "RenderOpts", title_fs: int) -> int:
+    """The black border of an Outline or Yellow title, in pixels: a tenth of the text's size (at least 4)
+    at 100%, scaled by Text tab › Title › Outline (0-300%). The yellow one starts a little thicker, so the
+    yellow reads on bright footage."""
+    k = max(0, min(300, int(getattr(o, "title_outline", 100) or 0))) / 100
+    base = max(4, title_fs // 10) * (1.25 if o.title_style == "yellow" else 1.0)
+    return int(round(base * k))
+
+
 def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, title: str = "") -> str:
     W, H = out_size(o)
     hi = _ass_color(o.caption_color)
@@ -2997,8 +3010,8 @@ def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, titl
     tfont, tbold, _ = _font(o.title_font)
     style = o.caption_style if o.caption_style in CAPTION_STYLES else "pop"
     tstyle = o.title_style if o.title_style in TITLE_STYLES else "box"
-    base_fs = int(86 * max(50, min(160, o.caption_size)) / 100 * FONT_SCALE.get(o.caption_font, 1.0))
-    title_fs = int(64 * max(50, min(160, o.title_size)) / 100 * FONT_SCALE.get(o.title_font, 1.0))
+    base_fs = int(86 * max(50, min(MAX_TEXT_SIZE["caption"], o.caption_size)) / 100 * FONT_SCALE.get(o.caption_font, 1.0))
+    title_fs = int(64 * max(50, min(MAX_TEXT_SIZE["title"], o.title_size)) / 100 * FONT_SCALE.get(o.title_font, 1.0))
     ob = lambda x: max(0, int(round(x * max(0, min(300, getattr(o, "cap_outline", 100))) / 100)))  # noqa: E731
     shd = lambda x: max(0, int(round(x * max(0, min(300, getattr(o, "cap_shadow", 100))) / 100)))  # noqa: E731
     bord = ob(max(4, base_fs // 12))
@@ -3008,8 +3021,10 @@ def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, titl
     else:
         cap_style = f"Style: Cap,{cfont},{base_fs},{white},{white},{black},&H96000000,{cbold},0,0,0,100,100,1,0,1,{bord},{shd(3)},5,70,70,0,1"
     tpad = max(8, title_fs // 4)
-    if tstyle == "outline":
-        t_style = f"Style: Title,{tfont},{title_fs},{white},{white},{black},&H96000000,{tbold},0,0,0,100,100,0,0,1,{max(4, title_fs // 10)},3,8,90,90,0,1"
+    if tstyle in ("outline", "yellow"):
+        tcol = _ass_color(TITLE_YELLOW if tstyle == "yellow" else getattr(o, "title_color", "#FFFFFF") or "#FFFFFF").rstrip("&")
+        tob = title_border(o, title_fs)
+        t_style = f"Style: Title,{tfont},{title_fs},{tcol},{tcol},{black},&H96000000,{tbold},0,0,0,100,100,0,0,1,{tob},3,8,90,90,0,1"
     else:
         fill, boxc = {"box": (dark, white), "dark": (white, "&H1A141414"), "accent": (dark, hi.rstrip("&"))}[tstyle]
         t_style = f"Style: Title,{tfont},{title_fs},{fill},{fill},{boxc},{boxc},{tbold},0,0,0,100,100,0,0,3,{tpad},0,8,90,90,0,1"
@@ -3041,7 +3056,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if title.strip():
         tx = int(min(max(o.title_x, 0.3), 0.7) * W)
         th = min(tx, W - tx) - 90           # wrap the title inside the frame around its own centre
-        ty = int(min(max(o.title_y, 0.0), 0.92) * H) + (tpad if tstyle != "outline" else 0)
+        ty = int(min(max(o.title_y, 0.0), 0.92) * H) + (tpad if tstyle not in ("outline", "yellow") else 0)
         lines.append(f"Dialogue: 1,{_ass_time(0)},{_ass_time(clip_len)},Title,,{tx - th},{W - tx - th},0,,"
                      f"{{\\an8\\pos({tx},{ty})}}{_ass_escape(title.strip())}")
 

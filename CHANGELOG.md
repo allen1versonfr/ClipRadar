@@ -5,6 +5,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.30.0] - 2026-10-30
+
+More title looks (yellow on black among them) and much bigger text, Mute all and Bleep all in the content check, which also flags fewer harmless words and misses fewer real ones, spelling fixes, and Clear queue in Exports.
+
+### Added
+- **Titles: Yellow on black** (yellow text with a black border), a text colour for the Outline title (white, yellow, green, blue, pink, orange or any colour), and **Border** to make the outline thinner or thicker (0 to 300%). The preview and the render match.
+- **Bigger text:** a title's Size goes up to 300% (it stopped at 150%) and captions' Text size up to 250% (140%), and down to 50%.
+- **Content check: Mute all and Bleep all.** On a clip, they silence or bleep every flagged word that's said in it at once; in the Flagged tab, every flagged word in every listed clip. Flags in a title or post caption stay for you to look at, and each fix can be undone on its own, as before.
+- **Spelling.** Under a title, a post caption and the TikTok caption in Exports, Clip Radar points out common mistakes and chat-style typing ("dont" → "don't", "teh" → "the", a lone "i" → "I", "definately" → "definitely") with a **Fix spelling** button. Only words on its list change: slang, names, emotes, hashtags, @names and links stay as they are. Titles made from chat come out fixed, and those boxes underline anything else misspelled (right-click for suggestions). `GET /api/spelling`.
+- **Exports › Clear queue**: takes every clip off the list (the rendered files stay in your clips folder) and cancels the ones waiting to render, after asking; a clip rendering right now finishes. With a Source picked, only that video's clips. `POST /api/queue/clear`.
+
+### Fixed
+- **The content check flagged harmless words:** "spicy" and "tardy" as slurs and "cocky" as sexual (a flagged word plus an ending), Suicide Squad, "suicide mission", "terrorists win" and "counter terrorists" (Counter-Strike), inventory "slots", "I'm betting he dies", "shoot up the stairs", "weed out" and "cum laude". A list of ordinary words and of phrases that make a word harmless now keeps them clear; your own blocked words are flagged whatever is around them.
+- **…and missed real ones:** swear words Whisper wrote with stars ("f***", "sh*t", "f**king"), phone numbers said one digit at a time ("five five five, one two three…", "oh" for zero), and "dumbass", "dipshit", "shithead", "bullshit" with endings, "whore", "slut". Gambling now looks for "play slots", "sports betting" and betting sites rather than "slots" or "betting" alone, and violence for "shoot up the school" rather than "shoot up". Earlier decisions on flags are looked at again, since what counts as a flag changed.
+
+### Tests
+- `tests/test_safety.py`: 12 harmless lines not flagged and 11 real ones flagged; a masked title isn't flagged again. `tests/test_checkflow.py`: Mute all and Bleep all (title flag left, one span each, undo one, refused without sound). `tests/test_captions_anim.py`: Yellow on black, the Outline colour, Border 0 to 300%, titles to 300% and captions to 250%, and a rendered yellow title measured on the frame. `tests/test_spelling.py` (new, in CI). `tests/test_errorlog.py`: Clear queue, all and per source. `web/`: 149 Vitest tests, including Clear queue and the spelling rules (the same cases as Python).
+
 ## [4.29.0] - 2026-10-30
 
 Upload to TikTok is faster and gets past more hiccups, clips can have up to four facecams, and a clip someone already cut (an X post) opens ready for captions and a layout.

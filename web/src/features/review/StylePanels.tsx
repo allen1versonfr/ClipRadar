@@ -5,7 +5,7 @@ import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
 import { RENDER_DEFAULTS, type RenderOpts } from '../../prefs'
 import { FONTS, fontCss } from '../watermark/geometry'
-import { camRects, layoutOf, MAX_CAMS } from './draw'
+import { camRects, layoutOf, MAX_CAMS, MAX_TEXT_SIZE } from './draw'
 
 // Review's Text and Layout tabs (the original page's #pane-text and #pane-layout): your render style,
 // shared with the current page through vc_opts; the preview shows every change at once.
@@ -25,7 +25,7 @@ export const CAP_TEMPLATES: Preset[] = [
 /** What a saved caption style keeps, and a saved framing. */
 export const CAP_KEYS = ['captions', 'caption_pos', 'caption_color', 'caption_size', 'words_per_line', 'uppercase', 'caption_style', 'caption_font',
   'caption_anim', 'caption_motion', 'caption_speed', 'caption_emph', 'caption_filler', 'caption_punct', 'caption_spacing', 'caption_offset',
-  'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_x', 'title_y'] as const
+  'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_color', 'title_outline', 'title_x', 'title_y'] as const
 export const FRAME_KEYS = ['layout', 'cam', 'cams', 'cam_height', 'game_zoom', 'game_x', 'track', 'track_target', 'focus_y', 'aspect'] as const
 const pick = (o: RenderOpts, keys: readonly string[]) => Object.fromEntries(keys.map(k => [k, o[k]]))
 /** Reset to default: how captions and titles look out of the box; positions stay. */
@@ -84,9 +84,11 @@ function Presets({ list, onUse, onDelete }: { list: Preset[]; onUse: (p: Preset)
 }
 const Sec = ({ title, children }: { title: string; children: ReactNode }) => <section className="rv-sec"><h3 className="sub">{title}</h3>{children}</section>
 
-const TITLE_STYLES: Array<[string, string]> = [['box', 'White box'], ['dark', 'Dark box'], ['accent', 'Color box'], ['outline', 'Outline']]
+const TITLE_STYLES: Array<[string, string]> = [['box', 'White box'], ['dark', 'Dark box'], ['accent', 'Color box'], ['outline', 'Outline'], ['yellow', 'Yellow on black']]
 const CAP_STYLES: Array<[string, string]> = [['pop', 'Pop'], ['box', 'Highlight'], ['karaoke', 'Karaoke'], ['glow', 'Glow'], ['clean', 'Clean']]
 const pct = (v: unknown) => `${Number(v)}%`
+// the Outline title's text colours: white, the yellow most clip channels use, and a few more
+const TITLE_COLORS = ['#ffffff', '#ffe600', '#2fe36f', '#00d1ff', '#ff4fa3', '#ff5a36']
 
 export function TextPanel({ opts, set, capPresets, whisper, guides, onGuides, onRelisten, onSavePresets }: {
   opts: RenderOpts; set: SetOpts; capPresets: Preset[]; whisper: boolean; guides: boolean; onGuides: (v: boolean) => void
@@ -102,7 +104,20 @@ export function TextPanel({ opts, set, capPresets, whisper, guides, onGuides, on
         <span className="hint">Drag it on the preview to move it.</span>
         <Seg label="Title style" value={String(opts.title_style)} options={TITLE_STYLES} onChange={v => set({ title_style: v })} />
         <Fonts label="Title font" value={String(opts.title_font)} onChange={v => set({ title_font: v })} />
-        <Range label="Size" value={Number(opts.title_size)} min={60} max={150} step={5} out={pct(opts.title_size)} onChange={v => set({ title_size: v })} />
+        <Range label="Size" value={Number(opts.title_size)} min={60} max={MAX_TEXT_SIZE.title} step={5} out={pct(opts.title_size)} onChange={v => set({ title_size: v })} />
+        {opts.title_style === 'outline' && (
+          <div className="rv-swatches" role="radiogroup" aria-label="Title text colour" data-testid="title-colors">
+            {TITLE_COLORS.map(c => (
+              <button key={c} role="radio" aria-checked={String(opts.title_color).toLowerCase() === c} aria-label={`Title text colour ${c}`}
+                      className={String(opts.title_color).toLowerCase() === c ? 'on' : ''} style={{ background: c }} onClick={() => set({ title_color: c })} />
+            ))}
+            <input type="color" aria-label="Custom title text colour" value={String(opts.title_color || '#ffffff')} onChange={e => set({ title_color: e.target.value })} />
+          </div>
+        )}
+        {(opts.title_style === 'outline' || opts.title_style === 'yellow') && (
+          <Range label="Border" value={Number(opts.title_outline ?? 100)} min={0} max={300} step={10} out={pct(opts.title_outline ?? 100)}
+                 onChange={v => set({ title_outline: v })} />
+        )}
       </Sec>
       <Sec title="Captions">
         <Check label="Captions on the video" checked={!!opts.captions} onChange={v => set({ captions: v })} />
@@ -117,7 +132,7 @@ export function TextPanel({ opts, set, capPresets, whisper, guides, onGuides, on
             ))}
             <input type="color" aria-label="Custom highlight colour" value={String(opts.caption_color)} onChange={e => set({ caption_color: e.target.value })} />
           </div>
-          <Range label="Text size" value={Number(opts.caption_size)} min={70} max={140} step={5} out={pct(opts.caption_size)} onChange={v => set({ caption_size: v })} />
+          <Range label="Text size" value={Number(opts.caption_size)} min={50} max={MAX_TEXT_SIZE.caption} step={5} out={pct(opts.caption_size)} onChange={v => set({ caption_size: v })} />
           <Range label="Words at once" value={Number(opts.words_per_line)} min={1} max={6} out={String(opts.words_per_line)} onChange={v => set({ words_per_line: v })} />
           <Range label="Outline" value={Number(opts.cap_outline ?? 100)} min={0} max={250} step={10} out={pct(opts.cap_outline ?? 100)} onChange={v => set({ cap_outline: v })} />
           <Range label="Shadow" value={Number(opts.cap_shadow ?? 100)} min={0} max={250} step={10} out={pct(opts.cap_shadow ?? 100)} onChange={v => set({ cap_shadow: v })} />

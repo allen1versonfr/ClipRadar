@@ -24,7 +24,7 @@ import threading
 from typing import Optional
 
 import paths
-from safety_words import TERMS
+from safety_words import NOT_FLAGGED, SAFE_PHRASES, TERMS
 
 CATEGORIES = {
     "slurs": {"label": "Hate slur", "severity": 3},
@@ -196,22 +196,68 @@ PERSONAL = [
     ("street address", re.compile(r"\b\d{1,5} (?:[a-z]+ ){1,3}(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|"
                                   r"boulevard|blvd|court|ct|way|place|pl|terrace|circle)\b", re.I)),
     ("card number", re.compile(r"(?<!\d)(?:\d{4}[\s-]?){3}\d{4}(?!\d)")),
+    # said one digit at a time: ten or eleven digits in a row
+    ("phone number", re.compile(r"(?<!\d)(?<!\d )(?:\d[\s.-]?){9,10}\d(?!\d)(?! \d)")),
 ]
 
 
-def _scan_tokens(tokens: list, cfg: dict) -> list:
-    """tokens: [str]. Returns [(category, severity, first index, last index, term)]."""
+_safe_compiled: list = []
+
+
+def _safe_spans(normed: list) -> set:
+    """Indexes of words inside a phrase that makes them harmless (SAFE_PHRASES: "suicide squad")."""
+    if not _safe_compiled:
+        for ph in SAFE_PHRASES:
+            _safe_compiled.append([re.compile(_token_regex(t)) for t in ph.split() if norm(t.rstrip("~*"))])
+    out = set()
+    for regs in _safe_compiled:
+        n = len(regs)
+        for i in range(len(normed) - n + 1):
+            if all(regs[k].match(normed[i + k]) for k in range(n)):
+                out.update(range(i, i + n))
+    return out
+
+
+# a swear word written with stars ("f***", "sh*t", "f**king"): Whisper writes some that way, and the
+# sound still has the word in it
+MASKED = re.compile(r"^\W*[a-z]{1,3}\*+[a-z]{0,6}\W*$", re.I)
+# numbers said one digit at a time ("five five five, one two three...") read as digits for the phone check
+DIGIT_WORDS = {"zero": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6",
+               "seven": "7", "eight": "8", "nine": "9"}
+
+
+def _digits(tokens: list) -> list:
+    """Spoken digits as digits; "oh" too, between digits ("five oh five")."""
+    out = [DIGIT_WORDS.get(norm(t), t) for t in tokens]
+    for i, t in enumerate(tokens):
+        if norm(t) == "oh" and 0 < i < len(out) - 1 and out[i - 1].isdigit() and out[i + 1].isdigit():
+            out[i] = "0"
+    return out
+
+
+def _scan_tokens(tokens: list, cfg: dict, speech: bool = False) -> list:
+    """tokens: [str]. Returns [(category, severity, first index, last index, term)]. speech: what was
+    said (words written with stars count there; in a title they're a fix already made)."""
     normed = [norm(t) for t in tokens]
+    safe = _safe_spans(normed)
     hits = []
     for cat, sev, regs, term in _terms(cfg):
         n = len(regs)
         for i in range(len(normed) - n + 1):
             if all(regs[k].match(normed[i + k]) for k in range(n)):
+                if n == 1 and normed[i] in NOT_FLAGGED:
+                    continue                     # "spicy" isn't a slur
+                if cat != "custom" and all(k in safe for k in range(i, i + n)):
+                    continue                     # "suicide squad", "terrorists win"
                 hits.append((cat, sev, i, i + n - 1, term))
+    if speech and (cfg.get("categories") or {}).get("profanity", True):
+        for i, t in enumerate(tokens):
+            if MASKED.match(t) and not any(h[2] <= i <= h[3] for h in hits):
+                hits.append(("profanity", 1, i, i, "swear word"))
     # personal info: regexes over the joined text, mapped back to tokens
     if (cfg.get("categories") or {}).get("personal", True):
         text, spans = "", []
-        for t in tokens:
+        for t in _digits(tokens):
             if text:
                 text += " "
             spans.append((len(text), len(text) + len(t)))
@@ -240,7 +286,7 @@ def scan(words: list, title: str = "", post: str = "", cfg: Optional[dict] = Non
         return {"level": "clean", "flags": [], "enabled": False}
     flags = []
     toks = [w["word"] for w in words]
-    for cat, sev, a, b, term in _scan_tokens(toks, cfg):
+    for cat, sev, a, b, term in _scan_tokens(toks, cfg, speech=True):
         said = " ".join(toks[a:b + 1])
         flags.append({"cat": cat, "label": CATEGORIES[cat]["label"], "severity": sev, "source": "speech",
                       "text": said if cat in ("personal", "custom") else " ".join(mask(t) for t in toks[a:b + 1]),
@@ -263,7 +309,7 @@ def rules_sig(cfg: Optional[dict] = None) -> str:
     import hashlib
     cfg = cfg or load_config()
     key = json.dumps([cfg.get("categories"), sorted(w.lower() for w in cfg.get("custom", [])),
-                      cfg.get("sensitivity", "all"), TERMS], sort_keys=True)
+                      cfg.get("sensitivity", "all"), TERMS, sorted(NOT_FLAGGED), SAFE_PHRASES, MASKED.pattern], sort_keys=True)
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
 
 

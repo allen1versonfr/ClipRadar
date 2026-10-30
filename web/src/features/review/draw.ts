@@ -82,8 +82,17 @@ export function drawLayout(g: CanvasRenderingContext2D, src: CanvasImageSource, 
   return Math.min(Ht / 2 + fh / 2 + Ht * 170 / oh, Ht * 0.8)
 }
 
+/** How far Text tab › Size goes, percent (engine.MAX_TEXT_SIZE). */
+export const MAX_TEXT_SIZE = { title: 300, caption: 250 }
+export const TITLE_YELLOW = '#ffe600'
+/** The black border of an Outline or Yellow title, at the export's size (engine.title_border). */
+export function titleBorder(o: RenderOpts, titleFs: number): number {
+  const k = clamp(Number(o.title_outline ?? 100) || 0, 0, 300) / 100
+  return Math.round(Math.max(4, Math.floor(titleFs / 10)) * (o.title_style === 'yellow' ? 1.25 : 1) * k)
+}
+
 export function drawTitle(g: CanvasRenderingContext2D, text: string, Wd: number, Ht: number, o: RenderOpts): Box {
-  const k = Wd / outSize(o)[0], st = o.title_style, size = clamp(Number(o.title_size), 50, 160)
+  const k = Wd / outSize(o)[0], st = o.title_style, size = clamp(Number(o.title_size), 50, MAX_TEXT_SIZE.title)
   const fs = 64 * size / 100 * fontOf(o.title_font).scale * k
   const pad = Math.max(8, Math.floor(64 * size / 100 * fontOf(o.title_font).scale / 4)) * k
   g.font = fontCss(o.title_font, fs); g.textAlign = 'center'; g.textBaseline = 'top'
@@ -96,10 +105,11 @@ export function drawTitle(g: CanvasRenderingContext2D, text: string, Wd: number,
   }
   if (line) lines.push(line)
   const lh = fs * 1.19, tw = Math.max(...lines.map(l => g.measureText(l).width))
-  if (st === 'outline') {
-    const ob = Math.max(4, Math.floor(fs / k / 10)) * k
-    g.lineJoin = 'round'; g.lineWidth = ob * 2; g.strokeStyle = '#000'; g.fillStyle = '#fff'
-    lines.forEach((l, i) => { g.strokeText(l, x, top + i * lh); g.fillText(l, x, top + i * lh) })
+  if (st === 'outline' || st === 'yellow') {
+    const ob = titleBorder(o, Math.floor(fs / k)) * k
+    g.lineJoin = 'round'; g.lineWidth = ob * 2; g.strokeStyle = '#000'
+    g.fillStyle = st === 'yellow' ? TITLE_YELLOW : String(o.title_color || '#ffffff')
+    lines.forEach((l, i) => { if (ob > 0) g.strokeText(l, x, top + i * lh); g.fillText(l, x, top + i * lh) })
     return { x: x - tw / 2 - ob, y: top - ob, w: tw + 2 * ob, h: lines.length * lh + ob }
   }
   const [fill, boxc] = st === 'dark' ? ['#fff', 'rgba(20,20,20,.9)'] : st === 'accent' ? ['#141414', String(o.caption_color)] : ['#141414', '#fff']
@@ -196,7 +206,7 @@ export function capAnchor(capY: number, Wd: number, Ht: number, o: RenderOpts): 
 export function drawCaption(g: CanvasRenderingContext2D, cap: Cap, capY: number, Wd: number, Ht: number, t: number, o: RenderOpts): Box {
   const k = Wd / outSize(o)[0], st = o.caption_style, hi = String(o.caption_color)
   const [cx, cy] = capAnchor(capY, Wd, Ht, o)
-  const chars = cap.texts.join(' ').length, fsBase = 86 * Number(o.caption_size) / 100 * fontOf(o.caption_font).scale
+  const chars = cap.texts.join(' ').length, fsBase = 86 * clamp(Number(o.caption_size), 50, MAX_TEXT_SIZE.caption) / 100 * fontOf(o.caption_font).scale
   const fs1080 = chars <= 16 ? fsBase : Math.max(fsBase * 0.75, fsBase * 18 / chars), fs = fs1080 * k
   g.font = fontCss(o.caption_font, fs); g.textAlign = 'left'; g.textBaseline = 'middle'
   const sp = g.measureText(' ').width, widths = cap.texts.map(w => g.measureText(w).width)

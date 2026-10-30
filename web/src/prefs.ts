@@ -26,7 +26,7 @@ export const RENDER_DEFAULTS = {
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
   caption_style: 'pop', caption_font: 'classic', caption_anim: true, caption_motion: 'pop', caption_speed: 100,
   caption_emph: false, caption_filler: true, caption_punct: true, caption_spacing: 100, caption_offset: 0, cap_x: 0.5, cap_y: 0.7,
-  title_style: 'box', title_font: 'classic', title_size: 100, title_x: 0.5, title_y: 0.05,
+  title_style: 'box', title_font: 'classic', title_size: 100, title_color: '#ffffff', title_outline: 100, title_x: 0.5, title_y: 0.05,
   whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16', cap_outline: 100, cap_shadow: 100,
   track: 'auto', track_target: 'auto', focus_y: 0.4,
 }
