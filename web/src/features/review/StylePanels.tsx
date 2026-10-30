@@ -5,7 +5,7 @@ import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
 import { RENDER_DEFAULTS, type RenderOpts } from '../../prefs'
 import { FONTS, fontCss } from '../watermark/geometry'
-import { layoutOf } from './draw'
+import { camRects, layoutOf, MAX_CAMS } from './draw'
 
 // Review's Text and Layout tabs (the original page's #pane-text and #pane-layout): your render style,
 // shared with the current page through vc_opts; the preview shows every change at once.
@@ -26,7 +26,7 @@ export const CAP_TEMPLATES: Preset[] = [
 export const CAP_KEYS = ['captions', 'caption_pos', 'caption_color', 'caption_size', 'words_per_line', 'uppercase', 'caption_style', 'caption_font',
   'caption_anim', 'caption_motion', 'caption_speed', 'caption_emph', 'caption_filler', 'caption_punct', 'caption_spacing', 'caption_offset',
   'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_x', 'title_y'] as const
-export const FRAME_KEYS = ['layout', 'cam', 'cam_height', 'game_zoom', 'game_x', 'track', 'track_target', 'focus_y', 'aspect'] as const
+export const FRAME_KEYS = ['layout', 'cam', 'cams', 'cam_height', 'game_zoom', 'game_x', 'track', 'track_target', 'focus_y', 'aspect'] as const
 const pick = (o: RenderOpts, keys: readonly string[]) => Object.fromEntries(keys.map(k => [k, o[k]]))
 /** Reset to default: how captions and titles look out of the box; positions stay. */
 export const styleDefaults = () => Object.fromEntries(CAP_KEYS.filter(k => !['cap_x', 'cap_y', 'title_x', 'title_y'].includes(k))
@@ -189,7 +189,24 @@ export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, 
   const [naming, setNaming] = useState(false)
   const [autoNote, setAutoNote] = useState('')
   const [autoBusy, setAutoBusy] = useState(false)
-  const lay = layoutOf(opts), cam = opts.cam as number[]
+  const lay = layoutOf(opts), rects = camRects(opts)
+  // which facecam the box you drag is for (Cam 1 is `cam`, the others are `cams`)
+  const [camAt, setCamAt] = useState(0)
+  const ci = Math.min(camAt, rects.length - 1), cam = rects[ci]!
+  const setCam = (box: number[], save = true) => ci === 0 ? set({ cam: box }, save)
+    : set({ cams: rects.slice(1).map((r, i) => (i === ci - 1 ? box : r)) }, save)
+  function addCam() {
+    // a new box in a corner the others don't use, to drag onto the next camera
+    const spots = [[0.75, 0, 0.25, 0.25], [0, 0.75, 0.25, 0.25], [0.75, 0.75, 0.25, 0.25], [0, 0, 0.25, 0.25]]
+    const free = spots.find(s => !rects.some(r => Math.abs(r[0]! - s[0]!) < 0.1 && Math.abs(r[1]! - s[1]!) < 0.1)) ?? spots[0]!
+    set({ cams: [...rects.slice(1), free], layout_auto: false })
+    setCamAt(rects.length)
+  }
+  function removeCam() {
+    const left = rects.filter((_, i) => i !== ci)
+    set({ cam: left[0]!, cams: left.slice(1), layout_auto: false })
+    setCamAt(Math.max(0, ci - 1))
+  }
   const picker = useRef<HTMLDivElement>(null)
   const drag = useRef<{ x: number; y: number; prev: number[] }>(undefined)
   const rel = (e: PointerEvent) => {
@@ -201,7 +218,7 @@ export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, 
     try {
       const r = await api(FramingSuggest, `/api/framing/${pid}`)
       if (!r.layout) { setAutoNote(r.reason || 'Nothing to suggest.'); return }
-      set({ layout: r.layout, layout_auto: true, ...(r.cam ? { cam: r.cam } : {}), ...(r.track ? { track: r.track } : {}),
+      set({ layout: r.layout, layout_auto: true, ...(r.cam ? { cam: r.cam, cams: [] } : {}), ...(r.track ? { track: r.track } : {}),
         ...(r.layout === 'split' && opts.aspect === '16:9' ? { aspect: '9:16' } : {}) })
       setAutoNote(r.reason + (r.confidence < 0.6 ? ' (not sure: check it)' : ''))
     } catch (e) { setAutoNote(e instanceof Error ? e.message : String(e)) }
@@ -241,19 +258,33 @@ export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, 
                  const d = drag.current
                  if (!d) return
                  const [x, y] = rel(e)
-                 set({ cam: [Math.min(d.x, x), Math.min(d.y, y), Math.abs(x - d.x), Math.abs(y - d.y)] }, false)
+                 setCam([Math.min(d.x, x), Math.min(d.y, y), Math.abs(x - d.x), Math.abs(y - d.y)], false)
                }}
                onPointerUp={() => {
                  const d = drag.current
                  drag.current = undefined
                  if (!d) return
-                 if (cam[2]! < 0.03 || cam[3]! < 0.03) set({ cam: d.prev })
+                 if (cam[2]! < 0.03 || cam[3]! < 0.03) setCam(d.prev)
                  else set({ layout_auto: false })          // you drew the camera box: kept for the next video too
                }}>
             <img src={`/api/frame/${pid}?t=${Math.round(frameAt)}`} alt="A frame from the stream" draggable={false} />
-            <div className="rv-cambox" style={{ left: `${cam[0]! * 100}%`, top: `${cam[1]! * 100}%`, width: `${cam[2]! * 100}%`, height: `${cam[3]! * 100}%` }} />
+            {rects.map((r, i) => (
+              <div key={i} className={`rv-cambox${i === ci ? '' : ' other'}`} data-testid="rv-cambox"
+                   style={{ left: `${r[0]! * 100}%`, top: `${r[1]! * 100}%`, width: `${r[2]! * 100}%`, height: `${r[3]! * 100}%` }}>
+                {rects.length > 1 && <span>{i + 1}</span>}
+              </div>
+            ))}
           </div>
-          <span className="hint">Drag a box around your camera.</span>
+          <span className="row wrap" data-testid="rv-cams">
+            {rects.length > 1 && rects.map((_, i) => (
+              <button key={i} className={`btn sm${i === ci ? ' on' : ''}`} aria-pressed={i === ci} onClick={() => setCamAt(i)}>Cam {i + 1}</button>
+            ))}
+            {rects.length < MAX_CAMS && <button className="btn sm" data-testid="rv-add-cam" onClick={addCam}>Add a facecam</button>}
+            {rects.length > 1 && <button className="btn sm ghost" data-testid="rv-remove-cam" onClick={removeCam}>Remove cam {ci + 1}</button>}
+          </span>
+          <span className="hint">{rects.length > 1
+            ? `Drag a box around camera ${ci + 1}. ${lay === 'split' ? 'The cameras sit side by side above the game.' : 'The cameras are stacked, one above the other.'}`
+            : 'Drag a box around your camera. Two people on camera? Add a facecam for each.'}</span>
           {lay === 'split' && <Range label="Camera height" value={Math.round(Number(opts.cam_height) * 100)} min={20} max={50}
                                      out={`${Math.round(Number(opts.cam_height) * 100)}%`} onChange={v => set({ cam_height: v / 100 })} />}
         </div>

@@ -388,8 +388,17 @@ FRAMING
   or right-most person, or the one nearest a focus point you set. Captions in
   the automatic position move off the face. The preview moves the crop the
   same way, and the exact preview shows the real render.
-  Cam only fills the frame with the facecam. Saved framings keep a layout,
-  facecam box, focus, zoom and follow settings to reuse in one click.
+  Cam only fills the frame with the facecam. Two or more people on camera?
+  Add a facecam (up to four) and drag a box around each: in Cam + game they
+  sit side by side above the game, in Cam only one above the other. Saved
+  framings keep a layout, the facecam boxes, focus, zoom and follow settings
+  to reuse in one click.
+
+  Clips that are already cut
+    Home › The video is › "Already a clip" opens the whole video (up to 15
+    minutes) as one clip in Review: add captions, pick a layout, Keep and
+    render. "Automatic" does this by itself for an X video under 3 minutes
+    with no chat; pick "A stream or long video" to find moments in it instead.
   Faces are found by a small built-in detector (UltraFace, MIT licence); it
   reads a few small frames per second, so following adds a few seconds to a
   render.

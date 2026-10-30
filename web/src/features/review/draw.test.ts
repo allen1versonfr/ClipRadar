@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Clip } from '../../api/schemas'
 import { RENDER_DEFAULTS, type RenderOpts } from '../../prefs'
-import { capAnchor, captionAt, chunksFor, dragPlace, layoutOf, maskWord, outSize, replaceWord } from './draw'
+import { camRects, capAnchor, captionAt, chunksFor, dragPlace, drawLayout, layoutOf, maskWord, outSize, replaceWord } from './draw'
 
 const o = (over: object = {}) => ({ ...RENDER_DEFAULTS, ...over }) as RenderOpts
 const words = 'so um what was that! no way'.split(' ').map((w, i) => ({ start: 10 + i * 0.4, end: 10.3 + i * 0.4, word: w }))
@@ -39,5 +39,32 @@ describe('layout and placing', () => {
     expect(dragPlace('cap', 275, 0, 480, 540, 960, o())).toEqual({ patch: { caption_pos: 'custom', cap_x: 0.5, cap_y: 0.5 }, snapX: true })
     expect(dragPlace('title', 540, 960, 0, 540, 960, o()).patch).toEqual({ title_x: 0.7, title_y: 0.92 })
     expect(dragPlace('wm0', 54, 96, 96, 540, 960, o()).patch).toEqual({ pos: 'free', x: 0.1, y: 0.1 })
+  })
+})
+
+describe('several facecams', () => {
+  const calls = () => {
+    const out: number[][] = []
+    const g = { drawImage: (...a: unknown[]) => { out.push((a.slice(5) as number[]).map(Math.round)) } } as unknown as CanvasRenderingContext2D
+    return { g, out }
+  }
+  const src = {} as CanvasImageSource
+  it('the first is cam, then cams, at most 4', () => {
+    expect(camRects(o())).toEqual([[0, 0, 0.25, 0.25]])
+    const four = [[0.5, 0, 0.2, 0.2], [0, 0.5, 0.2, 0.2], [0.5, 0.5, 0.2, 0.2], [0.8, 0.8, 0.1, 0.1]]
+    expect(camRects(o({ cams: four }))).toHaveLength(4)
+  })
+  it('Cam + game: side by side above the gameplay, as the render stacks them', () => {
+    const { g, out } = calls()
+    const capY = drawLayout(g, src, 1920, 1080, 540, 960, o({ cams: [[0.75, 0, 0.25, 0.25]] }), null, null)
+    expect(out.slice(0, 2)).toEqual([[0, 0, 270, 317], [270, 0, 270, 317]])
+    expect(out[2]![1]).toBe(317)                        // the game under them
+    expect(capY).toBe(317)
+  })
+  it('Cam only: one above the other, captions on the first seam', () => {
+    const { g, out } = calls()
+    const capY = drawLayout(g, src, 1920, 1080, 540, 960, o({ layout: 'cam', cams: [[0.75, 0, 0.25, 0.25], [0, 0.75, 0.25, 0.25]] }), null, null)
+    expect(out).toEqual([[0, 0, 540, 320], [0, 320, 540, 320], [0, 640, 540, 320]])
+    expect(capY).toBe(320)
   })
 })

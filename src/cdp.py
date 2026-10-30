@@ -33,6 +33,14 @@ def targets(port: int, timeout: float = 3.0) -> list:
         return json.loads(r.read().decode())
 
 
+def new_tab(port: int, url: str = "about:blank") -> dict:
+    """Open a tab (/json/new; newer browsers want PUT)."""
+    from urllib.parse import quote
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/json/new?{quote(url, safe=':/?=&')}", method="PUT")
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read().decode())
+
+
 def alive(port: int) -> bool:
     try:
         targets(port, timeout=1.0)

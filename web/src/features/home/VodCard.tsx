@@ -35,6 +35,8 @@ export function VodCard({ status, source, onSource, start = 0 }: { status: Statu
   const [useEmotes, setUseEmotes] = usePref('useEmotes', true)
   const [delay, setDelay] = usePref('delay2', '')
   const [minLen, setMinLen] = usePref('minLen', '')
+  // already a clip (an X post cut from a stream): the whole video, just captioned and cropped
+  const [whole, setWhole] = usePref('whole', 'auto')
   const [maxLen, setMaxLen] = usePref('maxLen', '')
   const [chatFile, setChatFile] = useState('')
   const [jobId, setJobId] = useState<string>()
@@ -78,6 +80,7 @@ export function VodCard({ status, source, onSource, start = 0 }: { status: Statu
         detect: { preset, sensitivity: sens, min_len: optNum(minLen), max_len: optNum(maxLen), chat_delay: delay === '' ? 'auto' : Number(delay) },
         emotes: useEmotes, max_height: Number(getPref('maxh', '1080')), cookies: getPref('cookies', ''), events: events && !noLaughter,
         deep_scan: deep && !noWhisper, deep_model: deepModel, language: renderOpts().language,
+        whole: whole === 'yes' ? true : whole === 'no' ? false : 'auto',
       })
       setJobId(r.job)
     } catch (e) {
@@ -100,13 +103,20 @@ export function VodCard({ status, source, onSource, start = 0 }: { status: Statu
         <button className="btn" onClick={() => browse('video')}>Browse…</button>
       </div>
       <div className="form-grid">
+        <label className="span2">The video is
+          <select className="input" data-testid="whole" value={whole} onChange={e => setWhole(e.target.value)}>
+            <option value="auto">Automatic (an X video under 3 minutes is taken as a clip)</option>
+            <option value="no">A stream or long video: find the clips in it</option>
+            <option value="yes">Already a clip: just add captions and crop it</option>
+          </select>
+        </label>
         <label>Clips to suggest
-          <select className="input" value={count} onChange={e => setCount(e.target.value)}>
+          <select className="input" value={count} disabled={whole === 'yes'} onChange={e => setCount(e.target.value)}>
             {COUNTS.map(c => <option key={c} value={c}>{c === '0' ? 'Automatic' : c}</option>)}
           </select>
         </label>
         <label>Clip length
-          <select className="input" value={length} onChange={e => setLength(e.target.value)}>
+          <select className="input" value={length} disabled={whole === 'yes'} onChange={e => setLength(e.target.value)}>
             {LENGTHS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </label>
@@ -169,7 +179,7 @@ export function VodCard({ status, source, onSource, start = 0 }: { status: Statu
       )}
       {err && <p className="err-tx" role="alert" data-testid="vod-error">{err}</p>}
       <footer>
-        <button className="btn primary" data-testid="find-clips" disabled={starting} onClick={() => void findClips()}>Find clips</button>
+        <button className="btn primary" data-testid="find-clips" disabled={starting} onClick={() => void findClips()}>{whole === 'yes' ? 'Open the clip' : 'Find clips'}</button>
       </footer>
     </section>
   )

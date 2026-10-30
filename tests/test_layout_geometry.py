@@ -76,6 +76,24 @@ check("an impossible zoom is held to the most the app allows", "crop=152:270:" i
 f, _ = engine.build_filter({"width": 1920, "height": 1080, "fps": 30}, engine.RenderOpts(layout="split", cam_height=None))
 check("a missing camera share uses the default", "scale=1080:634:" in f, f[:200])
 
+# several facecams: side by side over the game, stacked when they're all there is; each fills its own cell
+info = {"width": 1920, "height": 1080, "fps": 30}
+two = [(0.75, 0.0, 0.25, 0.25)]
+f, cy = engine.build_filter(info, engine.RenderOpts(layout="split", cams=two))
+check("Cam + game with 2 facecams: side by side, each half the width", "hstack=inputs=2" in f
+      and f.count("scale=540:634:") == 2 and cy == 634, f[:300])
+f, cy = engine.build_filter(info, engine.RenderOpts(layout="cam", cams=two * 2))
+check("Facecam only with 3: stacked, a third of the height each", "vstack=inputs=3" in f and f.count("scale=1080:640:") == 3, f[:300])
+f, _ = engine.build_filter(info, engine.RenderOpts(layout="split", cams=two * 6))
+check("at most 4 facecams", "hstack=inputs=4" in f, f[:200])
+f, _ = engine.build_filter(info, engine.RenderOpts(layout="split"))
+check("one facecam: the same filter as before", "hstack" not in f and "split=2[c0][b]" in f, f[:200])
+try:
+    engine.build_filter(info, engine.RenderOpts(layout="split", cams=[(0.5, 0.5, 0.0, 0.0)]))
+    check("an empty extra facecam box is a setting to fix, named", False)
+except engine.RenderInputError as e:
+    check("an empty extra facecam box is a setting to fix, named", e.kind == "layout_settings", e.kind)
+
 if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
     print("PASSED (FFmpeg parts skipped: FFmpeg isn't installed)" if not failures else f"FAILED: {', '.join(failures)}")
     sys.exit(1 if failures else 0)
@@ -202,7 +220,9 @@ LAYOUTS = [("Cam + game", dict(layout="split", cam=(0.7, 0.0, 0.3, 0.3))), ("Who
            ("Facecam only", dict(layout="cam", cam=(0.0, 0.6, 0.4, 0.4))), ("Blur-fit", dict(layout="blur")),
            ("zoomed in all the way, at the edge", dict(layout="full", game_zoom=2.0, game_x=1.0)),
            ("zoomed blur-fit", dict(layout="blur", game_zoom=2.0, game_x=0.0)),
-           ("Square blur", dict(layout="square")), ("zoomed square blur, at the edge", dict(layout="square", game_zoom=2.0, game_x=1.0))]
+           ("Square blur", dict(layout="square")), ("zoomed square blur, at the edge", dict(layout="square", game_zoom=2.0, game_x=1.0)),
+           ("Cam + game, 3 facecams", dict(layout="split", cam=(0.0, 0.0, 0.3, 0.3), cams=[(0.7, 0.0, 0.3, 0.3), (0.35, 0.7, 0.3, 0.3)])),
+           ("Facecam only, 2 facecams", dict(layout="cam", cam=(0.0, 0.0, 0.4, 0.4), cams=[(0.6, 0.6, 0.4, 0.4)]))]
 SOURCES = [("landscape", LAND), ("portrait", PORT), ("square", SQUARE), ("odd 853x479", ODD), ("tiny 35x21", TINY),
            ("59.94 fps VFR", VFR), ("rotated phone video", ROT), ("size change mid-clip", MIXED)]
 for sname, path in SOURCES:

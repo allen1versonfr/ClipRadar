@@ -62,9 +62,20 @@ describe('Home', () => {
     expect(body).toEqual({
       source: 'https://www.twitch.tv/videos/1', chat_file: '', count: 20, length: 0, chat_weight: 55,
       detect: { preset: 'gaming', sensitivity: 'normal', chat_delay: 'auto' }, emotes: true, max_height: 720, cookies: '',
-      events: true, deep_scan: false, deep_model: 'auto', language: 'en',
+      events: true, deep_scan: false, deep_model: 'auto', language: 'en', whole: 'auto',
     })
     expect(localStorage.getItem('vc_src')).toBe('"https://www.twitch.tv/videos/1"')
+  })
+
+  it("an X clip that's already cut: opens it whole, nothing to find", async () => {
+    renderHome()
+    fireEvent.change(screen.getByTestId('whole'), { target: { value: 'yes' } })
+    fireEvent.change(screen.getByTestId('source-input'), { target: { value: 'https://x.com/someone/status/123' } })
+    expect(screen.getByTestId('find-clips').textContent).toBe('Open the clip')
+    fireEvent.click(screen.getByTestId('find-clips'))
+    await waitFor(() => expect(calls.some(c => c[0] === '/api/analyze')).toBe(true))
+    expect(calls.find(c => c[0] === '/api/analyze')![1]).toMatchObject({ source: 'https://x.com/someone/status/123', whole: true })
+    expect(localStorage.getItem('vc_whole')).toBe('"yes"')
   })
 
   it('shows progress, then opens the finished video in Review', async () => {

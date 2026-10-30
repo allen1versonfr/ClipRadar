@@ -22,7 +22,7 @@ export function setPref(key: string, value: unknown): void {
 // choices (vc_opts) on top. The server renders exactly what it's sent, so these must match:
 // prefs.test.ts compares them with app.js and fails if one side changes without the other.
 export const RENDER_DEFAULTS = {
-  layout: 'split', cam: [0, 0, 0.25, 0.25], cam_height: 0.33, game_x: 0.5, game_zoom: 1.0,
+  layout: 'split', cam: [0, 0, 0.25, 0.25], cams: [] as number[][], cam_height: 0.33, game_x: 0.5, game_zoom: 1.0,
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
   caption_style: 'pop', caption_font: 'classic', caption_anim: true, caption_motion: 'pop', caption_speed: 100,
   caption_emph: false, caption_filler: true, caption_punct: true, caption_spacing: 100, caption_offset: 0, cap_x: 0.5, cap_y: 0.7,

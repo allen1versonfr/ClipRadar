@@ -603,7 +603,7 @@ def _pick(pr: dict, count: int, length: float, det: Optional[dict] = None) -> li
 def regrade(pr: dict):
     """Score every clip in the list against the stream and each other (engine.grades): run whenever the
     list changes, and on reopening a project saved before the scores were graded this way."""
-    cs = [c for c in pr.get("clips", []) if c.get("kind", "hype") == "hype"]
+    cs = [c for c in pr.get("clips", []) if c.get("kind", "hype") == "hype" and not c.get("whole")]   # a whole video has no score
     if cs and pr.get("analysis") is not None:
         for c, q in zip(cs, engine.grades(pr["analysis"], [float(c.get("score") or 0) for c in cs])):
             c["quality"] = q
@@ -674,6 +674,25 @@ class _download_slot:
             _dl_running[0] -= 1
             _dl_cond.notify_all()
         return False
+
+
+# an X post this short is taken as a clip someone already cut (Home › It's already a clip: Automatic)
+PRECUT_AUTO_MAX = 180.0
+PRECUT_MAX = 15 * 60            # the longest video used whole when you say it's already a clip
+
+
+def _precut(body: dict, s, an) -> bool:
+    """Use the whole video as the one clip? Yes when you say so (Home › It's already a clip), or, by
+    default, for a short X video with no chat: X posts are mostly clips cut from a stream already."""
+    whole = body.get("whole", "auto")
+    if whole is True or whole == "yes":
+        if an.duration > PRECUT_MAX:
+            raise RuntimeError(f"This video is {engine.fmt_ts(an.duration)} long, too long to be one clip "
+                               f"(up to {PRECUT_MAX // 60} minutes). Untick \"It's already a clip\" to find the moments in it.")
+        return True
+    if whole in (False, "no"):
+        return False
+    return (s.info or {}).get("platform") == "x" and an.duration <= PRECUT_AUTO_MAX and not s.chat
 
 
 # where each part of opening a video ends on its bar: the download (with joining it), then finding moments;
@@ -760,6 +779,21 @@ def do_analyze(job, body: dict):
                   deep_lang=saved.get("deep_lang", ""), restored=True)
         r = persist.summary(pr["clips"])
         log(f"Picked up where you left off: {r['kept']} kept, {r['skipped']} skipped, {r['todo']} to review.")
+    elif _precut(body, s, an):
+        # already a clip (an X post someone cut, a clip you saved): the whole video is the one clip, ready
+        # for captions and a layout; nothing to find
+        sc = round(float(an.score.max()) if len(an.score) else 0.0, 2)
+        clips = [engine.Clip(0, 0.0, round(an.duration, 2), round(an.duration / 2, 2), sc, "The whole video (already a clip)",
+                             engine.clip_features(an, 0.0, an.duration, an.duration / 2))]
+        _number(pr, clips)
+        step("Making thumbnails")
+        pr["clips"] = clip_dicts(pid, clips, progress=job_progress(job, an_end, 1.0))
+        for d in pr["clips"]:
+            d.update(len_mode=0, manual=True, whole=True)
+        pr["precut"] = True
+        pr["pick_note"] = ("This video is already a clip, so it's one clip from start to end. "
+                           "Add captions and pick a layout, then Keep and render.")
+        log(f"Already a clip ({engine.fmt_ts(an.duration)}): using the whole video, no moments to find.")
     else:
         clips = _pick(pr, count, length)
         _number(pr, clips)
@@ -1265,6 +1299,19 @@ def _wm_opts(w: dict) -> dict:
     return {"wm_marks": w["marks"]}
 
 
+def _cams(v) -> list:
+    """Layout › Facecams beyond the first: up to 3 boxes of four numbers (anything else is left out)."""
+    out = []
+    for r in (v if isinstance(v, list) else [])[:engine.MAX_CAMS - 1]:
+        try:
+            box = tuple(float(x) for x in r)
+        except (TypeError, ValueError):
+            continue
+        if len(box) == 4 and all(math.isfinite(x) for x in box):
+            out.append(box)
+    return out
+
+
 def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
     ex = ex or {}
     return engine.RenderOpts(
@@ -1277,6 +1324,7 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         cap_outline=int(o.get("cap_outline", 100)), cap_shadow=int(o.get("cap_shadow", 100)),
         layout=o.get("layout", "split"),
         cam=tuple(float(v) for v in o.get("cam", [0, 0, 0.25, 0.25])),
+        cams=_cams(o.get("cams")),
         cam_height=float(o.get("cam_height", 0.33)),
         game_zoom=float(o.get("game_zoom", 1.0)),
         game_x=float(o.get("game_x", 0.5)),

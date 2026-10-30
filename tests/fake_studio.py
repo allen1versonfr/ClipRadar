@@ -26,7 +26,13 @@ UPLOAD = """<!doctype html><meta charset=utf-8><title>TikTok Studio</title>
 <div id=confirm hidden>Your video may not be eligible for the For You feed. <button id=postnow>Post now</button></div>
 <script>
 let file = null;
+const FLAKY = location.search.includes('flaky=1');      // a page that ignores the first file and the first typing
+let ignoredFile = false, ignoredTyping = false;
+document.getElementById('cap').addEventListener('input', () => {
+  if (FLAKY && !ignoredTyping) { ignoredTyping = true; setTimeout(() => { document.getElementById('cap').innerText = file.name; }, 100); }
+});
 document.getElementById('f').addEventListener('change', e => {
+  if (FLAKY && !ignoredFile) { ignoredFile = true; e.target.value = ''; return; }
   file = e.target.files[0];
   document.getElementById('pick').hidden = true;
   document.getElementById('editor').hidden = false;
@@ -70,6 +76,11 @@ class _H(BaseHTTPRequestHandler):
             if (srv.mode == "login" or parse_qs(u.query).get("login")) and not signed:
                 self.send_response(302)
                 self.send_header("Location", "/login?redirect_url=/tiktokstudio/upload")
+                self.end_headers()
+                return
+            if srv.mode == "flaky" and "flaky=1" not in u.query:
+                self.send_response(302)
+                self.send_header("Location", "/tiktokstudio/upload?flaky=1")
                 self.end_headers()
                 return
             return self._send(UPLOAD)

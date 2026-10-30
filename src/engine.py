@@ -2299,6 +2299,7 @@ def make_thumb(video: str, t: float, out: str, width: int = 480) -> str:
 class RenderOpts:
     layout: str = "split"           # split (cam + game) | full (whole frame) | blur | square (square crop on blur) | cam (facecam only)
     cam: tuple = (0.0, 0.0, 0.25, 0.25)   # facecam crop x, y, w, h as fractions of source
+    cams: list = field(default_factory=list)   # more facecams (a duo, a podcast), each a box like cam; at most 3
     cam_height: float = 0.33        # fraction of output height used by facecam in split
     game_zoom: float = 1.0          # >1 zooms gameplay in
     game_x: float = 0.5             # horizontal focus of gameplay crop 0..1
@@ -2442,6 +2443,7 @@ def _num(v, default: float, lo: float, hi: float) -> float:
     return min(max(f, lo), hi) if math.isfinite(f) else default
 
 
+MAX_CAMS = 4            # facecams in one clip: cam and up to 3 more (cams)
 MAX_ZOOM = 4.0          # the Layout tab goes to 2x; older or edited settings are held to this
 MIN_CAM_PX = 8          # a facecam box smaller than this (source pixels, or 2% of a tiny video) is an empty box
 
@@ -2523,12 +2525,35 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         cy -= cy % 2
         return f"{crop_filter(sw, sh, cw, ch, cx, cy)},scale={out_w}:{out_h}:flags=lanczos,setsar=1"
 
+    rects = [o.cam] + list(getattr(o, "cams", None) or [])[:MAX_CAMS - 1]
+
+    def cells(total: int, n: int) -> list:
+        """n even sizes that add up to total (the last takes what's left)."""
+        each = _even(total / n)
+        return [each] * (n - 1) + [total - each * (n - 1)]
+
+    def cam_cell(rect, cw: int, ch: int) -> str:
+        return (f"{cam_crop(rect)},scale={cw}:{ch}:force_original_aspect_ratio=increase:"
+                f"flags=lanczos,crop={cw}:{ch},setsar=1")
+
+    def cam_row(cw_total: int, ch_total: int, side_by_side: bool) -> tuple:
+        """(filters reading [c0], [c1]..., the inputs' labels, the output label) for every facecam in one
+        strip: side by side (above the gameplay) or stacked (Cam only)."""
+        n = len(rects)
+        if n == 1:
+            return f"[c0]{cam_cell(rects[0], cw_total, ch_total)}[cam]", "[c0]"
+        sizes = cells(cw_total if side_by_side else ch_total, n)
+        parts = [f"[c{i}]{cam_cell(r, s, ch_total) if side_by_side else cam_cell(r, cw_total, s)}[k{i}]"
+                 for i, (r, s) in enumerate(zip(rects, sizes))]
+        stack = "hstack" if side_by_side else "vstack"
+        parts.append("".join(f"[k{i}]" for i in range(n)) + f"{stack}=inputs={n}[cam]")
+        return ";".join(parts), "".join(f"[c{i}]" for i in range(n))
+
     if layout == "split":
         top_h = _even(H * _num(o.cam_height, 0.33, 0.2, 0.5))
         bot_h = H - top_h
-        cam = (f"{cam_crop(o.cam)},scale={W}:{top_h}:force_original_aspect_ratio=increase:"
-               f"flags=lanczos,crop={W}:{top_h},setsar=1")
-        f = (f"[0:v]split=2[a][b];[a]{cam}[cam];[b]{game_crop(W, bot_h)}[game];"
+        cams, labels = cam_row(W, top_h, True)
+        f = (f"[0:v]split={len(rects) + 1}{labels}[b];{cams};[b]{game_crop(W, bot_h)}[game];"
              f"[cam][game]vstack=inputs=2,fps={fr},format=yuv420p[v]")
         cap_y = top_h  # right on the seam reads best
     elif layout == "full":
@@ -2538,10 +2563,15 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
             import framing
             cap_y = framing.caption_y(face.get("face_y"), face.get("face_h"), H, cap_y)
     elif layout == "cam":
-        # the facecam by itself, filling the frame
-        f = (f"[0:v]{cam_crop(o.cam)},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
-             f"crop={W}:{H},setsar=1,fps={fr},format=yuv420p[v]")
-        cap_y = H * 0.78
+        # the facecam by itself, filling the frame; several, one above the other
+        if len(rects) == 1:
+            f = (f"[0:v]{cam_crop(o.cam)},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
+                 f"crop={W}:{H},setsar=1,fps={fr},format=yuv420p[v]")
+            cap_y = H * 0.78
+        else:
+            cams, labels = cam_row(W, H, False)
+            f = f"[0:v]split={len(rects)}{labels};{cams};[cam]fps={fr},format=yuv420p[v]"
+            cap_y = cells(H, len(rects))[0]          # on the first seam, like Cam + game
     elif layout == "blur":
         # the whole picture, fitted inside the frame (never cropped or stretched), on a blurred,
         # darkened copy of itself that fills the rest. Works for wide, square and tall sources.
