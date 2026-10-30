@@ -172,12 +172,14 @@ jobs:
           python tests/test_black_cover.py
           python tests/test_layout_geometry.py
           python tests/test_precut.py
+          python tests/test_youtube_speed.py
           python tests/test_child_cleanup.py
           python tests/test_filelocks.py
           python tests/test_web_exports.py
           python tests/test_web_home.py
           python tests/test_web_settings.py
           python tests/test_web_review.py
+          python tests/test_web_live_moments.py
           python tests/test_web_a11y.py
           python tests/test_studio_auto.py
           python tests/test_studio_handoff.py

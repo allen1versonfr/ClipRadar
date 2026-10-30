@@ -14,8 +14,15 @@ export interface PlayerHandle {
   level: () => number
 }
 
-// which videos needed the smaller copy (the window can't play HEVC or AV1): 'making', 'ready' or 'failed'
+// which videos needed the smaller copy (the window can't play HEVC or AV1): 'making', 'ready' or 'failed',
+// and how far each copy being made has got. Kept per video, not per player: one player shows clips from
+// several videos (each live moment is its own), so what one video needed mustn't carry over to the next,
+// and a copy finished while you were on another clip still reaches the player showing that video.
 const copies: Record<string, string> = {}
+const making: Record<string, number> = {}
+const listeners = new Set<() => void>()
+const changed = () => listeners.forEach(f => f())
+const reloads: Record<string, number> = {}            // decode errors recovered by loading the video again
 
 /** The clip's stretch of the video, looping, with the preview volume the original page uses (vc_volume,
  *  vc_muted). A video the window can't play switches to Clip Radar's 480p copy (/api/preview). */
@@ -28,8 +35,14 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipK
     const [paused, setPaused] = useState(true)
     const [vol, setVol] = useState(() => Math.min(1, Math.max(0, Number(getPref('volume', 1)) || 0)))
     const [muted, setMuted] = useState(() => !!getPref('muted', false))
-    const [copy, setCopy] = useState(copies[src] ?? '')
-    const [making, setMaking] = useState<number>()
+    const [, redraw] = useState(0)
+    useEffect(() => {
+      const f = () => redraw(n => n + 1)
+      listeners.add(f)
+      return () => { listeners.delete(f) }
+    }, [])
+    const copy = copies[src] ?? ''
+    const progress = copy === 'making' ? making[src] ?? 0 : undefined
     const range = useRef({ start, end })
     range.current = { start, end }
     const url = copy === 'ready' ? `${src}?preview=1` : src
@@ -82,26 +95,29 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipK
     }, [vol, muted])
 
     async function makeCopy() {
-      if (copies[src]) return
-      copies[src] = 'making'
-      setMaking(0)
+      const key = src                       // the video this copy is for, even if the clip changes meanwhile
+      if (copies[key]) return
+      copies[key] = 'making'
+      making[key] = 0
+      changed()
       try {
         const r = await api(PreviewCopy, '/api/preview', { pid })
         if (!r.ready && r.job) {
           for (;;) {
             const j = await api(Job, `/api/job/${r.job}`)
-            setMaking(j.progress)
+            making[key] = j.progress
+            changed()
             if (j.status === 'done') break
             if (j.status !== 'running') throw new Error(j.error || 'The preview copy stopped.')
             await new Promise(res => setTimeout(res, 700))
           }
         }
-        copies[src] = 'ready'
+        copies[key] = 'ready'
       } catch {
-        copies[src] = 'failed'
+        copies[key] = 'failed'
       }
-      setCopy(copies[src]!)
-      setMaking(undefined)
+      delete making[key]
+      changed()
     }
     function onTime() {
       const el = v.current
@@ -110,9 +126,29 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipK
       if (!el.paused && (el.currentTime >= b - 0.04 || el.currentTime < a - 1)) el.currentTime = a     // playing: loop the clip
       setT(el.currentTime)
     }
+    // A video that played and then stops decoding hasn't become unplayable: the window's decoder lost its
+    // GPU for a moment (Whisper loading onto the graphics card to write titles can do that). Loading it
+    // again where it was is enough; making the smaller copy of a long VOD instead took minutes, with the
+    // clip blank meanwhile. Twice at most per video; after that, or for a video that never played, the copy.
+    const played = useRef('')
     function onLoaded() {
       const el = v.current
+      if (el?.videoWidth) played.current = url
       if (el && !el.videoWidth && copy !== 'ready') void makeCopy()           // sound but no picture
+    }
+    function onError() {
+      const el = v.current
+      if (el && el.error?.code === 3 /* MEDIA_ERR_DECODE */ && played.current === url && (reloads[url] ?? 0) < 2) {
+        reloads[url] = (reloads[url] ?? 0) + 1
+        const at = el.currentTime, wasPlaying = !el.paused || autoPlay
+        el.load()
+        el.addEventListener('loadedmetadata', () => {
+          try { el.currentTime = at } catch { /* keeps its start */ }
+          if (wasPlaying) void el.play().catch(() => {})
+        }, { once: true })
+        return
+      }
+      if (copy !== 'ready') void makeCopy()
     }
     const len = Math.max(0.1, end - start)
     const level = muted ? 0 : vol
@@ -122,9 +158,9 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipK
           {children}
           <video ref={v} src={url} playsInline preload="auto" data-testid="rv-video" style={children ? { display: 'none' } : undefined}
                  onTimeUpdate={onTime} onPlay={() => setPaused(false)} onPause={() => setPaused(true)}
-                 onLoadedData={onLoaded} onError={() => { if (copy !== 'ready') void makeCopy() }}
+                 onLoadedData={onLoaded} onError={onError}
                  onClick={() => { const el = v.current; if (el) void (el.paused ? el.play().catch(() => {}) : el.pause()) }} />
-          {making !== undefined && <p className="rv-making">This video needs a copy the window can play. Making it… {Math.round(making * 100)}%</p>}
+          {progress !== undefined && <p className="rv-making">This video needs a copy the window can play. Making it… {Math.round(progress * 100)}%</p>}
           {copy === 'failed' && <p className="rv-making">This video can't be previewed here. Renders still use the original.</p>}
         </div>
         <div className="rv-controls">

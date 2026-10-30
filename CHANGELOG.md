@@ -5,6 +5,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.31.0] - 2026-10-30
+
+Ordinary YouTube videos open sooner (nothing waits for the download any more, and nothing is downloaded twice), and a clip in Review that stayed blank, sound but no picture, now plays.
+
+### Changed
+- **Ordinary YouTube videos open sooner.** Before, everything happened one after the other: the link was checked, YouTube was looked up again for the download, the video came down and then its sound, then the comments, captions and Most replayed graph were read (another lookup, often ten seconds or more), and only then was the sound listened to. Now:
+  - The downloads start from what the link check already found, instead of looking the video up again (a few seconds each). If those links don't work any more, yt-dlp looks it up by itself.
+  - Comments, captions and Most replayed are read while the video downloads.
+  - The sound downloads on its own beside the video and is listened to (loudness, laughter) during the video's download. The video's download then uses that file as its sound instead of fetching it again, so nothing is downloaded twice. If the video's download gets to the sound first, it fetches its own and the early copy is thrown away.
+  - With a stand-in yt-dlp timed like YouTube (lookups, comments, video, then sound), opening a video went from 7.3 s to 3.4 s, about as long as the link check plus the video's download, and the sound is already listened to when the download ends. That's a simulation: real times depend on the video and the connection. The clips found are the same: listening to the sound alone gives the same loudness, second by second, as listening to the downloaded video.
+
+### Fixed
+- **Review: a clip could be blank and never play.**
+  - One player shows clips from several videos (each live moment is its own). Once one video needed Clip Radar's playable copy, the player asked for that copy for every clip after it, from any video. A video with no copy was sent as it was; if the window couldn't play it either, nothing happened and no message showed. What a video needs is now kept per video.
+  - A copy that finished while you were on another clip is used when you come back.
+  - A video that played and then hit a decode error (the window's decoder can lose the graphics card for a moment, for example while Whisper loads onto it to write titles) is loaded again where it was, up to twice. Before, it went straight to making a 480p copy of the whole video, which takes minutes on a long VOD, and the clip stayed blank meanwhile. Whether that's what blanks clips while titles are written is still being looked into ([#42](https://github.com/allen1versonfr/ClipRadar/issues/42)).
+
+### Tests
+- `tests/test_web_live_moments.py` (new, in CI): two live moments in a codec the browser can't play, in Review in a real browser: each one plays with its own copy, back and forth (the second stayed blank before). `tests/browser.py` also finds Playwright's newer `chrome-linux64` Chromium.
+- `web/`: 153 Vitest tests, including the player: a copy for one video not used for the next video, a copy finished while you're on another clip, and a decode error after playing (loaded again twice, then the copy).
+- `tests/test_youtube_speed.py` (new, in CI): a stand-in yt-dlp. Checks that YouTube is only looked up for the link check and the comments, that the comments are read during the download, that the early sound is handed over and the video's download joins it, that listening early hears the same as listening to the video, that a video download that gets to the sound first is left alone and nothing is left behind, and that the whole open takes about as long as the link check plus the video.
+
 ## [4.30.0] - 2026-10-30
 
 More title looks (yellow on black among them) and much bigger text, Mute all and Bleep all in the content check, which also flags fewer harmless words and misses fewer real ones, spelling fixes, and Clear queue in Exports.

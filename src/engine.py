@@ -529,6 +529,18 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     # Neither may outlive this call with cookie_file: it's the Twitch sign-in, deleted when this returns, and
     # yt-dlp writes its cookies back when it exits. Twitch chat comes from TwitchDownloaderCLI (no cookies);
     # YouTube chat gets the browser's cookies only; the early sound download is stopped before returning.
+    # A YouTube video: the link check already has everything the downloads need, so they start from it
+    # (--load-info-json) instead of asking YouTube again, which takes a few seconds each time (its player has
+    # to be worked out). The sound comes down on its own and is listened to while the video downloads, then
+    # handed to the video's download as its sound part, so it isn't fetched twice. Comments, captions and
+    # Most replayed are read alongside too: before, all of that waited for the download, then for each other.
+    # The background work gets the browser's cookies only, not cookie_file (the Twitch sign-in): see above.
+    info_file = _write_info(workdir, meta) if meta and which("yt-dlp") else ""
+    extras = None
+    if c["platform"] == "youtube" and meta:
+        import ytextra
+        extras = _Soon.start(("ytextra", workdir), lambda s: ytextra.gather(
+            url, workdir, meta, log, ["--cookies-from-browser", cookies_browser] if cookies_browser else []))
     info: dict = {}
     chat_soon = None
     if not chat_file and c["platform"] == "twitch":
@@ -536,14 +548,22 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     elif not chat_file and c["platform"] == "youtube" and _meta(workdir).get("kind") == "vod":
         chat_soon = _Soon.start(("chat", workdir), lambda s: (_youtube_chat(url, workdir, log, cookies_browser), {}))
     sound = None
+    handoff = ""
+    part = _sound_part(meta) if c["platform"] == "youtube" else None
     if early_sound and vod_id and fresh:
         sound = _Soon.start(("sound", workdir), lambda s: _early_sound(s, url, workdir, cookies_browser, cookie_file,
                                                                        events, log, check))
+    elif early_sound and part and fresh:
+        import locations
+        handoff = os.path.join(locations.download_dir(workdir), f"vod.f{part[0]}.{part[1]}")
+        sound = _Soon.start(("sound", workdir), lambda s: _early_sound(s, url, workdir, cookies_browser, "", events, log,
+                                                                       check, fmt=part[0], info_file=info_file,
+                                                                       handoff=handoff))
     step("Downloading the VOD" if c["platform"] == "twitch" else "Downloading the video")
     got_video = False
     try:
         video, title = _download_video(url, vod_id, workdir, max_height, cookies_browser,
-                                       log, progress, step, check, cookie_file)
+                                       log, progress, step, check, cookie_file, info_file)
         got_video = True
     except Cancelled:
         raise
@@ -556,13 +576,23 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
             if not got_video:
                 sound.cancel.set()            # the video failed or was stopped: so does the sound
             sound.mark.wait()                 # its download is over either way (see cookie_file above)
+        if got_video and handoff and os.path.exists(handoff):
+            try:
+                os.remove(handoff)            # the sound came down after the video was joined: not needed
+            except OSError:
+                pass
+        if info_file:
+            try:
+                os.remove(info_file)
+            except OSError:
+                pass
     check()
-    if c["platform"] == "youtube" and meta:
-        # no chat on an ordinary video: what YouTube knows about it (Most replayed, comments, captions)
-        import ytextra
-        step("Reading YouTube's Most replayed graph, comments and captions")
-        ytextra.gather(url, workdir, meta, log, ["--cookies", cookie_file] if cookie_file
-                       else ["--cookies-from-browser", cookies_browser] if cookies_browser else [])
+    if extras is not None:
+        # no chat on an ordinary video: what YouTube knows about it (Most replayed, comments, captions),
+        # read while the video downloaded
+        if not extras.done():
+            step("Reading YouTube's Most replayed graph, comments and captions")
+        extras.wait()
         check()
     step("Getting chat replay")
     if chat_file:
@@ -596,6 +626,33 @@ def _video_format(max_height: int) -> str:
     return (f"bv*[height<={max_height}][vcodec^=avc1]+ba/"
             f"b[height<={max_height}][vcodec^=avc1]/"
             f"bv*[height<={max_height}]+ba/b[height<={max_height}]/bv*+ba/b")
+
+
+def _write_info(workdir: str, meta: dict) -> str:
+    """The link check's metadata as a file yt-dlp can start a download from (--load-info-json), or '' if it
+    can't be written. A download that can't use it (links gone stale) looks the video up again by itself."""
+    p = os.path.join(workdir, "probe.info.json")
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, default=str)
+        return p
+    except (OSError, TypeError, ValueError):
+        return ""
+
+
+def _sound_part(meta: Optional[dict]) -> Optional[tuple]:
+    """(format id, ext) of the sound a download will fetch as its own file next to the video (YouTube sends
+    them apart), or None when it's one file with both."""
+    rf = (meta or {}).get("requested_formats") or []
+    if len(rf) != 2:
+        return None
+    v, a = rf
+    if v.get("vcodec") in (None, "none") or a.get("vcodec") not in (None, "none") or a.get("acodec") in (None, "none"):
+        return None
+    fid, ext = str(a.get("format_id") or ""), str(a.get("ext") or "")
+    if not re.fullmatch(r"[\w.-]+", fid) or not re.fullmatch(r"\w+", ext):
+        return None
+    return fid, ext
 
 
 def _size_of(meta: Optional[dict]) -> float:
@@ -743,7 +800,7 @@ def _youtube_chat(url: str, workdir: str, log: Log, cookies_browser: str = "", c
 
 def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: int,
                     cookies_browser: str, log: Log, progress: Progress, step: Log, check: Check,
-                    cookie_file: str = ""):
+                    cookie_file: str = "", info_file: str = ""):
     import locations
     dl = locations.download_dir(workdir)              # Settings › Storage › Downloaded videos
     os.makedirs(dl, exist_ok=True)
@@ -767,7 +824,8 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
     exe = which("yt-dlp")
     if exe:
         try:
-            return _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file, out_dir=dl)
+            return _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file, out_dir=dl,
+                              info_file=info_file)
         except Cancelled:
             raise
         except Exception as e:
@@ -927,7 +985,10 @@ def _finish_download(workdir: str, title: str, duration, progress: Progress, log
     return video, title
 
 
-def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file="", out_dir=""):
+def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, check, cookie_file="", out_dir="",
+               info_file=""):
+    """info_file: the link check's metadata (_write_info), so yt-dlp doesn't look the video up again. When its
+    links don't work any more, yt-dlp looks it up by itself ("trying with URL")."""
     out_dir = out_dir or workdir
     def num(x):
         try:
@@ -952,7 +1013,7 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
         cmd += ["--cookies", cookie_file]
     elif cookies_browser:
         cmd += ["--cookies-from-browser", cookies_browser]
-    cmd.append(url)
+    cmd += ["--load-info-json", info_file] if info_file and os.path.isfile(info_file) else [url]
     log("Downloading the VOD. Long streams take a while.")
     st = _Stepper(progress, step, log)
     info = {}
@@ -1201,10 +1262,15 @@ def _with_info(fn) -> tuple:
 
 
 def _early_sound(soon: "_Soon", url: str, workdir: str, cookies_browser: str, cookie_file: str, events: bool,
-                 log: Log, check: Check) -> Optional[tuple]:
+                 log: Log, check: Check, fmt: str = "Audio_Only/ba", info_file: str = "",
+                 handoff: str = "") -> Optional[tuple]:
     """Download a Twitch VOD's sound-only version and listen to it, while the video downloads alongside.
     Returns measure_audio's (loud, fine, events), or None if anything went wrong (the video is listened to
-    instead, as before). soon.mark is set as soon as the download part is over."""
+    instead, as before). soon.mark is set as soon as the download part is over.
+    A YouTube video (fmt: its sound's format id): handoff is where the video's own download looks for that
+    sound part (vod.f<id>.<ext>). A copy goes there as soon as it's down, and yt-dlp, finding it, joins it
+    instead of downloading it again. The video comes first and is about nine tenths of the bytes, so the
+    sound is nearly always there in time; if yt-dlp got to it first, it's left alone."""
     d = os.path.join(workdir, "sound_first")
     exe = which("yt-dlp")
 
@@ -1217,7 +1283,7 @@ def _early_sound(soon: "_Soon", url: str, workdir: str, cookies_browser: str, co
             return None
         shutil.rmtree(d, ignore_errors=True)
         os.makedirs(d, exist_ok=True)
-        cmd = [exe, "--ignore-config", "--no-progress", "--no-warnings", "-f", "Audio_Only/ba", "-N", str(FRAGMENTS), *NO_FASTSTART,
+        cmd = [exe, "--ignore-config", "--no-progress", "--no-warnings", "-f", fmt, "-N", str(FRAGMENTS), *NO_FASTSTART,
                "--socket-timeout", "30", "--retries", "10", "--fragment-retries", "20",
                "-o", os.path.join(d, "sound.%(ext)s")]
         ff = which("ffmpeg")
@@ -1230,7 +1296,8 @@ def _early_sound(soon: "_Soon", url: str, workdir: str, cookies_browser: str, co
         t0 = time.monotonic()
         errlog = os.path.join(d, "yt-dlp.log")
         with open(errlog, "wb") as ef:
-            p = subprocess.Popen(cmd + [url], stdout=subprocess.DEVNULL, stderr=ef, stdin=subprocess.DEVNULL,
+            p = subprocess.Popen(cmd + (["--load-info-json", info_file] if info_file else [url]),
+                                 stdout=subprocess.DEVNULL, stderr=ef, stdin=subprocess.DEVNULL,
                                  creationflags=CREATE_NO_WINDOW, **({} if os.name == "nt" else {"start_new_session": True}))
         procjob.adopt(p)
         try:
@@ -1240,10 +1307,11 @@ def _early_sound(soon: "_Soon", url: str, workdir: str, cookies_browser: str, co
                 except Cancelled:
                     kill_tree(p)
                     raise
-                time.sleep(0.5)
+                time.sleep(0.2 if handoff else 0.5)       # the video's download may want it soon
         finally:
             p.wait()
-            soon.mark.set()
+            if not handoff:
+                soon.mark.set()
         names = [f for f in os.listdir(d) if f.startswith("sound.") and not f.endswith((".part", ".ytdl"))
                  and ".part-Frag" not in f and ".temp." not in f]
         if p.returncode != 0 or not names:
@@ -1251,13 +1319,16 @@ def _early_sound(soon: "_Soon", url: str, workdir: str, cookies_browser: str, co
                 why = [ln.strip() for ln in ef if ln.strip()]
             raise RuntimeError(_clean_ytdlp_error(why[-1]) if why else f"yt-dlp exited with code {p.returncode}")
         sound = os.path.join(d, names[0])
+        if handoff:
+            _hand_over(sound, handoff, log)
+            soon.mark.set()
         dur = float(run([ffprobe(), "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1",
                          sound], timeout=60).stdout.strip() or 0)
         if dur <= 0:
             return None
         took = time.monotonic() - t0
         res = measure_audio(sound, dur, events, check=stop, log=log)
-        log(f"Listened to the stream's sound while the video downloads (sound-only copy in {took:.0f} s, "
+        log(f"Listened to the sound while the video downloads (sound-only copy in {took:.0f} s, "
             f"listening {time.monotonic() - t0 - took:.0f} s).")
         return res
     except Cancelled:
@@ -1269,6 +1340,31 @@ def _early_sound(soon: "_Soon", url: str, workdir: str, cookies_browser: str, co
     finally:
         soon.mark.set()
         shutil.rmtree(d, ignore_errors=True)
+
+
+def _hand_over(sound: str, target: str, log: Log) -> bool:
+    """Put a copy of the sound where the video's download will look for its sound part, unless that download
+    has already started on it (or has it). A copy, not a move: this file is listened to next, and the
+    download deletes its parts once they're joined."""
+    if os.path.exists(target) or os.path.exists(target + ".part") or os.path.exists(target + ".ytdl") \
+            or _video_in(os.path.dirname(target)):
+        return False
+    tmp = os.path.join(os.path.dirname(target), "sound-handoff.tmp")
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copyfile(sound, tmp)
+        if os.path.exists(target + ".part"):          # it started while the copy was made: it'll have its own
+            os.remove(tmp)
+            return False
+        os.replace(tmp, target)
+        log("The sound is down already, so the video's download won't fetch it again.")
+        return True
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
 
 
 def _sidecar_chat(video: str, workdir: str, log: Log, info: Optional[dict] = None) -> list:
