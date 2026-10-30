@@ -56,11 +56,25 @@ check("one message repeating an emote isn't many people", w("KEKW KEKW KEKW KEKW
       w("KEKW KEKW KEKW KEKW KEKW KEKW"))
 check("but still more than one", w("KEKW KEKW") > w("KEKW"))
 check("reactions in phrases", w("NO SHOT") > 1.0 and w("oh my god") > 1.0 and w("holy") > 1.0)
-check("shouting in capitals reacts a little", 1.0 < w("WHY WOULD YOU DO THAT") < 2.0 and w("why would you do that") == 1.0)
+# 4.33: capitals counted a little in 4.32; on a real YouTube stream that made "CALL HIM" and "SHOW ON SCREEN"
+# (chat demanding something) read as reactions
+check("capitals alone aren't a reaction", w("CALL HIM") == 1.0 and w("SHOW ON SCREEN") == 1.0)
 check("clip requests still count most", w("clip it") >= 4.0)
 check("is_reaction", engine.is_reaction("LMAOOO") and not engine.is_reaction("germany") and not engine.is_reaction(""))
 check("words for reactions aren't added to the words chat titles leave out", "hahaha" not in engine.HYPE
       and "holy" not in engine.HYPE)
+
+check("a number on its own is a vote or an answer, not a reaction",
+      all(chatsignal.low_info(t) for t in ("50", "5,000", "100", "$20", "4k", "1.5", "07", "F", "f f fff"))
+      and not any(chatsignal.low_info(t) for t in ("1v1 me", "W", "50 is crazy", "fine")))
+import time  # noqa: E402
+t0 = time.time()
+for t in ("f" * 300 + "!", "F " * 150 + "x", "f" * 40 + "a", "1" * 300 + "x"):
+    chatsignal.low_info(t)
+    chatsignal.ChatScorer().weight(1.0, t, "u", "")
+# real-world test (4.33): one message of 120 f's and a "!" made the old rule backtrack for ever, so Find
+# clips never finished on that stream
+check("a long run of f's in one message doesn't hang", time.time() - t0 < 0.5, time.time() - t0)
 
 sc = chatsignal.ChatScorer()
 talk: list = []
@@ -209,6 +223,45 @@ for label, laugh, hype in (("chat laughing in many ways", NEW_LAUGH, NEW_HYPE), 
     check(f"3-hour streams, {label}: chat answering a question is rarely a clip", fooled.count("question") <= 3, fooled)
     check(f"3-hour streams, {label}: loud songs, blips and a spammer aren't clips",
           not any(k in ("music", "blip", "spam") for k in fooled), fooled)
+
+# ---------------------------------------------------------------- quality over quantity (4.33)
+def score_only(n, peaks):
+    """An analysis whose score is flat noise with the given (time, height) moments."""
+    an = engine.score_signals(None, [], n, float(n), 6.0, 60, rate=np.zeros(n, dtype=np.float32), stats={})
+    s = np.clip(rng.normal(0.3, 0.3, n), 0, None).astype(np.float32)
+    for t, h in peaks:
+        s[t - 3:t + 4] = np.maximum(s[t - 3:t + 4], h * np.array([0.4, 0.7, 0.9, 1, 0.9, 0.7, 0.4]))
+    an.score = s
+    return an
+
+
+H4 = 4 * 3600
+big = [(1000 + k * 3000, 12.0) for k in range(3)]
+small = [(500 + k * 430, 3.5) for k in range(30) if all(abs(500 + k * 430 - t) > 120 for t, _ in big)]
+few = score_only(H4, big + small)
+got = engine.pick_clips(few, count=0)
+# before, at least 3 an hour: 12 clips here, nine of them the small bumps
+check("automatic: a 4-hour stream with 3 big moments gets those, not a number per hour",
+      engine.MIN_AUTO_CLIPS <= len(got) <= 4 and all(any(abs(c.peak - t) < 10 for c in got) for t, _ in big),
+      [(int(c.peak), c.quality) for c in got])
+busy = score_only(H4, [(200 + k * 140, 8.0 + (k % 5)) for k in range(100)])
+check("automatic: a very busy stream is held to the best", len(engine.pick_clips(busy, count=0)) <= engine.MAX_AUTO_CLIPS)
+spread = score_only(H4, [(200 + k * 140, 2.0 + 10.0 * ((k * 37) % 60) / 60) for k in range(60)])
+n_by = {k: engine.estimate(spread, k)["suggest"] for k in ("fewer", "normal", "more")}
+check("fewer, normal, more", n_by["fewer"] < n_by["normal"] < n_by["more"], n_by)
+check("a number you choose is still met", len(engine.pick_clips(few, count=20)) == 20)
+
+# ---------------------------------------------------------------- clips up to 2 minutes (4.33)
+check("every stream type allows 2-minute clips", all(p["max"] >= 120 for p in detect.PRESETS.values())
+      and engine.MAX_LEN == 120)
+long_an = score_only(1200, [])
+long_an.score[400:520] = 6.0                     # a reaction that goes on for two minutes
+st, en, _ = engine.smart_bounds(long_an, 430)
+check("a long reaction gets a clip of up to 2 minutes", 95 <= en - st <= 120.5 and en >= 515, (st, en))
+long_an.score[400:520] = 0.3
+long_an.score[400:408] = 6.0
+st, en, _ = engine.smart_bounds(long_an, 404)
+check("a short one stays short", en - st <= 40, (st, en))
 
 # ---------------------------------------------------------------- live
 import live_replay as lr  # noqa: E402

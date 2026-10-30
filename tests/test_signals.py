@@ -144,12 +144,14 @@ an = engine.Analysis(float(n), np.zeros(n, np.float32), np.zeros(n, np.float32),
 an.score = s
 st, en, done = engine.smart_bounds(an, 305)
 check("smart cut includes the build-up and the reaction", st <= 286 and 320 <= en <= 335 and done, (st, en))
-check("smart cut stays within 15-90 s", 15 <= en - st <= 90, en - st)
+check("smart cut stays within 15-120 s", 15 <= en - st <= 120, en - st)
 s2 = np.zeros(n, dtype=np.float32)
 s2[100:400] = 6
 an.score = s2
 st, en, _ = engine.smart_bounds(an, 250)
-check("a very long moment is cut to 90 s", en - st <= 90.5, (st, en))
+check("a very long moment is cut to 2 minutes", 119 <= en - st <= 120.5, (st, en))
+st, en, _ = engine.smart_bounds(an, 250, max_len=90)
+check("or to the longest you set", en - st <= 90.5, (st, en))
 an.score = s
 st, en, done = engine.smart_bounds(an, 305, avail=315)
 check("live: waits while the reaction is still going", not done, (st, en))

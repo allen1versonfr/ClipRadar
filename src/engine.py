@@ -1560,10 +1560,6 @@ def chat_weight(text: str) -> float:
         w += 1.0
     if re.search(r"(\w)\1{4,}", t):  # "LETSGOOOOO", "AAAAAA"
         w += 0.8
-    if not seen and len(text) >= 6 and text != t:
-        letters = [c for c in text if c.isalpha()]
-        if len(letters) >= 6 and sum(c.isupper() for c in letters) >= 0.85 * len(letters):
-            w += 0.5                      # shouting in capitals: "WHY WOULD YOU DO THAT"
     return min(w, 8.0)
 
 
@@ -2047,7 +2043,7 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
 # 3. pick clips
 # --------------------------------------------------------------------------
 
-MIN_LEN, MAX_LEN = 15.0, 90.0
+MIN_LEN, MAX_LEN = 15.0, 120.0          # 4.33: up to 2 minutes (was 90 s)
 STRONG, GOOD = 3.0, 2.0
 
 
@@ -2088,12 +2084,27 @@ def estimate(an: Analysis, sensitivity: str = "normal") -> dict:
             good += 1
             if v >= STRONG:
                 strong += 1
-    base = strong + (good - strong) // 2
-    suggest = int(min(60, max(5, base, round(3 * hours))))
+    # quality first (4.33): suggest the moments that stand out against this stream's best, however long it is.
+    # Before, at least 3 an hour were suggested (5 at least), so a 4-hour stream got 13+ clips even with a few
+    # good moments, and a busy one 60 (real-world test: a 4.4-hour IShowSpeed stream, 60 clips, many of them
+    # chat begging or answering)
+    bar = standout_bar(an, sensitivity)
+    peaks = moment_scores(an, edge=min(60, int(n * 0.03)))
+    suggest = int(min(MAX_AUTO_CLIPS, max(MIN_AUTO_CLIPS, int((peaks >= bar).sum()))))
+    return {"strong": strong, "good": good, "hours": round(hours, 2), "suggest": suggest}
+
+
+MAX_AUTO_CLIPS = 40        # an automatic list never goes past this (pick a number to get more)
+
+
+def standout_bar(an: Analysis, sensitivity: str = "normal") -> float:
+    """The weakest moment an automatic list takes: above the sensitivity's floor, and a share of how strong
+    the stream's best moments are (its third best, so one freak moment doesn't set the bar)."""
     import detect
     sens = detect.SENSITIVITY.get(sensitivity, detect.SENSITIVITY["normal"])
-    suggest = int(min(100, max(3, round(suggest * sens["count"]))))
-    return {"strong": strong, "good": good, "hours": round(hours, 2), "suggest": suggest}
+    peaks = moment_scores(an)
+    ref = float(peaks[min(2, len(peaks) - 1)]) if len(peaks) else 0.0
+    return max(sens["floor"], sens["rel"] * ref)
 
 
 def _snap(fine: Optional[np.ndarray], t: float, before: float, after: float) -> float:
@@ -2114,7 +2125,7 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
                  min_len: float = MIN_LEN, max_len: float = MAX_LEN, final: bool = False,
                  trigger: Optional[float] = None) -> tuple:
     """Where a clip around a peak should start and end: back far enough to show what led up to it,
-    on until the reaction has died down, 15 to 90 seconds. Returns (start, end, complete); complete is
+    on until the reaction has died down, 15 to 120 seconds. Returns (start, end, complete); complete is
     False while live mode hasn't seen the reaction end yet."""
     s = an.score
     n = len(s) if avail is None else min(len(s), int(avail))
@@ -2123,8 +2134,11 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
     top = float(s[p])
     calm = max(0.8, 0.35 * top)            # the reaction is over below this
     calm_back = max(0.6, 0.25 * top)       # and it hadn't started yet below this
+    # how far the setup and the reaction may reach: further for longer clips, so a 2-minute clip can keep a
+    # long reaction (90 s clips used to stop 45 s after the peak, whatever was still going on)
+    back_room, on_room = max(55, int(0.5 * max_len)), max(45, int(0.75 * max_len))
     # build-up: walk back to where things were calm for 3 seconds
-    lim = max(0, p - 60)
+    lim = max(0, p - back_room - 5)
     build = lim
     quiet = 0
     for i in range(p - 1, lim - 1, -1):
@@ -2136,7 +2150,7 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
         else:
             quiet = 0
     start = min(build - 7.0, p - 6.0)               # a little setup before it kicks off
-    start = max(start, p - 55.0, 0.0)
+    start = max(start, p - float(back_room), 0.0)
     keep_from = p - 8.0
     if trigger is not None and trigger < p:
         # chat reacted late: start before what it reacted to
@@ -2145,7 +2159,7 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
     # reaction: walk forward until it has been calm for 4 seconds
     end = None
     quiet = 0
-    for j in range(p + 1, min(n, p + 46)):
+    for j in range(p + 1, min(n, p + on_room + 1)):
         if s[j] < calm:
             quiet += 1
             if quiet >= 4:
@@ -2153,9 +2167,9 @@ def smart_bounds(an: Analysis, peak: float, avail: Optional[int] = None,
                 break
         else:
             quiet = 0
-    complete = end is not None or avail is None or final or n >= p + 46
+    complete = end is not None or avail is None or final or n >= p + on_room + 1
     if end is None:
-        end = min(float(n), p + 45.0)
+        end = min(float(n), p + float(on_room))
     end = max(end, p + 5.0)
     # length rules: longer clips trim the setup first, short ones grow mostly backwards
     L = end - start
@@ -2278,14 +2292,14 @@ def clip_features(an: Analysis, start: float, end: float, peak: float, chat: Opt
     return {k: round(v, 3) for k, v in f.items()}
 
 
-def moment_scores(an: Analysis) -> np.ndarray:
+def moment_scores(an: Analysis, edge: int = 0) -> np.ndarray:
     """Scores of the stream's separate moments (peaks at least 45 s apart), best first. What a clip's
-    score is graded against (grades)."""
+    score is graded against (grades). edge: leave out moments this close to the start or end."""
     s = an.score
     if s is None or not len(s):
         return np.zeros(0)
     cached = getattr(an, "_moments", None)
-    if cached is not None and cached[0] is s:
+    if cached is not None and cached[0] is s and cached[2] == edge:
         return cached[1]
     order = np.argsort(-s, kind="stable")
     blocked = np.zeros(len(s), dtype=bool)
@@ -2297,9 +2311,11 @@ def moment_scores(an: Analysis) -> np.ndarray:
         if blocked[i]:
             continue
         blocked[max(0, i - 45): i + 46] = True
+        if edge and (i < edge or i > len(s) - 1 - edge):
+            continue
         out.append(v)
     arr = np.array(out)
-    an._moments = (s, arr)
+    an._moments = (s, arr, edge)
     return arr
 
 
@@ -2343,8 +2359,7 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
     # automatic: only moments that really stand out; a number you chose gets filled with weaker ones
     # too, down to anything above the stream's normal level (fewer only when there aren't that many
     # separate moments; the caller says so)
-    sens = detect.SENSITIVITY.get(sensitivity, detect.SENSITIVITY["normal"])
-    floor = max(sens["floor"], 0.15 * top) if auto else 0.0
+    floor = max(standout_bar(an, sensitivity), 0.15 * top) if auto else 0.0
     skip_edge = min(60, int(n * 0.03))  # ignore "starting soon"/outro edges a bit
     chat_t = chat_times(chat) if chat else []
     # candidate peaks, a little apart from each other

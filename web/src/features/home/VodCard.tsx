@@ -8,7 +8,7 @@ import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtLeft } from '../exports/renderStatus'
 
 const COUNTS = ['0', '5', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55', '60', '70', '80', '90', '100']
-const LENGTHS: Array<[string, string]> = [['0', 'Auto (15–90 s)'], ['15', '15 s'], ['20', '20 s'], ['30', '30 s'], ['45', '45 s'], ['60', '60 s'], ['90', '90 s']]
+const LENGTHS: Array<[string, string]> = [['0', 'Auto (15–120 s)'], ['15', '15 s'], ['20', '20 s'], ['30', '30 s'], ['45', '45 s'], ['60', '60 s'], ['90', '90 s'], ['120', '2 min']]
 export const PRESETS: Array<[string, string]> = [['any', 'Any stream'], ['gaming', 'Gaming'], ['irl', 'IRL / Just Chatting'],
   ['reactions', 'Reactions'], ['interviews', 'Interviews'], ['podcasts', 'Podcasts']]
 // a stream type moves "Rank by" to where that kind of stream's moments show best (as in the original page)

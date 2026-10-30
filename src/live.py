@@ -222,7 +222,7 @@ class LiveSession:
         os.makedirs(self.moment_dir, exist_ok=True)
         engine._save_meta(self.dir, title=self.title, source=self.source, live=True, streamer=self.channel or "")
 
-        self.length = float(length or 0)          # 0 = each moment gets its own length (15-90 s)
+        self.length = float(length or 0)          # 0 = each moment gets its own length (15-120 s)
         self.set_frequency(sensitivity)
         self.wait_for_live = bool(wait_for_live)
         self.waited = 0.0

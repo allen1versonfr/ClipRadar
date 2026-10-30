@@ -33,16 +33,16 @@ PRESETS = {
     # emotes/surge/react/agree: weight of the extra signals. min/max: clip length (s). back: how far back
     # (s) to look for what set off a late chat reaction.
     "any": {"label": "Any stream", "chat": 60, "laugh": 4.0, "scream": 3.0, "cheer": 2.0,
-            "emotes": 0.3, "surge": 0.3, "react": 1.0, "agree": 0.5, "min": 15, "max": 90, "back": 25,
+            "emotes": 0.3, "surge": 0.3, "react": 1.0, "agree": 0.5, "min": 15, "max": 120, "back": 25,
             "hint": "Balanced. A good start for most streams."},
     "gaming": {"label": "Gaming", "chat": 55, "laugh": 3.5, "scream": 3.5, "cheer": 2.5,
-               "emotes": 0.35, "surge": 0.35, "react": 1.2, "agree": 0.6, "min": 15, "max": 60, "back": 25,
+               "emotes": 0.35, "surge": 0.35, "react": 1.2, "agree": 0.6, "min": 15, "max": 120, "back": 25,
                "hint": "Clutches, fails and jump scares: screams and sudden reactions count more."},
     "irl": {"label": "IRL / Just Chatting", "chat": 65, "laugh": 4.5, "scream": 2.5, "cheer": 2.0,
-            "emotes": 0.35, "surge": 0.3, "react": 0.8, "agree": 0.5, "min": 20, "max": 90, "back": 30,
+            "emotes": 0.35, "surge": 0.3, "react": 0.8, "agree": 0.5, "min": 20, "max": 120, "back": 30,
             "hint": "Chat and laughter lead; a little more setup before each moment."},
     "reactions": {"label": "Reactions", "chat": 50, "laugh": 5.0, "scream": 4.0, "cheer": 2.0,
-                  "emotes": 0.3, "surge": 0.3, "react": 1.5, "agree": 0.6, "min": 15, "max": 60, "back": 20,
+                  "emotes": 0.3, "surge": 0.3, "react": 1.5, "agree": 0.6, "min": 15, "max": 120, "back": 20,
                   "hint": "The streamer's own reaction matters most: laughs, screams, sudden outbursts."},
     "interviews": {"label": "Interviews", "chat": 50, "laugh": 3.0, "scream": 1.5, "cheer": 1.5,
                    "emotes": 0.2, "surge": 0.25, "react": 0.6, "agree": 0.3, "min": 30, "max": 120, "back": 35,
@@ -52,10 +52,12 @@ PRESETS = {
                  "hint": "Long, talky clips around the big laughs."},
 }
 SENSITIVITY = {
-    # floor: weakest moment considered when the number of clips is automatic; count: how many clips
-    "fewer": {"label": "Fewer, stronger", "floor": 2.3, "count": 0.6},
-    "normal": {"label": "Normal", "floor": 1.5, "count": 1.0},
-    "more": {"label": "More", "floor": 1.0, "count": 1.6},
+    # floor: weakest moment considered when the number of clips is automatic. rel (4.33): and how close it
+    # must come to the stream's own best moments (engine.standout_bar); quality first, so an automatic list
+    # is the moments that stand out, not a number per hour
+    "fewer": {"label": "Fewer, stronger", "floor": 2.3, "rel": 0.65},
+    "normal": {"label": "Normal", "floor": 1.5, "rel": 0.5},
+    "more": {"label": "More", "floor": 1.0, "rel": 0.3},
 }
 MIN_LEN_LIMIT, MAX_LEN_LIMIT = 3.0, 180.0
 

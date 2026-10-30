@@ -47,7 +47,10 @@ _SYSTEM = re.compile(
 # F wave in a calm chat read as "chat explodes" in live mode, so they count for nothing, like bot posts;
 # the moment itself is still found from the stream's sound and the rest of chat. "?", "!" and "W"/"L"
 # are left alone: they carry a reaction.
-LOW_INFO = re.compile(r"^\s*(?:(?:f+\s*)+|o7|07|[0-9]|[+\-.^]+)\s*$", re.I)
+# "f f fff" as one run of letters and spaces: a nested repeat here ((?:f+\s*)+) took seconds on "ffff...f!" and
+# for ever on a longer one (4.33: a real chat had 120 f's in one message, and Find clips never finished)
+# 4.33: a number on its own too ("50", "5,000", "100"): a vote, an answer or a price, not a reaction
+LOW_INFO = re.compile(r"^\s*(?:f[f\s]*|o7|07|\$?[0-9][0-9,.]*k?|[+\-.^]+)\s*$", re.I)
 LOW_INFO_WEIGHT = 0.0
 _NORM = re.compile(r"[^\w\s]")
 _SP = re.compile(r"\s+")

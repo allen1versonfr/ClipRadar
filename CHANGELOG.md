@@ -5,6 +5,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.33.0] - 2026-10-30
+
+Fewer, better clips, clips up to 2 minutes, and a stream whose chat had one long "ffff…" message no longer hangs Find clips. Tried on a real 4.4-hour IShowSpeed YouTube stream (its chat replay; YouTube wouldn't let the sound be downloaded for the test).
+
+### Changed
+- **Quality over quantity.** On Automatic, the clips suggested are the moments that stand out against the stream's own best ones: Normal takes moments at least half as strong as its third-best moment (Fewer two thirds, More under a third), at least 3 and at most 40. Before, at least 3 an hour were suggested (5 at least), up to 60, however few good moments there were. On the IShowSpeed stream: 60 clips before, 22 now. A number you choose is still met.
+- **Clips up to 2 minutes.** Automatic lengths now go from 15 s to 2 minutes for every stream type (90 s before; 60 s for Gaming and Reactions; Podcasts stays at 2½ minutes). A clip is only long when the reaction keeps going: it can now run 90 s past the peak (45 s before) and start a minute before it. Clip length has a **2 min** choice, on Home and for live clipping too, which also gains 90 s.
+- **Chat demands and answers count less.** Capitals no longer count as a reaction: YouTube chat types in capitals, and 4.32 took "CALL HIM" and "SHOW ON SCREEN" for reactions. A number on its own ("50", "5,000", "$20", "4k") is an answer, a vote or a price, and counts for nothing, like "F".
+
+### Fixed
+- **Find clips could hang for ever on a stream's chat.** A message made of a long run of f's followed by anything else ("ffff…f!") made the rule that ignores F waves backtrack: about a second at 24 f's, doubling with each more. That IShowSpeed stream has one with 120, so Find clips never got past "Finding the best moments". Every chat check was tried with 200-character messages of every kind and now takes milliseconds.
+
+### On the real stream (chat only)
+| | 4.31 | 4.32 | 4.33 |
+|---|---|---|---|
+| Clips on Automatic | 60 | 60 | 22 |
+| Chat in a clip's window that is reacting (laughs, W/L, NOOO, WTF, 💀) | 29.5% | 37.6% | 48.9% |
+| ...that is begging, numbers or demands (add me, my epic, call him, 500) | 13.9% | 10.8% | 6.2% |
+| Clips where under a quarter of chat reacts | 32 | 22 | 4 |
+| Longest clip | 90 s | 90 s | 110 s |
+
+Measured with a simple pattern, not by watching the clips; 4.31 and 4.32 had the hang fixed for this.
+
+### Tests
+- `tests/test_reactions.py`: capitals and numbers, a long run of f's (under half a second for four such messages, where it used to hang), a 4-hour stream with 3 big moments getting those 3 and not 12, a busy stream held to 40, Fewer < Normal < More, a chosen number still met, 2-minute clips for a long reaction and short ones for a short reaction. `tests/test_signals.py`: a very long moment cut to 2 minutes, or to the longest you set.
+
 ## [4.32.0] - 2026-10-30
 
 Finding clips is better at telling a real moment from a busy chat: it reads how chat reacts in many more ways, chat answering a question no longer passes for a moment, and a moment where the streamer and chat react together ranks higher. On simulated 3-hour streams with decoys, it found 98-100% of the real moments, against 71-92% before.
