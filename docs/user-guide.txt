@@ -281,7 +281,7 @@ STORAGE FOLDERS
     Temporary files          exact previews, framing data and the live
                              recording buffer. Clear empties it; it never
                              touches your videos, projects or clips.
-    Logs                     clipradar.log
+    Logs                     clipradar.log, and errors.jsonl (every failure)
   A folder is checked before it's used (it must exist or be creatable, and be
   writable). New work goes to the new folder; nothing already saved is moved,
   and projects in a previous Projects folder still show up. A folder on a
@@ -344,7 +344,9 @@ HOW CLIPS ARE PICKED
   Scores and settings
     Every clip gets a score from 0 to 100 (50 is a clear moment, 75 a strong
     one) and a breakdown of what made it: chat, volume, laughter, emotes and so
-    on. Scores rank moments within one stream; they can't promise views.
+    on. Scores rank moments within one stream; they can't promise views. 90+
+    is kept for the stream's best few (at most 5) and 75+ for its top quarter
+    (at most 20), so a long stream with 60 clips doesn't grade them all 90+.
     The detection button in the Review header shows the settings in use. Click
     it to change them: Try shows how many clips would be new, dropped or the
     same before you apply anything, and clips you kept, skipped, trimmed or
@@ -493,7 +495,9 @@ TROUBLESHOOTING
     Installing Microsoft's "WebView2 Runtime" brings the app window back.
   - Preview won't play: some files (MKV, HEVC) can't play in the preview.
     Finding and rendering clips still works.
-  - Something else broke: send the log file at
-    %LOCALAPPDATA%\ClipRadar\clipradar.log
+  - Something else broke: send the log files at
+    %LOCALAPPDATA%\ClipRadar\clipradar.log and errors.jsonl. errors.jsonl
+    lists every failure with what Clip Radar was doing (Settings › About ›
+    Error log: Open logs folder, or Copy recent errors).
 
 Only clip VODs you own or have permission to repost.

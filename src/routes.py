@@ -18,7 +18,6 @@ import subprocess
 import sys
 import threading
 import time
-import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
@@ -28,6 +27,7 @@ import audio_events
 import campaigns
 import checkflow
 import cleanup
+import errorlog
 import detect
 import discordhook
 import engine
@@ -48,6 +48,9 @@ import updater
 import watermarks
 
 import server as S
+
+
+_ui_errors: list = []        # when the UI last reported errors (/api/client_error)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -80,6 +83,8 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b"{}")
 
     def _err(self, msg, code=400):
+        if code >= 500:          # the app's own failures (not a bad request or a missing page)
+            errorlog.record("request", msg, path=urlparse(self.path).path, status=code)
         self._json({"error": msg}, code)
 
     def _local_only(self) -> bool:
@@ -270,6 +275,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"items": items, "eta": S.queue_eta(), "workers": S.MAX_WORKERS[0]})
         if p == "/api/export":
             return self._json(S.export_view())
+        if p == "/api/errors":
+            # Settings › About › Error log: every failure recorded, newest first (errorlog.py)
+            return self._json(errorlog.view())
         if p == "/api/campaigns":
             return self._json(S.campaigns_view())
         if p == "/api/sources":
@@ -391,10 +399,10 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             raise
         except (KeyError, TypeError, ValueError) as e:
-            traceback.print_exc()
+            errorlog.exc("request", path=p)
             return self._err(f"Bad request ({type(e).__name__}: {str(e)[:120]})")
         except Exception as e:
-            traceback.print_exc()
+            errorlog.exc("request", path=p)
             return self._err(f"Something went wrong: {str(e)[:200]}", 500)
 
     def _post(self, p: str, body: dict):
@@ -857,6 +865,7 @@ class Handler(BaseHTTPRequestHandler):
                 at = next((i for i, c in enumerate(new) if c.get("score", 0) < u.get("score", 0)), len(new))
                 new.insert(at, u)
             pr["clips"] = new
+            S.regrade(pr)
             pr["clips_ver"] = pr.get("clips_ver", 0) + 1
             S.save_project_soon(pid)
             return self._json(S.project_view(pid))
@@ -883,9 +892,9 @@ class Handler(BaseHTTPRequestHandler):
             d = S.clip_dicts(pid, [clip])[0]
             d["manual"] = True
             d["kind"] = "hype"
-            d["quality"] = detect.quality(float(sc))
             d["parts"] = detect.breakdown(an, t)
             pr["clips"].append(d)
+            S.regrade(pr)
             learning.record_added(pr.get("streamer", ""))
             S.save_project_soon(pid)
             return self._json(d)
@@ -1084,7 +1093,9 @@ class Handler(BaseHTTPRequestHandler):
             with S.queue_lock:
                 for it in S.queue:
                     redo = it["status"] == "error" or (it["status"] == "done" and it.get("captions_skipped"))
-                    if redo and (body.get("id") in (it["id"], "all")):
+                    # "all" with a pid: every failed clip from that video (Exports › Source)
+                    mine = not body.get("pid") or it.get("pid") == body["pid"]
+                    if redo and (body.get("id") == it["id"] or (body.get("id") == "all" and mine)):
                         # Drop stale render state so a retry starts a fresh attempt, not a
                         # half-finished UI lifecycle. Keep the chosen output name for replacement.
                         it.update(status="queued", stage="queued", progress=0.0, error="", detail="", step="Waiting",
@@ -1172,6 +1183,17 @@ class Handler(BaseHTTPRequestHandler):
             job = S.new_job("twitchlogin")
             S.run_job(job, lambda: twitchauth.login_with_window())
             return self._json({"job": job["id"]})
+
+        if p == "/api/client_error":
+            # a failure in the UI (a script error, an answer it couldn't use): into the error log too.
+            # At most 30 a minute, so a page stuck in a loop can't fill the disk
+            now = time.time()
+            _ui_errors[:] = [t for t in _ui_errors if now - t < 60]
+            if len(_ui_errors) < 30:
+                _ui_errors.append(now)
+                errorlog.record("ui", str(body.get("message") or "")[:1000], str(body.get("detail") or "")[:6000],
+                                page=str(body.get("page") or "")[:200], ui=str(body.get("ui") or "")[:20])
+            return self._json({"ok": True})
 
         if p == "/api/open_folder":
             folder = body.get("folder", "")

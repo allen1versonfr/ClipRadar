@@ -81,6 +81,9 @@ for _old, _new in paths.MIGRATION.items():
 if _fixed_paths:
     print(f"Updated saved paths in {_fixed_paths} file(s)", flush=True)
 
+import errorlog  # noqa: E402
+errorlog.install()       # crashes on any thread go to errors.jsonl too
+
 import server  # noqa: E402  (after stdout is set up)
 
 IDLE_MINUTES = 20   # browser mode only: quit when no tab has checked in for this long

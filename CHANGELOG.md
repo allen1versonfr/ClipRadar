@@ -5,6 +5,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.28.0] - 2026-10-30
+
+Scores mean something again on long streams, Exports keeps each video's clips apart, downloads have no limits, every failure is written down for fixing, and progress bars tell the truth.
+
+### Fixed
+- **A long stream could grade 60 clips 90+.** A clip's score came only from how strong its moment was, so a busy 9-hour stream had dozens of moments past the 90 mark. A score is now also where the moment stands in its stream: 90+ is only its best few (about 8% of its separate moments, at most 5) and 75+ its top quarter (at most 20). A weak stream's clips aren't pushed up, and the order of clips doesn't change. Projects saved before are graded again when they open, and so are clips you add and clips found again with new detection settings (these kept their old score before). **Live clipping is graded the same way**: a moment is scored against the stream so far and the moments already clipped (forming moments, Lowest score and the clip itself), and every moment's score is worked out again as each new one arrives, so a 4-hour session full of big moments keeps 90+ for its best few.
+- **Progress bars:**
+  - YouTube and other sites send the video and its sound as two files: the bar ran to 100% for the video and started again from 0 for the sound. It's now one bar, each file its share by size.
+  - A file on your PC, or a VOD downloaded before, jumped straight to 62% when Find clips started. Finding moments now uses the whole bar when there's nothing to download, and after a download it gets a share closer to how long it really takes (78% downloading, 19% finding moments).
+  - Reading a big chat (67,000 messages) sat at the end of "Finding the best moments"; it now has its own part of the bar.
+  - Making thumbnails moves the bar for each one instead of sitting at 94%.
+  - No download bar ever goes backwards, so the time left stays sensible.
+
+### Added
+- **Exports › Source**: when you clip more than one video, a dropdown shows one video's clips at a time (or all of them, with how many each has). It remembers your choice, and Retry failed only retries the video you're looking at.
+- **Error log.** Every failure (downloads, finding clips, renders, live clipping, requests, the UI, crashes on any thread) goes to `errors.jsonl` next to `clipradar.log`, with the version, where it happened, what Clip Radar was doing (the job's last steps, the clip, the channel) and the technical details, with tokens and keys blanked. It keeps 5 MB and one older file, far longer than `clipradar.log`. Settings › About › Error log shows the latest, opens the logs folder and copies them for a bug report. `GET /api/errors`, `POST /api/client_error` (the UI's own errors, at most 30 a minute).
+- Settings › Downloads and tools › Download quality: **Best available** (no height limit, whatever the codec).
+
+### Changed
+- **Downloads are uncapped.** Settings › Performance › Downloads at once is **No limit** by default (1 was the default before; a copy that only had that default saved is changed to No limit, a number you chose later is kept). Each download fetches 16 pieces at once instead of 8 (the sound-only copy 16 instead of 4, TwitchDownloader 16 threads), no speed limit is set anywhere, and a site that slows a download down below 100 KB/s gets a fresh link (`--throttled-rate`).
+
+### Tests
+- `tests/test_live.py`: a 4-hour live session with dozens of moments strong enough for 90+ on their own grades only its best few 90+.
+- `tests/test_detect.py`: 60 clips from a busy 6-hour stream, only the best few 90+, at most 20 at 75+, still in order; a weak stream isn't pushed up. `tests/test_download.py`: video then sound on one bar, by size or 90/10, never backwards. `tests/test_errorlog.py` (new, in CI): jobs, crashes on a thread and UI errors recorded with context and secrets blanked, newest first, the file starting over, at most 30 UI errors a minute, Retry failed for one source, and Downloads at once. `web/`: 141 Vitest tests, including Exports › Source.
+
 ## [4.27.0] - 2026-10-29
 
 Twitch VODs are ready sooner: on a 9-hour, 32 GB VOD, pasting the link to seeing clips went from about 21 minutes to under 14, with the same clips. About 5½ minutes of that doesn't depend on how fast Twitch sends the video.

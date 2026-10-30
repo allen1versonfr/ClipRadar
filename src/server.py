@@ -57,6 +57,7 @@ import checkflow
 import detect
 import discordhook
 import emotes
+import errorlog
 import exports
 import framing
 import sources
@@ -294,6 +295,9 @@ def run_job(job, fn):
             job_logger(job)(f"Error: {job['error'].splitlines()[0]}")
             if not isinstance(e, RuntimeError):
                 traceback.print_exc()
+            # the job's last steps say what it was doing when it failed
+            errorlog.record(f"job:{job.get('kind', '')}", job["error"], exc=e, step=job.get("step", ""),
+                            log=" | ".join(job.get("log", [])[-8:]))
     threading.Thread(target=target, daemon=True).start()
 
 
@@ -356,7 +360,7 @@ def _run_save(key, fn):
     try:
         fn()
     except Exception:
-        traceback.print_exc()
+        errorlog.exc("save", what=key)
 
 
 def _save_later(key, fn, delay: float):
@@ -491,7 +495,7 @@ def rescan_all():
 THUMB_WORKERS = 4
 
 
-def clip_dicts(pid: str, clips: list, kind: str = "hype") -> list:
+def clip_dicts(pid: str, clips: list, kind: str = "hype", progress=None) -> list:
     pr = projects[pid]
     tdir = os.path.join(pr["workdir"], "thumbs")
     os.makedirs(tdir, exist_ok=True)
@@ -510,8 +514,18 @@ def clip_dicts(pid: str, clips: list, kind: str = "hype") -> list:
     # each FFmpeg spends most of its time opening the video (a long VOD's index), not decoding, so a few
     # at once go much faster (measured: 60 thumbnails of a 9-hour VOD, 24 s one by one, 11 s four at once).
     # One job per file name: two clips can share a thumbnail
+    todo = dict(zip(names, at)).items()
+    made = [0]
+    lock = threading.Lock()
+
+    def thumb_counted(job: tuple):
+        thumb(job)
+        if progress:
+            with lock:
+                made[0] += 1
+                progress(made[0] / max(1, len(todo)))
     with ThreadPoolExecutor(THUMB_WORKERS) as ex:
-        list(ex.map(thumb, dict(zip(names, at)).items()))
+        list(ex.map(thumb_counted, todo))
     out, used = [], set()
     for d, name in zip(ds, names):
         d["thumb"] = f"/files/{pid}/thumbs/{name}"
@@ -586,6 +600,15 @@ def _pick(pr: dict, count: int, length: float, det: Optional[dict] = None) -> li
     return clips
 
 
+def regrade(pr: dict):
+    """Score every clip in the list against the stream and each other (engine.grades): run whenever the
+    list changes, and on reopening a project saved before the scores were graded this way."""
+    cs = [c for c in pr.get("clips", []) if c.get("kind", "hype") == "hype"]
+    if cs and pr.get("analysis") is not None:
+        for c, q in zip(cs, engine.grades(pr["analysis"], [float(c.get("score") or 0) for c in cs])):
+            c["quality"] = q
+
+
 def _number(pr: dict, clips: list, kind: str = "hype", taken: Optional[set] = None):
     """Give engine.Clips their lasting numbers (the same moment keeps its number for good)."""
     taken = set() if taken is None else taken
@@ -631,14 +654,14 @@ _dl_running = [0]
 
 
 class _download_slot:
-    """Settings › Performance › Downloads at once: wait for a free slot before downloading."""
+    """Settings › Performance › Downloads at once: wait for a free slot before downloading (0 = no limit)."""
 
     def __init__(self, job, step, check):
         self.job, self.step, self.check = job, step, check
 
     def __enter__(self):
         with _dl_cond:
-            while _dl_running[0] >= exports.load()["downloads"]:
+            while 0 < exports.load()["downloads"] <= _dl_running[0]:
                 self.step("Waiting for another download to finish")
                 self.check()
                 _dl_cond.wait(1.0)
@@ -653,17 +676,35 @@ class _download_slot:
         return False
 
 
+# where each part of opening a video ends on its bar: the download (with joining it), then finding moments;
+# thumbnails take the rest. Measured on a 9-hour Twitch VOD: about 13 minutes downloading, 3 finding
+# moments (the sound is listened to during the download), 11 s of thumbnails.
+ANALYZE_SHARES = (0.78, 0.97)
+
+
 def do_analyze(job, body: dict):
     log, step, check = job_logger(job), job_step(job), job_check(job)
     src = (body.get("source") or "").strip()
     if not src:
         raise RuntimeError("Paste a Twitch, YouTube or X video link, or the path to a video file.")
     step("Getting the VOD")
+    # The bar: downloading, then finding moments, then thumbnails (ANALYZE_SHARES). A file on this PC or a
+    # VOD downloaded before has no download part, so finding moments gets the whole bar instead of
+    # jumping straight to 62% and starting from there.
+    dl_share, an_end = ANALYZE_SHARES
+    downloading = [False]
+    dl_bar = job_progress(job, 0.0, dl_share)
+
+    def dl_progress(x: float):
+        if x < 1.0:
+            downloading[0] = True
+        if downloading[0]:
+            dl_bar(x)
     with _download_slot(job, step, check), twitchauth.cookie_file() as cookie:
         s = engine.acquire(src, WORKROOT, chat_file=body.get("chat_file") or "",
                            max_height=int(body.get("max_height", 1080)),
                            cookies_browser=body.get("cookies") or "", cookie_file=cookie,
-                           log=log, progress=job_progress(job, 0.0, 0.62), step=step, check=check,
+                           log=log, progress=dl_progress, step=step, check=check,
                            early_sound=True, events=bool(body.get("events", True)))
     step("Finding the best moments")
     # a VOD you opened before keeps its own detection settings; otherwise use what was asked for
@@ -679,7 +720,7 @@ def do_analyze(job, body: dict):
         step("Finding the best moments")
     an = engine.analyze_cached(s.workdir, s.video, s.chat, chat_delay=det["chat_delay"],
                                chat_weight_pct=float(body.get("chat_weight", detect.preset(det["preset"])["chat"])),
-                               log=log, progress=job_progress(job, 0.62, 0.94), check=check,
+                               log=log, progress=job_progress(job, dl_share if downloading[0] else 0.0, an_end), check=check,
                                events=bool(body.get("events", True)), emote_set=es,
                                weights=detect.preset(det["preset"]), sound=s.sound)
     delay = an.chat_delay
@@ -712,6 +753,7 @@ def do_analyze(job, body: dict):
         an.combine(float(st.get("chat_weight", an.chat_weight_pct)), detect.preset(det["preset"]))
         pr["book"] = saved.get("book") or pr["book"]
         pr["clips"] = [_revive(pid, d) for d in saved["clips"]]
+        regrade(pr)
         pr["gems"] = [_revive(pid, d) for d in saved.get("gems", [])]
         pr["removed"] = [dict(d, pid=pid) for d in saved.get("removed", [])]
         pr.update(deep_done=bool(saved.get("deep_done")), deep_model=saved.get("deep_model", ""),
@@ -722,7 +764,7 @@ def do_analyze(job, body: dict):
         clips = _pick(pr, count, length)
         _number(pr, clips)
         step("Making thumbnails")
-        pr["clips"] = clip_dicts(pid, clips)
+        pr["clips"] = clip_dicts(pid, clips, progress=job_progress(job, an_end, 1.0))
         for d in pr["clips"]:
             d["len_mode"] = length
         if clips:
@@ -1065,7 +1107,7 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
             try:
                 on_done(pid)
             except Exception:
-                traceback.print_exc()
+                errorlog.exc("titles")
         return {"ok": True}
     run_job(job, go)
     return job
@@ -2000,16 +2042,7 @@ def friendly_render_error(e: Exception) -> tuple:
     return classify_render_error(e)[1:]
 
 
-_SECRET = re.compile(r"(?i)((?:oauth|token|access_token|client_secret|authorization|password|api[_-]?key)"
-                     r"[\"']?\s*[:=]\s*[\"']?)[^\s\"'&,]+")
-
-
-def redact(text: str) -> str:
-    """Diagnostics without secrets: tokens and keys are blanked, the home folder becomes ~."""
-    text = re.sub(r"(?i)\b(bearer|oauth)\s+[^\s\"']+", r"\1 ***", str(text or ""))
-    text = _SECRET.sub(r"\1***", text)
-    home = os.path.expanduser("~")
-    return text.replace(home, "~") if len(home) > 3 else text
+redact = errorlog.redact       # diagnostics without secrets (tokens and keys blanked, the home folder as ~)
 
 
 def set_stage(it: dict, stage: str, step: str):
@@ -2201,6 +2234,7 @@ def queue_worker(idx: int = 0):
                 if kind == "stalled" and len(fails) == 1 and not it.get("cancel"):
                     # a stall is the one failure a second try usually gets past by itself: once
                     print(f"  Render stalled; trying once more ({detail[-200:]})", flush=True)
+                    errorlog.record("render:stalled", "Render stalled; trying once more", detail, clip=it.get("title", ""))
                     it.update(status="queued", progress=0.0, eta=None, stage="queued", step="Waiting to try again")
                     save_queue_soon(0)
                     queue_wake.set()
@@ -2210,6 +2244,8 @@ def queue_worker(idx: int = 0):
                 it["error"], it["detail"] = msg, redact(detail)
                 it["error_kind"], it["retryable"] = kind, retryable
                 print(f"  Render failed [{kind}]: {it['error']} ({it['detail'][:300]})", flush=True)
+                errorlog.record(f"render:{kind}", msg, detail, clip=it.get("title", ""), source=it.get("source_title", ""),
+                                attempt=it["attempts"], retryable=retryable)
                 if not isinstance(e, (RuntimeError, OSError, engine.RenderInputError)):
                     traceback.print_exc()
                 save_queue_soon(0)
@@ -2217,7 +2253,7 @@ def queue_worker(idx: int = 0):
             try:
                 _after_render(it)
             except Exception:
-                traceback.print_exc()
+                errorlog.exc("after-render", clip=it.get("title", ""))
             _live_rendered(it)
 
 
@@ -2355,6 +2391,10 @@ def live_on_moment(sess, m: dict):
              at=round(m["offset"] + clip.peak, 1), abs_start=round(m["offset"] + clip.start, 1),
              abs_end=round(m["offset"] + clip.end, 1), len_mode=sess.length, lat=dict(m.get("lat") or {}))
     sess.moments.append(mid)
+    # more of the stream is known now: every moment's score again, so 90+ stays the session's best few
+    ds = [projects[x]["clips"][0] for x in sess.moments if x in projects and projects[x].get("clips")]
+    for c, q in zip(ds, sess.grades([float(c.get("score") or 0) for c in ds])):
+        c["quality"] = q
     extra = sess.extra
     aired = m.get("aired")
 

@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import { reportError } from '../errors'
 
 // The app's server answers every /api/ call with JSON. Errors are {"error": "..."} with a 4xx/5xx
 // status, written for the user, so they're shown as they are. Ported from api() in src/ui/app.js.
@@ -46,6 +47,7 @@ export async function api<S extends z.ZodType>(schema: S, path: string, body?: u
     // what didn't match, readable in a log line (where an object shows as [Object])
     const what = parsed.error.issues.slice(0, 3).map(i => `${i.path.join('.') || '(answer)'}: ${i.message}`).join('; ')
     console.error(`Unexpected answer from ${path}: ${what}`, parsed.error.issues)
+    reportError(`Unexpected answer from ${path}`, what)
     throw new ApiError(UNEXPECTED_ANSWER, 200)
   }
   return parsed.data

@@ -153,6 +153,24 @@ bd = c0.parts
 check("breakdown names the signals", "chat" in bd and all(isinstance(v, float) for v in bd.values()), bd)
 check("breakdown adds up to the score", abs(sum(v for k, v in bd.items() if k != "tuned") - c0.score) < 0.6, (sum(bd.values()), c0.score))
 check("quality: higher score, higher number", detect.quality(1) < detect.quality(3) < detect.quality(6) < detect.quality(12) <= 100)
+# a long, busy stream: 60 big moments shouldn't all score 90+ (90+ is the stream's best few)
+busy = make_an(n=6 * 3600, chat_spikes=[(t, 8, 60 + (t % 11) * 6) for t in range(300, 6 * 3600 - 300, 340)],
+               audio_spikes=[(t, 3, -4) for t in range(300, 6 * 3600 - 300, 340)])
+lots = engine.pick_clips(busy, count=60)
+qs = [c.quality for c in lots]
+check("a long stream's 60 clips: their strength alone would score 90+", len(lots) == 60
+      and sum(detect.quality(c.score) >= 90 for c in lots) > 30, [detect.quality(c.score) for c in lots][:10])
+check("but only its best few score 90+", 1 <= sum(q >= 90 for q in qs) <= 5, qs)
+check("and at most 20 score 75+", sum(q >= 75 for q in qs) <= 20, qs)
+check("graded scores still rank like the clips", all(a >= b for a, b in zip(qs, qs[1:])), qs)
+check("the best clip keeps a top score", qs[0] >= 90, qs[:3])
+check("ceiling: the best moment can reach 99, the 6th of 300 can't reach 90",
+      detect.ceiling(0, 300) == 99 and detect.ceiling(5, 300) < 90 and detect.ceiling(299, 300) == 50)
+check("ceiling: a short video's best still scores 90+", detect.ceiling(0, 3) == 99 and detect.ceiling(1, 3) < 90)
+weak = make_an(chat_spikes=[(300, 6, 6)])
+wq = engine.pick_clips(weak, count=3)
+check("a weak stream's best clip isn't pushed up to 90+", wq and wq[0].quality == detect.quality(wq[0].score) < 90,
+      [(c.quality, c.score) for c in wq])
 few = engine.pick_clips(make_an(chat_spikes=[(t, 6, 15 + (t % 7) * 4) for t in range(60, 560, 45)]), count=0, sensitivity="fewer")
 more = engine.pick_clips(make_an(chat_spikes=[(t, 6, 15 + (t % 7) * 4) for t in range(60, 560, 45)]), count=0, sensitivity="more")
 check("sensitivity: more finds more", len(more) > len(few), (len(few), len(more)))

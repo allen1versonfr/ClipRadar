@@ -20,9 +20,30 @@ function atPreviewLevel(v: HTMLVideoElement | null) {
 
 const loadQueue = () => api(Queue, '/api/queue')
 
+/** Which video a render came from: its project, or its title for items saved without one. */
+export const sourceKey = (q: QueueItem) => q.pid || q.source_title || ''
+
+/** Exports › Source: each video in the queue, with how many of its clips are there, in the order they
+ *  were first queued. Clipping several videos at once no longer mixes their clips in one list. */
+export function sources(items: QueueItem[]): Array<{ key: string; label: string; count: number }> {
+  const out = new Map<string, { key: string; label: string; count: number }>()
+  for (const q of items) {
+    const k = sourceKey(q)
+    const s = out.get(k) ?? { key: k, label: q.source_title || 'Untitled video', count: 0 }
+    s.count++
+    out.set(k, s)
+  }
+  return [...out.values()]
+}
+
 export function ExportsView() {
   const queue = usePoll(loadQueue, 1500)
-  const items = queue.data?.items ?? []
+  const all = queue.data?.items ?? []
+  const srcs = sources(all)
+  const [srcPick, setSrcPick] = useState<string>(() => getPref('exportsSource', ''))
+  // a source that has left the queue shows everything again
+  const src = srcs.some(s => s.key === srcPick) ? srcPick : ''
+  const items = src ? all.filter(q => sourceKey(q) === src) : all
   const active = items.some(q => q.status === 'queued' || q.status === 'rendering')
   const now = useNow(1000, active)
   const [selId, setSelId] = useState<string>()
@@ -50,9 +71,18 @@ export function ExportsView() {
         <h1 id="ex-title">Exports</h1>
         <span className="muted" data-testid="exports-summary">{summary(items, queue.data?.eta ?? null)}</span>
         {failed > 0 && (
-          <button className="btn" data-testid="retry-all" onClick={() => act('/api/queue/retry', { id: 'all' }, 'Rendering again…')}>
+          <button className="btn" data-testid="retry-all" onClick={() => act('/api/queue/retry', src ? { id: 'all', pid: src } : { id: 'all' }, 'Rendering again…')}>
             {failed > 1 ? `Retry ${failed} failed` : 'Retry failed'}
           </button>
+        )}
+        {srcs.length > 1 && (
+          <label className="ex-source">Source
+            <select className="input" data-testid="exports-source" value={src}
+                    onChange={e => { setSrcPick(e.target.value); setPref('exportsSource', e.target.value); setSelId(undefined) }}>
+              <option value="">All sources ({all.length})</option>
+              {srcs.map(s => <option key={s.key} value={s.key}>{s.label} ({s.count})</option>)}
+            </select>
+          </label>
         )}
         <button className="btn ghost" onClick={() => act('/api/open_folder', { folder: 'root' })}>Open clips folder</button>
       </header>

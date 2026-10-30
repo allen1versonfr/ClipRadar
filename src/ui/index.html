@@ -644,7 +644,7 @@
           <header><svg class="ic"><use href="#i-settings"/></svg><h2>Performance</h2></header>
           <div class="form-grid">
             <label>Clips rendering at once<select class="input" id="pfRenders"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
-            <label>Downloads at once<select class="input" id="pfDownloads"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+            <label>Downloads at once<select class="input" id="pfDownloads"><option value="0">No limit</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
             <label>Live streams at once<select class="input" id="pfLives"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
           </div>
           <div class="fld">While rendering
@@ -770,7 +770,7 @@
         <section class="panel set">
           <header><svg class="ic"><use href="#i-exports"/></svg><h2>Downloads and tools</h2></header>
           <div class="form-grid two">
-            <label>Download quality<select class="input" id="maxh"><option value="720">720p (faster)</option><option value="1080" selected>1080p</option><option value="1440">1440p</option></select></label>
+            <label>Download quality<select class="input" id="maxh"><option value="720">720p (faster)</option><option value="1080" selected>1080p</option><option value="1440">1440p</option><option value="0">Best available</option></select></label>
             <label>Use cookies from<select class="input" id="cookies"><option value="">No browser</option><option value="firefox">Firefox</option><option value="chrome">Chrome</option><option value="edge">Edge</option><option value="brave">Brave</option><option value="opera">Opera</option></select><span class="hint">Older way to reach subscriber-only VODs. Twitch sign-in above is easier and is used first.</span></label>
           </div>
           <table class="table compact" id="toolTable"><tbody></tbody></table>

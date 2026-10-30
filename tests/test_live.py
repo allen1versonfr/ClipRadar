@@ -114,6 +114,21 @@ if weak:
     said = [m for m in lines if m.startswith(("Passed on", "Skipped"))]
     check("a moment passed on is logged and counted once", said and len(said) == len(set(said))
           and sum(s5b.skipped.values()) == len(said), (said, s5b.skipped))
+# a long session full of big moments: scored like a VOD's clips, 90+ only for its best few
+N8 = 4 * 3600
+rng8 = np.random.default_rng(8)
+loud8 = (-30 + rng8.normal(0, 1.5, N8)).astype(np.float32)
+chat8 = [(t + rng8.random(), "hello chat", f"u{rng8.integers(0, 400)}") for t in range(N8) for _ in range(rng8.poisson(1.5))]
+for t in range(300, N8 - 300, 240):
+    loud8[t:t + 3] = -4
+    chat8 += [(t + DELAY + rng8.random() * 6, "KEKW KEKW", f"r{t}_{k}") for k in range(90 + (t % 7) * 10)]
+s8 = lr.replay(loud8, chat=sorted(chat8), step=10)
+strong8 = [f for f in s8.found if lr.detect.quality(f["score"]) >= 90]
+again = s8.grades([f["score"] for f in s8.found])
+check("a long live session: many moments strong enough for 90+ on their own", len(strong8) >= 20, len(strong8))
+check("but graded, only its best few are 90+", 1 <= sum(q >= 90 for q in again) <= 5, again)
+check("and as they were clipped, 90+ stayed rare too", sum(f["quality"] >= 90 for f in s8.found) <= 12,
+      [f["quality"] for f in s8.found])
 s6 = lr.replay(loud, chat=chat, min_quality=0)
 check("minimum 0 keeps the default behaviour", len(s6.found) == len(s.found))
 

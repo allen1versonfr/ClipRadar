@@ -589,7 +589,10 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
 
 
 def _video_format(max_height: int) -> str:
-    """yt-dlp's format choice: H.264 up to max_height (every browser and FFmpeg build plays it), else the best."""
+    """yt-dlp's format choice: H.264 up to max_height (every browser and FFmpeg build plays it), else the best.
+    max_height 0 (Download quality › Best available): the best there is, whatever its size or codec."""
+    if max_height <= 0:
+        return "bv*+ba/b"
     return (f"bv*[height<={max_height}][vcodec^=avc1]+ba/"
             f"b[height<={max_height}][vcodec^=avc1]/"
             f"bv*[height<={max_height}]+ba/b[height<={max_height}]/bv*+ba/b")
@@ -798,7 +801,7 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
         step("Downloading the VOD (TwitchDownloader)")
         log("Trying TwitchDownloaderCLI instead...")
         out = os.path.join(dl, "vod.mp4")
-        cmd = [tdl, "videodownload", "--id", vod_id, "-o", out, "-t", "8"]
+        cmd = [tdl, "videodownload", "--id", vod_id, "-o", out, "-t", str(FRAGMENTS)]
         if which("ffmpeg"):
             cmd += ["--ffmpeg-path", ffmpeg()]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -843,6 +846,11 @@ class _Stepper:
     # A download in pieces (Twitch) is joined into one file after the last piece, which took a third of the
     # time (measured, 9-hour VOD: 687 s of pieces, then 355 s joining), so the bar leaves that much for it
     PIECES_SHARE = 0.66
+    # YouTube and others send the video and its sound as two files, one after the other: each went 0-100%,
+    # so the bar ran to the end and started again. Each file now gets its part of one bar, by size (or, when
+    # the site doesn't say, the video 90%: its sound is about a tenth of the bytes). Joining the two is a
+    # quick copy, not a Twitch-style rewrite.
+    VIDEO_SHARE = 0.9
 
     def __init__(self, progress: Progress, step: Log, log: Log):
         self.progress, self.step, self.log = progress, step, log
@@ -850,18 +858,46 @@ class _Stepper:
         self.pct = -1
         self.frac = 0.0
         self.share = 1.0
+        self.weights = [1.0]
+        self.part = 0
+        self.last_done = None
+        self.shown = 0.0
+
+    def parts(self, sizes: list):
+        """The files yt-dlp will download for this video (their sizes in bytes, 0 = unknown)."""
+        n = len(sizes)
+        if n < 2:
+            return
+        sizes = [float(s or 0) for s in sizes]
+        if all(s > 0 for s in sizes):
+            self.weights = [s / sum(sizes) for s in sizes]
+        else:
+            self.weights = [self.VIDEO_SHARE] + [(1 - self.VIDEO_SHARE) / (n - 1)] * (n - 1)
+
+    def _show(self, v: float):
+        # never backwards: a bar that drops makes the time left meaningless
+        self.shown = max(self.shown, min(0.999, max(0.0, v)))
+        self.progress(self.shown)
 
     def update(self, done, total, frag_i, frag_n, speed, eta):
+        if (done is not None and self.last_done is not None and done < self.last_done * 0.5
+                and self.part + 1 < len(self.weights)):
+            self.part += 1                     # the next file (the sound after the video)
+        if done is not None:
+            self.last_done = done
         frac = None
         if total:
             frac = done / total if done is not None else None
         elif frag_n:
             frac = (frag_i or 0) / frag_n
-        if frag_n:
+        if frag_n and len(self.weights) == 1:
             self.share = self.PIECES_SHARE
+        elif len(self.weights) > 1:
+            self.share = 0.98
         if frac is not None:
+            frac = sum(self.weights[:self.part]) + self.weights[self.part] * min(1.0, max(0.0, frac))
             self.frac = frac
-            self.progress(min(0.999, max(0.0, frac * self.share)))
+            self._show(frac * self.share)
         now = time.time()
         if now - self.t > 1.0:
             self.t = now
@@ -877,7 +913,7 @@ class _Stepper:
 
     def joined(self, frac: float):
         """How far the join after the download has got, 0..1."""
-        self.progress(min(0.999, self.share + (1 - self.share) * max(0.0, frac)))
+        self._show(self.share + (1 - self.share) * max(0.0, frac))
         self.step(f"Putting the video together, {int(frac * 100)}%")
 
 
@@ -901,12 +937,13 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
 
     cmd = [exe, "--newline", "--progress", "--no-colors", "--no-simulate", "--ignore-config",
            "--print", "before_dl:VCINFO %(.{title,is_live,duration,uploader_id,uploader})j",
+           "--print", "before_dl:VCPARTS %(requested_formats.:.{filesize,filesize_approx})j",
            "--progress-template",
            "download:VCPROG %(progress.downloaded_bytes)s %(progress.total_bytes)s "
            "%(progress.total_bytes_estimate)s %(progress.fragment_index)s "
            "%(progress.fragment_count)s %(progress.speed)s %(progress.eta)s",
            "-f", fmt, "-o", os.path.join(out_dir, "vod.%(ext)s"), "--merge-output-format", "mp4",
-           "-N", "8", "--socket-timeout", "30", "--retries", "10", "--fragment-retries", "20",
+           "-N", str(FRAGMENTS), "--throttled-rate", "100K", "--socket-timeout", "30", "--retries", "10", "--fragment-retries", "20",
            "--match-filters", "!is_live", *NO_FASTSTART]
     ff = which("ffmpeg")
     if ff:
@@ -964,6 +1001,13 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
                 v = [num(x) for x in line.split()[1:8]]
                 v += [None] * (7 - len(v))
                 st.update(v[0], v[1] or v[2], v[3], v[4], v[5], v[6])
+            elif line.startswith("VCPARTS "):
+                try:
+                    fs = json.loads(line[8:])
+                    if isinstance(fs, list):
+                        st.parts([(f or {}).get("filesize") or (f or {}).get("filesize_approx") or 0 for f in fs])
+                except Exception:
+                    pass
             elif line.startswith("VCINFO "):
                 try:
                     info = json.loads(line[7:])
@@ -991,6 +1035,10 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
                             str(info.get("uploader_id") or info.get("uploader") or "").lower(), out_dir)
 
 
+# pieces of a download fetched at once (yt-dlp -N, TwitchDownloader -t). Nothing limits a download's
+# speed: no rate limit is ever set, and --throttled-rate gets a fresh link when a site (YouTube) slows
+# one down to under 100 KB/s instead of letting it crawl.
+FRAGMENTS = 16
 DOWNLOAD_STALL_S = 180       # no output and no file growth for this long: the download is stuck
 
 # yt-dlp joins a Twitch download's pieces with FFmpeg and +faststart, which writes the whole MP4 and then
@@ -1054,6 +1102,9 @@ def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, ste
 
     def hook(d):
         check()
+        fs = (d.get("info_dict") or {}).get("requested_formats")
+        if fs and len(st.weights) == 1:
+            st.parts([f.get("filesize") or f.get("filesize_approx") or 0 for f in fs])
         if d.get("status") == "downloading":
             st.update(d.get("downloaded_bytes"), d.get("total_bytes") or d.get("total_bytes_estimate"),
                       d.get("fragment_index"), d.get("fragment_count"), d.get("speed"), d.get("eta"))
@@ -1062,7 +1113,8 @@ def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, ste
         "format": fmt,
         "outtmpl": os.path.join(out_dir, "vod.%(ext)s"),
         "merge_output_format": "mp4",
-        "concurrent_fragment_downloads": 8,
+        "concurrent_fragment_downloads": FRAGMENTS,
+        "throttledratelimit": 100_000,
         "progress_hooks": [hook],
         "quiet": True,
         "no_warnings": True,
@@ -1165,7 +1217,7 @@ def _early_sound(soon: "_Soon", url: str, workdir: str, cookies_browser: str, co
             return None
         shutil.rmtree(d, ignore_errors=True)
         os.makedirs(d, exist_ok=True)
-        cmd = [exe, "--ignore-config", "--no-progress", "--no-warnings", "-f", "Audio_Only/ba", "-N", "4", *NO_FASTSTART,
+        cmd = [exe, "--ignore-config", "--no-progress", "--no-warnings", "-f", "Audio_Only/ba", "-N", str(FRAGMENTS), *NO_FASTSTART,
                "--socket-timeout", "30", "--retries", "10", "--fragment-retries", "20",
                "-o", os.path.join(d, "sound.%(ext)s")]
         ff = which("ffmpeg")
@@ -1603,6 +1655,10 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
         raise RuntimeError("Couldn't read the video's length. The file may be incomplete or damaged.")
     n = int(math.ceil(dur)) + 1
     ev = fine = None
+    # the bar: listening to the sound, then reading chat (about 15 s for 67,000 messages, against minutes of
+    # listening), so a big chat isn't the bar sitting at 100% while it's read
+    chat_share = 0.0 if len(chat) < 1000 else min(0.25, 0.04 + len(chat) / 600_000)
+    sound_share = 1.0 - chat_share
     if info["has_audio"]:
         import audio_events
         with_ev = events and audio_events.available()
@@ -1615,7 +1671,7 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
             loud, fine, ev = early
         else:
             log(f"VOD length {fmt_ts(dur)}. Listening for loud moments" + (", laughter and screams..." if with_ev else "..."))
-            loud, fine, ev = measure_audio(video, dur, with_ev, progress, check, log)
+            loud, fine, ev = measure_audio(video, dur, with_ev, lambda f: progress(f * sound_share), check, log)
         loud = _fit(loud, n, -90.0)
         if loud is not None and (loud < -75).mean() > 0.2:
             log(f"{int((loud < -75).mean() * 100)}% of the audio is silent or muted.")
@@ -1630,13 +1686,16 @@ def analyze(video: str, chat: list, chat_delay: float = 6.0, chat_weight_pct: fl
     if chat_delay == "auto" and chat:
         # how late chat reacts: compare when chat surges with when the stream got loud or laughed
         import detect
+        progress(sound_share)
         rate0, sc = chat_rate(chat, n, 0.0)
+        progress(sound_share + chat_share * 0.5)
         stats = sc.summary()
         az = _audio_z(loud, n) if loud is not None else np.zeros(n, dtype=np.float32)
         used_delay, sure = detect.estimate_delay(rate0, az, ev)
         log(f"Chat reacts about {used_delay:.0f} s after the stream." if sure
             else "Couldn't tell how late chat reacts; assuming 6 s.")
         rate = detect.shift(rate0, used_delay)
+        progress(sound_share + chat_share * 0.7)
     an = score_signals(loud, chat, n, dur, used_delay, chat_weight_pct, rate=rate, stats=stats, events=ev, fine=fine)
     an.chat_delay = used_delay
     an.delay_sure = bool(sure)
@@ -2034,6 +2093,47 @@ def clip_features(an: Analysis, start: float, end: float, peak: float, chat: Opt
     return {k: round(v, 3) for k, v in f.items()}
 
 
+def moment_scores(an: Analysis) -> np.ndarray:
+    """Scores of the stream's separate moments (peaks at least 45 s apart), best first. What a clip's
+    score is graded against (grades)."""
+    s = an.score
+    if s is None or not len(s):
+        return np.zeros(0)
+    cached = getattr(an, "_moments", None)
+    if cached is not None and cached[0] is s:
+        return cached[1]
+    order = np.argsort(-s, kind="stable")
+    blocked = np.zeros(len(s), dtype=bool)
+    out = []
+    for i in order:
+        v = float(s[i])
+        if v <= 0.5:
+            break
+        if blocked[i]:
+            continue
+        blocked[max(0, i - 45): i + 46] = True
+        out.append(v)
+    arr = np.array(out)
+    an._moments = (s, arr)
+    return arr
+
+
+def grades(an: Analysis, ranks: list) -> list:
+    """0-100 scores for a stream's clips: each one's strength (detect.quality), capped by where it stands
+    among the stream's moments and among these clips (detect.ceiling), so a long stream can't have dozens
+    of 90+ clips. Same order as ranks."""
+    import detect
+    peaks = moment_scores(an)
+    total = max(len(peaks), len(ranks))
+    out = [0] * len(ranks)
+    order = sorted(range(len(ranks)), key=lambda i: -float(ranks[i]))
+    for k, i in enumerate(order):
+        r = float(ranks[i])
+        better = int(np.searchsorted(-peaks, -r - 1e-6, side="left")) if len(peaks) else 0
+        out[i] = min(detect.quality(r), detect.ceiling(max(k, better), total))
+    return out
+
+
 WEAK_QUALITY = 50          # a 0-100 score under this isn't "a clear moment" (detect.quality)
 MIN_AUTO_CLIPS = 3         # automatic picks never drop below this many when the video has them
 
@@ -2121,6 +2221,8 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
                           _reason(an, it["peak"], chat, chat_t, chat_delay, it["trigger"]), it["feat"],
                           round(it["tuned"], 2), detect.quality(it["rank"]),
                           detect.breakdown(an, it["peak"], it["tuned"]), it["trigger"]))
+    for c, q in zip(clips, grades(an, [c.score for c in clips])):
+        c.quality = q
     for i, c in enumerate(clips, 1):
         c.id = i
     return clips

@@ -24,6 +24,12 @@ async function api(path, body) {
   if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
   return j;
 }
+// failures in this page go to the error log too (errors.jsonl, Settings › About)
+function reportError(message, detail = '') {
+  try { fetch('/api/client_error', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, detail, page: location.hash, ui: 'legacy' }) }).catch(() => {}); } catch {}
+}
+window.addEventListener('error', e => reportError(e.message || 'Script error', e.error && e.error.stack || `${e.filename}:${e.lineno}`));
+window.addEventListener('unhandledrejection', e => reportError(String(e.reason && e.reason.message || e.reason), e.reason && e.reason.stack || ''));
 function toast(msg, kind = '', ms = 4500, action = null) {
   const el = document.createElement('div');
   el.className = 'toast ' + kind; el.textContent = msg;
@@ -357,7 +363,7 @@ async function loadSources() {
   try { v = await api('/api/sources'); } catch { srcTimer = setTimeout(loadSources, 5000); return; }
   const items = v.items || [];
   $('#srcDash').hidden = !items.length;
-  $('#srcLimits').textContent = `Up to ${plural(v.limits.downloads, 'download')} and ${plural(v.limits.lives, 'live stream')} at once (Settings › Performance)`;
+  $('#srcLimits').textContent = `${v.limits.downloads ? `Up to ${plural(v.limits.downloads, 'download')}` : 'Any number of downloads'} and ${plural(v.limits.lives, 'live stream')} at once (Settings › Performance)`;
   const ST = { running: 'Working', done: 'Ready', error: 'Failed', cancelled: 'Cancelled', paused: 'Paused', starting: 'Connecting',
     waiting: 'Waiting for the stream', recording: 'Recording', reconnecting: 'Reconnecting', ended: 'Stream ended', stopped: 'Stopped' };
   $('#srcList').innerHTML = items.map(x => {

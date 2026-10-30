@@ -233,7 +233,7 @@ class LiveSession:
         self._delay_at = 0
         self.min_quality = int(min(max(int(min_quality or 0), 0), 95))
         self.chat_weight = float(chat_weight)
-        self.max_height = int(max_height)
+        self.max_height = int(max_height) or 100_000          # 0: Download quality › Best available
         self.cookies = cookies
         self.warmup = float(warmup)
         self.buffer_s = max(1.0, float(buffer_minutes)) * 60
@@ -265,6 +265,8 @@ class LiveSession:
         self.skipped = {"repeat": 0, "confidence": 0, "learned": 0, "crowd": 0}
         self.taken: list = []                  # (start, end) already clipped
         self.auto_peaks: list = []             # peaks of automatic moments (for spacing)
+        self.clip_scores: list = []            # each moment's score so far, to grade new ones against (grade)
+        self._graded_an = None                 # the stream so far, as last scored
         self.pending: list = []                # peaks waiting for their reaction to finish
         self.passed: list = []                 # (peak, reason) already reported as passed on (see _pass)
         self.manual: list = []                 # requested "clip that" ranges
@@ -550,16 +552,16 @@ class LiveSession:
             if not final:
                 self._cleanup()
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            import errorlog
+            errorlog.exc("live:detect", channel=self.channel or self.source)
             self.log(f"Moment detection hit a problem ({str(e)[:120]}); still recording")
 
     def _record_loop(self):
         try:
             self._record_loop_inner()
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            import errorlog
+            errorlog.exc("live:record", channel=self.channel or self.source)
             self.status = "error"
             self.error = f"Recording stopped unexpectedly: {str(e)[:200]}"
             self.log(self.error)
@@ -588,16 +590,23 @@ class LiveSession:
                     self.status = "error"
                     self.error = str(e)
                     self.log(str(e))
+                    import errorlog
+                    errorlog.record("live:not-live", str(e), channel=self.channel or self.source)
                 break
             except Exception as e:
                 self.status = "reconnecting" if self.segments else "starting"
                 self.log(f"Couldn't reach the stream ({str(e)[:120]}), retrying in {backoff}s")
+                import errorlog
+                errorlog.record("live:reconnect", f"Couldn't reach the stream, retrying in {backoff}s: {e}",
+                                channel=self.channel or self.source)
                 if self.stop_flag.wait(backoff):
                     break
                 backoff = min(60, backoff * 2)
                 if not self.segments and _now() - self.started - self.waited > 180:
                     self.status = "error"
                     self.error = f"Couldn't start recording: {str(e)[:200]}"
+                    import errorlog
+                    errorlog.record("live:start", self.error, exc=e, channel=self.channel or self.source)
                     break
                 continue
             backoff = 3
@@ -917,13 +926,30 @@ class LiveSession:
         an.combine(cw, getattr(self, "weights", None) or detect.preset("any"))
         return an
 
+    def grade(self, rank: float, an=None) -> int:
+        """A moment's 0-100 score, graded like a VOD's clips (engine.grades): its strength, capped by where
+        it stands among the stream's moments so far and the moments already clipped, so a long session
+        can't fill up with 90+ clips. Your lowest score is checked against this."""
+        an = an if an is not None else self._graded_an
+        if an is None:
+            import detect
+            return detect.quality(rank)
+        return engine.grades(an, self.clip_scores + [float(rank)])[-1]
+
+    def grades(self, ranks: list) -> list:
+        """Every moment's score again, now that more of the stream is known (live_on_moment)."""
+        if self._graded_an is None:
+            import detect
+            return [detect.quality(r) for r in ranks]
+        return engine.grades(self._graded_an, [float(r) for r in ranks])
+
     def _detect(self, final: bool = False):
-        import detect
         n = len(self.loud)
         if n < 5:
             return
         an = self._analysis(n)
         self.score = an.score
+        self._graded_an = an
         with self.chat_lock:
             chat = list(self.chat)
         # manual "clip that" requests whose end has been recorded
@@ -956,7 +982,7 @@ class LiveSession:
                         and not any(ts <= j <= te for ts, te in self.taken):
                     prev = next((k for k, f in self.forming.items() if f.get("early") and abs(k - j) <= win), None)
                     since = self.forming.pop(prev)["since"] if prev is not None else _now()
-                    self.forming[j] = {"at": float(j), "quality": detect.quality(float(s[j])), "since": since, "early": True}
+                    self.forming[j] = {"at": float(j), "quality": self.grade(float(s[j]), an), "since": since, "early": True}
                 break
             scanned = i + 1
             if s[i] < s[a:b].max():
@@ -971,7 +997,7 @@ class LiveSession:
             arr = self._arrival(i + 1)
             aired = arr[0] - (arr[1] - i) - arr[2] if arr else None
             self._cand[i] = {"aired": aired, "arrived": arr[0] if arr else None, "found": now}
-            self.forming[i] = {"at": float(i), "quality": detect.quality(float(s[i])), "since": now, "early": False}
+            self.forming[i] = {"at": float(i), "quality": self.grade(float(s[i]), an), "since": now, "early": False}
         # scores near the live edge still change as more arrives, so look at the last minute again next time
         self._scan_from = max(0, scanned - 60)
         chat_t = engine.chat_times(chat)
@@ -1003,7 +1029,7 @@ class LiveSession:
             if self.chat_usable() and not self._crowd_ok(an, p, chat):
                 self._pass(p, "crowd", f"Passed on {engine.fmt_ts(p)}: only chat, and only one or two people")
                 continue
-            q = detect.quality(float(s[p]) + adj)
+            q = self.grade(float(s[p]) + adj, an)
             if q < self.min_quality:
                 self._pass(p, "confidence", f"Passed on a moment at {engine.fmt_ts(p)}: score {q}, under your minimum of {self.min_quality}")
                 continue
@@ -1094,15 +1120,16 @@ class LiveSession:
         import detect
         sc = round(float(an.score[min(int(peak), len(an.score) - 1)]), 2)
         clip = engine.Clip(1, round(start - offset, 2), round(end - offset, 2), round(peak - offset, 2),
-                           sc, reason, feat, quality=detect.quality(sc), parts=detect.breakdown(an, peak))
+                           sc, reason, feat, quality=self.grade(sc, an), parts=detect.breakdown(an, peak))
+        self.clip_scores.append(sc)
         self.log(f"Moment {self._moment_n} at {engine.fmt_ts(peak)}" + (" (yours)" if manual else ""))
         try:
             self.on_moment(self, {"video": out, "chat": mchat, "analysis": sub, "clip": clip, "offset": offset,
                                   "manual": manual, "number": self._moment_n,
                                   "lat": {k: round(v, 2) for k, v in lat.items()}, "aired": aired})
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            import errorlog
+            errorlog.exc("live:moment", channel=self.channel or self.source)
             self.log(f"Couldn't add moment {self._moment_n}: {str(e)[:150]}")
 
     # ------------------------------------------------------------------ disk

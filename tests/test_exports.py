@@ -44,10 +44,12 @@ check("VP9 goes in a WebM", s["container"] == "webm" and s["acodec"] == "opus", 
 s = exports.settings(dict(p, custom={"acodec": "opus", "container": "mp4"}))
 check("MP4 keeps AAC", s["acodec"] == "aac", s)
 c = exports.clean({"preset": "bogus", "custom": {"fps": 7, "crf": 99, "vbitrate": -5, "scale": "0.5"}, "renders": 9,
-                   "downloads": 0, "priority": "max", "subtitles": "x", "template": "no fields"})
+                   "downloads": 9, "priority": "max", "subtitles": "x", "template": "no fields"})
 check("settings kept sensible", c["preset"] == "tiktok" and c["custom"] == {"crf": 34, "vbitrate": 0, "scale": 0.5}
-      and c["renders"] == 3 and c["downloads"] == 1 and c["priority"] == "responsive" and c["subtitles"] == "burn"
+      and c["renders"] == 3 and c["downloads"] == 3 and c["priority"] == "responsive" and c["subtitles"] == "burn"
       and c["template"] == exports.DEFAULT_TEMPLATE, c)
+check("downloads at once: 0 is no limit", exports.clean({"downloads": 0})["downloads"] == 0
+      and exports.clean({"downloads": -2})["downloads"] == 0 and exports.DEFAULTS["downloads"] == 0)
 exports.save({"preset": "shorts", "custom": {"fps": 60}})
 check("saved settings come back", exports.load()["custom"] == {"fps": 60} and exports.load()["preset"] == "shorts")
 exports.save({"preset": "reels"})

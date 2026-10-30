@@ -69,7 +69,9 @@ DEFAULTS = {
     # captions: words to swap in captions, and words Whisper should expect
     "replace": [], "vocab": [],
     # performance
-    "renders": 1, "downloads": 1, "priority": "responsive", "lives": 2,
+    # downloads at once: 0 = no limit. downloads_v 2: saved since that became the default (before, every
+    # copy saved 1 whether you chose it or not, so a saved 1 without it is the old default)
+    "renders": 1, "downloads": 0, "downloads_v": 2, "priority": "responsive", "lives": 2,
     # saved caption styles (Text tab) and framings (Layout tab)
     "cap_presets": [], "frame_presets": [],
     # a short sound when you queue a clip and when a render is ready
@@ -104,6 +106,8 @@ def _frame_val(k, v):
 def load() -> dict:
     with _lock:
         d = persist.read_json(_FILE(), {}) or {}
+    if d.get("downloads_v") != 2:
+        d.pop("downloads", None)
     out = dict(DEFAULTS)
     out.update({k: v for k, v in d.items() if k in DEFAULTS})
     return clean(out)
@@ -144,7 +148,8 @@ def clean(d: dict) -> dict:
     out["replace"] = rep
     out["vocab"] = [str(w).strip()[:40] for w in (d.get("vocab") or []) if str(w).strip()][:200]
     out["renders"] = int(min(max(int(d.get("renders") or 1), 1), 3))
-    out["downloads"] = int(min(max(int(d.get("downloads") or 1), 1), 3))
+    dl = d.get("downloads")
+    out["downloads"] = int(min(max(int(dl if dl is not None else 0), 0), 3))
     out["lives"] = int(min(max(int(d.get("lives") or 2), 1), 3))
     out["priority"] = d.get("priority") if d.get("priority") in ("responsive", "fast") else "responsive"
     presets = []

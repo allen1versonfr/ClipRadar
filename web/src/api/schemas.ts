@@ -73,6 +73,16 @@ export const Studio = z.looseObject({ available: z.boolean().default(false), pre
 export type Studio = z.infer<typeof Studio>
 export const DiscordSent = z.looseObject({ attached: z.boolean().optional(), note: z.string().nullish(), item: QueueItem.optional() })
 
+/** Settings › About › Error log (/api/errors): every failure recorded, newest first. */
+export const ErrorEntry = z.looseObject({
+  at: z.string().default(''), where: z.string().default(''), message: z.string().default(''), version: z.string().default(''),
+  detail: z.string().optional(), type: z.string().optional(), context: z.record(z.string(), z.string()).optional(),
+})
+export type ErrorEntry = z.infer<typeof ErrorEntry>
+export const ErrorLog = z.looseObject({
+  path: z.string().default(''), session: z.number().default(0), items: z.array(ErrorEntry).default([]),
+})
+
 export const Queue = z.looseObject({
   items: z.array(QueueItem),
   eta: z.number().nullable(),
@@ -220,7 +230,7 @@ export const Perf = z.looseObject({
 export const ExportPerf = z.looseObject({
   prefs: z.looseObject({
     renders: z.number().default(1),
-    downloads: z.number().default(1),
+    downloads: z.number().default(0),
     lives: z.number().default(2),
     priority: z.enum(['responsive', 'fast']).catch('responsive'),
   }),
