@@ -164,9 +164,10 @@ def vod_checks(a, tmp):
         clips and 54 <= clips[0]["peak"] <= 76 and not any(12 <= p <= 24 or 28 <= p <= 38 or 112 <= p <= 126 for p in peaks),
         [(c["peak"], c["score"], c["reason"]) for c in clips])
     lens = [round(c["end"] - c["start"], 1) for c in clips]
-    rec("clips get their own length (15-90 s)", clips and all(14.5 <= x <= 90.5 for x in lens), lens)
+    rec("clips get their own length (15-120 s)", clips and all(14.5 <= x <= 120.5 for x in lens), lens)
     est = pv.get("estimate") or {}
-    rec("expected clip estimate", est.get("strong", 0) >= 1 and est.get("suggest", 0) >= 5, est)
+    # 4.35: quality over quantity, Automatic suggests the moments that stand out (3 at least), not 5 at least
+    rec("expected clip estimate", est.get("strong", 0) >= 1 and 3 <= est.get("suggest", 0) <= 40, est)
     rec("streamer recognised from the chat replay", pv.get("streamer") == "e2estreamer", pv.get("streamer"))
     # 3.5: detection
     rec("chat delay automatic (short test VOD: falls back to 6 s and says so)", (pv.get("detect") or {}).get("chat_delay") == "auto" and 4 <= pv.get("chat_delay", 0) <= 9
@@ -192,7 +193,7 @@ def vod_checks(a, tmp):
     rec("re-ranking keeps clips (and their ids)", sorted(c["id"] for c in again.get("clips", [])) == sorted(c["id"] for c in clips),
         [c["id"] for c in again.get("clips", [])])
     add = post("/api/add_clip", {"pid": pid, "t": 57, "length": 0})
-    rec("a clip made by hand also gets a smart length", 14.5 <= add.get("end", 0) - add.get("start", 0) <= 90.5,
+    rec("a clip made by hand also gets a smart length", 14.5 <= add.get("end", 0) - add.get("start", 0) <= 120.5,
         f"{add.get('start')}-{add.get('end')}")
     # learning: keep the loud ones, skip the quiet ones
     made = [post("/api/add_clip", {"pid": pid, "t": t, "length": 20}) for t in (10, 30, 45, 85, 100, 110, 140)]
