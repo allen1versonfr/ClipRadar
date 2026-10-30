@@ -4,6 +4,12 @@ name: Build and test
 # When main carries a version (src/version.py) that has no release yet, the
 # build publishes one: tag vX.Y.Z, the installer, the portable zip, and that
 # version's notes from CHANGELOG.md. Pushing a vX.Y.Z tag does the same.
+#
+# Three jobs run side by side (one job doing everything in turn took 36 minutes): quick checks, the
+# render and UI tests, and the app build with its end-to-end and install tests. The release job waits
+# for all three. A merge to main whose code a pull request already tested in full (the same files and
+# a passing run) only builds and publishes: running every test again on identical code took another
+# 36 minutes before each release.
 on:
   workflow_dispatch:
   pull_request:
@@ -14,14 +20,47 @@ on:
 
 permissions:
   contents: write
+  actions: read            # gate: the pull request's runs
+  pull-requests: read      # gate: which pull request a merge came from
+
+concurrency:
+  # a newer push to a pull request replaces its run still going. Main and tags get a group of their own
+  # per run: in a shared group a run waiting behind another is dropped, and its release with it
+  group: build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      tested: ${{ steps.g.outputs.tested }}
+    steps:
+      - id: g
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          tested=false
+          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/main ]; then
+            # the merge's files must be exactly those of a pull request head with a passing run of this workflow
+            tree=$(gh api "repos/$REPO/commits/$SHA" --jq .commit.tree.sha || true)
+            for pr in $(gh api "repos/$REPO/commits/$SHA/pulls" --jq '.[] | select(.merged_at != null) | .number' || true); do
+              head=$(gh api "repos/$REPO/pulls/$pr" --jq .head.sha || true)
+              htree=$(gh api "repos/$REPO/commits/$head" --jq .commit.tree.sha || true)
+              ok=$(gh api "repos/$REPO/actions/workflows/build.yml/runs?head_sha=$head&status=success" --jq .total_count || echo 0)
+              if [ -n "$tree" ] && [ "$htree" = "$tree" ] && [ "${ok:-0}" -gt 0 ]; then
+                tested=true
+                echo "::notice title=Already tested::pull request #$pr tested these exact files ($head); building and publishing only"
+              fi
+            done
+          fi
+          echo "tested=$tested" >> "$GITHUB_OUTPUT"
+
+  checks:
+    needs: gate
+    if: needs.gate.outputs.tested != 'true'
     runs-on: windows-latest
-    env:
-      # Code signing runs only once a certificate is in the repo's secrets (docs/code-signing.md).
-      # Without one, every step builds and releases the same unsigned app as before.
-      SIGNING_CONFIGURED: ${{ (secrets.AZURE_SIGNING_ACCOUNT != '' || secrets.WINDOWS_CERT_PFX_BASE64 != '') && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -43,41 +82,10 @@ jobs:
           python -m pip install ruff==0.17.2
           python -m ruff check src tests scripts
 
-      - name: Install packages
-        run: python -m pip install -U pip && python -m pip install -r requirements.txt pywebview pyinstaller playwright
-
-      # The React UI (web/) builds into src/web, which the server serves at / when it's there.
-      # Until web/ exists these steps do nothing and the original page (src/ui) is the UI.
-      - name: Check for the React UI
-        id: web
-        shell: pwsh
-        run: echo "present=$(Test-Path web/package.json)" >> $env:GITHUB_OUTPUT
-
-      - uses: actions/setup-node@v5
-        if: steps.web.outputs.present == 'True'
+      # without the bundled tools, as before: the unit tests don't need FFmpeg
+      - uses: ./.github/actions/setup
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: Build the React UI
-        if: steps.web.outputs.present == 'True'
-        working-directory: web
-        run: |
-          npm ci
-          npm test
-          npm run build
-          if (-not (Test-Path ../src/web/index.html)) { Write-Host "::error title=web::npm run build didn't write src/web/index.html"; exit 1 }
-
-      - name: Get the laughter detector (built by the "Build model files" workflow)
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force src/models | Out-Null
-          Invoke-WebRequest "https://github.com/${{ github.repository }}/releases/download/models-v1/audio_events.onnx" -OutFile src/models/audio_events.onnx -UseBasicParsing
-          $want = (Select-String -Path src/audio_events.py -Pattern 'MODEL_SHA256 = "([0-9a-f]+)"').Matches[0].Groups[1].Value
-          $got = (Get-FileHash src/models/audio_events.onnx -Algorithm SHA256).Hash.ToLower()
-          if ($got -ne $want) { Write-Host "::error title=model::audio_events.onnx hash $got, expected $want"; exit 1 }
-          Write-Host "::notice title=model::laughter detector $([math]::Round((Get-Item src/models/audio_events.onnx).Length / 1MB)) MB, hash ok"
+          tools: "false"
 
       - name: Unit tests
         shell: pwsh
@@ -115,15 +123,17 @@ jobs:
           python tests/test_api_contract.py
           python tests/test_file_serving.py
 
-      - name: Get ffmpeg, TwitchDownloader and yt-dlp
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        shell: pwsh
-        run: |
-          python src/tools_setup.py --dest tools ffmpeg twitchdownloader ytdlp
-          foreach ($t in "ffmpeg.exe","ffprobe.exe","TwitchDownloaderCLI.exe","yt-dlp.exe") {
-            if (-not (Test-Path "tools\$t")) { Write-Host "::error title=FAIL tool download::$t missing"; exit 1 }
-          }
+  render:
+    needs: gate
+    if: needs.gate.outputs.tested != 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: setup
+        uses: ./.github/actions/setup
+        with:
+          web-tests: "true"
 
       # The UI smoke test, once with each UI, with the app's FFmpeg on PATH: without it the test only
       # checks that each screen lays out, and skips the journey (open a video, keep the top 3, render,
@@ -139,7 +149,7 @@ jobs:
           python tests/test_ui.py
 
       - name: UI smoke test (React UI)
-        if: steps.web.outputs.present == 'True'
+        if: steps.setup.outputs.web == 'True'
         shell: pwsh
         env:
           CLIPRADAR_UI: web
@@ -171,6 +181,20 @@ jobs:
           python tests/test_preview_fallback.py
           python tests/test_live_switch.py
           python tests/test_quality.py
+
+  build:
+    needs: gate
+    runs-on: windows-latest
+    env:
+      # Code signing runs only once a certificate is in the repo's secrets (docs/code-signing.md).
+      # Without one, every step builds and releases the same unsigned app as before.
+      SIGNING_CONFIGURED: ${{ (secrets.AZURE_SIGNING_ACCOUNT != '' || secrets.WINDOWS_CERT_PFX_BASE64 != '') && 'true' || 'false' }}
+      # a merge whose exact files a pull request already tested: build, check it starts, package, publish
+      TESTED: ${{ needs.gate.outputs.tested }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/setup
 
       # PyAV is left out: faster-whisper only uses it to read audio files, and Clip Radar always hands
       # Whisper samples decoded by the bundled FFmpeg. src/stubs/av stands in for it (saves a second
@@ -282,6 +306,7 @@ jobs:
           Write-Host "::notice title=package::$(MB $total) MB unpacked; biggest: $(($parts | Select-Object -First 8 | ForEach-Object { "$($_.name) $($_.mb)" }) -join ', ')"
 
       - name: Make a test stream (video + spoken words)
+        if: env.TESTED != 'true'
         shell: pwsh
         run: |
           $t = $env:RUNNER_TEMP
@@ -306,6 +331,7 @@ jobs:
           Get-Item "$t\test.mp4" | Format-List Name, Length
 
       - name: Self-test inside the exe
+        if: env.TESTED != 'true'
         shell: pwsh
         run: |
           $t = $env:RUNNER_TEMP
@@ -366,6 +392,7 @@ jobs:
           Write-Host "::notice title=startup::app server answered after $t ms (median of 3: $($times -join ', ')); $m MB in memory once idle"
 
       - name: End-to-end test (VOD, live clipping, rendering, TikTok Studio handoff)
+        if: env.TESTED != 'true'
         shell: pwsh
         run: |
           python tests/e2e.py --app "dist/ClipRadar/ClipRadar.exe" --ffmpeg tools/ffmpeg.exe --out "$env:RUNNER_TEMP\e2e.json" --model tiny --speech "$env:RUNNER_TEMP\speech.wav"
@@ -413,6 +440,7 @@ jobs:
         run: pwsh -NoProfile -File installer\sign.ps1 -Verify dist\ClipRadar\ClipRadar.exe dist\ClipRadar-Setup.exe
 
       - name: Test updating from VodClipper (the old name)
+        if: env.TESTED != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -497,6 +525,7 @@ jobs:
           exit 0
 
       - name: Test updating from the previous Clip Radar release
+        if: env.TESTED != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -573,6 +602,7 @@ jobs:
           exit 0
 
       - name: Test install and uninstall
+        if: env.TESTED != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Continue"
@@ -684,8 +714,28 @@ jobs:
             dist/ClipRadar
             dist/ClipRadar-Setup.exe
 
+  release:
+    # after the app is built and every test job passed (or was skipped because the pull request ran it)
+    needs: [gate, checks, render, build]
+    if: >-
+      !cancelled() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+      && needs.build.result == 'success'
+      && (needs.checks.result == 'success' || (needs.checks.result == 'skipped' && needs.gate.outputs.tested == 'true'))
+      && (needs.render.result == 'success' || (needs.render.result == 'skipped' && needs.gate.outputs.tested == 'true'))
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: ClipRadar-windows
+          path: dist
+
       - name: Publish release (new versions only)
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
