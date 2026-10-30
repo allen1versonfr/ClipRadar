@@ -109,7 +109,7 @@ VIBES = {
     # apart by engine.reaction_kind; "huh" and "???" used to count as shock
     "confused": {
         "emoji": "🤔",
-        "tags": ["#confused", "#wait"],
+        "tags": ["#confused"],
         "chat": set(),
         "said": {"huh", "confused", "understand", "wait", "what"},
         "templates": ["Chat was so confused", "Nobody understood what just happened", "Can someone explain this",
@@ -150,7 +150,8 @@ VIBES = {
         "describe": "A wholesome moment",
     },
 }
-NEUTRAL = ["You have to see this", "Wait for it...", "Watch till the end"]
+NEUTRAL = ["You have to see this", "Wait for it...", "Watch till the end", "Don't scroll past this one",
+           "This had to be clipped", "Watch this one", "The moment it happened", "Keep watching"]
 NEUTRAL_NAMED = ["{n} moment you have to see", "Wait for it... ({n})", "Watch {n} till the end"]
 NEUTRAL_HOOKS = ["You have to see this", "Watch till the end", "Wait for it"]
 CLIP_REQ = ["Chat said clip it", "Chat made me clip this"]

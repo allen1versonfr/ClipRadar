@@ -174,6 +174,125 @@ jobs: dict = {}
 
 
 # --------------------------------------------------------------------------
+# memory (4.36): what a session holds on to
+# --------------------------------------------------------------------------
+
+class ChatStore:
+    """A project's chat, [(seconds, text, user, kind)] in time order, that goes to disk while the project isn't
+    used and comes back the moment anything reads it. Every video opened stayed in memory with all its chat
+    until Clip Radar closed: a big stream's chat is a few hundred MB, and opening a few in a sitting added up.
+    Reads like a list (len, [i], [a:b], iteration, bisect), so the code using a project's chat doesn't change."""
+
+    IDLE = 600                     # seconds unused before it goes to disk
+    FILE = "chat.session.json"     # in the project's folder (not the temp folder: Clear temporary files)
+
+    def __init__(self, msgs, folder: str = ""):
+        self._msgs = list(msgs)
+        self._n = len(self._msgs)
+        self._path = os.path.join(folder or locations.temp_dir("chat"), self.FILE)
+        self._written = False
+        self._lock = threading.Lock()
+        self.used = time.time()
+        try:
+            os.remove(self._path)          # from the last time Clip Radar ran: this session writes its own
+        except OSError:
+            pass
+
+    def _get(self) -> list:
+        self.used = time.time()
+        m = self._msgs
+        if m is None:
+            with self._lock:
+                if self._msgs is None:
+                    try:
+                        with open(self._path, encoding="utf-8") as f:
+                            self._msgs = [tuple(x) for x in json.load(f)]
+                    except (OSError, ValueError) as e:
+                        raise RuntimeError("This video's chat was set aside to save memory and its file is gone "
+                                           f"({os.path.basename(self._path)}). Open the video again.") from e
+                m = self._msgs
+        return m
+
+    def __len__(self):
+        return self._n
+
+    def __bool__(self):
+        return self._n > 0
+
+    def __getitem__(self, i):
+        return self._get()[i]
+
+    def __iter__(self):
+        return iter(self._get())
+
+    @property
+    def loaded(self) -> bool:
+        return self._msgs is not None
+
+    def unload(self) -> bool:
+        """To disk (once: chat doesn't change). False when it's in use, empty, or can't be written."""
+        with self._lock:
+            if self._msgs is None or not self._n:
+                return False
+            if not self._written or not os.path.exists(self._path):
+                try:
+                    with open(self._path + ".tmp", "w", encoding="utf-8") as f:
+                        json.dump(self._msgs, f, ensure_ascii=False, separators=(",", ":"))
+                    os.replace(self._path + ".tmp", self._path)
+                except (OSError, TypeError, ValueError):
+                    return False
+                self._written = True
+            self._msgs = None
+            return True
+
+
+MEMORY_EVERY = 60          # seconds between looks
+KEEP_LOADED = 2            # the projects used last keep their chat in memory whatever
+JOB_KEEP = 3600            # a finished job's result is there this long
+
+
+def trim_memory(now: Optional[float] = None) -> dict:
+    """Let go of what nothing is using: chat of projects idle for ChatStore.IDLE (not the KEEP_LOADED used last,
+    not one being worked on), finished jobs after JOB_KEEP (only cleared when a new job started, before), and the
+    small projects rebuilt to render a clip after a restart once nothing queued needs them (kept for good)."""
+    now = now or time.time()
+    out = {"chat": 0, "jobs": 0, "render_projects": 0}
+    stores = [(pid, pr["chat"]) for pid, pr in list(projects.items()) if isinstance(pr.get("chat"), ChatStore)]
+    busy = {j.get("pid") for j in list(jobs.values()) if j.get("status") == "running"}
+    for pid, pr in list(projects.items()):
+        for k in ("listen_job", "deep_job"):
+            if (jobs.get(pr.get(k, "")) or {}).get("status") == "running":
+                busy.add(pid)
+    recent = {pid for pid, _ in sorted(stores, key=lambda x: -x[1].used)[:KEEP_LOADED]}
+    for pid, st in stores:
+        if st.loaded and pid not in recent and pid not in busy and now - st.used > ChatStore.IDLE and st.unload():
+            out["chat"] += 1
+    for jid, j in list(jobs.items()):
+        if j.get("status") != "running" and now - j.get("started", now) > JOB_KEEP:
+            jobs.pop(jid, None)
+            out["jobs"] += 1
+    with queue_lock:
+        needed = {it.get("pid") for it in queue if it.get("status") in ("queued", "rendering")}
+    for pid in list(_render_projects):
+        if pid not in needed:
+            _render_projects.pop(pid, None)
+            out["render_projects"] += 1
+    return out
+
+
+def _memory_keeper():
+    while not SHUTTING_DOWN[0]:
+        time.sleep(MEMORY_EVERY)
+        try:
+            trim_memory()
+        except Exception:
+            pass
+
+
+_keeper = threading.Thread(target=_memory_keeper, name="memory", daemon=True)
+
+
+# --------------------------------------------------------------------------
 # jobs
 # --------------------------------------------------------------------------
 
@@ -477,9 +596,12 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     d["emoji"] = info["emoji"]
     if cfg.get("auto", True) or d.get("safety"):
         checkflow.check(d, cfg, pr["info"].get("has_audio", True))
-    # 4.36: both titles and the caption, so the next clips get others (only the title on the video was, and
-    # every clip of one mood got the same title B and caption)
-    used.update(t.lower() for t in (d["title"], info["title_a"], info["title_b"], info["description"]) if t)
+    # 4.36: the titles and the caption, so the next clips get others (only the title on the video was, and
+    # every clip of one mood got the same title B and caption).
+    # B only when it's a title with the streamer's name in it: that's its own pool, while an unnamed B is one of
+    # title A's and used them up twice as fast (a video without chat or words repeated its titles)
+    used.update(t.lower() for t in (d["title"], info["title_a"], info["title_b"] if info["title_b_named"] else "",
+                                    info["description"]) if t)
 
 
 def rescan_all():
@@ -754,7 +876,8 @@ def do_analyze(job, body: dict):
     info = engine.probe(s.video)
     length = float(body.get("length", 0) or 0)
     count = int(body.get("count", 0) or 0)
-    projects[pid] = {"video": s.video, "chat": s.chat, "title": s.title, "workdir": s.workdir,
+    projects[pid] = {"video": s.video, "chat": ChatStore(s.chat, s.workdir),
+                     "title": s.title, "workdir": s.workdir,
                      "analysis": an, "info": info, "clips": [], "chat_delay": delay,
                      "source": src, "clips_ver": 0, "streamer": s.streamer, "length": length,
                      "count": count, "tx_lock": threading.Lock(), "gems": [], "detect": det,
@@ -2696,6 +2819,7 @@ def start(port: int = PORT):
         apply_perf()
         updater.start_background(log=_say)
         hotkey.start(on_hotkey)
+        _keeper.start()
     return srv, f"http://127.0.0.1:{port}"
 
 

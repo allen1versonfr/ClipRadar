@@ -160,6 +160,15 @@ for k in range(12):
 check("12 hype clips: 12 titles", len(set(got["a"])) == 12, got["a"])
 check("and at least 10 different titles B and captions", len(set(got["b"])) >= 10 and len(set(got["d"])) >= 10, got)
 
+# a video without chat or words: the neutral titles, none twice in its first clips (title B marked as used too
+# took them twice as fast, and the 4th clip repeated the 1st)
+used, quiet = set(), []
+for k in range(6):
+    g = titles.generate([], [], peak_rel=k * 1.1, used=used)
+    used.update(x.lower() for x in (g["title"], g["title_a"], g["title_b"] if g["title_b_named"] else "", g["description"]) if x)
+    quiet.append(g["title_a"])
+check("a video without chat or words: 6 clips, 6 titles", len(set(quiet)) == 6, quiet)
+
 check("the game is a hashtag, in the form people search", titles.hashtags("hype", "Kai", "Grand Theft Auto V")[:2] == ["#kai", "#gta5"]
       and "#minecraft" in titles.hashtags("funny", "x", "Minecraft"))
 check("#gaming only for a game", "#gaming" in titles.hashtags("funny", "x", "Minecraft")

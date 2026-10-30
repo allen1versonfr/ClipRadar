@@ -133,5 +133,102 @@ if shutil.which("ffmpeg") and shutil.which("ffprobe"):
 else:
     print("[skip] no ffmpeg here: file decoding not checked")
 
+# ---------------------------------------------------------------- 4.36: a project's chat, jobs, live sessions
+import bisect  # noqa: E402
+import gc  # noqa: E402
+import tracemalloc  # noqa: E402
+
+sys.path.insert(0, HERE)
+os.environ.setdefault("CLIPRADAR_WORK", tempfile.mkdtemp(prefix="vc_test_"))
+os.environ["CLIPRADAR_NO_BROWSER"] = "1"
+import server  # noqa: E402
+
+msgs = [(i * 0.5, f"message {i} KEKW", f"user{i % 300}", "") for i in range(20000)]
+folder = tempfile.mkdtemp()
+open(os.path.join(folder, server.ChatStore.FILE), "w").write("[[1, \"stale\", \"x\", \"\"]]")
+st = server.ChatStore(msgs, folder)
+check("a stale chat file from the last run is removed", not os.path.exists(os.path.join(folder, server.ChatStore.FILE)))
+same = lambda: (len(st) == 20000 and bool(st) and st[5] == msgs[5] and st[100:103] == msgs[100:103]  # noqa: E731
+                and list(st)[-1] == msgs[-1] and bisect.bisect_left(st, 2500.0, key=lambda m: m[0]) == 5000)
+check("a project's chat reads like a list", same())
+check("it goes to disk", st.unload() and not st.loaded and os.path.exists(os.path.join(folder, server.ChatStore.FILE)))
+check("its length is known without reading it back", len(st) == 20000 and bool(st) and not st.loaded)
+check("and anything that reads it gets it back, the same", same() and st.loaded)
+mtime = os.path.getmtime(os.path.join(folder, server.ChatStore.FILE))
+time.sleep(0.05)
+st.unload()
+check("written once (chat doesn't change)", os.path.getmtime(os.path.join(folder, server.ChatStore.FILE)) == mtime)
+st._get()
+os.remove(os.path.join(folder, server.ChatStore.FILE))
+st.unload()
+check("its file deleted while it was in memory: written again", os.path.exists(os.path.join(folder, server.ChatStore.FILE)))
+os.remove(os.path.join(folder, server.ChatStore.FILE))
+try:
+    st[0]
+    check("its file deleted while set aside: says so", False)
+except RuntimeError as e:
+    check("its file deleted while set aside: says so", "Open the video again" in str(e), str(e))
+
+tracemalloc.start()
+gc.collect()
+before = tracemalloc.get_traced_memory()[0]
+big = server.ChatStore([(i * 0.1, f"text number {i}", f"u{i}", "") for i in range(200000)], tempfile.mkdtemp())
+gc.collect()
+held = tracemalloc.get_traced_memory()[0] - before
+big.unload()
+gc.collect()
+after = tracemalloc.get_traced_memory()[0] - before
+check("setting chat aside frees its memory", after < held * 0.05, (round(held / 1e6, 1), round(after / 1e6, 2)))
+
+# trim_memory: idle projects' chat, finished jobs, render-only projects
+now = time.time()
+server.projects.clear()
+for k in range(5):
+    store = server.ChatStore(msgs[:100], tempfile.mkdtemp())
+    store.used = now - 3600 - k            # p0 used last
+    server.projects[f"p{k}"] = {"chat": store, "workdir": "", "video": ""}
+server.jobs["busy"] = {"id": "busy", "status": "running", "started": now - 99999, "pid": "p4"}
+server.jobs["old"] = {"id": "old", "status": "done", "started": now - 2 * 3600}
+server.jobs["new"] = {"id": "new", "status": "done", "started": now - 60}
+server._render_projects.update(r1={"video": "a"}, r2={"video": "b"})
+server.queue[:] = [{"pid": "r2", "status": "queued"}, {"pid": "r1", "status": "done"}]
+got = server.trim_memory(now)
+loaded = {k for k, pr in server.projects.items() if pr["chat"].loaded}
+check("idle projects' chat goes to disk, but not the two used last or one being worked on", loaded == {"p0", "p1", "p4"}, loaded)
+check("a project used a moment ago keeps its chat", (server.projects["p2"]["chat"]._get(), server.trim_memory(now))[0]
+      and server.projects["p2"]["chat"].loaded)
+check("finished jobs go after an hour, running ones stay", set(server.jobs) == {"busy", "new"}, set(server.jobs))
+check("a project rebuilt only to render a clip goes once nothing queued needs it", set(server._render_projects) == {"r2"},
+      set(server._render_projects))
+server.projects.clear()
+server.jobs.clear()
+server.queue.clear()
+
+# an ended live session lets go of its chat, loudness and chatters, and its page still shows what it did
+import numpy as np  # noqa: E402
+import live_replay as lr  # noqa: E402
+rng = np.random.default_rng(1)
+N = 1800
+loud = (-30 + rng.normal(0, 1.5, N)).astype(np.float32)
+chat = sorted((t + rng.random(), ["hello chat", "KEKW", "nice"][rng.integers(3)], f"u{rng.integers(20000)}")
+              for t in range(N) for _ in range(rng.poisson(8)))
+for t in (300, 900, 1500):
+    loud[t:t + 3] = -6
+sess = lr.replay(loud, chat=chat)
+gc.collect()
+page = sess.public()
+before = tracemalloc.get_traced_memory()[0]
+sess.release_memory()
+gc.collect()
+freed = before - tracemalloc.get_traced_memory()[0]
+check("an ended live session lets go of its chat, loudness and chatters (they stayed until Clip Radar closed)",
+      freed > 2e6 and not sess.chat and not sess.loud and not sess.fine, round(freed / 1e6, 1))
+after = sess.public()
+check("and its page still shows the stream: length, curve, chat totals",
+      all(after[k] == page[k] for k in ("recorded", "curve", "chat_total", "chatters", "chat_ignored", "laughter", "moments")),
+      {k: (page[k], after[k]) for k in ("recorded", "chat_total", "chatters") if page[k] != after[k]})
+check("its moments keep their scores", sess.grades([5.0, 3.0]) == sess.grades([5.0, 3.0]) and sess._graded_an is not None)
+tracemalloc.stop()
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)
