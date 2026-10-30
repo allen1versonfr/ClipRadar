@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.31.0] - 2026-10-30
+
+Ordinary YouTube videos open sooner (nothing waits for the download any more, and nothing is downloaded twice), and a clip in Review that stayed blank, sound but no picture, now plays.
+
 ### Changed
 - **Ordinary YouTube videos open sooner.** Before, everything happened one after the other: the link was checked, YouTube was looked up again for the download, the video came down and then its sound, then the comments, captions and Most replayed graph were read (another lookup, often ten seconds or more), and only then was the sound listened to. Now:
   - The downloads start from what the link check already found, instead of looking the video up again (a few seconds each). If those links don't work any more, yt-dlp looks it up by itself.
@@ -16,7 +20,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **Review: a clip could be blank and never play.**
   - One player shows clips from several videos (each live moment is its own). Once one video needed Clip Radar's playable copy, the player asked for that copy for every clip after it, from any video. A video with no copy was sent as it was; if the window couldn't play it either, nothing happened and no message showed. What a video needs is now kept per video.
   - A copy that finished while you were on another clip is used when you come back.
-  - A video that played and then hit a decode error (the window's decoder can lose the graphics card for a moment, for example while Whisper loads onto it to write titles) is loaded again where it was, up to twice. Before, it went straight to making a 480p copy of the whole video, which takes minutes on a long VOD, and the clip stayed blank meanwhile.
+  - A video that played and then hit a decode error (the window's decoder can lose the graphics card for a moment, for example while Whisper loads onto it to write titles) is loaded again where it was, up to twice. Before, it went straight to making a 480p copy of the whole video, which takes minutes on a long VOD, and the clip stayed blank meanwhile. Whether that's what blanks clips while titles are written is still being looked into ([#42](https://github.com/allen1versonfr/ClipRadar/issues/42)).
 
 ### Tests
 - `tests/test_web_live_moments.py` (new, in CI): two live moments in a codec the browser can't play, in Review in a real browser: each one plays with its own copy, back and forth (the second stayed blank before). `tests/browser.py` also finds Playwright's newer `chrome-linux64` Chromium.
