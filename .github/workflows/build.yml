@@ -172,6 +172,7 @@ jobs:
           python tests/test_black_cover.py
           python tests/test_layout_geometry.py
           python tests/test_precut.py
+          python tests/test_youtube_speed.py
           python tests/test_child_cleanup.py
           python tests/test_filelocks.py
           python tests/test_web_exports.py
