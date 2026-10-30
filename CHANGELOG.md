@@ -19,6 +19,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   - A video that played and then hit a decode error (the window's decoder can lose the graphics card for a moment, for example while Whisper loads onto it to write titles) is loaded again where it was, up to twice. Before, it went straight to making a 480p copy of the whole video, which takes minutes on a long VOD, and the clip stayed blank meanwhile.
 
 ### Tests
+- `tests/test_web_live_moments.py` (new, in CI): two live moments in a codec the browser can't play, in Review in a real browser: each one plays with its own copy, back and forth (the second stayed blank before). `tests/browser.py` also finds Playwright's newer `chrome-linux64` Chromium.
 - `web/`: 153 Vitest tests, including the player: a copy for one video not used for the next video, a copy finished while you're on another clip, and a decode error after playing (loaded again twice, then the copy).
 - `tests/test_youtube_speed.py` (new, in CI): a stand-in yt-dlp. Checks that YouTube is only looked up for the link check and the comments, that the comments are read during the download, that the early sound is handed over and the video's download joins it, that listening early hears the same as listening to the video, that a video download that gets to the sound first is left alone and nothing is left behind, and that the whole open takes about as long as the link check plus the video.
 

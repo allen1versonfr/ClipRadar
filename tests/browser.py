@@ -11,9 +11,10 @@ def launch(p):
     tries = [dict(executable_path=exe)] if exe else []
     if os.path.isdir("/opt/pw-browsers"):
         for d in sorted(os.listdir("/opt/pw-browsers")):
-            cand = os.path.join("/opt/pw-browsers", d, "chrome-linux", "chrome")
-            if d.startswith("chromium-") and os.path.isfile(cand):
-                tries.append(dict(executable_path=cand))
+            for sub in ("chrome-linux", "chrome-linux64"):        # newer Playwright builds: chrome-linux64
+                cand = os.path.join("/opt/pw-browsers", d, sub, "chrome")
+                if d.startswith("chromium-") and os.path.isfile(cand):
+                    tries.append(dict(executable_path=cand))
     tries += [{}, dict(channel="msedge"), dict(channel="chrome")]
     for kw in tries:
         try:
