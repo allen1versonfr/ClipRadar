@@ -1,0 +1,73 @@
+name: Build Whisper for Vulkan
+
+# Builds whisper.cpp with Vulkan (issue 46: Whisper on AMD and Intel graphics cards) and publishes one whisper-cli.exe on the
+# "whisper-vulkan-v1" pre-release, where Clip Radar's GPU support download fetches it (src/whispercpp.py pins its SHA-256).
+# whisper.cpp has no Vulkan build for Windows of its own. Nothing of it is changed here, only built. Run it by hand from the
+# Actions tab, or by pushing to the build-whisper-vulkan branch, after moving the versions below.
+on:
+  workflow_dispatch:
+  push:
+    branches: [build-whisper-vulkan]
+
+permissions:
+  contents: write
+
+env:
+  WHISPER_TAG: v1.9.5
+  VULKAN_TAG: vulkan-sdk-1.4.363.0
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # conda-forge has glslc and the Vulkan loader, so the whole Vulkan SDK installer isn't needed. Its headers are too old
+      # for whisper.cpp, so those come from Khronos at one SDK tag.
+      - name: Get the sources and Vulkan tools
+        shell: bash
+        run: |
+          git clone -q --depth 1 --branch "$WHISPER_TAG" https://github.com/ggml-org/whisper.cpp src-whisper
+          git clone -q --depth 1 --branch "$VULKAN_TAG" https://github.com/KhronosGroup/Vulkan-Headers src-vk
+          git clone -q --depth 1 --branch "$VULKAN_TAG" https://github.com/KhronosGroup/SPIRV-Headers src-spirv
+          curl -sSL -o micromamba.exe https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-win-64
+          export MAMBA_ROOT_PREFIX="$PWD/mamba"
+          ./micromamba.exe create -y -q -p "$PWD/vk" -c conda-forge shaderc libvulkan-loader spirv-tools ninja
+          for d in src-vk src-spirv; do
+            cmake -S "$d" -B "b-$d" -DCMAKE_INSTALL_PREFIX="$PWD/vk/Library" -DBUILD_TESTING=OFF \
+              -DVULKAN_HEADERS_ENABLE_MODULE=OFF -DSPIRV_HEADERS_ENABLE_TESTS=OFF -DSPIRV_HEADERS_ENABLE_INSTALL=ON
+            cmake --install "b-$d"
+          done
+
+      # One static exe: one file to pin by checksum, and no DLL for a PC to be missing but vulkan-1.dll, which comes with
+      # the graphics driver. GGML_NATIVE off, or it would only run on CPUs like this runner's.
+      - name: Build
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          set "PATH=%CD%\vk\Library\bin;%PATH%"
+          set "VULKAN_SDK=%CD%\vk\Library"
+          cmake -S src-whisper -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_VULKAN=ON ^
+            -DGGML_NATIVE=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_OPENMP=OFF ^
+            -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
+            -DWHISPER_BUILD_TESTS=OFF -DWHISPER_SDL2=OFF "-DCMAKE_PREFIX_PATH=%CD%\vk\Library" || exit /b 1
+          cmake --build build --target whisper-cli || exit /b 1
+
+      - name: Check it starts
+        shell: bash
+        run: |
+          cp vk/Library/bin/vulkan-1.dll build/bin/       # no driver on the runner; the app's copy comes from the driver
+          ./build/bin/whisper-cli.exe -h 2>&1 | grep -q -- "--vad" || { echo "::error::whisper-cli doesn't run"; exit 1; }
+          echo "::notice title=whisper-cli.exe::$(sha256sum build/bin/whisper-cli.exe | cut -d' ' -f1) ($(stat -c %s build/bin/whisper-cli.exe) bytes)"
+
+      - name: Publish on the whisper-vulkan-v1 pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view whisper-vulkan-v1 >/dev/null 2>&1; then
+            gh release create whisper-vulkan-v1 --prerelease --title "Whisper for Vulkan" --target "${{ github.sha }}" \
+              --notes "whisper.cpp $WHISPER_TAG built with Vulkan, which Clip Radar downloads for AMD and Intel graphics cards. Not an app release; get Clip Radar from the latest release."
+          fi
+          gh release upload whisper-vulkan-v1 build/bin/whisper-cli.exe --clobber

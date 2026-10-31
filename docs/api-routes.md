@@ -1,12 +1,3 @@
-# HTTP routes
-
-Generated from `src/routes.py` by `python scripts/api_routes.py`. Regenerate after adding a route;
-`tests/test_api_contract.py` checks that every path a UI calls is in this set.
-
-`{id}` is a project, job, live session or queue item id (`\w+`). All `/api/*` answers are JSON
-(`Cache-Control: no-store`); errors are `{"error": "<message for the user>"}` with a 4xx/5xx status.
-POST bodies are JSON objects (`Content-Type: application/json`, at most 16 MB).
-
 | Method | Path |
 |---|---|
 | GET | `/legacy` |
@@ -14,13 +5,18 @@ POST bodies are JSON objects (`Content-Type: application/json`, at most 16 MB).
 | GET | `/legacy/index.html` |
 | GET | `/` |
 | GET | `/index.html` |
+| GET | `/next` |
+| GET | `/next/` |
+| GET | `/next/index.html` |
 | GET | `/favicon.ico` |
 | GET | `/wmimg/{name}` |
+| GET | `/api/gpu` |
 | GET | `/api/status` |
 | GET | `/api/update` |
 | GET | `/api/update/versions` |
 | GET | `/api/safety` |
 | GET | `/api/hotkey` |
+| GET | `/api/studio` |
 | GET | `/api/ping` |
 | GET | `/api/recent` |
 | GET | `/api/live/{id}` |
@@ -32,8 +28,8 @@ POST bodies are JSON objects (`Content-Type: application/json`, at most 16 MB).
 | GET | `/api/learning/explain` |
 | GET | `/api/queue` |
 | GET | `/api/export` |
-| GET | `/api/errors` |
 | GET | `/api/spelling` |
+| GET | `/api/errors` |
 | GET | `/api/campaigns` |
 | GET | `/api/sources` |
 | GET | `/api/locations` |
@@ -55,6 +51,9 @@ POST bodies are JSON objects (`Content-Type: application/json`, at most 16 MB).
 | POST | `/api/sources/resume` |
 | POST | `/api/sources/forget` |
 | POST | `/api/setup_tools` |
+| POST | `/api/gpu/install` |
+| POST | `/api/gpu/remove` |
+| POST | `/api/gpu/mode` |
 | POST | `/api/watermark/image` |
 | POST | `/api/import` |
 | POST | `/api/watermark/share` |
@@ -76,6 +75,8 @@ POST bodies are JSON objects (`Content-Type: application/json`, at most 16 MB).
 | POST | `/api/live/start` |
 | POST | `/api/live/{id}/{stop|clip|settings}` |
 | POST | `/api/handoff` |
+| POST | `/api/preview` |
+| POST | `/api/studio` |
 | POST | `/api/open_url` |
 | POST | `/api/cancel` |
 | POST | `/api/repick` |

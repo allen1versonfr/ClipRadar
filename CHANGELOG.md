@@ -5,6 +5,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.37.0] - 2026-10-31
+
+Whisper now runs on AMD and Intel graphics cards, and Clip Radar picks the card or the CPU for each job.
+
+### Added
+- **Whisper on AMD and Intel cards.** Settings › Performance › Graphics card offers a download of about 0.5 GB: whisper.cpp built with Vulkan, checked by SHA-256 and removable. Measured on an RX 7600 XT with large-v3: about 2x real time against 1.5x on the CPU, and about 94% less CPU time, which keeps a live session from falling behind on titles. Not yet tried on an Intel card.
+- **The card or the CPU, per job.** Clip Radar finds your card and reads how busy it and the CPU are. Titles and Deep scan run on the card. Final captions stay on faster-whisper on the CPU, because its words and timing are more exact. While a game or full render slots have the card and the CPU has room, titles move to the CPU. Settings shows where each job last ran and why, and **Whisper runs on** can fix it to Automatic, Graphics card or CPU. NVIDIA cards with GPU support work as before.
+
+### Changed
+- A bigger Whisper model for the card downloads in the background the first time it's asked for, while the CPU carries on.
+- Whisper on the card falls back to the CPU on its own: for one clip after a failure, and until a restart if it fails twice in a row or runs slower than the sound.
+- Deep scan's automatic model is 'small' when the card runs Whisper, as on NVIDIA.
+
+### Fixed
+- A caption rendered after a title reused the title's transcript. Words the card heard for a title are now heard again on faster-whisper before they're burned into a clip.
+
+### Known limits
+- Whisper on the card doesn't use the names and emotes prompt, so a title can misspell them. A context big enough to keep the prompt scored lower in testing.
+- Choosing **Graphics card** for captions loosens their word timing (about 220 ms against 80 ms in testing).
+
+### Tests
+- `tests/test_gpu_choice.py` (new, in CI): finding the card, reading load, every choice by task and load, the stand-in whisper-cli's words, failures and the CPU taking over, a title's words never reaching a caption, and the download.
+
 ## [4.36.0] - 2026-10-30
 
 Better titles, captions and hashtags; Upload to TikTok gets past more of what used to stop it; the graphics card does more of the work; and Clip Radar lets go of memory it held on to.

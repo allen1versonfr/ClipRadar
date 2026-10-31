@@ -3120,15 +3120,24 @@ _HALLUCINATION = re.compile(r"thank(s| you) (so much )?for watching|please subsc
 
 
 def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = "",
-               progress: Progress = _noop) -> list:
+               progress: Progress = _noop, pick: Optional[dict] = None, check=_noop) -> list:
     """audio: path or 16 kHz mono float32 numpy array. prompt: names and words to expect (the
     streamer, emotes, your own vocabulary), so Whisper spells them right. progress gets 0-1 as
-    the transcript reaches further into the audio."""
+    the transcript reaches further into the audio. pick: gpu.choose()'s answer for this task;
+    without one this is a caption, the task that stays on faster-whisper unless you chose otherwise."""
     if isinstance(audio, (str, os.PathLike)):
         # decode with the bundled FFmpeg: the packaged app has no PyAV (stubs/av)
         audio = extract_audio(str(audio), 0.0, probe(str(audio))["duration"] or 0.1)
         if audio is None:
             raise RuntimeError("Couldn't read the sound in this file.")
+    import gpu
+    import whispercpp
+    pick = pick or gpu.choose("captions", model_size, log)
+    if pick["engine"] == "vulkan":
+        try:
+            return whispercpp.transcribe(audio, model_size, language, log, _HALLUCINATION, progress, check)
+        except whispercpp.Failed as e:
+            log(f"Whisper on the graphics card stopped ({str(e)[:140]}); this one runs on the CPU.")
     with _busy_lock:
         _whisper_busy[0] += 1
     try:

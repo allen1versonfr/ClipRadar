@@ -51,7 +51,7 @@ def fake_extract(video, start, length):
     return np.zeros(int(16000 * min(length, 2)), dtype=np.float32)
 
 
-def fake_transcribe(audio, model, lang, log, prompt=""):
+def fake_transcribe(audio, model, lang, log, prompt="", **kw):
     calls["transcribe"] += 1
     if behaviour["whisper"] == "fail":
         raise RuntimeError("Couldn't load Whisper. cpu: model download failed")

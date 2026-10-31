@@ -242,13 +242,15 @@ srv = ThreadingHTTPServer(("127.0.0.1", 0), PyPI)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 gpu.PYPI = f"http://127.0.0.1:{srv.server_address[1]}"
 real_nv = gpu.nvidia_gpu
+real_card = gpu.card
 try:
     gpu.nvidia_gpu = lambda: ""
+    gpu.card = lambda: {"name": "", "vendor": "", "vram_mb": 0}
     try:
         gpu.install()
-        check("no NVIDIA card: nothing to download", False)
+        check("no card that can do it: nothing to download", False)
     except RuntimeError as e:
-        check("no NVIDIA card: nothing to download", "NVIDIA" in str(e), str(e))
+        check("no card that can do it: nothing to download", "NVIDIA, AMD or Intel" in str(e), str(e))
     gpu.nvidia_gpu = lambda: "NVIDIA GeForce RTX 3060"
     w = gpu._wheel("nvidia-cublas-cu12", 12)
     check("the newest release of the major version Whisper needs (not 13.x)", w["version"] == "12.1.0", w)
@@ -271,6 +273,7 @@ try:
     check("and it can be removed", not gpu.installed() and not gpu.cuda_dir().exists())
 finally:
     gpu.nvidia_gpu = real_nv
+    gpu.card = real_card
     srv.shutdown()
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
