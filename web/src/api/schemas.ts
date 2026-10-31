@@ -244,6 +244,20 @@ export const Gpu = z.looseObject({
   encoder: z.string().default(''),
   hw_decode: z.boolean().default(true),
   download_mb: z.number().default(1300),
+  /** the card in use, any maker (4.37): '' when there's none */
+  card: z.string().default(''),
+  vendor: z.string().default(''),
+  vram_mb: z.number().default(0),
+  /** Whisper can run through Vulkan here (AMD, Intel) */
+  vulkan: z.boolean().default(false),
+  /** it's installed, but kept failing, so the CPU has it until a restart */
+  vulkan_off: z.boolean().default(false),
+  can_download: z.boolean().default(false),
+  mode: z.enum(['auto', 'gpu', 'cpu']).catch('auto').default('auto'),
+  /** where each task last ran, and why */
+  routes: z.record(z.string(), z.object({ on: z.enum(['gpu', 'cpu']), why: z.string() })).default({}),
+  cpu_load: z.number().default(0),
+  gpu_load: z.number().default(0),
 })
 export type Gpu = z.infer<typeof Gpu>
 

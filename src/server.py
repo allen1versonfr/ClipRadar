@@ -956,7 +956,7 @@ def _deep_model(choice: str) -> str:
     # small only where Whisper really runs on the GPU: a CUDA device without NVIDIA's libraries ran "small" on
     # the CPU, several times slower than "base" (4.36)
     import gpu
-    return "small" if gpu.whisper_gpu_ok() else "base"
+    return "small" if gpu.whisper_gpu_ok() or gpu.vulkan_usable() else "base"
 
 
 def deep_status(pr: dict) -> dict:
@@ -1047,7 +1047,7 @@ def start_deep_scan(pid: str, model: str, lang: str):
                 time.sleep(0.5)
             b = min(dur, a + step_s)
             before = stats.get("unreadable", 0)
-            ensure_words(pr, a, b, model, lang, check, stats)
+            ensure_words(pr, a, b, model, lang, check, stats, task="scan")
             if stats.get("unreadable", 0) > before:
                 bad_from = a if not bad_run else bad_from
                 bad_run += 1
@@ -1095,7 +1095,8 @@ def _load_transcripts(pr: dict):
             data = json.load(f)
         if data.get("video") != _video_sig(pr):
             return
-        pr["tx"] = {k: {"words": v["words"], "covered": [tuple(x) for x in v["covered"]]}
+        pr["tx"] = {k: {"words": v["words"], "covered": [tuple(x) for x in v["covered"]],
+                        "rough": [tuple(x) for x in v.get("rough", [])]}
                     for k, v in data.get("tx", {}).items()}
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -1107,7 +1108,8 @@ def _save_transcripts(pr: dict):
     tmp = _tx_file(pr) + ".tmp"
     try:
         with pr["tx_lock"]:
-            data = {"video": _video_sig(pr), "tx": {k: {"words": v["words"], "covered": v["covered"]}
+            data = {"video": _video_sig(pr), "tx": {k: {"words": v["words"], "covered": v["covered"],
+                                                         "rough": v.get("rough", [])}
                                                      for k, v in pr["tx"].items()}}
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
@@ -1129,17 +1131,29 @@ def _vocab(pr: dict) -> str:
     return exports.prompt(_streamer_name(pr), list(es.by_name) if es else None, exports.load().get("vocab"))
 
 
+def _without(spans: list, cut: list) -> list:
+    """spans with every stretch in cut taken out."""
+    for ca, cb in cut:
+        spans = [s for a, b in spans for s in ((a, min(b, ca)), (max(a, cb), b)) if s[1] > s[0]]
+    return spans
+
+
 def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lambda: None,
-                 stats: Optional[dict] = None) -> list:
+                 stats: Optional[dict] = None, task: str = "captions") -> list:
     """Transcript words (absolute times) for [a, b] of the VOD, transcribing any missing parts.
     A stretch whose sound can't be read isn't marked as done (so it's tried again later) and is
-    counted in stats["unreadable"]."""
+    counted in stats["unreadable"]. task: "titles", "scan" or "captions" (gpu.choose). Words from the
+    Vulkan engine are marked rough: good for a title, but a caption hears that stretch again on
+    faster-whisper, or the words the card guessed for a title would end up burned into the clip."""
     dur = pr["analysis"].duration if "analysis" in pr else pr.get("duration") or b
     a, b = max(0.0, a), min(dur, b)
+    import gpu
+    pick = gpu.choose(task, model, lambda m: print(f"  {m}", flush=True))
+    on_card = pick["engine"] == "vulkan"
     with pr["tx_lock"]:
         tx = _tx(pr, model, lang)
         gaps, cur = [], a
-        for ca, cb in sorted(tx["covered"]):
+        for ca, cb in sorted(tx["covered"] if on_card or task != "captions" else _without(tx["covered"], tx.get("rough", []))):
             if cb <= cur:
                 continue
             if ca > cur:
@@ -1161,7 +1175,7 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
                 continue
             new = []
             if audio.size >= 1600:
-                for w in engine.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr)):
+                for w in engine.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr), pick=pick, check=check):
                     st, en = w["start"] + pad_a, w["end"] + pad_a
                     mid = (st + en) / 2
                     if ga <= mid < gb:
@@ -1169,6 +1183,7 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
             tx["words"] = sorted([w for w in tx["words"] if not (ga <= (w["start"] + w["end"]) / 2 < gb)] + new,
                                  key=lambda w: w["start"])
             tx["covered"].append((ga, gb))
+            tx["rough"] = _without(tx.get("rough", []), [(ga, gb)]) + ([(ga, gb)] if on_card else [])
             # merge intervals
             merged = []
             for ca, cb in sorted(tx["covered"]):
@@ -1222,7 +1237,7 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
                             # YouTube's own captions: titles and cut points right away, no Whisper
                             words = ytextra.words_in(pr["yt"], d["start"] - TX_MARGIN, d["end"] + TX_MARGIN)
                         else:
-                            words = ensure_words(pr, d["start"] - TX_MARGIN, d["end"] + TX_MARGIN, model, lang, check)
+                            words = ensure_words(pr, d["start"] - TX_MARGIN, d["end"] + TX_MARGIN, model, lang, check, task="titles")
                     finally:
                         if gated:
                             live_gate.release()

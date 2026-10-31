@@ -415,7 +415,9 @@ FRAMING
 CAPTIONS
   Made with Whisper. The first render with captions downloads the model
   (a few hundred MB). "Balanced" accuracy is a solid default. With an NVIDIA GPU and
-  CUDA 12 + cuDNN installed, Whisper uses the GPU; otherwise the CPU.
+  CUDA 12 + cuDNN installed, Whisper uses the GPU; otherwise the CPU. On an AMD or Intel card,
+  Settings > Performance > Graphics card downloads GPU support (about 0.5 GB). Titles and Deep scan
+  then run on the card, captions stay on the CPU, and titles move to the CPU while the card is busy.
   Rendering uses your GPU's video encoder (NVIDIA, Intel or AMD) when it can,
   and falls back to the CPU on its own.
   Whisper is told the streamer's name, the channel's emotes and your own

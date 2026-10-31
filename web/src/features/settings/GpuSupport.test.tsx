@@ -53,7 +53,43 @@ describe('Settings › Performance › Graphics card', () => {
     cleanup()
     gpu = { ...gpu, nvidia: '', whisper_gpu: false, pack: false, encoder: 'CPU' }
     show()
-    expect((await screen.findByTestId('gpu-state')).textContent).toContain('No NVIDIA card found')
+    expect((await screen.findByTestId('gpu-state')).textContent).toContain('No graphics card found')
     expect(screen.queryByTestId('gpu-install')).toBeNull()
+  })
+
+  const amd = { nvidia: '', card: 'AMD Radeon RX 7600 XT', vendor: 'amd', vram_mb: 16368, whisper_gpu: false, pack: false,
+                encoder: 'h264_amf', hw_decode: true, download_mb: 538, can_download: true, vulkan: false }
+
+  it('offers an AMD card its own download, with the right size and what stays on the CPU', async () => {
+    gpu = amd
+    show()
+    expect((await screen.findByTestId('gpu-state')).textContent).toContain('AMD Radeon RX 7600 XT, 16 GB')
+    expect(screen.getByRole('button', { name: /Download GPU support/ }).parentElement?.textContent).toContain('About 0.5 GB')
+    fireEvent.click(screen.getByTestId('gpu-install'))
+    const yes = await screen.findByTestId('confirm-yes')
+    expect(document.body.textContent).toContain('Captions stay on the CPU, where their words')
+    fireEvent.click(yes)
+    await waitFor(() => expect(calls.some(([p]) => p === '/api/gpu/install')).toBe(true))
+  })
+
+  it('says where each task ran and why, and the choice can be changed', async () => {
+    gpu = { ...amd, can_download: false, pack: true, vulkan: true, mode: 'auto', cpu_load: 41.4, gpu_load: 12,
+            routes: { titles: { on: 'gpu', why: 'the graphics card is free' }, captions: { on: 'cpu', why: 'captions need exact words and timing' } } }
+    show()
+    const r = await screen.findByTestId('gpu-routes')
+    expect(r.textContent).toContain('Right now: CPU 41%, card 12%.')
+    expect(r.textContent).toContain('Titles: graphics card, the graphics card is free.')
+    expect(r.textContent).toContain('Captions: CPU, captions need exact words and timing.')
+    expect(screen.queryByTestId('gpu-install')).toBeNull()
+    expect(screen.getByTestId('gpu-remove')).toBeTruthy()
+    fireEvent.click(screen.getByRole('radio', { name: 'CPU' }))
+    await waitFor(() => expect(calls.find(([p]) => p === '/api/gpu/mode')?.[1]).toEqual({ mode: 'cpu' }))
+  })
+
+  it('says when the card was given up on', async () => {
+    gpu = { ...amd, can_download: false, pack: true, vulkan: false, vulkan_off: true }
+    show()
+    expect((await screen.findByTestId('gpu-off')).textContent).toContain('until Clip Radar restarts')
+    expect(screen.queryByRole('radio', { name: 'Automatic' })).toBeNull()
   })
 })

@@ -65,7 +65,11 @@ export function PerformancePanel() {
   )
 }
 
-/** Settings › Performance › Graphics card: what runs on it, and the GPU support download for Whisper (4.36). */
+const ON = { gpu: 'graphics card', cpu: 'CPU' }
+const TASKS = [['titles', 'Titles'], ['scan', 'Deep scan'], ['captions', 'Captions']] as const
+
+/** Settings › Performance › Graphics card: what runs on it, the GPU support download for Whisper (4.36), and which
+ *  side each Whisper task runs on (4.37). */
 export function GpuSupport() {
   const toast = useToast()
   const ask = useConfirm()
@@ -83,8 +87,9 @@ export function GpuSupport() {
   const d = g.data
   if (!d) return null
   async function install() {
-    if (!await ask({ title: 'Download GPU support?', ok: 'Download',
-      body: `NVIDIA's CUDA libraries for Whisper, about ${(d!.download_mb / 1000).toFixed(1)} GB, once. Titles, captions and Deep scan then run on your ${d!.nvidia}, several times faster.` })) return
+    if (!await ask({ title: 'Download GPU support?', ok: 'Download', body: d!.nvidia
+      ? `NVIDIA's CUDA libraries for Whisper, about ${(d!.download_mb / 1000).toFixed(1)} GB, once. Titles, captions and Deep scan then run on your ${d!.nvidia}, several times faster.`
+      : `Whisper for your ${d!.card}, about ${(d!.download_mb / 1000).toFixed(1)} GB, once. Titles and Deep scan then run on the card and use far less CPU. Captions stay on the CPU, where their words and timing are more exact. A bigger Whisper model downloads the first time it's used.` })) return
     try {
       setJobId((await api(JobStarted, '/api/gpu/install', {})).job)
     } catch (e) {
@@ -100,19 +105,50 @@ export function GpuSupport() {
     }
     await g.refresh()
   }
-  const whisper = d.whisper_gpu ? `on the ${d.nvidia}` : 'on the CPU'
+  async function setMode(mode: string) {
+    try {
+      await api(Gpu, '/api/gpu/mode', { mode })
+    } catch (e) {
+      toast(errText(e), 'err')
+    }
+    await g.refresh()
+  }
+  const name = d.card || d.nvidia
+  const whisper = d.whisper_gpu ? `on the ${d.nvidia}` : d.vulkan ? 'on the card or the CPU, by task' : 'on the CPU'
   return (
     <div className="fld" data-testid="gpu">Graphics card
       <p className="fine" data-testid="gpu-state">
-        {d.nvidia || 'No NVIDIA card found'} · video {d.encoder && d.encoder !== 'CPU' ? `encoded on the GPU (${d.encoder})` : d.encoder === 'CPU' ? 'encoded on the CPU (no GPU encoder found)' : 'encoder checked at the first render'}
+        {name ? `${name}${d.vram_mb ? `, ${Math.round(d.vram_mb / 1024)} GB` : ''}` : 'No graphics card found'} · video {d.encoder && d.encoder !== 'CPU' ? `encoded on the GPU (${d.encoder})` : d.encoder === 'CPU' ? 'encoded on the CPU (no GPU encoder found)' : 'encoder checked at the first render'}
         {d.hw_decode ? ', decoded on the GPU when it can' : ', decoded on the CPU'} · Whisper {whisper}
       </p>
-      {d.nvidia && !d.whisper_gpu && (
+      {d.vulkan && (
+        <>
+          <div className="fld">Whisper runs on
+            <Seg label="Whisper runs on" value={d.mode} onChange={v => void setMode(v)}
+                 options={[['auto', 'Automatic'], ['gpu', 'Graphics card'], ['cpu', 'CPU']]} />
+          </div>
+          <p className="fine" data-testid="gpu-routes">
+            {d.mode === 'auto' && 'Automatic puts titles and Deep scan on the card, keeps captions on the CPU, and moves titles to the CPU while the card is busy.'}
+            {d.mode === 'gpu' && 'Everything goes on the card. Caption timing is looser there.'}
+            {d.mode === 'cpu' && 'Everything stays on the CPU.'}
+            {' '}Right now: CPU {Math.round(d.cpu_load)}%, card {Math.round(d.gpu_load)}%.
+            {TASKS.map(([k, label]) => { const r = d.routes[k]; return r ? ` ${label}: ${ON[r.on]}, ${r.why}.` : '' }).join('')}
+          </p>
+        </>
+      )}
+      {d.vulkan_off && (
+        <p className="fine" data-testid="gpu-off">Whisper on the graphics card kept failing or ran slower than the sound, so the CPU has it until Clip Radar restarts.</p>
+      )}
+      {(d.can_download || (d.nvidia && !d.whisper_gpu)) && (
         <p className="row">
           <button className="btn primary" type="button" disabled={!!jobId} onClick={() => void install()} data-testid="gpu-install">
             {jobId ? `Downloading… ${Math.round((dl.job?.progress ?? 0) * 100)}%` : 'Download GPU support for Whisper'}
           </button>
-          <span className="fine">About {(d.download_mb / 1000).toFixed(1)} GB, once. Whisper on your {d.nvidia} makes titles, captions and Deep scan several times faster.</span>
+          <span className="fine">
+            About {(d.download_mb / 1000).toFixed(1)} GB, once. {d.nvidia
+              ? `Whisper on your ${d.nvidia} makes titles, captions and Deep scan several times faster.`
+              : `Whisper on your ${name} runs titles and Deep scan with far less CPU.`}
+          </span>
         </p>
       )}
       {d.pack && <p className="row"><button className="btn" type="button" onClick={() => void remove()} data-testid="gpu-remove">Remove GPU support</button></p>}

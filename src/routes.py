@@ -485,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"job": job["id"]})
 
         if p == "/api/gpu/install":
-            # Settings › Performance › GPU support: NVIDIA's CUDA libraries, for Whisper on the graphics card
+            # Settings › Performance › GPU support: what this card needs for Whisper (gpu.install)
             import gpu
             job = S.new_job("gpu")
 
@@ -501,6 +501,14 @@ class Handler(BaseHTTPRequestHandler):
             import gpu
             engine.release_whisper()
             return self._json(gpu.remove())
+
+        if p == "/api/gpu/mode":
+            # Settings › Performance: Whisper on Automatic, the graphics card or the CPU
+            import gpu
+            try:
+                return self._json(gpu.set_mode(str(body.get("mode") or "")))
+            except ValueError as e:
+                return self._err(str(e), 400)
 
         if p == "/api/watermark/image":
             # a watermark layer's image: a copy is kept, so moving the original doesn't break exports
