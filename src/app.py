@@ -109,9 +109,11 @@ def run_window(url: str) -> bool:
         print(f"App window unavailable ({e}), using the browser.", flush=True)
         return False
 
+    # 4.38: on a big monitor a 1480 x 920 window is a small box, too small for the app to scale up to the screen
+    big_screen = bool(webview.screens) and webview.screens[0].width >= 2200
     window = webview.create_window(
         "Clip Radar", url, width=1480, height=920, min_size=(1100, 700),
-        background_color="#141518", text_select=True)
+        background_color="#141518", text_select=True, maximized=big_screen)
 
     def native_pick(kind: str) -> str:
         if kind == "folder":

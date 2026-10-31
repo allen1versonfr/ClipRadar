@@ -1,3 +1,4 @@
+import { canvasScale } from '../../shell'
 import { forwardRef, useEffect, useImperativeHandle, useRef, type PointerEvent, type WheelEvent } from 'react'
 import { api } from '../../api/client'
 import { type Clip, Strip } from '../../api/schemas'
@@ -62,7 +63,7 @@ export const Timeline = forwardRef<TimelineHandle, {
       if (!el || !g) return
       const { clip: c, locked: lk } = props.current
       if (view.current.key !== keyOf(c)) fit()
-      const dpr = devicePixelRatio || 1, w = Math.max(100, el.clientWidth)
+      const dpr = canvasScale(), w = Math.max(100, el.clientWidth)
       if (el.width !== Math.round(w * dpr)) { el.width = Math.round(w * dpr); el.height = Math.round(H * dpr) }
       g.setTransform(dpr, 0, 0, dpr, 0, 0)
       const { a, b } = view.current, span = b - a

@@ -794,10 +794,14 @@ class Handler(BaseHTTPRequestHandler):
                                                press, studio.STUDIO_URL, S.job_step(job), S.job_check(job))
                     except studio_auto.StudioError as e:
                         studio.reveal(it.get("path", ""))           # finish it by hand: the file, shown
+                        where = "the TikTok window"
+                        if e.step == "browser":                     # no such window: TikTok Studio in your own Edge
+                            studio.open_studio(studio_auto.find_browser())
+                            where = "TikTok Studio, opening in your browser now"
                         it["handoff"].update(auto="failed", step=e.step, error=str(e))
                         S.save_queue_soon()
                         raise RuntimeError(f"{e} The video is selected in File Explorer and the caption is copied, "
-                                           "so you can finish in the TikTok window.") from None
+                                           f"so you can finish in {where}.") from None
                     it["handoff"].update(auto="posted" if r["posted"] else "pressed" if r["pressed"] else "ready")
                     S.save_queue_soon()
                     return r

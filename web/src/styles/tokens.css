@@ -33,6 +33,15 @@
   font-feature-settings: "cv11", "calt";
   -webkit-font-smoothing: antialiased;
 }
+/* Big screens: at Windows' 100% scale a 1440p or 4K monitor drew everything at phone-text size with most of the
+   screen empty, so the whole app scales up with the window. Tall enough only, so a wide, short ultrawide keeps
+   its working height. Under zoom vh and vw are multiplied too: --vh is a real 1% of the window's height. */
+:root { --z: 1; --vh: calc(1vh / var(--z)); }
+@media (min-width: 2200px) and (min-height: 1200px) { :root { --z: 1.25; } }
+@media (min-width: 3000px) and (min-height: 1600px) { :root { --z: 1.5; } }
+@media (min-width: 3600px) and (min-height: 1800px) { :root { --z: 1.75; } }
+@media (min-width: 4800px) and (min-height: 2400px) { :root { --z: 2.25; } }
+#root { zoom: var(--z); }
 /* caption fonts (watermark text uses them too; the renderer has the same files) */
 @font-face { font-family: "VC Montserrat"; src: url(/ui/fonts/captions/Montserrat-Black.ttf) format("truetype"); }
 @font-face { font-family: "VC Poppins"; src: url(/ui/fonts/captions/Poppins-Black.ttf) format("truetype"); }

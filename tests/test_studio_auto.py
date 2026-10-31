@@ -13,6 +13,7 @@ TikTok shows it. A page without the parts it needs (TikTok redesigned it) is a n
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -62,6 +63,30 @@ with open(clip, "wb") as f:
     f.write(os.urandom(200_000))
 CAPTION = "Chat could not stop laughing at this one 😂\n\n#twitch #kaicenat #twitchclips"
 steps = []
+
+
+# 4.38: Edge signed in to an account lists its own sync dialog as a page, first. Driving it failed every upload
+# with "Lost Clip Radar's TikTok window"; only a browser with an account shows it, so this one is by hand
+class _Tab:
+    def __init__(self, ws, tid):
+        self.ws = ws
+
+
+def _pick(listed, prefix=""):
+    real = cdp.targets
+    cdp.targets = lambda port: [dict(type="page", webSocketDebuggerUrl=u, url=u) for u in listed]
+    try:
+        return cdp.Page.connect.__func__(_Tab, 1, prefix).ws
+    except cdp.CDPError:
+        return ""
+    finally:
+        cdp.targets = real
+
+
+SYNC = "edge://sync-confirmation-dialog/"
+check("the browser's own dialog is never the tab", _pick([SYNC, "about:blank"]) == "about:blank")
+check("nor when the tab wanted isn't there", _pick([SYNC, "http://a/"], "http://b") == "http://a/")
+check("only browser pages: no tab to use, so one is opened", _pick([SYNC, "edge://newtab/"]) == "")
 
 try:
     # 1. the first time: TikTok asks to sign in; it waits, then carries on once you're in
@@ -169,6 +194,39 @@ try:
         check("after a restart, the open TikTok window is used again", False, str(e))
     if studio_auto._state["proc"] is None:
         studio_auto._state["proc"] = proc
+    srv.shutdown()
+
+    # 9b (4.38). A browser holds the profile with no DevTools port: every start was handed to it and lost
+    # ("The browser window didn't open"), and closing Edge didn't help when it had no window. It's closed, the
+    # window opens, and another browser on a profile with a similar name is left alone
+    for pid, _ in studio_auto._profile_processes():
+        studio_auto._end_process(pid, force=True)
+    end = time.time() + 10
+    while studio_auto._profile_processes() and time.time() < end:
+        time.sleep(0.3)
+    exe = studio_auto.find_browser()
+    other_dir = studio_auto._profile_dir() + "-other"
+    flags = ["--headless=new", "--no-sandbox", "--no-first-run"]
+    holder = subprocess.Popen([exe, *flags, f"--user-data-dir={studio_auto._profile_dir()}", "about:blank"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    other = subprocess.Popen([exe, *flags, f"--user-data-dir={other_dir}", "about:blank"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    end = time.time() + 15
+    while not studio_auto._profile_processes() and time.time() < end:
+        time.sleep(0.3)
+    time.sleep(2)
+    studio_auto._state.update(proc=None, port=0)
+    check("a browser holding the profile is found", len(studio_auto._profile_processes()) > 0)
+    srv = fake_studio.start()
+    try:
+        r = studio_auto.upload(clip, CAPTION, True, srv.url, steps.append)
+        check("a browser holding the profile with no port is closed, and the upload goes on",
+              r["posted"] and len(srv.posted) == 1, r)
+    except studio_auto.StudioError as e:
+        check("a browser holding the profile with no port is closed, and the upload goes on", False, str(e))
+    check("the browser on another profile is left alone", other.poll() is None, other.poll())
+    for p in (other, holder):
+        subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True) if os.name == "nt" else p.kill()
     srv.shutdown()
 
     # 10. a clip left in TikTok's editor asks "Leave site?" when the next upload opens a fresh page
