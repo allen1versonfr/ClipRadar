@@ -39,7 +39,7 @@ export function handoffStatus(q: QueueItem, step: string | undefined): { text: s
     case 'ready': return { text: `The video and caption are in TikTok Studio (${at}).`, more: "Check them in Clip Radar's TikTok window and press Post there.", tone: 'ok' }
     case 'pressed': return { text: `Clip Radar pressed Post at ${at}, but TikTok hadn't confirmed it yet.`, more: "Look in Clip Radar's TikTok window to see whether it went through.", tone: '' }
     case 'failed': return { text: `The upload stopped while ${TT_STEP[h.step ?? ''] ?? 'working in TikTok Studio'}.`,
-      more: `${h.error ?? ''} The video is selected in File Explorer, so you can drag it in and finish there.`.trim(), tone: 'err' }
+      more: `${h.error ?? ''} The video is selected in File Explorer, so you can drag it in and finish ${h.step === 'browser' ? 'in TikTok Studio, opening in your browser now' : 'there'}.`.trim(), tone: 'err' }
     case 'working': return { text: 'An upload was started but Clip Radar was closed before it finished.', more: 'Upload again, or finish it in the TikTok window.', tone: '' }
     default: return { text: `Opened TikTok Studio ${at}.`, more: "Finish uploading and posting there. Clip Radar can't see your browser, so it doesn't know whether the clip was posted.", tone: '' }
   }

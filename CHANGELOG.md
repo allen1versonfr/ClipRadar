@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.37.1] - 2026-10-31
+
+Upload to TikTok gets past the browser failing to open, and the app fits big monitors.
+
+### Fixed
+- **Upload to TikTok stopped with "The browser window didn't open".** A browser could hold Clip Radar's TikTok profile with no way for Clip Radar to drive it, sometimes with nothing on screen, and every start was handed to it and lost, so closing Edge windows didn't help. That browser is now closed, found by the exact profile so your everyday Edge or Chrome is left alone, and the window opens again. If it still can't open, TikTok Studio opens in your own browser, with the video selected and the caption copied, so there's somewhere to finish.
+- **Upload to TikTok stopped with "Lost Clip Radar's TikTok window" on Edge signed in to an account.** Edge lists its own sync dialog as a page, and Clip Radar could pick it as its tab. The browser's own pages are never used now.
+- **Big monitors.** On 1440p, 4K and larger screens at Windows' 100% scale, everything was drawn tiny with most of the screen empty. The whole app now scales up with its window (1.25× to 2.25×), Home and Settings sit in the middle, the Exports preview is bigger, and the window opens maximized on a big screen. The timelines stay sharp at every scale. Ultrawides that aren't tall keep their working height. This is the current UI; the Previous UI is unchanged.
+- The tabs above Review's clip list no longer wrap or cut off "Flagged".
+
+### Tests
+- `tests/test_studio_auto.py` (in a real browser): a browser holding the profile is closed and the upload goes on, a browser on a similar profile is left alone, and the browser's own pages are never picked as the tab.
+- `web/`: where the failed upload message sends you (Vitest).
+
 ## [4.37.0] - 2026-10-31
 
 Whisper now runs on AMD and Intel graphics cards, and Clip Radar picks the card or the CPU for each job.

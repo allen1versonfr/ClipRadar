@@ -1,3 +1,4 @@
+import { canvasScale } from '../../shell'
 import { useEffect, useRef, useState } from 'react'
 import type { Clip } from '../../api/schemas'
 import { fmt, isGem, keyOf } from './model'
@@ -32,8 +33,8 @@ export function Overview({ clips, curve, dur, cur, free, playhead, onClip, onPre
       if (!Wd || !Ht) return
       if (!dirty.current && (ph ?? -1) === last) return
       dirty.current = false; last = ph ?? -1
-      const dpr = window.devicePixelRatio || 1
-      if (el.width !== Wd * dpr || el.height !== Ht * dpr) { el.width = Wd * dpr; el.height = Ht * dpr }
+      const dpr = canvasScale()
+      if (el.width !== Math.round(Wd * dpr) || el.height !== Math.round(Ht * dpr)) { el.width = Math.round(Wd * dpr); el.height = Math.round(Ht * dpr) }
       const g = el.getContext('2d')
       if (!g) return
       g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, Wd, Ht)

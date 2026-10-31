@@ -23,6 +23,9 @@ from typing import Optional
 from urllib.parse import urlparse
 
 
+BROWSER_PAGES = ("edge://", "chrome://", "devtools://", "chrome-extension://", "extension://")
+
+
 class CDPError(RuntimeError):
     pass
 
@@ -130,8 +133,11 @@ class Page:
 
     @classmethod
     def connect(cls, port: int, url_prefix: str = "") -> "Page":
-        """The first page tab (whose URL starts with url_prefix, when given)."""
-        pages = [t for t in targets(port) if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
+        """The first page tab (whose URL starts with url_prefix, when given). The browser's own pages don't count:
+        Edge signed in to an account lists its sync dialog (edge://sync-confirmation-dialog/) as a page, and a page
+        like that can't be sent anywhere (4.38)."""
+        pages = [t for t in targets(port) if t.get("type") == "page" and t.get("webSocketDebuggerUrl")
+                 and not t.get("url", "").startswith(BROWSER_PAGES)]
         pick = next((t for t in pages if url_prefix and t.get("url", "").startswith(url_prefix)), pages[0] if pages else None)
         if not pick:
             raise CDPError("The browser has no tab to use.")

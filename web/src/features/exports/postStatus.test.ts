@@ -5,6 +5,12 @@ import { discordStatus, handoffCell, handoffStatus, submission } from './postSta
 const item = (extra: Record<string, unknown>) => QueueItem.parse({ id: 'q1', status: 'done', title: 'Big play', name: 'Big play.mp4', ...extra })
 
 describe('posting', () => {
+  it('sends you to your own browser when the TikTok window never opened', () => {
+    const s = handoffStatus(item({ handoff: { at: 1, auto: 'failed', step: 'browser', error: "It wouldn't open." } }), undefined)!
+    expect(s.more).toContain('finish in TikTok Studio, opening in your browser now')
+    expect(handoffStatus(item({ handoff: { at: 1, auto: 'failed', step: 'caption' } }), undefined)!.more).toContain('finish there')
+  })
+
   it("only says Posted when TikTok confirmed it", () => {
     expect(handoffCell(item({})).text).toBe('Not yet')
     expect(handoffCell(item({ handoff: { at: 1 } })).text).toBe('Opened in Studio')

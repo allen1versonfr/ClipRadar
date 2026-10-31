@@ -2360,7 +2360,7 @@ function renderTTStatus(q) {
   else if (h.auto === 'pressed') el.innerHTML = `<span>Clip Radar pressed Post at ${at}, but TikTok hadn't confirmed it yet.</span>`
     + '<span class="muted">Look in Clip Radar\'s TikTok window to see whether it went through.</span>';
   else if (h.auto === 'failed') el.innerHTML = `<span class="st-err">${icon('alert')}The upload stopped while ${esc(TT_STEP[h.step] || 'working in TikTok Studio')}.</span>`
-    + `<span class="muted">${esc(h.error || '')} The video is selected in File Explorer, so you can drag it in and finish there.</span>`;
+    + `<span class="muted">${esc(h.error || '')} The video is selected in File Explorer, so you can drag it in and finish ${h.step === 'browser' ? 'in TikTok Studio, opening in your browser now' : 'there'}.</span>`;
   else if (h.auto === 'working') el.innerHTML = '<span class="muted">An upload was started but Clip Radar was closed before it finished. Upload again, or finish it in the TikTok window.</span>';
   else el.innerHTML = `<span>${icon('check')}Opened TikTok Studio ${at}.</span>`
     + '<span class="muted">Finish uploading and posting there. Clip Radar can\'t see your browser, so it doesn\'t know whether the clip was posted.</span>';

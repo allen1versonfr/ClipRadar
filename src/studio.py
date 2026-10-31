@@ -49,10 +49,17 @@ def reveal(path: str) -> bool:
         return False
 
 
-def open_studio() -> bool:
+def open_studio(browser: str = "") -> bool:
+    """TikTok Studio's upload page in your browser, or in the browser given (a path, with your usual profile)."""
     if _quiet():
         opened.append(("url", STUDIO_URL))
         return True
+    if browser:
+        try:
+            subprocess.Popen([browser, STUDIO_URL], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except OSError:
+            pass
     threading.Thread(target=lambda: webbrowser.open(STUDIO_URL), daemon=True).start()
     return True
 

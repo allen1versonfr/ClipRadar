@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -27,6 +29,7 @@ from typing import Callable, Optional
 
 import cdp
 
+CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 PROFILE = "studio-browser"
 LOGIN_WAIT = 15 * 60          # time to sign in to TikTok the first time
 UPLOAD_WAIT = 15 * 60         # a long clip on a slow connection
@@ -138,6 +141,66 @@ def _note_port(port: int) -> None:
         pass
 
 
+def _profile_processes() -> list:
+    """(pid, is the main process) of every browser process on Clip Radar's TikTok profile. Told apart by the
+    exact profile in their command line, so your everyday Edge or Chrome is never one of them."""
+    name = os.path.basename(find_browser())
+    if sys.platform == "win32":
+        ps = (f"Get-CimInstance Win32_Process -Filter \"Name='{name}'\" | "
+              "ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" }")
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps]
+    else:
+        cmd = ["ps", "-eo", "pid=,args="]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
+                             stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    mine = re.compile(r"--user-data-dir=\"?" + re.escape(_profile_dir()) + r"\"?(\s|$)", re.I)
+    found = []
+    for line in out.splitlines():
+        pid, _, rest = line.strip().partition(" ")
+        if pid.isdigit() and mine.search(rest):
+            found.append((int(pid), "--type=" not in rest))
+    return found
+
+
+def _end_process(pid: int, force: bool) -> bool:
+    """Ask a browser process to close (force: end it). False if that couldn't be done."""
+    try:
+        if sys.platform == "win32":
+            cmd = ["taskkill", "/PID", str(pid), "/T"] + (["/F"] if force else [])
+            return subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL, timeout=10,
+                                  creationflags=CREATE_NO_WINDOW).returncode == 0
+        os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _close_profile_browser() -> bool:
+    """Close whatever holds the TikTok profile without a DevTools port, so the window can open again. Asked
+    nicely first (TikTok stays signed in), then ended: it may have no window to answer with. True if it's gone."""
+    found = _profile_processes()
+    if not found:
+        return False
+    mains = [pid for pid, main in found if main] or [pid for pid, _ in found]
+    asked = [_end_process(pid, force=False) for pid in mains]
+    end = time.time() + (6 if all(asked) else 0)
+    while time.time() < end:
+        if not _profile_processes():
+            return True
+        time.sleep(0.5)
+    for pid, _ in _profile_processes():
+        _end_process(pid, force=True)
+    end = time.time() + 5
+    while time.time() < end:
+        if not _profile_processes():
+            return True
+        time.sleep(0.5)
+    return False
+
+
 def open_browser(url: str) -> int:
     """The DevTools port of Clip Radar's TikTok window, opening it (at url) if it isn't open."""
     port = _state["port"]
@@ -152,6 +215,22 @@ def open_browser(url: str) -> int:
     exe = find_browser()
     if not exe:
         raise StudioError("browser", "Clip Radar needs Microsoft Edge or Google Chrome to upload for you.")
+    # 4.38: a browser can hold the profile with no DevTools port (nothing Clip Radar can drive, often nothing
+    # on screen either), and every start is handed to it and lost until it goes. It's closed, then started again
+    for attempt in range(2):
+        port = _start_browser(exe, url)
+        if port:
+            _state["port"] = port
+            return port
+        if attempt or not _close_profile_browser():
+            break
+    code = _state["proc"].poll() if _state["proc"] else None
+    print(f"  TikTok window: the browser didn't open a DevTools port (exit code {code})", flush=True)
+    raise StudioError("browser", "The browser wouldn't open Clip Radar's TikTok window.")
+
+
+def _start_browser(exe: str, url: str) -> int:
+    """Start the TikTok window; its DevTools port, or 0 if it never gave one."""
     port = _free_port()
     args = [exe, f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1",
             f"--user-data-dir={_profile_dir()}", "--no-first-run", "--no-default-browser-check",
@@ -165,19 +244,17 @@ def open_browser(url: str) -> int:
     end = time.time() + 30
     while time.time() < end:
         if cdp.alive(port):
-            _state["port"] = port
             _note_port(port)
             return port
         if _state["proc"].poll() is not None:
-            # it handed over to a window already open with this profile: use that one
+            # it handed over to a window already open with this profile, or restarted itself (a browser update):
+            # either takes a moment to show, so look for a few seconds, not once
+            end = min(end, time.time() + 4)
             got = _profile_port()
             if got:
-                _state["port"] = got
                 return got
-            break
         time.sleep(0.3)
-    raise StudioError("browser", "The browser window didn't open. If Edge is already open with another "
-                                 "Clip Radar window, close it and try again.")
+    return 0
 
 
 def _answer_dialogs(page: cdp.Page) -> bool:
