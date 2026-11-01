@@ -197,6 +197,16 @@ try:
     whispercpp.has_model = lambda s: False
     check("a model not here yet: the CPU now, the download behind", gpu.choose("titles", "medium")["engine"] == "whisper"
           and asked == ["medium"])
+    asked.clear()
+    gpu.gpu_load = lambda wait=True: asked.append("load") or 5.0
+    check("a caption stays on the CPU without fetching a model it won't use, or reading the card's load",
+          gpu.choose("captions", "large-v3")["engine"] == "whisper" and asked == [], asked)
+    check("and Settings is told the real reason", "exact" in gpu._routes["captions"]["why"], gpu._routes["captions"])
+    gpu.gpu_load = lambda wait=True: 5.0
+    gpu.set_mode("gpu")
+    check("captions you put on the card still fetch their model", gpu.choose("captions", "large-v3")["engine"] == "whisper"
+          and asked == ["large-v3"], asked)
+    gpu.set_mode("auto")
     whispercpp.fetch_later = real_later
     whispercpp.has_model = lambda s: True
     gpu.whisper_gpu_ok = lambda: True
