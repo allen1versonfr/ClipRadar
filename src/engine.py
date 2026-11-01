@@ -3115,7 +3115,8 @@ def whisper_device() -> str:
     return next(reversed(list(_whisper_device.values())), "") if _whisper_device else ""
 
 
-MIN_HEARD = 0.5                    # a caption's stretch with less of it taken for speech is heard again on the card
+FEW_WORDS = 1.2                    # words a second: a caption's stretch with fewer is heard on the card as well
+CARD_GAIN = 1.5                    # and the card's words are used when it heard this many times as many
 REHEAR_FROM = 20                   # seconds: a shorter stretch can simply be quiet
 _HALLUCINATION = re.compile(r"thank(s| you) (so much )?for watching|please subscribe|like and subscribe|"
                             r"subtitles by|amara\.org|♪|\[music\]|\(music\)", re.I)
@@ -3142,30 +3143,32 @@ def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = ""
             log(f"Whisper on the graphics card stopped ({str(e)[:140]}); this one runs on the CPU.")
     with _busy_lock:
         _whisper_busy[0] += 1
-    heard: dict = {}
     try:
-        words = _transcribe(audio, model_size, language, log, prompt, progress, heard)
+        words = _transcribe(audio, model_size, language, log, prompt, progress)
     finally:
         with _busy_lock:
             _whisper_used[0] = time.time()
             _whisper_busy[0] -= 1
         _release_later()
     # faster-whisper's speech detector can take talking on a loud street for noise, and Whisper never hears it (measured:
-    # 19 s of a 73 s clip kept, captions stopped after 10 s; four clips that worked kept 76% or more). Its threshold is no
-    # cure: lower ones lost a different clip and took 200 s. The card's detector heard that clip through.
-    if (pick.get("task") == "captions" and heard.get("share", 1.0) < MIN_HEARD and len(audio) >= REHEAR_FROM * 16000
+    # 21 words of a 73 s clip against 87 on the card, 23 of a 24 s clip against 60). How much it kept doesn't show this
+    # (77% on the second), and a lower threshold lost a different clip and took 200 s. The words themselves do: talking
+    # ran at 2 to 3 a second. A clip that really is quiet gets about the same from the card, and stays on the CPU's.
+    seconds = len(audio) / 16000
+    if (pick.get("task") == "captions" and seconds >= REHEAR_FROM and len(words) / seconds < FEW_WORDS
             and gpu.can_rehear(model_size)):
         try:
-            words = whispercpp.transcribe(audio, model_size, language, log, _HALLUCINATION, progress, check)
-            print(f"  Most of this clip sounded like noise to the speech detector ({heard['share']:.0%} heard), "
-                  "so its captions were heard again on the graphics card.", flush=True)
+            again = whispercpp.transcribe(audio, model_size, language, log, _HALLUCINATION, progress, check)
+            if len(again) >= len(words) * CARD_GAIN:
+                print(f"  Whisper heard only {len(words)} words in {seconds:.0f} s on the CPU, so these captions use the "
+                      f"{len(again)} heard on the graphics card.", flush=True)
+                return again
         except whispercpp.Failed as e:
             log(f"Whisper on the graphics card stopped ({str(e)[:140]}); these captions keep what the CPU heard.")
     return words
 
 
-def _transcribe(audio, model_size: str, language: str, log: Log, prompt: str, progress: Progress = _noop,
-                heard: Optional[dict] = None) -> list:
+def _transcribe(audio, model_size: str, language: str, log: Log, prompt: str, progress: Progress = _noop) -> list:
     with _whisper_lock:
         model = _load_whisper(model_size, log)
         kw = dict(language=language or None, word_timestamps=True, vad_filter=True, beam_size=5,
@@ -3173,12 +3176,10 @@ def _transcribe(audio, model_size: str, language: str, log: Log, prompt: str, pr
         if prompt:
             kw["initial_prompt"] = prompt[:400]
         try:
-            segs, info = model.transcribe(audio, **kw)
+            segs, _ = model.transcribe(audio, **kw)
         except TypeError:                      # an older faster-whisper without some of these options
             kw.pop("condition_on_previous_text", None)
-            segs, info = model.transcribe(audio, **kw)
-        if heard is not None and getattr(info, "duration", 0) and getattr(info, "duration_after_vad", None) is not None:
-            heard["share"] = info.duration_after_vad / info.duration
+            segs, _ = model.transcribe(audio, **kw)
         words = []
         total = max(0.1, len(audio) / 16000)
         for seg in segs:
