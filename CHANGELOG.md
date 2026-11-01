@@ -5,6 +5,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.37.2] - 2026-11-01
+
+Captions no longer download a Whisper model they don't use.
+
+### Fixed
+- **A 3 GB download nothing used.** On AMD and Intel cards, burning captions with a model not yet on the card downloaded that model in the background, up to 3.1 GB for large-v3, even though captions stay on the CPU unless you choose Graphics card under **Whisper runs on**. They no longer fetch it or check how busy the card is, and Settings gives the real reason captions run on the CPU.
+### Tests
+- `tests/test_gpu_choice.py`: a caption fetches no model and reads no load in Automatic, and still fetches its model when you put Whisper on the card.
+
 ## [4.37.1] - 2026-10-31
 
 Upload to TikTok gets past the browser failing to open, and the app fits big monitors.

@@ -274,6 +274,8 @@ def choose(task: str, size: str, log: Callable[[str], None] = lambda m: None) ->
         pick = ("whisper", "faster-whisper uses your NVIDIA card")
     elif want == "cpu" or not vulkan_usable():
         pick = ("whisper", "you chose the CPU" if want == "cpu" else "no GPU support installed")
+    elif task == "captions" and want == "auto":
+        pick = decide(task, want, True, 0.0, False)
     elif not _fits(size):
         pick = ("whisper", f"Whisper '{size}' doesn't fit on this card")
     elif not whispercpp.has_model(size):
