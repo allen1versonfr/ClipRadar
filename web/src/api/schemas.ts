@@ -250,7 +250,7 @@ export const Gpu = z.looseObject({
   vram_mb: z.number().default(0),
   /** Whisper can run through Vulkan here (AMD, Intel) */
   vulkan: z.boolean().default(false),
-  /** it's installed, but kept failing, so the CPU has it until a restart */
+  /** it's installed, but kept failing, so the CPU has it until the card's next try */
   vulkan_off: z.boolean().default(false),
   can_download: z.boolean().default(false),
   mode: z.enum(['auto', 'gpu', 'cpu']).catch('auto').default('auto'),

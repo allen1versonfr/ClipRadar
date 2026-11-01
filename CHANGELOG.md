@@ -5,6 +5,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.37.3] - 2026-11-01
+
+Live titles stay on the graphics card while a game is running.
+
+### Fixed
+- **Live titles took up to 17 minutes while a game was running.** A game slowed Whisper on the card past the length of the sound, and after two such runs Clip Radar left the card until it restarted. The titles then went to a CPU the game had already filled. Measured with Cyberpunk 2077 and large-v3 on an RX 7600 XT: 59 s on the card for 45 s of sound, against 154 to 1042 s per title on the CPU. A slow run now counts against the card only when the CPU has room.
+- **The card comes back.** When Whisper does leave the card, it gets another try after 10 minutes instead of waiting for a restart, so closing a game or a driver recovering no longer leaves the CPU doing the work all session.
+- **Saying why.** The log now records when Whisper leaves the card and the reason, and Settings says the card stopped instead of "no GPU support installed".
+
+### Tests
+- `tests/test_gpu_choice.py`: a slow run with a full CPU stays on the card, a slow run with room moves to the CPU, the card gets another try, and one more failure turns it off again.
+- `web/`: the Settings message (Vitest).
+
 ## [4.37.2] - 2026-11-01
 
 Captions no longer download a Whisper model they don't use.

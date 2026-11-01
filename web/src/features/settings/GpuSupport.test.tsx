@@ -89,7 +89,7 @@ describe('Settings › Performance › Graphics card', () => {
   it('says when the card was given up on', async () => {
     gpu = { ...amd, can_download: false, pack: true, vulkan: false, vulkan_off: true }
     show()
-    expect((await screen.findByTestId('gpu-off')).textContent).toContain('until Clip Radar restarts')
+    expect((await screen.findByTestId('gpu-off')).textContent).toContain('another try within 10 minutes')
     expect(screen.queryByRole('radio', { name: 'Automatic' })).toBeNull()
   })
 })

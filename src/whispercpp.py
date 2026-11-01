@@ -55,11 +55,12 @@ MODELS = {   # Clip Radar's size -> (file, size in MB, SHA-256)
 }
 FIRST_MODEL = "small"      # installed with the program; a bigger one comes when it's first asked for
 DOWNLOAD_MB = BIN_MB + MODELS[FIRST_MODEL][1]
-STRIKES = 2                # failures in a row (or runs slower than the sound) before the CPU takes over for the session
+STRIKES = 2                # failures in a row (or runs slower than the sound) before the CPU takes over
+RETRY_AFTER = 600          # seconds before the card gets another go: what stopped it may have been a game, now closed
 _lock = threading.Lock()   # one run on the card at a time: a second model wouldn't fit on a small one
 _fetching: set = set()
 _said: set = set()
-_state = {"strikes": 0}
+_state = {"strikes": 0, "off_at": 0.0}
 
 
 class Failed(RuntimeError):
@@ -89,7 +90,12 @@ def has_model(size: str) -> bool:
 
 
 def turned_off() -> bool:
-    return _state["strikes"] >= STRIKES
+    if _state["strikes"] < STRIKES:
+        return False
+    if time.time() - _state["off_at"] < RETRY_AFTER:
+        return True
+    _state["strikes"] = STRIKES - 1      # one more failure turns it off again
+    return False
 
 
 def forget() -> None:
@@ -97,8 +103,12 @@ def forget() -> None:
     _state["strikes"] = 0
 
 
-def _strike() -> None:
+def _strike(why: str) -> None:
     _state["strikes"] += 1
+    if _state["strikes"] == STRIKES:
+        _state["off_at"] = time.time()
+        print(f"  Whisper stopped on the graphics card ({why[:140]}). The CPU takes over; the card gets another try "
+              f"in {RETRY_AFTER // 60} minutes.", flush=True)
 
 
 def _download(url: str, dest: Path, sha256: str, progress: Callable[[float], None] = lambda f: None,
@@ -233,11 +243,11 @@ def transcribe(audio: np.ndarray, size: str, language: str, log: Callable[[str],
                 raise Failed("Vulkan found no graphics card to use")
             with open(os.path.join(work, "a.json"), encoding="utf-8") as f:
                 words = _words(json.load(f), stop)
-        except Failed:
-            _strike()
+        except Failed as e:
+            _strike(str(e))
             raise
         except (OSError, ValueError, KeyError) as e:
-            _strike()
+            _strike(str(e))
             raise Failed(str(e)[:160]) from e
         finally:
             if p is not None and p.poll() is None:
@@ -246,8 +256,12 @@ def transcribe(audio: np.ndarray, size: str, language: str, log: Callable[[str],
             shutil.rmtree(work, ignore_errors=True)
         took = time.time() - started
         length = audio.size / 16000
-        if length >= 20 and took > length:        # a card this slow (an old integrated one) is better left alone
-            _strike()
+        if length >= 20 and took > length:
+            # a card this slow (an old integrated one) is better left alone, unless the CPU has no room either: with a
+            # game up (measured: Cyberpunk, large-v3) the card took 59 s for 45 s of sound, and the CPU 150 to 1000 s
+            import gpu
+            if gpu.cpu_load() < gpu.CPU_ROOM:
+                _strike("slower than the sound")
         elif length >= 20:
             _state["strikes"] = 0
         return words

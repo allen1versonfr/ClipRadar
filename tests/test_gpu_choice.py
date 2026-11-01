@@ -143,12 +143,32 @@ short = np.zeros(16000 * 20, dtype=np.float32)
 real_time = whispercpp.time.time
 t0 = real_time()
 whispercpp.time.time = lambda: t0 + (real_time() - t0) * 20    # as if this took 30 s for 20 s of sound
+real_cpu_load = gpu.cpu_load
+gpu.cpu_load = lambda: 20.0
 for n in range(whispercpp.STRIKES):
     whispercpp.transcribe(short, "small", "en", print)
 whispercpp.time.time = real_time
 check("a card slower than the sound hands it to the CPU too", whispercpp.turned_off())
 gpu.forget()
+gpu.cpu_load = lambda: 98.0                  # a game has the CPU as well: it would do no better
+t0 = real_time()
+whispercpp.time.time = lambda: t0 + (real_time() - t0) * 20
+for n in range(whispercpp.STRIKES):
+    whispercpp.transcribe(short, "small", "en", print)
+whispercpp.time.time = real_time
+gpu.cpu_load = real_cpu_load
+check("slow with the CPU full too: it stays on the card", not whispercpp.turned_off())
+gpu.forget()
 os.environ["FAKE_CLI"] = "ok"
+whispercpp._strike("a test")
+whispercpp._strike("a test")
+check("turned off, it's off", whispercpp.turned_off())
+whispercpp.time.time = lambda: real_time() + whispercpp.RETRY_AFTER + 1
+check("and the card gets another go later", not whispercpp.turned_off())
+whispercpp._strike("a test")
+check("one more failure then turns it off again", whispercpp.turned_off())
+whispercpp.time.time = real_time
+gpu.forget()
 
 
 class Stop(Exception):
@@ -209,6 +229,12 @@ try:
     gpu.set_mode("auto")
     whispercpp.fetch_later = real_later
     whispercpp.has_model = lambda s: True
+    whispercpp._strike("a test")
+    whispercpp._strike("a test")
+    gpu.choose("titles", "small")
+    check("Settings says the card stopped, not that nothing's installed", "stopped" in gpu._routes["titles"]["why"],
+          gpu._routes["titles"])
+    gpu.forget()
     gpu.whisper_gpu_ok = lambda: True
     check("NVIDIA with its libraries stays with faster-whisper on its GPU", gpu.choose("titles", "small")["engine"] == "whisper"
           and gpu._routes["titles"]["on"] == "gpu")
