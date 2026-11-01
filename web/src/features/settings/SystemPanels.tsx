@@ -137,7 +137,7 @@ export function GpuSupport() {
         </>
       )}
       {d.vulkan_off && (
-        <p className="fine" data-testid="gpu-off">Whisper on the graphics card kept failing or ran slower than the sound, so the CPU has it until Clip Radar restarts.</p>
+        <p className="fine" data-testid="gpu-off">Whisper on the graphics card kept failing or ran slower than the sound, so the CPU has it for now. The card gets another try within 10 minutes.</p>
       )}
       {(d.can_download || (d.nvidia && !d.whisper_gpu)) && (
         <p className="row">
