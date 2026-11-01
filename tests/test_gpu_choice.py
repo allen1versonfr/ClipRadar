@@ -320,6 +320,41 @@ try:
     server.ensure_words(pr, 0, 30, "small", "en", task="captions")
     check("only the rough parts are heard again", ran == ["cpu", "cpu"] and server._without(tx["covered"], tx["rough"]) == [(0, 30)], (ran, tx))
     check("rough stretches split around what's cut out", server._without([(0, 10), (20, 30)], [(5, 25)]) == [(0, 5), (25, 30)])
+
+    # ------------------------------------------------------------ captions don't wait for titles
+    hold, on_it = threading.Event(), threading.Event()
+
+    def slow_card(*a, **k):
+        on_it.set()
+        hold.wait(10)
+        return [{"start": 2.0, "end": 2.5, "word": "card"}]
+    whispercpp.transcribe = slow_card
+    pr = {"tx_lock": threading.Lock(), "duration": 200.0, "video": "x.mp4"}
+    title = threading.Thread(target=server.ensure_words, args=(pr, 100, 120, "small", "en"), kwargs={"task": "titles"}, daemon=True)
+    title.start()
+    on_it.wait(5)
+    t0 = time.time()
+    other = server.ensure_words(pr, 10, 20, "small", "en", task="captions")
+    check("a caption doesn't wait for a title being heard", on_it.is_set() and not hold.is_set() and time.time() - t0 < 5
+          and [w["word"] for w in other] == ["cpu"], other)
+    same = server.ensure_words(pr, 100, 120, "small", "en", task="captions")
+    check("not even on the same stretch", [w["word"] for w in same] == ["cpu"], same)
+    hold.set()
+    title.join(5)
+    tx = pr["tx"]["small|en"]
+    check("a title heard meanwhile doesn't replace the caption's words", [w["word"] for w in tx["words"] if w["start"] >= 100] == ["cpu"]
+          and not tx.get("rough"), tx)
+    hold.clear()
+    on_it.clear()
+    ran.clear()
+    title = threading.Thread(target=server.ensure_words, args=(pr, 130, 150, "small", "en"), kwargs={"task": "titles"}, daemon=True)
+    title.start()
+    on_it.wait(5)
+    server.ensure_words(pr, 140, 150, "small", "en", task="captions")
+    hold.set()
+    title.join(5)
+    check("and only the part a caption took stays exact", tx["rough"] == [(130, 140)] and (130, 150) in tx["covered"], tx)
+    whispercpp.transcribe = lambda *a, **k: ran.append("card") or [{"start": 2.0, "end": 2.5, "word": "card"}]
 finally:
     gpu.whisper_gpu_ok, whispercpp.installed, whispercpp.has_model, gpu.card, gpu.cpu_load, gpu.gpu_load = real
     whispercpp.transcribe, engine._transcribe = real_cpp, real_cpu

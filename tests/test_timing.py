@@ -75,7 +75,8 @@ try:
     t = timing.Timer("title")
     server.ensure_words(pr, 0, 10, "small", "en", task="titles", timer=t)
     server.ensure_words(pr, 0, 10, "small", "en", task="titles", timer=t)
-    check("a title's steps: the sound, then Whisper on the CPU", set(t.steps) == {"reading the sound", "Whisper (CPU)"}, t.steps)
+    check("a title's steps: what it waited for, the sound, then Whisper on the CPU",
+          set(t.steps) == {"waiting for other listening", "reading the sound", "Whisper (CPU)"}, t.steps)
     pr2 = {"tx_lock": threading.Lock(), "duration": 60.0, "video": "x.mp4"}
     check("nobody has to time it", len(server.ensure_words(pr2, 0, 10, "small", "en", task="titles")) == 1)
 finally:
