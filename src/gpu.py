@@ -287,7 +287,12 @@ def choose(task: str, size: str, log: Callable[[str], None] = lambda m: None) ->
         renders_full = engine._hw_slots._value == 0
         pick = decide(task, want, True, cpu_load(), renders_full or gpu_load() >= GPU_BUSY)
     _routes[task] = {"on": "gpu" if pick[0] == "vulkan" or whisper_gpu_ok() else "cpu", "why": pick[1]}
-    return {"engine": pick[0], "why": pick[1]}
+    return {"engine": pick[0], "why": pick[1], "task": task}
+
+
+def can_rehear(size: str) -> bool:
+    """A caption the CPU's speech detector mostly missed can go on the card: Automatic, and no download to wait for."""
+    return mode() == "auto" and vulkan_usable() and _fits(size) and whispercpp.has_model(size)
 
 
 def forget() -> None:
