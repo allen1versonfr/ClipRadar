@@ -65,6 +65,7 @@ import gems
 import hashtags
 import learning
 import persist
+import timing
 import twitchauth
 import watermarks
 
@@ -829,6 +830,8 @@ def do_analyze(job, body: dict):
     src = (body.get("source") or "").strip()
     if not src:
         raise RuntimeError("Paste a Twitch, YouTube or X video link, or the path to a video file.")
+    timer = timing.Timer("open")
+    step = timer.marking(step)
     step("Getting the VOD")
     # The bar: downloading, then finding moments, then thumbnails (ANALYZE_SHARES). A file on this PC or a
     # VOD downloaded before has no download part, so finding moments gets the whole bar instead of
@@ -919,6 +922,7 @@ def do_analyze(job, body: dict):
                            "Add captions and pick a layout, then Keep and render.")
         log(f"Already a clip ({engine.fmt_ts(an.duration)}): using the whole video, no moments to find.")
     else:
+        timer.mark("Picking clips")
         clips = _pick(pr, count, length)
         _number(pr, clips)
         step("Making thumbnails")
@@ -945,6 +949,8 @@ def do_analyze(job, body: dict):
             start_deep_scan(pid, model, lang)
         except RuntimeError as e:
             log(f"Deep scan skipped: {e}")
+    timer.name = s.title
+    timer.done()
     return project_view(pid)
 
 
@@ -1139,7 +1145,7 @@ def _without(spans: list, cut: list) -> list:
 
 
 def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lambda: None,
-                 stats: Optional[dict] = None, task: str = "captions") -> list:
+                 stats: Optional[dict] = None, task: str = "captions", timer: Optional[timing.Timer] = None) -> list:
     """Transcript words (absolute times) for [a, b] of the VOD, transcribing any missing parts.
     A stretch whose sound can't be read isn't marked as done (so it's tried again later) and is
     counted in stats["unreadable"]. task: "titles", "scan" or "captions" (gpu.choose). Words from the
@@ -1150,6 +1156,8 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
     import gpu
     pick = gpu.choose(task, model, lambda m: print(f"  {m}", flush=True))
     on_card = pick["engine"] == "vulkan"
+    timer = timer or timing.Timer("words")
+    heard = "Whisper (card)" if on_card or gpu.whisper_gpu_ok() else "Whisper (CPU)"
     with pr["tx_lock"]:
         tx = _tx(pr, model, lang)
         gaps, cur = [], a
@@ -1168,14 +1176,19 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
                 continue
             check()
             pad_a, pad_b = max(0.0, ga - 1.0), gb + 1.0   # a little overlap so edge words aren't cut
+            t0 = time.time()
             audio = engine.extract_audio(pr["video"], pad_a, pad_b - pad_a)
+            timer.add("reading the sound", time.time() - t0)
             if audio is None:
                 if stats is not None:
                     stats["unreadable"] = stats.get("unreadable", 0) + 1
                 continue
             new = []
             if audio.size >= 1600:
-                for w in engine.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr), pick=pick, check=check):
+                t0 = time.time()
+                found = engine.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr), pick=pick, check=check)
+                timer.add(heard, time.time() - t0)
+                for w in found:
                     st, en = w["start"] + pad_a, w["end"] + pad_a
                     mid = (st + en) / 2
                     if ga <= mid < gb:
@@ -1213,6 +1226,7 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
         ids += [c["id"] for c in pr["clips"] if c["id"] not in ids]
         todo = [i for i in ids if not next((c for c in pr["clips"] if c["id"] == i), {}).get("listened")]
         t_start = time.time()
+        timer = timing.Timer("titles", pr.get("title") or "")
         if todo:
             how = "YouTube's captions" if yt_words else f"Whisper {model}" if can_listen else "chat only"
             print(f"  Titling {len(todo)} clips ({how})...", flush=True)
@@ -1230,14 +1244,17 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
                 try:
                     if gated:
                         job["step"] = "Waiting for other moments to be listened to" if live_gate.queued() or live_gate.busy else job["step"]
+                        t0 = time.time()
                         live_gate.acquire(_live_prio(d), check)
+                        timer.add("waiting for other moments", time.time() - t0)
                         job["step"] = f"Listening to clip {n + 1} of {len(todo)}"
                     try:
                         if yt_words:
                             # YouTube's own captions: titles and cut points right away, no Whisper
                             words = ytextra.words_in(pr["yt"], d["start"] - TX_MARGIN, d["end"] + TX_MARGIN)
                         else:
-                            words = ensure_words(pr, d["start"] - TX_MARGIN, d["end"] + TX_MARGIN, model, lang, check, task="titles")
+                            words = ensure_words(pr, d["start"] - TX_MARGIN, d["end"] + TX_MARGIN, model, lang, check, task="titles",
+                                                 timer=timer)
                     finally:
                         if gated:
                             live_gate.release()
@@ -1264,13 +1281,17 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
                         off = d["at"] - d.get("peak", 0)
                         d["abs_start"], d["abs_end"] = round(off + d["start"], 1), round(off + d["end"], 1)
             d["words"] = words
+            t0 = time.time()
             _title_clip(pr, d, words, used)
+            timer.add("writing the title", time.time() - t0)
             d["listened"] = True
             job["progress"] = (n + 1) / max(1, len(todo))
             if not pr.get("live"):
                 save_project_soon(pid, 3.0)
         if todo:
             print(f"  Titled {len(todo)} clips in {time.time() - t_start:.0f} s.", flush=True)
+            if timer.steps:
+                timer.done()
         if not pr.get("live"):
             _save_transcripts(pr)
         if on_done:
@@ -1820,6 +1841,12 @@ def _validate_render(it: dict, pr: dict, outdir: str):
 def _render_item(it: dict):
     set_stage(it, "validating", "Checking the source")
     it["progress"] = 0.0
+    timer = timing.Timer("render", it.get("title") or "")
+    for k, v in (it.get("lat") or {}).items():            # a hands-free moment: the way here, from the moment it aired
+        if k not in ("render", "total"):
+            timer.add(k, v)
+    timer.add("waiting to render", timer.started - it.get("created", timer.started))
+    timer.mark("checking the source")
     diag = it["_diag"] = {}
     pr = _render_project(it)
     ex = it.get("export") or {}
@@ -1863,11 +1890,13 @@ def _render_item(it: dict):
     fr = None
     if engine.effective_layout(ro) == "full" and ro.track == "auto":
         set_stage(it, "preparing", "Finding the face")
+        timer.mark("finding the face")
         fr = _framing_for(pr, it["start"], it["end"], ro)
         check()
         if fr is not None:
             it["framing"] = {"followed": bool(fr.get("path")), "reason": fr.get("reason", ""), "confidence": fr.get("confidence", 0)}
     set_stage(it, "preparing", "Getting captions ready")
+    timer.mark("captions and content check")
     words, title, post, spans, mode = _render_inputs(it, pr, ro, check)
     srt_words = list(words or []) if ro.captions else []
     if subs == "srt":
@@ -1877,6 +1906,7 @@ def _render_item(it: dict):
     picture = _picture_soon(it, pr)
     for attempt in (1, 2):
         set_stage(it, "rendering", "Rendering" if attempt == 1 else "Rendering again")
+        timer.mark("encoding")
         it["progress"] = 0.0
         t_start = time.time()
         enc_t0[0] = None
@@ -1888,6 +1918,7 @@ def _render_item(it: dict):
         if took > 0.5:
             exports.record_speed(skey, length / took)
         set_stage(it, "verifying", "Checking the file")
+        timer.mark("checking the file")
         it["eta"] = 1
         if TEST_HOOKS.get("break_next_output"):
             TEST_HOOKS["break_next_output"] = False
@@ -1920,6 +1951,7 @@ def _render_item(it: dict):
             pass
     it["path"] = path
     it["url"] = f"/export/{it['id']}?v={int(time.time() * 1000)}"
+    timer.done()
 
 
 def campaigns_view() -> dict:
