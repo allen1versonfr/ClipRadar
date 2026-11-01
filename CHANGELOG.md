@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.38.0] - 2026-11-01
+
+Clip Radar now records how long each step takes.
+
+### Added
+- **Step timings.** Opening a video, titling clips and each render now write one `Timing` line to `clipradar.log`, with the time for each step, such as waiting for other moments, reading the sound, Whisper on the card or the CPU, finding the face, captions, encoding and checking the file. A hands-free moment's render line also includes how it got there. `GET /api/timings` lists the recent ones. This only measures: nothing runs differently.
+
+### Tests
+- `tests/test_timing.py`: what adds up, what a job's steps report, and that nothing has to be timed.
+
 ## [4.37.3] - 2026-11-01
 
 Live titles stay on the graphics card while a game is running.

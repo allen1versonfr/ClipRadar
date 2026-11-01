@@ -1,9 +1,9 @@
-<p align="center">
+﻿<p align="center">
   <img src="docs/images/banner.png" alt="Clip Radar: find the best moments in your Twitch streams and turn them into ready-to-post TikToks" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.37.3" src="https://img.shields.io/badge/version-4.37.3-ffd21f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.38.0" src="https://img.shields.io/badge/version-4.38.0-ffd21f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -12,13 +12,13 @@
 
 <p align="center">
   <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest/download/ClipRadar-Setup.exe"><b>Download for Windows</b></a>
-  &nbsp;·&nbsp;
+  &nbsp;Â·&nbsp;
   <a href="https://github.com/allen1versonfr/ClipRadar_macOs"><b>macOS port and downloads</b></a>
-  &nbsp;·&nbsp;
+  &nbsp;Â·&nbsp;
   <a href="#features">Features</a>
-  &nbsp;·&nbsp;
+  &nbsp;Â·&nbsp;
   <a href="#posting-to-tiktok">Posting to TikTok</a>
-  &nbsp;·&nbsp;
+  &nbsp;Â·&nbsp;
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
@@ -32,12 +32,12 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
 
 ## Features
 
-- **Twitch, YouTube and X.** Open a Twitch VOD, a YouTube video, Short or finished livestream (with its chat replay), an X video, or a file on your PC. Clip Twitch and YouTube livestreams as they happen, several at once, and follow everything under Home › Running now.
+- **Twitch, YouTube and X.** Open a Twitch VOD, a YouTube video, Short or finished livestream (with its chat replay), an X video, or a file on your PC. Clip Twitch and YouTube livestreams as they happen, several at once, and follow everything under Home â€º Running now.
 - **Finds the moments for you.** Clips are ranked by chat surges (KEKW, POG, "clip it", `?????`), audio spikes measured against the surrounding minutes, and laughter, screams and cheering heard by a small built-in sound detector. Twitch's muted DMCA sections are ignored.
   - Chat is counted by chatters, not messages: bots, `!commands`, giveaways, sub notices, gift bombs, raids and copypasta don't create fake moments.
-  - It reads how chat reacts, not just how much it types: laughter in many languages ("hahaha", "jajaja", "kkkk", "ㅋㅋㅋ", "草") and stretched words ("LMAOOOO", "noooo"). Chat answering a question the streamer asked ("germany", "2 hours ago", "50") counts for less, and a moment where the streamer and chat react together counts for more.
+  - It reads how chat reacts, not just how much it types: laughter in many languages ("hahaha", "jajaja", "kkkk", "ã…‹ã…‹ã…‹", "è‰") and stretched words ("LMAOOOO", "noooo"). Chat answering a question the streamer asked ("germany", "2 hours ago", "50") counts for less, and a moment where the streamer and chat react together counts for more.
   - The 7TV emotes chat uses most are read for what they mean (CAUGHT, AINTNOWAY, xdd, HUH, DIESOFCRINGE, o7...), even on YouTube or when the channel's emote lists don't load; emotes for vibing, greetings and sleep (catJAM, peepoHey, Bedge) never make a moment.
-  - Awkward moments and confusing ones are clips too, and told apart: "uhhh", "ummm", 😬 and "yikes" make an *awkward moment*; "???", "huh" and "wdym" mean *chat confused*. Each gets a title and hashtags to match.
+  - Awkward moments and confusing ones are clips too, and told apart: "uhhh", "ummm", ðŸ˜¬ and "yikes" make an *awkward moment*; "???", "huh" and "wdym" mean *chat confused*. Each gets a title and hashtags to match.
   - Ordinary YouTube videos have no chat, so they're ranked with YouTube's Most replayed graph and the timestamps people leave in the top comments ("3:45 when he fell"), next to the sound. YouTube's own captions title the clips straight away, and comments people agree on can title them too.
   - Each clip gets its own length (15 s to 2 minutes): it starts with the setup, runs until the reaction dies down, and never cuts mid-sentence.
   - Quality over quantity: on Automatic it suggests only the moments that stand out against the stream's own best ones, not a set number per hour.
@@ -51,16 +51,16 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
 - **Content check and censoring.** Each clip's words, title and post caption are checked for things TikTok takes down: slurs, self-harm, threats, personal info, sexual terms, drugs, swearing, gambling and your own blocked words.
   - Flagged words can be hidden in captions, muted or bleeped.
   - Hands-free holds risky clips back for you to look at first.
-- **Review in TikTok format.** Each suggestion plays in a phone-sized preview with its layout, title and word-by-word captions. Keep it with <kbd>Enter</kbd>, skip it with <kbd>X</kbd>, and move between clips with <kbd>↑</kbd> <kbd>↓</kbd>.
+- **Review in TikTok format.** Each suggestion plays in a phone-sized preview with its layout, title and word-by-word captions. Keep it with <kbd>Enter</kbd>, skip it with <kbd>X</kbd>, and move between clips with <kbd>â†‘</kbd> <kbd>â†“</kbd>.
 - **Auto titles and captions.** Whisper transcribes each clip. The title is the best line said near the peak, what chat agreed on or was talking about ("Chat lost it over the haircut"), or one that fits the mood, and every clip of a stream gets its own. Each gets a post caption and hashtags: the streamer, the game being played, what chat talked about and the mood.
 - **Edit like CapCut.** Drag the title and captions anywhere on the frame, fix any caption line by typing over it, and add your own captions.
   - Five caption styles: Pop, Highlight, Karaoke, Glow and Clean.
   - Four title styles.
   - Eight bundled fonts, including Montserrat, Anton, Bebas Neue and Bangers.
 - **Layouts and framing:** facecam above gameplay, the whole frame (following the streamer's face), the facecam alone, or a blurred fit. Auto-frame finds a facecam or a person and picks the layout.
-- **Background render queue.** Clips render to 1080×1920 MP4 on your GPU (NVIDIA, Intel or AMD): it decodes the video and encodes H.264 or H.265, falling back to the CPU for a clip when it has to. With an NVIDIA card, Settings › Performance can add GPU support for Whisper (a one-time download), so titles, captions and Deep scan run on it too. If a render fails, Clip Radar says why in plain words and gives you a Retry button.
+- **Background render queue.** Clips render to 1080Ã—1920 MP4 on your GPU (NVIDIA, Intel or AMD): it decodes the video and encodes H.264 or H.265, falling back to the CPU for a clip when it has to. With an NVIDIA card, Settings â€º Performance can add GPU support for Whisper (a one-time download), so titles, captions and Deep scan run on it too. If a render fails, Clip Radar says why in plain words and gives you a Retry button.
 - **Watermarks you can move and share.** Up to six layers of text (any bundled font, colour, outline or box) and logo images, in a corner or dragged anywhere on the clip preview, each with its own size, opacity, rotation and timing. Save sets of them, and share one as a single file (images inside) or import one from a file or a Discord link.
-- **Clipping campaigns and Discords.** Keep each clipping organisation's rules together under **Settings › Campaigns**: text and hashtags every post must carry, minimum and maximum clip length, the campaign's own watermark, and its Discord submission channel (a webhook).
+- **Clipping campaigns and Discords.** Keep each clipping organisation's rules together under **Settings â€º Campaigns**: text and hashtags every post must carry, minimum and maximum clip length, the campaign's own watermark, and its Discord submission channel (a webhook).
   - Clips you keep while a campaign is active follow its rules, and Exports warns about clips that are too short or too long for it.
   - Finished clips can go to the campaign's Discord channel as soon as they render, with the video attached, or later with the link to your post.
   - Campaigns are shared and imported as one file, so a server can hand its clippers the rules and watermark in one go. The webhook is only included when you choose.
@@ -90,12 +90,12 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
 
 1. Download **[ClipRadar-Setup.exe](https://github.com/allen1versonfr/ClipRadar/releases/latest/download/ClipRadar-Setup.exe)** and run it. It installs for your user only, so there's no admin prompt, and adds Start menu and desktop shortcuts.
 2. The first time you open it, Clip Radar offers to download FFmpeg, yt-dlp and TwitchDownloader for you.
-3. After that, Clip Radar keeps itself up to date. New versions show up in the status bar and in **Settings › Updates**.
+3. After that, Clip Radar keeps itself up to date. New versions show up in the status bar and in **Settings â€º Updates**.
 
 Prefer not to install? Use [ClipRadar-portable.zip](https://github.com/allen1versonfr/ClipRadar/releases/latest/download/ClipRadar-portable.zip) instead. Unzip it anywhere and run `ClipRadar.exe`.
 
 > [!NOTE]
-> The app isn't code-signed yet, so Windows SmartScreen may warn you the first time. Choose **More info › Run anyway**.
+> The app isn't code-signed yet, so Windows SmartScreen may warn you the first time. Choose **More info â€º Run anyway**.
 
 **Requirements:** Windows 10 or 11 (64-bit). An NVIDIA, Intel or AMD GPU speeds up rendering but isn't required. Captions download a Whisper model (a few hundred MB) the first time you use them.
 
@@ -103,7 +103,7 @@ Prefer not to install? Use [ClipRadar-portable.zip](https://github.com/allen1ver
 
 | | |
 |---|---|
-| **Past broadcast** | Paste a VOD link (`twitch.tv/videos/…`) or browse to a recording on your PC, then press **Find clips**. |
+| **Past broadcast** | Paste a VOD link (`twitch.tv/videos/â€¦`) or browse to a recording on your PC, then press **Find clips**. |
 | **Live channel** | Enter a channel name or `twitch.tv/name`, pick **Hands-free** (clips render on their own) or **Review each clip**, choose how many clips you want, and press **Start live clipping**. It can start before the stream does. The first minute or two is spent learning what "normal" sounds like for the stream. |
 | **Review** | Keep (<kbd>Enter</kbd>) or skip (<kbd>X</kbd>) each suggestion. Trim it and edit the title (<kbd>T</kbd> cycles through ideas). Fix captions in the **Captions** tab, pick styles and fonts in **Text**, and set the layout in **Layout**. Drag the title or captions on the preview to move them. During a live session, <kbd>C</kbd> clips the last 30 seconds. |
 | **Exports** | Kept clips render here, named after their titles, with the post caption saved next to them as `.txt`. Select one to watch it or post it. |
@@ -118,7 +118,7 @@ Clip Radar can't see your browser, so it only ever says it opened TikTok Studio,
 
 ## Building from source
 
-You need Windows and Python 3.10–3.13 (`install.bat` offers to install Python 3.12 with winget if it’s missing).
+You need Windows and Python 3.10â€“3.13 (`install.bat` offers to install Python 3.12 with winget if itâ€™s missing).
 
 ```bat
 git clone https://github.com/allen1versonfr/ClipRadar

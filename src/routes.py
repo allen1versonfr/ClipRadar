@@ -307,6 +307,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(dict(res, available=True))
         if p == "/api/perf":
             return self._json(S.perf_view())
+        if p == "/api/timings":
+            return self._json({"items": S.timing.recent()})
         m = re.fullmatch(r"/api/strip/(\w+)", p)
         if m:
             # what the editing timeline draws for a stretch of the video: loudness, laughter, chat
