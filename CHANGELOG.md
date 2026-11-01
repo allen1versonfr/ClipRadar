@@ -5,6 +5,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.38.2] - 2026-11-01
+
+Renders no longer wait behind titles and Deep scan.
+
+### Fixed
+- **Renders crawled while titles or a Deep scan were running.** A render's captions had to wait their turn behind any Whisper work on the same video, even though they run on a different part of the PC. Replaying a real session on a 4.6-hour VOD (31 titles and a Deep scan, then 3 renders), the wait went from 35 to 62 s per clip to none, and the renders from 120, 89 and 74 s to 97, 56 and 35 s. Titles and Deep scan still run side by side with renders, and a title heard at the same time never replaces a caption's more exact words.
+
+### Changed
+- The render's `Timing` line now shows the time spent waiting for other listening, reading the sound and in Whisper.
+
+### Tests
+- `tests/test_gpu_choice.py`: a caption doesn't wait for a title being heard, and a title heard meanwhile gives way to the caption's words, in part or whole.
+
 ## [4.38.1] - 2026-11-01
 
 Captions no longer stop partway through a loud clip.

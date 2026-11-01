@@ -1158,7 +1158,11 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
     on_card = pick["engine"] == "vulkan"
     timer = timer or timing.Timer("words")
     heard = "Whisper (card)" if on_card or gpu.whisper_gpu_ok() else "Whisper (CPU)"
+    # the lock covers the transcript, not the listening: a title being heard mustn't hold up a render's captions (measured,
+    # 31 titles and a Deep scan: 35 to 62 s waiting for 15 to 52 s of Whisper)
+    t0 = time.time()
     with pr["tx_lock"]:
+        timer.add("waiting for other listening", time.time() - t0)
         tx = _tx(pr, model, lang)
         gaps, cur = [], a
         for ca, cb in sorted(tx["covered"] if on_card or task != "captions" else _without(tx["covered"], tx.get("rough", []))):
@@ -1171,32 +1175,31 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
                 break
         if cur < b:
             gaps.append((cur, b))
-        for ga, gb in gaps:
-            if gb - ga < 0.5:
-                continue
-            check()
-            pad_a, pad_b = max(0.0, ga - 1.0), gb + 1.0   # a little overlap so edge words aren't cut
+    for ga, gb in gaps:
+        if gb - ga < 0.5:
+            continue
+        check()
+        pad_a, pad_b = max(0.0, ga - 1.0), gb + 1.0   # a little overlap so edge words aren't cut
+        t0 = time.time()
+        audio = engine.extract_audio(pr["video"], pad_a, pad_b - pad_a)
+        timer.add("reading the sound", time.time() - t0)
+        if audio is None:
+            if stats is not None:
+                stats["unreadable"] = stats.get("unreadable", 0) + 1
+            continue
+        new = []
+        if audio.size >= 1600:
             t0 = time.time()
-            audio = engine.extract_audio(pr["video"], pad_a, pad_b - pad_a)
-            timer.add("reading the sound", time.time() - t0)
-            if audio is None:
-                if stats is not None:
-                    stats["unreadable"] = stats.get("unreadable", 0) + 1
-                continue
-            new = []
-            if audio.size >= 1600:
-                t0 = time.time()
-                found = engine.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr), pick=pick, check=check)
-                timer.add(heard, time.time() - t0)
-                for w in found:
-                    st, en = w["start"] + pad_a, w["end"] + pad_a
-                    mid = (st + en) / 2
-                    if ga <= mid < gb:
-                        new.append({"start": round(st, 3), "end": round(en, 3), "word": w["word"]})
-            tx["words"] = sorted([w for w in tx["words"] if not (ga <= (w["start"] + w["end"]) / 2 < gb)] + new,
-                                 key=lambda w: w["start"])
-            tx["covered"].append((ga, gb))
-            tx["rough"] = _without(tx.get("rough", []), [(ga, gb)]) + ([(ga, gb)] if on_card else [])
+            found = engine.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr), pick=pick, check=check)
+            timer.add(heard, time.time() - t0)
+            new = [{"start": round(w["start"] + pad_a, 3), "end": round(w["end"] + pad_a, 3), "word": w["word"]} for w in found]
+        with pr["tx_lock"]:
+            # heard on the card, it gives way to any part a caption finished meanwhile
+            for sa, sb in _without([(ga, gb)], _without(tx["covered"], tx.get("rough", []))) if on_card else [(ga, gb)]:
+                tx["words"] = sorted([w for w in tx["words"] if not (sa <= (w["start"] + w["end"]) / 2 < sb)]
+                                     + [w for w in new if sa <= (w["start"] + w["end"]) / 2 < sb], key=lambda w: w["start"])
+                tx["covered"].append((sa, sb))
+                tx["rough"] = _without(tx.get("rough", []), [(sa, sb)]) + ([(sa, sb)] if on_card else [])
             # merge intervals
             merged = []
             for ca, cb in sorted(tx["covered"]):
@@ -1205,6 +1208,7 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
                 else:
                     merged.append((ca, cb))
             tx["covered"] = merged
+    with pr["tx_lock"]:
         return [w for w in tx["words"] if a <= w["start"] < b]
 
 
@@ -1748,7 +1752,7 @@ class BrokenOutput(RuntimeError):
     pass
 
 
-def _render_inputs(it: dict, pr: dict, ro, check) -> tuple:
+def _render_inputs(it: dict, pr: dict, ro, check, timer: Optional[timing.Timer] = None) -> tuple:
     """Captions, title and censoring for a render of it['start']..it['end'] (a clip, or a few seconds
     of one for the exact preview). Returns (words, title, post, spans, mode)."""
     cfg = safety.load_config()
@@ -1761,7 +1765,7 @@ def _render_inputs(it: dict, pr: dict, ro, check) -> tuple:
     elif (ro.captions or censoring) and pr["info"]["has_audio"] and engine.whisper_available():
         set_stage(it, "preparing", "Listening for captions")
         try:
-            abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check)
+            abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check, timer=timer)
         except engine.Cancelled:
             raise
         except Exception as e:
@@ -1897,7 +1901,7 @@ def _render_item(it: dict):
             it["framing"] = {"followed": bool(fr.get("path")), "reason": fr.get("reason", ""), "confidence": fr.get("confidence", 0)}
     set_stage(it, "preparing", "Getting captions ready")
     timer.mark("captions and content check")
-    words, title, post, spans, mode = _render_inputs(it, pr, ro, check)
+    words, title, post, spans, mode = _render_inputs(it, pr, ro, check, timer)
     srt_words = list(words or []) if ro.captions else []
     if subs == "srt":
         words = []                                  # subtitles as a file only, not burned in
