@@ -9,7 +9,9 @@ There's no GPU in CI: the card is a stand-in, and whisper-cli is a small script 
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import os
 import re
@@ -250,6 +252,50 @@ try:
     check("the card failing: the CPU does this one, and it says so", out[0]["word"] == "cpu"
           and any("runs on the CPU" in m for m in logs), logs)
     whispercpp.transcribe = lambda *a, **k: ran.append("card") or [{"start": 2.0, "end": 2.5, "word": "card"}]
+
+    # ------------------------------------------------------------ a caption the speech detector mostly missed
+    def missed(share):
+        def cpu(*a, **k):
+            ran.append("cpu")
+            a[6]["share"] = share
+            return [{"start": 2.0, "end": 2.5, "word": "cpu"}]
+        return cpu
+    caption = gpu.choose("captions", "large-v3")
+    engine._transcribe = missed(0.26)
+    ran.clear()
+    said = io.StringIO()
+    with contextlib.redirect_stdout(said):
+        out = engine.transcribe(AUDIO, "large-v3", "en", print, pick=caption)
+    check("a caption the detector mostly missed is heard again on the card", ran == ["cpu", "card"] and out[0]["word"] == "card", ran)
+    check("and the log says so", "26% heard" in said.getvalue(), said.getvalue())
+    engine._transcribe = missed(0.8)
+    ran.clear()
+    out = engine.transcribe(AUDIO, "large-v3", "en", print, pick=caption)
+    check("a caption it heard stays on the CPU", ran == ["cpu"] and out[0]["word"] == "cpu", ran)
+    engine._transcribe = missed(0.26)
+    ran.clear()
+    engine.transcribe(np.zeros(16000 * 10, dtype=np.float32), "large-v3", "en", print, pick=caption)
+    check("a short stretch isn't heard again", ran == ["cpu"], ran)
+    ran.clear()
+    engine.transcribe(AUDIO, "large-v3", "en", print, pick={"engine": "whisper", "why": "", "task": "titles"})
+    check("a title on the CPU isn't either: the card is busy", ran == ["cpu"], ran)
+    gpu.set_mode("cpu")
+    ran.clear()
+    engine.transcribe(AUDIO, "large-v3", "en", print, pick=caption)
+    check("you choosing the CPU wins", ran == ["cpu"], ran)
+    gpu.set_mode("auto")
+    whispercpp.has_model = lambda s: False
+    ran.clear()
+    out = engine.transcribe(AUDIO, "large-v3", "en", print, pick=caption)
+    check("no model on the card: the CPU's words", ran == ["cpu"] and out[0]["word"] == "cpu", ran)
+    whispercpp.has_model = lambda s: True
+    whispercpp.transcribe = fails
+    ran.clear()
+    logs = []
+    out = engine.transcribe(AUDIO, "large-v3", "en", logs.append, pick=caption)
+    check("the card failing keeps the CPU's words", out[0]["word"] == "cpu", out)
+    whispercpp.transcribe = lambda *a, **k: ran.append("card") or [{"start": 2.0, "end": 2.5, "word": "card"}]
+    engine._transcribe = lambda *a, **k: ran.append("cpu") or [{"start": 2.0, "end": 2.5, "word": "cpu"}]
 
     # ------------------------------------------------------------ a title's words don't become a caption's
     pr = {"tx_lock": threading.Lock(), "duration": 60.0, "video": "x.mp4"}

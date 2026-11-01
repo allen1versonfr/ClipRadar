@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.38.1] - 2026-11-01
+
+Captions no longer stop partway through a loud clip.
+
+### Fixed
+- **Captions missing from clips with loud backgrounds.** faster-whisper's speech detector can take people talking on a busy street or over music for noise, and Whisper then never hears them. On one 73 s clip it kept 19 s, so the captions stopped after about 10 s. When it keeps less than half of a stretch of 20 s or more and Whisper can run on your card, that stretch is now heard again on the card: the same clip went from 21 words to 87, reaching its end. Other clips stay on the CPU, whose timing is more exact. This takes a little longer on those clips (about 25 s for that one), and the log says when it happens. It needs Automatic under **Whisper runs on**, on an AMD or Intel card with that model already there.
+
+### Tests
+- `tests/test_gpu_choice.py`: when a caption is heard again and when it isn't, and that a failure on the card keeps what the CPU heard.
+
 ## [4.38.0] - 2026-11-01
 
 Clip Radar now records how long each step takes.
