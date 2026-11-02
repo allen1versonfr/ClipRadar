@@ -301,7 +301,7 @@ try:
     W = studio_auto._caption_words
     check("a different word is still a different caption", W("Wait for it #gaming") != W("Wait for that #gaming"))
     check("so is a missing or changed hashtag", W("Wait #gaming #fyp") != W("Wait #gaming") and W("#fyp") != W("#fypage"))
-    check("an accent typed two ways is the same", W("Pokémon") == W("Pokémon"))
+    check("an accent typed two ways is the same", W("Pok\u00e9mon") == W("Poke\u0301mon"))
 
     # settings: Press Post for me is off until you turn it on, and it's remembered
     check("Press Post for me is off by default", studio_auto.load_settings() == {"press_post": False})

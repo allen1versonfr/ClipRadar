@@ -436,7 +436,7 @@ def fit_caption(caption: str, limit: Optional[int] = None) -> str:
     return (cut + "…" + (sep + tags if tags else "")).strip()
 
 
-_INVISIBLE = set("​‌‍⁠﻿︎️")
+_INVISIBLE = set("\u200b\u200c\u200d\u2060\ufeff\ufe0e\ufe0f")
 
 
 def _caption_words(text: str) -> list:
