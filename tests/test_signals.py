@@ -229,10 +229,11 @@ check("cookie file for yt-dlp", ".twitch.tv\tTRUE\t/\tTRUE\t0\tauth-token\tabcde
       and not os.path.exists(gone_later))
 
 # ------------------------------------------------------------------ weak moments in a video without chat
-# real-world test: a 28-min YouTube upload had 2 strong moments and was padded to 5 with clips scoring 45
+# real-world test: a 28-min YouTube upload had 2 strong moments and was padded to 5 with clips scoring 45.
+# Since 4.39 a video without chat is graded on its own scale (engine.strength), so the weak ones are weaker here
 n = 1800
 sw = np.zeros(n, dtype=np.float32)
-for at, v in ((300, 6.0), (700, 5.5), (1000, 3.0), (1300, 2.0), (1500, 1.9), (1650, 1.8)):
+for at, v in ((300, 6.0), (700, 5.5), (1000, 3.0), (1300, 1.6), (1500, 1.5), (1650, 1.4)):
     sw[at:at + 6] = v
 an_w = engine.Analysis(float(n), np.zeros(n, np.float32), np.zeros(n, np.float32), False, True)
 an_w.score = sw

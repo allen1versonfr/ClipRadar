@@ -74,7 +74,7 @@ def _shape(sent: dict) -> float:
     s += min(1.0, 0.25 * sum(1 for t in toks if t in titles.STRONG))
     if PUNCH.search(text):
         s += 0.6
-    if titles.PROFANITY.search(text):
+    if titles.PROFANITY.search(text) or "[__]" in text:      # YouTube's captions hide swears as [__]
         s += 0.5
     if 3 <= len(toks) <= 12:
         s += 0.5
@@ -88,7 +88,7 @@ def _shape(sent: dict) -> float:
 
 
 def score_sentences(an: engine.Analysis, sents: list) -> list:
-    n = len(an.score)
+    n = len(an.audio_z)            # not an.score: YouTube captions are scored before the first combine
     laugh = an.event_level("laugh") if an.has_events else None
     loud = an.loud
     out = []
@@ -121,7 +121,7 @@ def score_sentences(an: engine.Analysis, sents: list) -> list:
 
 def speech_curve(an: engine.Analysis, scored: list) -> np.ndarray:
     """Per-second 'how quotable' value, for learning and the timeline."""
-    n = len(an.score)
+    n = len(an.audio_z)
     sp = np.zeros(n, dtype=np.float32)
     for s in scored:
         a, b = int(s["start"]), min(n, int(s["end"]) + 1)

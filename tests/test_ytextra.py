@@ -24,6 +24,8 @@ for _s in (sys.stdout, sys.stderr):
 os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
+import numpy as np  # noqa: E402
+
 import engine  # noqa: E402
 import ytextra as Y  # noqa: E402
 
@@ -102,6 +104,36 @@ ct = Y.comment_title(d, 255, 290)
 check("comments agreeing on a phrase title the clip", ct == 'Comments: "The dog walked in"', ct)
 check("no comments in the window: no title", Y.comment_title(d, 0, 100) == "")
 check("chapter at a time", Y.chapter_at(d, 300) == "Boss fight" and Y.chapter_at(d, 10) == "Intro")
+
+# ---- captions as a signal (4.39): a vlog without chat, where loudness barely moves
+bleep = Y.caption_words({"events": [{"tStartMs": 0, "dDurationMs": 2000, "segs": [
+    {"utf8": "what"}, {"utf8": " the", "tOffsetMs": 300}, {"utf8": " [\xa0__\xa0]", "tOffsetMs": 600}, {"utf8": " bro", "tOffsetMs": 900}]}]})
+check("a swear YouTube hid is one word, not three", [x["word"] for x in bleep] == ["what", "the", "[__]", "bro"], bleep)
+
+
+def said(lines):
+    """Caption words: (start, sentence) with 0.3 s a word."""
+    out = []
+    for t, text in lines:
+        for k, word in enumerate(text.split()):
+            out.append({"start": t + 0.3 * k, "end": t + 0.3 * k + 0.25, "word": word})
+    return out
+
+
+flat = lambda chat: engine.Analysis(DUR, np.zeros(int(DUR) + 1, np.float32), np.zeros(int(DUR) + 1, np.float32), chat, True)  # noqa: E731
+plain_lines = [(t, "so then we went over to the next place and looked around for a while there.") for t in range(10, 590, 8)]
+vlog = said(sorted(plain_lines + [(402, "Bro, no way!")], key=lambda x: x[0]))
+cap = Y.caption_signal(flat(False), vlog)
+check("a line that lands stands out in the captions", cap is not None and float(cap[402]) > 0.5 and float(cap[200]) == 0.0,
+      None if cap is None else (float(cap[402]), float(cap[200])))
+check("captions where every line is alike give no signal", Y.caption_signal(flat(False), said(plain_lines)) is None)
+with_chat = Y.apply(flat(True), {"words": vlog})
+check("with chat, captions don't rank (chat already does)", with_chat.captions is None)
+no_chat = Y.apply(flat(False), {"words": vlog})
+no_chat.combine(60)
+check("without chat, the line is where the score peaks", 398 <= int(np.argmax(no_chat.score)) <= 410, int(np.argmax(no_chat.score)))
+check("no chat: graded on the scale it can reach", engine.strength(no_chat, 2.0) > engine.strength(with_chat, 2.0) >= 40,
+      (engine.strength(no_chat, 2.0), engine.strength(with_chat, 2.0)))
 
 # ---- ranking: a talking-head video (flat sound, no chat); Most replayed and comments decide
 if shutil.which("ffmpeg"):
