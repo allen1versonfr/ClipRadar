@@ -5,6 +5,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.40.0] - 2026-11-02
+
+Upload to TikTok is quicker and stops less often on the caption, and Skip in Review goes up to scored under 90.
+
+### Added
+- **Skip clips scored under 75 or 90** (Review › To review). The new UI only offered 40, 50 and 60; the original page had 75 but not 90.
+
+### Changed
+- **Upload to TikTok is quicker.** The first upload after the TikTok window opened loaded TikTok Studio twice: the window opens on the upload page, and Clip Radar loaded it again. A page that's still empty is used as it is. The panel also shows each step, and the end, sooner (it checked every 0.7 s; now every 0.25 s).
+
+### Fixed
+- **"The caption didn't go in as written" stopped uploads whose caption was fine.** TikTok's editor gives the caption back with invisible characters around hashtags, and an editor can draw emoji as pictures its text leaves out, so a caption with an emoji or a hashtag could never read back the same. The words and hashtags still have to match exactly. When they don't, the log now has what TikTok's box showed.
+- **Clicking Upload to TikTok twice started two uploads of the clip.** The button only turned off once Clip Radar answered; it turns off on the click now (both UIs).
+- **Switching clips during an upload showed its steps on the other clip** (new UI).
+- **Copy caption under a finished clip copied the caption without your edits** from the TikTok caption box. The new UI has the one in the TikTok panel only; the original page's copies the caption as edited.
+
+### Tests
+- `tests/test_studio_auto.py`: a caption TikTok's editor redraws (emoji as pictures, invisible characters around hashtags) is posted; a different word or hashtag is still a different caption. It failed before the fix, as on TikTok.
+
 ## [4.39.1] - 2026-11-02
 
 Clips from YouTube videos without chat start and end on whole sentences, and keep a scene together.

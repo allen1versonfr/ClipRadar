@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from typing import Callable, Optional
 
 import cdp
@@ -331,6 +332,22 @@ def _first(page: cdp.Page, whats: dict, seconds: float, check: Callable, every: 
     return ""
 
 
+def _fresh_page(page: cdp.Page, url: str, check: Callable) -> bool:
+    """Whether the tab already shows an empty upload page (4.40): the window just opened on it, or nothing was put
+    in since it loaded. Loading TikTok Studio again would only cost a few seconds. Still loading counts: waited for,
+    up to 15 s. TikTok sending it to sign in counts too (the next step waits for that). A clip in TikTok's editor,
+    or any other page, is not fresh."""
+    path = json.dumps(re.sub(r"[?#].*$", "", url))
+    try:
+        if not page.eval(f"(location.origin + location.pathname) === {path}", timeout=5):
+            return False
+    except cdp.CDPError:
+        return False
+    # the editor first: a page with a clip in it can still have a file box
+    got = _first(page, {"editor": SHOWN_CAPTION, "file": SELECTORS["file"], "login": SELECTORS["login"]}, 15, check)
+    return got in ("file", "login")
+
+
 def _tab(port: int, url: str) -> cdp.Page:
     """A tab in Clip Radar's TikTok window: the one already on TikTok Studio, else any, else a new one
     (you closed the tab but not the window)."""
@@ -361,7 +378,7 @@ def _type_caption(page: cdp.Page, caption: str) -> None:
     """Replace TikTok's caption (it starts with the file name) with ours. TikTok's editor sometimes drops
     or doubles typed text while it's still setting up, or opens a hashtag list that eats the end, so the
     result is read back and typed again (three tries) until it's exactly the caption."""
-    want = caption.split()
+    want = _caption_words(caption)
     for _ in range(3):
         page.eval(f"(() => {{ const e = {SELECTORS['caption']}; e.focus(); return true }})()")
         page.call("Input.dispatchKeyEvent", type="keyDown", key="a", code="KeyA", modifiers=2,
@@ -384,6 +401,12 @@ def _type_caption(page: cdp.Page, caption: str) -> None:
             else:
                 since = None
             time.sleep(0.1)
+    # what TikTok's box held, for the log: the next difference to allow for is in it (4.40)
+    try:
+        # ascii(): escaped, since an emoji can't be printed where the log isn't UTF-8 (and it's the emoji that matter)
+        print(f"  TikTok caption: typed {ascii(caption)}, the box shows {ascii(_read_caption(page)[:300])}", flush=True)
+    except (cdp.CDPError, OSError):
+        pass
     raise StudioError("caption", "The caption didn't go in as written. Paste it yourself (it's copied).")
 
 
@@ -413,8 +436,25 @@ def fit_caption(caption: str, limit: Optional[int] = None) -> str:
     return (cut + "…" + (sep + tags if tags else "")).strip()
 
 
+_INVISIBLE = set("\u200b\u200c\u200d\u2060\ufeff\ufe0e\ufe0f")
+
+
+def _caption_words(text: str) -> list:
+    """The caption's words, as compared between what was typed and what TikTok's box shows (4.40). TikTok's editor
+    doesn't give back exactly what went in, and every difference that isn't a real one stopped an upload at
+    "The caption didn't go in as written". Not differences: invisible characters (around hashtags), how a letter
+    is encoded, and emoji, which an editor can draw as pictures that its text leaves out. Words and hashtags are."""
+    text = unicodedata.normalize("NFC", text or "")
+    text = "".join(ch for ch in text if ch not in _INVISIBLE and unicodedata.category(ch) not in ("So", "Sk", "Cs"))
+    return text.split()
+
+
+def _read_caption(page: cdp.Page) -> str:
+    return page.eval(f"(({SELECTORS['caption']}).innerText || '').trim()") or ""
+
+
 def _caption_ok(page: cdp.Page, want: list) -> bool:
-    return (page.eval(f"(({SELECTORS['caption']}).innerText || '').trim()") or "").split() == want
+    return _caption_words(_read_caption(page)) == want
 
 
 _one_at_a_time = threading.Lock()
@@ -456,8 +496,10 @@ def _upload_once(path: str, caption: str, press_post: bool, url: str, step: Call
         page.call("Page.enable")
         # a fresh upload page every time: after an upload, the window is still on the page but with that
         # clip in its editor (no upload box), so the next clip would wait for one that never comes. A clip left
-        # in the editor makes the page ask "Leave site?" (4.36: answered, see _navigate)
-        _navigate(page, url, check)
+        # in the editor makes the page ask "Leave site?" (4.36: answered, see _navigate). A page that's still empty
+        # is used as it is (4.40): a window that just opened loaded it twice
+        if not _fresh_page(page, url, check):
+            _navigate(page, url, check)
         page.call("Page.bringToFront")
         # signed in? the first time, TikTok asks; wait for you to sign in, in that window
         first = _first(page, {"file": SELECTORS["file"], "login": SELECTORS["login"]}, 30, check)
@@ -488,7 +530,7 @@ def _upload_once(path: str, caption: str, press_post: bool, url: str, step: Call
                                         "Render it again, or try it in the window yourself.")
         if got != "ready":
             raise StudioError("upload", "TikTok didn't finish taking the video in time. Check the window.")
-        if caption and not _caption_ok(page, caption.split()):
+        if caption and not _caption_ok(page, _caption_words(caption)):
             _type_caption(page, caption)            # the page changed the caption while the video went up
         if not press_post:
             page.call("Page.bringToFront")

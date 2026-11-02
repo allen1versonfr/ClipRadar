@@ -285,6 +285,24 @@ try:
     except studio_auto.StudioError as e:
         check("a missing file is refused before anything opens", e.step == "file", e.step)
 
+    # 14 (4.40). The caption box gives back emoji as pictures and hashtags with invisible characters: the same
+    # caption, not "The caption didn't go in as written" (the most common way an upload stopped)
+    srv = fake_studio.start(mode="emoji")
+    try:
+        cap = "Wait for it 👀\n\n#gaming #fyp"
+        r = studio_auto.upload(clip, cap, True, srv.url, steps.append)
+        got_cap = srv.posted[0]["caption"] if srv.posted else ""
+        check("a caption TikTok's editor redraws: posted", r["posted"] and len(srv.posted) == 1, r)
+        check("with its words and hashtags", studio_auto._caption_words(got_cap) == ["Wait", "for", "it", "#gaming", "#fyp"],
+              repr(got_cap))
+    except studio_auto.StudioError as e:
+        check("a caption TikTok's editor redraws: posted", False, (e.step, str(e)))
+    srv.shutdown()
+    W = studio_auto._caption_words
+    check("a different word is still a different caption", W("Wait for it #gaming") != W("Wait for that #gaming"))
+    check("so is a missing or changed hashtag", W("Wait #gaming #fyp") != W("Wait #gaming") and W("#fyp") != W("#fypage"))
+    check("an accent typed two ways is the same", W("Pok\u00e9mon") == W("Poke\u0301mon"))
+
     # settings: Press Post for me is off until you turn it on, and it's remembered
     check("Press Post for me is off by default", studio_auto.load_settings() == {"press_post": False})
     studio_auto.save_settings(True)
