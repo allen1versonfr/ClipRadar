@@ -134,5 +134,22 @@ exports.record_speed(speed_k, 1.0)
 check("render speed remembered (smoothed)", abs(exports.speed(speed_k) - 1.6) < 1e-6 and exports.speed("libx264|other") == 1.6,
       exports.speed(speed_k))
 
+# two settings saved at the same moment (leaving one Caption words box for the other): both are kept
+import threading  # noqa: E402
+
+lost = 0
+for i in range(40):
+    exports.save({"replace": [], "vocab": []})
+    go = threading.Barrier(2)
+    ts = [threading.Thread(target=lambda p: (go.wait(), exports.save(p)), args=(p,))
+          for p in ({"replace": [["gonna", f"going to {i}"]]}, {"vocab": [f"Kai{i}"]})]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    ep = exports.load()
+    lost += not (ep["replace"] == [["gonna", f"going to {i}"]] and ep["vocab"] == [f"Kai{i}"])
+check("two settings saved at once are both kept", lost == 0, f"{lost} of 40 lost one")
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

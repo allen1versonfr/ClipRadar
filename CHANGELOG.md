@@ -11,6 +11,7 @@ Clips from YouTube videos without chat start and end on whole sentences, and kee
 
 ### Fixed
 - **Clips cut on YouTube's captions started or ended inside a sentence.** YouTube times each word to end where the next begins, and a cut moved to a sentence's end was padded 0.35 s past it, into the next sentence's first word ("...massage experience. We got"). The padding now stops where the next word starts (and where the last one ends, at the start). On a 28-minute vlog, 5 of 7 clips started or ended a word into the next sentence; now none do.
+- **A setting could undo another saved at the same moment.** Two saves at once (leaving one Caption words box for the other, say) each read the settings before the other had written, so the last one put the first back. In a test, 39 of 40 such pairs lost one; now saves take turns.
 - **`>>` in YouTube's captions.** It marks someone else speaking. It was a word in captions and titles; now it isn't, and cuts and lines that land treat it as the end of a sentence.
 
 ### Changed
@@ -18,6 +19,7 @@ Clips from YouTube videos without chat start and end on whole sentences, and kee
 
 ### Tests
 - `tests/test_ytextra.py`: cuts on back-to-back caption words, `>>` as a sentence end, and one scene across a pause.
+- `tests/test_exports.py`: two settings saved at the same moment are both kept.
 - `tests/test_retry.py`: waits for the ready sound after a retried render shows done (it could be checked in between on a slow machine).
 - `tests/test_ui.py`: Keep and render for the top 3 waits until all three are queued, not a fixed 2.5 s (a slow CI runner had queued 1).
 

@@ -60,6 +60,7 @@ DEFAULT_TEMPLATE = "{title}"
 MAX_NAME = 120
 
 _lock = threading.Lock()
+_save_lock = threading.Lock()          # one save at a time, from reading to writing (4.39.1)
 _FILE = lambda: os.path.join(str(paths.DATA_DIR), "export.json")  # noqa: E731
 _PERF = lambda: os.path.join(str(paths.DATA_DIR), "perf.json")  # noqa: E731
 
@@ -171,17 +172,20 @@ def clean(d: dict) -> dict:
 
 
 def save(patch: dict) -> dict:
-    cur = load()
-    cur.update({k: v for k, v in (patch or {}).items() if k in DEFAULTS})
-    if "preset" in (patch or {}) and "custom" not in patch:
-        cur["custom"] = {}                     # a new preset starts from its own settings
-    cur = clean(cur)
-    with _lock:
-        try:
-            persist.write_json(_FILE(), cur)
-        except OSError:
-            pass
-    return cur
+    # two saves at once each read the settings before the other wrote, and the last one undid the first
+    # (CI: leaving Replace then Words to recognise kept only the replacements)
+    with _save_lock:
+        cur = load()
+        cur.update({k: v for k, v in (patch or {}).items() if k in DEFAULTS})
+        if "preset" in (patch or {}) and "custom" not in patch:
+            cur["custom"] = {}                     # a new preset starts from its own settings
+        cur = clean(cur)
+        with _lock:
+            try:
+                persist.write_json(_FILE(), cur)
+            except OSError:
+                pass
+        return cur
 
 
 def settings(prefs: Optional[dict] = None) -> dict:
