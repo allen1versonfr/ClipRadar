@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.39.0] - 2026-11-02
+
+More clips from YouTube videos without chat.
+
+### Changed
+- **YouTube videos without chat found only 3 clips, all graded low.** Without chat, Most replayed or timestamped comments, a clip could only come from the sound, and an edited upload's volume barely moves. A 28-minute vlog's best moment graded 53, and anything under 50 was left out after the first 3. Now YouTube's captions help rank: lines that land (short and punchy, laughed at, or said in a sudden change of voice) count, and the clip says "a line that lands". Captions only rank where there's no chat. Videos without chat are also graded on the scale they can reach, since chat alone can add up to 6 points to a stream's moment. On the same vlog: 7 clips graded 52 to 73, where there were 3 graded 39 to 53. Twitch VODs and videos with chat replay are ranked and graded as before.
+
+### Fixed
+- A swear YouTube's captions hide (`[ __ ]`) was three words in titles and captions: it's one word now.
+
+### Tests
+- `tests/test_ytextra.py`: a line that lands is where the score peaks, captions don't rank with chat, and a video without chat is graded on its own scale.
+- `tests/test_signals.py`: weak moments in a video without chat are still not added to fill the count.
+
 ## [4.38.3] - 2026-11-01
 
 Captions catch more clips with loud backgrounds.

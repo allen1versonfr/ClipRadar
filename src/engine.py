@@ -1906,6 +1906,7 @@ class Analysis:
     replay: Optional[np.ndarray] = None
     comments: Optional[np.ndarray] = None
     comment_people: Optional[np.ndarray] = None
+    captions: Optional[np.ndarray] = None  # 4.39: lines in YouTube's captions that land (no chat only), 0..1
     chapters: Optional[list] = None
     # 4.32: messages per second and those that were plain talk (shifted by the delay), and how much chat
     # counts where it's just talking (detect.talk_mult)
@@ -1957,7 +1958,8 @@ class Analysis:
             chatty = np.clip(parts["chat"], 0, None) + parts.get("surge", 0)
             parts["talk"] = (chatty * (_fit(self.talk, n, 1.0) - 1)).astype(np.float32)
         import ytextra
-        for k, arr, gain in (("replay", self.replay, ytextra.REPLAY_GAIN), ("comments", self.comments, ytextra.COMMENT_GAIN)):
+        for k, arr, gain in (("replay", self.replay, ytextra.REPLAY_GAIN), ("comments", self.comments, ytextra.COMMENT_GAIN),
+                             ("captions", self.captions, ytextra.CAPTION_GAIN)):
             if arr is not None:
                 parts[k] = float(w.get(k, 1.0)) * gain * _fit(arr, n)
         ag = float(w.get("agree", AGREE_WEIGHT))
@@ -1981,7 +1983,8 @@ class Analysis:
                        chat_stats=self.chat_stats, weights=self.weights, chat_delay=self.chat_delay,
                        surge=cut(self.surge), emote_z=cut(self.emote_z), emote_rate=cut(self.emote_rate),
                        react=cut(self.react), noise=cut(self.noise), replay=cut(self.replay),
-                       comments=cut(self.comments), comment_people=cut(self.comment_people), chapters=self.chapters,
+                       comments=cut(self.comments), comment_people=cut(self.comment_people), captions=cut(self.captions),
+                       chapters=self.chapters,
                        said_rate=cut(self.said_rate), talk_rate=cut(self.talk_rate), talk=cut(self.talk))
         sub.combine(self.chat_weight_pct)
         return sub
@@ -2504,6 +2507,17 @@ def moment_scores(an: Analysis, edge: int = 0, gap: int = 45) -> np.ndarray:
     return arr
 
 
+NO_CHAT_SCALE = 1.35       # without chat a score of 2 is as clear as 2.7 with it (real-world test, 4.39)
+
+
+def strength(an: Analysis, rank: float) -> int:
+    """detect.quality, judged on the scale this video can reach. A score is a sum of signals, and chat is
+    the biggest (up to 6 points by itself): a video without chat (a YouTube upload, a file) adds up sound,
+    laughter, captions and YouTube's own signals only, so its clearest moments score lower than a stream's."""
+    import detect
+    return detect.quality(rank if an.has_chat else rank * NO_CHAT_SCALE)
+
+
 def grades(an: Analysis, ranks: list) -> list:
     """0-100 scores for a stream's clips: each one's strength (detect.quality), capped by where it stands
     among the stream's moments and among these clips (detect.ceiling), so a long stream can't have dozens
@@ -2516,7 +2530,7 @@ def grades(an: Analysis, ranks: list) -> list:
     for k, i in enumerate(order):
         r = float(ranks[i])
         better = int(np.searchsorted(-peaks, -r - 1e-6, side="left")) if len(peaks) else 0
-        out[i] = min(detect.quality(r), detect.ceiling(max(k, better), total))
+        out[i] = min(strength(an, r), detect.ceiling(max(k, better), total))
     return out
 
 
@@ -2592,7 +2606,7 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
     for it in items:
         if len(clips) >= count:
             break
-        if weak and len(clips) >= MIN_AUTO_CLIPS and detect.quality(it["rank"]) < weak:
+        if weak and len(clips) >= MIN_AUTO_CLIPS and strength(an, it["rank"]) < weak:
             continue
         st, en = it["start"], it["end"]
         near = next((c for c in clips if st < c.end + 4 and en > c.start - 4), None)
@@ -2604,7 +2618,7 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
             continue
         clips.append(Clip(0, st, en, float(it["peak"]), round(it["rank"], 2),
                           _reason(an, it["peak"], chat, chat_t, chat_delay, it["trigger"]), it["feat"],
-                          round(it["tuned"], 2), detect.quality(it["rank"]),
+                          round(it["tuned"], 2), strength(an, it["rank"]),
                           detect.breakdown(an, it["peak"], it["tuned"]), it["trigger"]))
     for c, q in zip(clips, grades(an, [c.score for c in clips])):
         c.quality = q
@@ -2640,6 +2654,8 @@ def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: flo
         k = int(np.max(an.comment_people[max(0, i - 15):i + 4], initial=0))
         if k >= 2:
             parts.append(f"{k} comments point here")
+    if an.captions is not None and float(np.max(an.captions[max(0, i - 6):i + 4], initial=0)) > 0.5:
+        parts.append("a line that lands")
     if an.chapters:
         import ytextra
         ch = ytextra.chapter_at(an.chapters, float(i))

@@ -32,8 +32,10 @@ FILE = "youtube.json"
 MAX_COMMENTS = 400                     # top comments read (enough for the timestamps people agree on)
 REPLAY_GAIN = 3.0                      # how much a "most replayed" peak can add (audio z-scores are 0-8)
 COMMENT_GAIN = 3.0
+CAPTION_GAIN = 2.0                     # how much a line that lands can add, in a video without chat
 LIKES_PER_VOTE = 25                    # a liked comment counts as a few people pointing at the moment
 MAX_VOTES = 8
+_BLEEP = re.compile(r"\[\s*__\s*\]")          # [ __ ], written with no-break spaces
 _TS = re.compile(r"(?<![\d:])(?:(\d{1,2}):)?(\d{1,2}):([0-5]\d)(?![\d:])")
 
 
@@ -154,7 +156,7 @@ def caption_words(json3: dict) -> list:
             continue
         parts = []
         for s in segs:
-            txt = str(s.get("utf8") or "")
+            txt = _BLEEP.sub("[__]", str(s.get("utf8") or ""))     # a swear YouTube hid: one word, not three
             if not txt.strip() or txt.strip() == "\n":
                 continue
             off = s.get("tOffsetMs")
@@ -171,7 +173,7 @@ def caption_words(json3: dict) -> list:
             step = (dur or 0.4 * len(line)) / max(1, len(line))
             for k, w in enumerate(line):
                 words.append({"start": round(t0 + k * step, 3), "word": w})
-    words = [w for w in words if not re.fullmatch(r"\[[^\]]*\]", w["word"])]      # [Music], [Applause]
+    words = [w for w in words if not re.fullmatch(r"\[[^\]]*[a-zA-Z][^\]]*\]", w["word"])]      # [Music], [Applause]
     words.sort(key=lambda w: w["start"])
     for k, w in enumerate(words):
         nxt = words[k + 1]["start"] if k + 1 < len(words) else w["start"] + 0.5
@@ -272,11 +274,30 @@ def comment_signal(d: dict, n: int) -> tuple:
     return sig.astype(np.float32), people
 
 
+def caption_signal(an, words: list) -> Optional[np.ndarray]:
+    """0..1 per second: lines in the captions that land (gems: punchy, laughed at, said with a change in
+    voice), against this video's usual line. Without chat, loudness alone barely moves in an edited,
+    levelled upload (real-world test: a 28-min vlog's best moment graded 53, three clips)."""
+    import gems
+    if len(words) < 50:
+        return None
+    scored = gems.score_sentences(an, gems.sentences(words))
+    if len(scored) < 20:
+        return None
+    v = np.array([s["score"] for s in scored], dtype=np.float32)
+    base, top = float(np.percentile(v, 75)), float(v.max())
+    if top - base < 0.5:
+        return None                                    # every line is much the same
+    return np.clip((gems.speech_curve(an, scored) - base) / (top - base), 0, 1).astype(np.float32)
+
+
 def apply(an, d: dict):
     """Attach the YouTube signals to an Analysis (engine.Analysis.combine mixes them in)."""
     n = len(an.audio_z)
     an.replay = replay_signal(d, n)
     an.comments, an.comment_people = comment_signal(d, n)
+    # captions only stand in for chat: with chat, chat already says which lines landed
+    an.captions = caption_signal(an, d.get("words") or []) if not an.has_chat and an.has_audio else None
     an.chapters = d.get("chapters") or []
     return an
 
