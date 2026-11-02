@@ -19,6 +19,7 @@ Clips from YouTube videos without chat start and end on whole sentences, and kee
 ### Tests
 - `tests/test_ytextra.py`: cuts on back-to-back caption words, `>>` as a sentence end, and one scene across a pause.
 - `tests/test_retry.py`: waits for the ready sound after a retried render shows done (it could be checked in between on a slow machine).
+- `tests/test_ui.py`: Keep and render for the top 3 waits until all three are queued, not a fixed 2.5 s (a slow CI runner had queued 1).
 
 ## [4.39.0] - 2026-11-02
 
