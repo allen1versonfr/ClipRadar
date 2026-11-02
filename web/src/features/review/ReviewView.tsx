@@ -797,7 +797,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
               <button className="btn sm" disabled={busy} onClick={() => void batchKeep()} data-testid="batch-keep">Keep and render</button>
               <label className="fld inline">Skip
                 <select className="input" value={under} onChange={e => setUnder(e.target.value)} data-testid="skip-score">
-                  <option value="0">all left</option>{['40', '50', '60'].map(n => <option key={n} value={n}>scored under {n}</option>)}
+                  <option value="0">all left</option>{['40', '50', '60', '75', '90'].map(n => <option key={n} value={n}>scored under {n}</option>)}
                 </select>
               </label>
               <button className="btn sm ghost" onClick={() => void batchSkip()} data-testid="batch-skip">Skip</button>

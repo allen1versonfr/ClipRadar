@@ -5,7 +5,8 @@ rich text caption box that starts with the file's name; a Post button that's off
 "uploads"; a "Post now" confirmation; the content page after posting. ?login=1 asks to sign in first.
 Modes (4.36): "leave" asks "Leave site?" once a video is in; "fails" says the upload failed; "short" keeps only
 the first 120 characters of a caption (TikTok's limit, smaller); "es" is the page in Spanish, without the
-Post button's data-e2e.
+Post button's data-e2e. "emoji" (4.40) draws the caption's emoji as pictures and puts invisible characters
+around its hashtags, so the box's text isn't exactly what was typed.
 
     srv = fake_studio.start()          # srv.url, srv.posted (what was posted), srv.shutdown()
 """
@@ -42,6 +43,14 @@ if (MODE === 'short') {
     const c = document.getElementById('cap');
     if (c.innerText.length > 120) c.innerText = c.innerText.slice(0, 120);
   });
+}
+if (MODE === 'emoji') {     // a rich editor: emoji drawn as pictures, hashtags with invisible characters around them
+  document.getElementById('cap').addEventListener('input', () => setTimeout(() => {
+    const c = document.getElementById('cap');
+    c.innerHTML = c.innerText.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[m])
+      .replace(/\\p{Extended_Pictographic}\\ufe0f?/gu, m => `<img alt="${m}" width=16 height=16>`)
+      .replace(/#\\w+/g, m => '\\u200b' + m + '\\u200b').replace(/\\n/g, '<br>');
+  }, 50));
 }
 let ignoredFile = false, ignoredTyping = false;
 document.getElementById('cap').addEventListener('input', () => {

@@ -2300,7 +2300,7 @@ $('#subSend').onclick = async () => {
   finally { $('#subSend').disabled = false; }
 };
 $('#exShow').onclick = () => { const q = queueItems.find(x => x.id === exSel); if (q) api('/api/open_folder', { folder: q.folder }).catch(e => toast(e.message, 'err')); };
-$('#exCopy').onclick = () => { const q = queueItems.find(x => x.id === exSel); if (q) copyText(q.post || q.title || ''); };
+$('#exCopy').onclick = () => { const q = queueItems.find(x => x.id === exSel); if (q) copyText($('#ttCaption').value.trim() || q.post || q.title || ''); };   // as edited below
 
 /* TikTok Studio handoff. Upload to TikTok (4.18) drives TikTok Studio in Clip Radar's own browser window:
    the video goes in, the caption is typed, and Post is pressed only when "Press Post for me" is on.
@@ -2383,10 +2383,11 @@ $('#ttAuto').onclick = async () => {
   $('#ttErr').textContent = '';
   const text = $('#ttCaption').value.trim();
   if (text) copyText(text, null);            // copied too, in case a step has to be finished by hand
+  ttJobs[q.id] = 'Opening TikTok Studio'; renderTTStatus(q);   // on the click: a second click started a second upload
   let r;
   try { r = await api('/api/handoff', { item: q.id, caption: text, auto: true }); }
-  catch (e) { $('#ttErr').textContent = e.message; return; }
-  q.post = text; ttJobs[q.id] = 'Opening TikTok Studio'; renderTTStatus(q);
+  catch (e) { delete ttJobs[q.id]; renderTTStatus(q); $('#ttErr').textContent = e.message; return; }
+  q.post = text;
   const j = await waitJob(r.job, jj => { ttJobs[q.id] = jj.step; if (exSel === q.id) renderTTStatus(q); });
   delete ttJobs[q.id];
   await refreshQueue();

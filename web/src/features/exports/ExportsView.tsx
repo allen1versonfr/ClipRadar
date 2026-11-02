@@ -210,7 +210,8 @@ function Detail({ q, campaigns, onChanged, onRetry, onRemove, onShow }: {
       <div className="file">{q.name ?? ''}</div>
       <div className="row wrap">
         {q.status === 'done' && <button className="btn sm" onClick={onShow}>Show in folder</button>}
-        {(q.post || q.title) && <button className="btn sm" onClick={() => void copy(q.post || q.title)}>Copy caption</button>}
+        {/* a finished clip's is in the TikTok panel, with the caption as edited there (this one copied it unedited) */}
+        {q.status !== 'done' && (q.post || q.title) && <button className="btn sm" onClick={() => void copy(q.post || q.title)}>Copy caption</button>}
         {q.link && <button className="btn sm" title="A link to the original video at this moment, to credit the source"
                            onClick={() => void copy(q.link!, 'Source link')}>Copy source link</button>}
         <button className="btn sm ghost" onClick={onRemove}>{q.status === 'done' ? 'Remove from list' : q.status === 'error' ? 'Remove' : 'Cancel'}</button>

@@ -25,7 +25,8 @@ export function TikTokPanel({ q, onChanged, children }: { q: QueueItem; onChange
   const [studio, setStudio] = useState<Studio>({ available: false, press_post: false })
   const [step, setStep] = useState(uploading[q.id])
   const [error, setError] = useState('')
-  useEffect(() => { setCaption(q.post || q.title); setError(''); setStep(uploading[q.id]) }, [q.id])
+  const shown = useRef(q.id)               // the clip on screen: an upload's steps only show on its own clip
+  useEffect(() => { shown.current = q.id; setCaption(q.post || q.title); setError(''); setStep(uploading[q.id]) }, [q.id])
   useEffect(() => { api(Studio, '/api/studio').then(setStudio).catch(() => {}) }, [])
   const status = handoffStatus(q, step)
 
@@ -40,25 +41,31 @@ export function TikTokPanel({ q, onChanged, children }: { q: QueueItem; onChange
     } catch (e) { setError(err(e)) }
   }
   async function upload() {
-    if (uploading[q.id]) return
+    const id = q.id
+    if (uploading[id]) return
     setError('')
     const text = caption.trim()
     if (text) void navigator.clipboard.writeText(text).catch(() => {})     // in case a step has to be finished by hand
-    let job: string
-    try { job = (await api(JobStarted, '/api/handoff', { item: q.id, caption: text, auto: true })).job } catch (e) { setError(err(e)); return }
-    const set = (s: string) => { uploading[q.id] = s; setStep(s) }
+    // 4.40: the step shows (and the button is off) on the click, not once the server answers: a second click
+    // in between started a second upload of the same clip
+    const set = (s?: string) => {
+      if (s) uploading[id] = s; else delete uploading[id]
+      if (shown.current === id) setStep(s)
+    }
     set('Opening TikTok Studio')
+    let job: string
+    try { job = (await api(JobStarted, '/api/handoff', { item: id, caption: text, auto: true })).job }
+    catch (e) { set(undefined); if (shown.current === id) setError(err(e)); return }
     let j
     try {
       for (;;) {
         j = await api(Job, `/api/job/${job}`)
         if (j.status !== 'running') break
         set(j.step || 'Working in TikTok Studio')
-        await new Promise(r => setTimeout(r, 700))
+        await new Promise(r => setTimeout(r, 250))      // 4.40: 700 ms made every step, and the end, show late
       }
     } catch (e) { toast(err(e), 'err') }
-    delete uploading[q.id]
-    setStep(undefined)
+    set(undefined)
     await onChanged()
     const r = j?.result as { posted?: boolean; pressed?: boolean } | undefined
     if (j?.status === 'done') toast(r?.posted ? 'Posted on TikTok.' : r?.pressed ? 'Clip Radar pressed Post. Check the TikTok window.'
