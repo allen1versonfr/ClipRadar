@@ -39,7 +39,7 @@ def sentences(words: list) -> list:
         txt = (w.get("word") or "").strip()
         if not txt:
             continue
-        if cur and w["start"] - cur[-1]["end"] > 0.7:
+        if cur and (w["start"] - cur[-1]["end"] > 0.7 or w.get("turn")):     # a pause, or someone else speaks
             out.append(cur)
             cur = []
         cur.append(w)

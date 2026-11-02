@@ -135,6 +135,41 @@ check("without chat, the line is where the score peaks", 398 <= int(np.argmax(no
 check("no chat: graded on the scale it can reach", engine.strength(no_chat, 2.0) > engine.strength(with_chat, 2.0) >= 40,
       (engine.strength(no_chat, 2.0), engine.strength(with_chat, 2.0)))
 
+# ---- cuts on YouTube's captions (4.39): words with no gaps, and >> where someone else speaks
+turns = Y.caption_words({"events": [{"tStartMs": 0, "dDurationMs": 3000, "segs": [
+    {"utf8": "no"}, {"utf8": " way", "tOffsetMs": 300}, {"utf8": " >>", "tOffsetMs": 600}, {"utf8": " yes", "tOffsetMs": 600},
+    {"utf8": " way", "tOffsetMs": 900}]}]})
+check(">> isn't a word", [x["word"] for x in turns] == ["no", "way", "yes", "way"], [x["word"] for x in turns])
+check(">> marks the next word as someone else speaking", [bool(x.get("turn")) for x in turns] == [False, False, True, False])
+import gems  # noqa: E402
+
+check("someone else speaking ends a sentence", [s["text"] for s in gems.sentences(turns)] == ["no way", "yes way"],
+      [s["text"] for s in gems.sentences(turns)])
+# back to back, as YouTube times them: each word ends where the next starts
+gapless = said([(100, "we went to the hotel and checked in."), (102.4, "Then we got the massage."), (104.2, "It was great.")])
+for a, b in zip(gapless, gapless[1:]):
+    a["end"] = b["start"]
+a2, b2 = engine.refine_with_words(100.0, 103.5, 101, gapless)
+next_one = next(w for w in gapless if w["word"] == "It")
+check("an end moved to the sentence's end doesn't run into the next one", abs(b2 - next_one["start"]) < 0.01, (b2, next_one))
+a3, _ = engine.refine_with_words(102.7, 106, 104, gapless)
+check("a start moved back doesn't take the end of the sentence before", abs(a3 - 102.4) < 0.01, a3)
+check("cuts already on sentences stay put", engine.refine_with_words(a2, b2, 101, gapless) == (a2, b2))
+
+# ---- two moments of one scene, a few seconds apart: one clip when the captions say it's talk, two when it's only loud
+def two_moments(captioned):
+    an = flat(False)
+    s = np.zeros(int(DUR) + 1, np.float32)
+    s[200:206] = 5.0
+    s[222:228] = 5.0
+    an.score = s
+    an.captions = np.zeros(int(DUR) + 1, np.float32) if captioned else None
+    return engine.pick_clips(an, count=0, min_len=15, max_len=120)
+
+
+check("one scene told across a pause is one clip", len(two_moments(True)) == 1, [(c.start, c.end) for c in two_moments(True)])
+check("without captions, two loud moments stay two clips", len(two_moments(False)) == 2, [(c.start, c.end) for c in two_moments(False)])
+
 # ---- ranking: a talking-head video (flat sound, no chat); Most replayed and comments decide
 if shutil.which("ffmpeg"):
     tmp = tempfile.mkdtemp(prefix="vc_yt_")

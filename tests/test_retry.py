@@ -118,6 +118,9 @@ check("rendered exactly twice (once failed, once on retry)", attempts == ["r1", 
 check("still one item in Exports", sum(1 for x in api("/api/queue")["items"] if x["id"] == "r1") == 1)
 r = api("/api/queue/retry", {"id": "r1"})
 check("retrying a finished clip does nothing", r.get("status") == 404, r)
+_end = time.time() + 5                        # the item shows done a moment before its sound is logged
+while time.time() < _end and ("ready", "r1") not in server.SOUND_LOG:
+    time.sleep(0.05)
 check("the ready sound played exactly once (not for the failed attempt)", server.SOUND_LOG.count(("ready", "r1")) == 1, server.SOUND_LOG)
 
 # sounds: once when you queue a clip, never for the same clip sent twice

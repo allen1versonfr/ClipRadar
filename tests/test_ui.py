@@ -125,13 +125,18 @@ with sync_playwright() as p:
         sounds = sum(1 for e, _ in server.SOUND_LOG if e == "queued")
         pg.click("[data-testid=batch-keep]")
         pg.click("[data-testid=confirm-yes]")
-        pg.wait_for_timeout(2500)
-        with server.queue_lock:
-            n = len(server.queue)
+        # the clips are queued one after another: a slow CI runner had queued 1 of 3 after a fixed 2.5 s
+        kept_js = "ClipRadarTest.clips().filter(c => c.state === 'kept').length"
+        for _ in range(60):
+            pg.wait_for_timeout(500)
+            with server.queue_lock:
+                n = len(server.queue)
+            if n >= 3 and pg.evaluate(kept_js) >= 3:
+                break
         check("Keep the top 3 queues three renders", n == 3, n)
         check("and plays one queued sound for the batch",
               sum(1 for e, _ in server.SOUND_LOG if e == "queued") - sounds == 1, server.SOUND_LOG)
-        kept = pg.evaluate("ClipRadarTest.clips().filter(c => c.state === 'kept').length")
+        kept = pg.evaluate(kept_js)
         check("the three clips show as kept", kept == 3, kept)
 
         # a watermark layer dragged on the clip preview is saved where it was dropped

@@ -175,6 +175,15 @@ def caption_words(json3: dict) -> list:
                 words.append({"start": round(t0 + k * step, 3), "word": w})
     words = [w for w in words if not re.fullmatch(r"\[[^\]]*[a-zA-Z][^\]]*\]", w["word"])]      # [Music], [Applause]
     words.sort(key=lambda w: w["start"])
+    # ">>" marks someone else speaking: not a word to show in captions or titles, but where a sentence ends
+    turn, kept = False, []
+    for w in words:
+        if w["word"] == ">>":
+            turn = True
+            continue
+        kept.append(dict(w, turn=True) if turn and kept else w)
+        turn = False
+    words = kept
     for k, w in enumerate(words):
         nxt = words[k + 1]["start"] if k + 1 < len(words) else w["start"] + 0.5
         w["end"] = round(min(nxt, w["start"] + 1.2), 3)
