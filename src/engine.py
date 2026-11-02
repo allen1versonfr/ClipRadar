@@ -2407,26 +2407,40 @@ def refine_with_words(start: float, end: float, peak: float, words: list,
     if not ws:
         return start, end
     gap = 0.6
+
+    def lead_in(i: int) -> float:
+        # a little before word i, but never into the word before it: YouTube's captions have no gaps between
+        # words, and 0.2 s early opened clips on the last sound of the sentence before (4.39)
+        return ws[i]["start"] - (0.2 if i == 0 else min(0.2, max(0.0, ws[i]["start"] - ws[i - 1]["end"])))
+
+    def tail(i: int) -> float:
+        # a little after word i, never into the next one (0.35 s ran into the next sentence's first word)
+        return ws[i]["end"] + (0.35 if i + 1 >= len(ws) else min(0.35, max(0.0, ws[i + 1]["start"] - ws[i]["end"])))
+
+    def ends(i: int) -> bool:
+        # a sentence ends after word i, or someone else speaks next (YouTube's captions mark it with >>)
+        return _ends_sentence(ws[i]) or (i + 1 < len(ws) and bool(ws[i + 1].get("turn")))
+
     # ---- start
     k = next((i for i, w in enumerate(ws) if w["end"] > start + 0.05), None)
     if k is not None and ws[k]["start"] < end:
         prev = ws[k - 1] if k > 0 else None
         mid_word = ws[k]["start"] < start - 0.02       # even 50 ms in clips the word's first sound
-        joined = prev is not None and ws[k]["start"] - prev["end"] < gap and not _ends_sentence(prev)
+        joined = prev is not None and ws[k]["start"] - prev["end"] < gap and not ends(k - 1)
         if mid_word or joined:
             j = k
-            while j > 0 and ws[j]["start"] - ws[j - 1]["end"] < gap and not _ends_sentence(ws[j - 1]):
+            while j > 0 and ws[j]["start"] - ws[j - 1]["end"] < gap and not ends(j - 1):
                 j -= 1
-            back = ws[j]["start"] - 0.2
+            back = lead_in(j)
             if start - back <= max_move and end - back <= max_len + 5:
                 start = back
             else:
                 # too far back: start at the next sentence instead
                 j = k
-                while j + 1 < len(ws) and not (ws[j + 1]["start"] - ws[j]["end"] >= gap or _ends_sentence(ws[j])):
+                while j + 1 < len(ws) and not (ws[j + 1]["start"] - ws[j]["end"] >= gap or ends(j)):
                     j += 1
-                if j + 1 < len(ws) and ws[j + 1]["start"] - 0.2 < peak - 3:
-                    start = ws[j + 1]["start"] - 0.2
+                if j + 1 < len(ws) and lead_in(j + 1) < peak - 3:
+                    start = lead_in(j + 1)
         elif ws[k]["start"] - start > 1.2:
             start = max(start, ws[k]["start"] - 0.6)      # don't open on a long silence
     # ---- end
@@ -2435,20 +2449,20 @@ def refine_with_words(start: float, end: float, peak: float, words: list,
         k = inside[-1]
         nxt = ws[k + 1] if k + 1 < len(ws) else None
         mid_word = ws[k]["end"] > end + 0.02
-        joined = nxt is not None and nxt["start"] - ws[k]["end"] < gap and not _ends_sentence(ws[k])
+        joined = nxt is not None and nxt["start"] - ws[k]["end"] < gap and not ends(k)
         if mid_word or joined:
             j = k
-            while j + 1 < len(ws) and ws[j + 1]["start"] - ws[j]["end"] < gap and not _ends_sentence(ws[j]):
+            while j + 1 < len(ws) and ws[j + 1]["start"] - ws[j]["end"] < gap and not ends(j):
                 j += 1
-            fwd = ws[j]["end"] + 0.35
+            fwd = tail(j)
             if fwd - end <= max_move * 0.75 and fwd - start <= max_len + 5:
                 end = fwd
             else:
                 j = k
-                while j > 0 and not (_ends_sentence(ws[j - 1]) or ws[j]["start"] - ws[j - 1]["end"] >= gap):
+                while j > 0 and not (ends(j - 1) or ws[j]["start"] - ws[j - 1]["end"] >= gap):
                     j -= 1
-                if j > 0 and ws[j - 1]["end"] + 0.35 > peak + 2:
-                    end = ws[j - 1]["end"] + 0.35
+                if j > 0 and tail(j - 1) > peak + 2:
+                    end = tail(j - 1)
     if end - start < min(min_len, 5.0):
         return start, end
     return round(max(0.0, start), 2), round(end, 2)
@@ -2507,6 +2521,7 @@ def moment_scores(an: Analysis, edge: int = 0, gap: int = 45) -> np.ndarray:
     return arr
 
 
+NO_CHAT_JOIN = 10          # seconds between two moments of a video without chat that make them one clip
 NO_CHAT_SCALE = 1.35       # without chat a score of 2 is as clear as 2.7 with it (real-world test, 4.39)
 
 
@@ -2603,19 +2618,26 @@ def pick_clips(an: Analysis, count: int = 10, length: float = 0, lead: float = 0
     # suggested just to reach the usual number (real-world test: 2 strong moments in a 28-min upload,
     # padded with clips scoring 45). With chat, the floor above already does this.
     weak = WEAK_QUALITY if auto and not an.has_chat else 0
+    # two moments this close are one: with chat, two waves of it; in a talked-through video without chat (its
+    # captions rank), one scene told across a pause (4.39: a vlog's "before the massage" and "after it", 9 s
+    # apart, were two clips). Loud moments with nothing said stay apart
+    join = NO_CHAT_JOIN if smart and an.captions is not None else 4
     for it in items:
         if len(clips) >= count:
             break
         if weak and len(clips) >= MIN_AUTO_CLIPS and strength(an, it["rank"]) < weak:
             continue
         st, en = it["start"], it["end"]
-        near = next((c for c in clips if st < c.end + 4 and en > c.start - 4), None)
+        near = next((c for c in clips if st < c.end + join and en > c.start - join), None)
         if near is not None:
             # the same event seen twice (setup and reaction, or two waves of chat): one clip, not two
             if smart and max(en, near.end) - min(st, near.start) <= max_len:
                 near.start, near.end = min(st, near.start), max(en, near.end)
                 near.merged += 1
-            continue
+                continue
+            if st < near.end + 4 and en > near.start - 4:
+                continue
+            # too long together, and apart enough to be a clip of its own
         clips.append(Clip(0, st, en, float(it["peak"]), round(it["rank"], 2),
                           _reason(an, it["peak"], chat, chat_t, chat_delay, it["trigger"]), it["feat"],
                           round(it["tuned"], 2), strength(an, it["rank"]),

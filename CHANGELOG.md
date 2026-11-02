@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.39.1] - 2026-11-02
+
+Clips from YouTube videos without chat start and end on whole sentences, and keep a scene together.
+
+### Fixed
+- **Clips cut on YouTube's captions started or ended inside a sentence.** YouTube times each word to end where the next begins, and a cut moved to a sentence's end was padded 0.35 s past it, into the next sentence's first word ("...massage experience. We got"). The padding now stops where the next word starts (and where the last one ends, at the start). On a 28-minute vlog, 5 of 7 clips started or ended a word into the next sentence; now none do.
+- **`>>` in YouTube's captions.** It marks someone else speaking. It was a word in captions and titles; now it isn't, and cuts and lines that land treat it as the end of a sentence.
+
+### Changed
+- **One scene, one clip.** In a talked-through video without chat, two moments up to 10 s apart are one clip (up to your longest clip length): the same vlog's "before the massage" and "after it" were two clips 9 s apart, and are one 51 s clip now. With chat, or with nothing said, they stay apart as before.
+
+### Tests
+- `tests/test_ytextra.py`: cuts on back-to-back caption words, `>>` as a sentence end, and one scene across a pause.
+
 ## [4.39.0] - 2026-11-02
 
 More clips from YouTube videos without chat.
