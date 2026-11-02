@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.38.3] - 2026-11-01
+
+Captions catch more clips with loud backgrounds.
+
+### Fixed
+- **Captions still thin on some loud clips.** 4.38.1 listened again on the card only when the speech detector had kept under half of a clip, which missed a 24 s clip it had kept 77% of: 23 words on the CPU against 60 on the card. Now the words decide. Captions of 20 s or more with under 1.2 words a second are heard on the card as well, and its words are used when it heard at least 1.5 times as many. A clip that really is quiet keeps the CPU's words, and costs about 20 s more. Across 12 real clips, 2 used the card, 3 were checked and kept the CPU's words, and 7 never needed it.
+
+### Tests
+- `tests/test_gpu_choice.py`: which captions are heard on the card and whose words are kept.
+
 ## [4.38.2] - 2026-11-01
 
 Renders no longer wait behind titles and Deep scan.

@@ -16,6 +16,7 @@ and its sound download one after the other. Checked:
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import subprocess
@@ -65,7 +66,8 @@ FAKE = r'''
 import json, os, shutil, sys, time
 a = sys.argv[1:]
 E = os.environ
-log = lambda *x: open(E["FAKE_LOG"], "a").write(json.dumps([time.monotonic(), *x]) + "\n")
+# a file for each entry: yt-dlps starting together append at once, and on Windows one can write over the other
+log = lambda *x: open(f'{E["FAKE_LOG"]}.{os.getpid()}.{time.monotonic_ns()}', "w").write(json.dumps([time.monotonic(), *x]))
 loaded = "--load-info-json" in a
 if not loaded:
     time.sleep(float(E["LOOKUP_S"]))                      # YouTube looked up: page, player, formats
@@ -143,7 +145,7 @@ def open_video(name):
                        early_sound=True, events=False)
     took = time.monotonic() - t0
     sound = s.sound() if s.sound else None
-    calls = [json.loads(ln) for ln in open(logf)]
+    calls = sorted(json.load(open(f)) for f in glob.glob(glob.escape(logf) + ".*"))
     return s, sound, took, calls, logs
 
 

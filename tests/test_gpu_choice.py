@@ -254,25 +254,33 @@ try:
     whispercpp.transcribe = lambda *a, **k: ran.append("card") or [{"start": 2.0, "end": 2.5, "word": "card"}]
 
     # ------------------------------------------------------------ a caption the speech detector mostly missed
-    def missed(share):
-        def cpu(*a, **k):
-            ran.append("cpu")
-            a[6]["share"] = share
-            return [{"start": 2.0, "end": 2.5, "word": "cpu"}]
-        return cpu
+    def many(n, word):
+        return [{"start": 2.0, "end": 2.5, "word": word}] * n
+
+    def heard(cpu, card):
+        engine._transcribe = lambda *a, **k: ran.append("cpu") or many(cpu, "cpu")
+        whispercpp.transcribe = lambda *a, **k: ran.append("card") or many(card, "card")
     caption = gpu.choose("captions", "large-v3")
-    engine._transcribe = missed(0.26)
+    heard(6, 26)                                 # 30 s of sound: 2 a second would be 60 words
     ran.clear()
     said = io.StringIO()
     with contextlib.redirect_stdout(said):
         out = engine.transcribe(AUDIO, "large-v3", "en", print, pick=caption)
-    check("a caption the detector mostly missed is heard again on the card", ran == ["cpu", "card"] and out[0]["word"] == "card", ran)
-    check("and the log says so", "26% heard" in said.getvalue(), said.getvalue())
-    engine._transcribe = missed(0.8)
+    check("few words on the CPU, many on the card: the card's", ran == ["cpu", "card"] and out[0]["word"] == "card", ran)
+    check("and the log says so", "only 6 words" in said.getvalue() and "26" in said.getvalue(), said.getvalue())
+    heard(30, 31)
     ran.clear()
     out = engine.transcribe(AUDIO, "large-v3", "en", print, pick=caption)
-    check("a caption it heard stays on the CPU", ran == ["cpu"] and out[0]["word"] == "cpu", ran)
-    engine._transcribe = missed(0.26)
+    check("a quiet clip the card heard no better keeps the CPU's words", ran == ["cpu", "card"] and out[0]["word"] == "cpu", ran)
+    heard(60, 90)
+    ran.clear()
+    out = engine.transcribe(AUDIO, "large-v3", "en", print, pick=caption)
+    check("a caption with plenty of words stays on the CPU", ran == ["cpu"] and out[0]["word"] == "cpu", ran)
+    heard(0, 20)
+    ran.clear()
+    out = engine.transcribe(AUDIO, "large-v3", "en", print, pick=caption)
+    check("no words at all on the CPU: the card's", out[0]["word"] == "card", out)
+    heard(2, 20)
     ran.clear()
     engine.transcribe(np.zeros(16000 * 10, dtype=np.float32), "large-v3", "en", print, pick=caption)
     check("a short stretch isn't heard again", ran == ["cpu"], ran)
@@ -291,8 +299,7 @@ try:
     whispercpp.has_model = lambda s: True
     whispercpp.transcribe = fails
     ran.clear()
-    logs = []
-    out = engine.transcribe(AUDIO, "large-v3", "en", logs.append, pick=caption)
+    out = engine.transcribe(AUDIO, "large-v3", "en", lambda m: None, pick=caption)
     check("the card failing keeps the CPU's words", out[0]["word"] == "cpu", out)
     whispercpp.transcribe = lambda *a, **k: ran.append("card") or [{"start": 2.0, "end": 2.5, "word": "card"}]
     engine._transcribe = lambda *a, **k: ran.append("cpu") or [{"start": 2.0, "end": 2.5, "word": "cpu"}]

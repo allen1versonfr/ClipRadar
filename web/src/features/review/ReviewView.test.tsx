@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '../../components/Confirm'
 import { ToastProvider } from '../../components/Toasts'
@@ -88,8 +88,9 @@ describe('Review', () => {
   it('T gives another suggested title, saved as yours', async () => {
     renderReview()
     await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Clip 1'))     // selected
+    await act(async () => { await new Promise(r => setTimeout(r)) })                 // the keys' listener follows that render
     fireEvent.keyDown(window, { key: 't' })
-    expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Other 1')
+    await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Other 1'))
   })
 
   it('re-ranking with other detection settings keeps what you did to clips still suggested', async () => {
