@@ -5,6 +5,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.41.2] - 2026-11-04
+
+Long YouTube videos that stopped while their video and sound were being joined.
+
+### Fixed
+- **A long YouTube video's download stopped near the end with "The VOD download stopped for 3 minutes with nothing written".** YouTube sends the video and its sound as two files, and yt-dlp joins them with FFmpeg's +faststart: once the joined file is written, it's rewritten in full to move its index to the front, and the file doesn't get any bigger while that happens. On a 9-hour, 18 GB video that took over 3 minutes, so the stall check stopped a join that was nearly done. The join is now written once, with the index at the end, as Twitch's has been since 4.30; Clip Radar plays the video from disk, where the index's place doesn't matter.
+- **The bar froze for the whole join.** When the sound was already down (listened to while the video downloads), only the video reported progress, which reached about 97% of the download, short of the 99% that switches the bar to "Putting the video together". It now switches when the joined file appears, and shows how far the join has got.
+
 ## [4.41.1] - 2026-11-04
 
 Review clips that stopped instead of looping, and blank clips that now leave a trace in the error log.

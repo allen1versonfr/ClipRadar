@@ -911,7 +911,7 @@ class _Stepper:
     # YouTube and others send the video and its sound as two files, one after the other: each went 0-100%,
     # so the bar ran to the end and started again. Each file now gets its part of one bar, by size (or, when
     # the site doesn't say, the video 90%: its sound is about a tenth of the bytes). Joining the two is a
-    # quick copy, not a Twitch-style rewrite.
+    # quick copy, not a Twitch-style rewrite (with +faststart off: see NO_FASTSTART).
     VIDEO_SHARE = 0.9
 
     def __init__(self, progress: Progress, step: Log, log: Log):
@@ -1043,7 +1043,10 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
                 if size >= 0:
                     last_output[0] = time.monotonic()
                 size = now
-            if not told and st.frac >= 0.99 and time.monotonic() - last_line[0] > 5:
+            # the join has begun: every part reached 100%, or the joined file has appeared. A part that was
+            # on disk already (the sound fetched to listen ahead) never reports progress, so the parts
+            # alone stopped at ~97% and the bar sat still for the whole join (4.41.2)
+            if not told and (st.frac >= 0.99 or _join_progress(out_dir) is not None)                     and time.monotonic() - last_line[0] > 5:
                 told = True
                 step("Putting the video together (a few minutes for a long stream)")
                 log("Download finished; joining it into one video.")
@@ -1110,7 +1113,10 @@ DOWNLOAD_STALL_S = 180       # no output and no file growth for this long: the d
 # reads and rewrites all of it again to put the index first: only useful for playing over the internet.
 # Clip Radar plays the VOD from disk (the index is read from the end with a range request; checked in the
 # app's player). Measured, 9-hour VOD: the join read and wrote 65 GB for a 32.7 GB file.
-NO_FASTSTART = ["--ppa", "FixupM3u8:-movflags -faststart"]
+# yt-dlp's Merger (YouTube's video and sound joined into one MP4) adds +faststart too. Its second pass
+# rewrites the whole file without it getting any bigger, so on a 9-hour, 18 GB YouTube VOD the stall check
+# saw 3 minutes of no growth and stopped a join that was nearly done (4.41.2).
+NO_FASTSTART = ["--ppa", "FixupM3u8:-movflags -faststart", "--ppa", "Merger:-movflags -faststart"]
 
 
 def _download_bytes(folder: str) -> int:
@@ -1191,7 +1197,8 @@ def _ytdlp_module(yt_dlp, url, workdir, fmt, cookies_browser, log, progress, ste
         "file_access_retries": 3,
         "continuedl": True,
         "match_filter": yt_dlp.utils.match_filter_func("!is_live"),
-        "postprocessor_args": {"fixupm3u8": ["-movflags", "-faststart"]},      # see NO_FASTSTART
+        "postprocessor_args": {"fixupm3u8": ["-movflags", "-faststart"],      # see NO_FASTSTART
+                               "merger": ["-movflags", "-faststart"]},
     }
     ff = which("ffmpeg")
     if ff:
