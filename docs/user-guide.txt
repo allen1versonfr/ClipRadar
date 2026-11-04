@@ -381,11 +381,15 @@ HOW CLIPS ARE PICKED
     moments, Clip Radar says so.
 
 FRAMING
-  Layout > Auto-frame looks at a few frames of the video and picks a layout:
-  a face that sits still in a corner is a facecam (Cam + game, with the box
-  drawn around the camera), a person filling the frame is followed (Whole
-  frame), and with no face it shows the middle of the frame. Check the box
-  it draws; you can always drag your own.
+  Layout > Auto-frame looks at a few frames of the video and frames the
+  layout you're on: Cam + game and Cam only get the box drawn around the
+  facecam (a face that sits still in a corner), Whole frame follows a person
+  filling the frame, and Blur fit and Square blur are centred on them. If
+  you haven't chosen a layout, it picks one too: Cam + game for a facecam,
+  Whole frame for a person, and with no face the middle of the frame. A new
+  video is framed by itself when it opens (a box you drew stays as it is),
+  and the look runs while the video opens, so the button answers at once.
+  Check the box it draws; you can always drag your own.
   Follow the streamer's face (Whole frame layout): the crop moves with the
   face, smoothly and never faster than a slow pan, ignores small wobbles and
   one-off misdetections, and holds still while the face is hidden for a
@@ -428,6 +432,11 @@ CAPTIONS
   Titles: White box, Dark box, Color box, Outline (pick its text colour) and
   Yellow on black (yellow text, black border); Border sets how thick the
   outline is, and Size goes up to 300% (captions up to 250%).
+  Auto size (on by default, for the title and for captions): a short title
+  gets up to 30% bigger and a long one smaller so it stays within three
+  lines; a caption gets smaller when its longest word wouldn't fit. A word
+  never runs off the side of the frame, at any size. Turn it off to use
+  exactly the Size you set.
   Spelling: under a title or post caption, Clip Radar points out common
   mistakes and chat-style typing ("dont", "teh", a lone "i") with a Fix
   spelling button; titles from chat come out fixed. The boxes you type in

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, Job, JobStarted, LiveView, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
+import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, FramingSuggest, Job, JobStarted, LiveView, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
@@ -13,7 +13,7 @@ import { Player, type PlayerHandle } from './Player'
 import { layoutOf } from './draw'
 import { Preview, type Track } from './Preview'
 import type { Hits } from './draw'
-import { LayoutPanel, savePresets, TextPanel } from './StylePanels'
+import { framingQuery, LayoutPanel, savePresets, TextPanel } from './StylePanels'
 import { addLine, editLine, resetLines } from './captions'
 import { CaptionsPanel } from './CaptionsPanel'
 import { SpellHint } from '../spelling/SpellHint'
@@ -219,10 +219,18 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
       if (p.restored) toast(`Picked up where you left off: ${plural(p.review.kept, 'clip')} kept, ${p.review.skipped} skipped, ${p.review.todo} to review.`)
       else if (p.pick_note) toast(p.pick_note)
       const o = renderOpts()
+      if (!p.restored) {
+        // a new video: Auto-frame fills in the layout you're on (the facecam box, or the layout itself if you haven't picked one)
+        api(FramingSuggest, `/api/framing/${pid}?${framingQuery(o, true)}`).then(r => {
+          if (!Object.keys(r.set).length) return
+          setOpts(r.set as Partial<RenderOpts>)
+          if (r.note) toast(`Auto-frame: ${r.note}`)
+        }).catch(() => {})
+      }
       api(Ok, '/api/listen', { pid, order: cs.map(c => c.id), model: o.whisper_model, language: o.language })
         .then(() => setListening(true)).catch(() => {})
     }).catch(e => setFailed(err(e)))
-  }, [pid, isLive, toast])
+  }, [pid, isLive, toast, setOpts])
 
   const deepRunning = deep?.state === 'running'
   useEffect(() => {                                  // titles, captions, checks and quiet gems arrive in the background

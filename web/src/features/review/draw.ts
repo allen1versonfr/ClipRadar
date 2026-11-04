@@ -91,10 +91,51 @@ export function titleBorder(o: RenderOpts, titleFs: number): number {
   return Math.round(Math.max(4, Math.floor(titleFs / 10)) * (o.title_style === 'yellow' ? 1.25 : 1) * k)
 }
 
+// ---- Text › Auto size (engine.fit_text): sizes from estimated widths, not measured ones, so the preview picks
+// the same size as the render (libass lays the render's text out; it can't be measured from here)
+
+/** Average width of a capital (or digit) and of any other character, share of the font size (engine.FONT_GLYPH). */
+export const FONT_GLYPH: Record<string, [number, number]> = {
+  classic: [0.6, 0.51], montserrat: [0.45, 0.38], poppins: [0.36, 0.32], inter: [0.54, 0.45],
+  anton: [0.26, 0.25], bebas: [0.28, 0.28], bangers: [0.23, 0.23], luckiest: [0.44, 0.45],
+}
+export const TITLE_GROW = 1.3
+export const FIT_MIN = 0.6
+export function textWidth(text: string, fs: number, font: string): number {
+  const [up, lo] = FONT_GLYPH[font] ?? FONT_GLYPH.classic!
+  let w = 0
+  for (const c of text) w += c !== c.toLowerCase() || /\d/.test(c) ? up : lo
+  return fs * w
+}
+/** The font size for text in a box `width` wide, from fs (Text › Size), at the export's size (engine.fit_text). */
+export function fitText(text: string, fs: number, width: number, font: string, grow = 1, lines = 3): number {
+  const words = text.split(/\s+/).filter(Boolean)
+  if (!words.length || width <= 0) return Math.floor(fs)
+  const fnt = font in FONT_GLYPH ? font : 'classic'
+  const one = width * 0.92 / Math.max(1e-6, textWidth(words.join(' '), 1, fnt))
+  let out = one >= fs ? Math.min(fs * grow, one) : Math.max(fs * FIT_MIN, Math.min(fs, one * lines * 0.85))
+  out = Math.min(out, width * 0.96 / Math.max(1e-6, Math.max(...words.map(w => textWidth(w, 1, fnt)))))
+  return Math.max(20, Math.floor(out))
+}
+/** The title's font size at the export's size: Text › Size, and Auto size when it's on (build_ass). */
+export function titleSize(text: string, o: RenderOpts): number {
+  const W = outSize(o)[0], size = clamp(Number(o.title_size), 50, MAX_TEXT_SIZE.title)
+  const base = 64 * size / 100 * fontOf(o.title_font).scale
+  if (o.title_fit === false || !text.trim()) return base
+  const tx = Math.floor(clamp(Number(o.title_x), 0.3, 0.7) * W)
+  return fitText(text.trim(), Math.floor(base), 2 * (Math.min(tx, W - tx) - 90), String(o.title_font), TITLE_GROW, 3)
+}
+/** A caption's font size at the export's size: shrunk for a long caption, and by Auto size (build_ass). */
+export function captionSize(texts: string[], o: RenderOpts, maxW1080: number): number {
+  const chars = texts.join(' ').length, base = 86 * clamp(Number(o.caption_size), 50, MAX_TEXT_SIZE.caption) / 100 * fontOf(o.caption_font).scale
+  const fs = chars <= 16 ? base : Math.max(base * 0.75, base * 18 / chars)
+  return o.caption_fit === false ? fs : Math.min(fs, fitText(texts.join(' '), Math.floor(fs), maxW1080, String(o.caption_font), 1, 2))
+}
+
 export function drawTitle(g: CanvasRenderingContext2D, text: string, Wd: number, Ht: number, o: RenderOpts): Box {
-  const k = Wd / outSize(o)[0], st = o.title_style, size = clamp(Number(o.title_size), 50, MAX_TEXT_SIZE.title)
-  const fs = 64 * size / 100 * fontOf(o.title_font).scale * k
-  const pad = Math.max(8, Math.floor(64 * size / 100 * fontOf(o.title_font).scale / 4)) * k
+  const k = Wd / outSize(o)[0], st = o.title_style
+  const fs1080 = titleSize(text, o), fs = fs1080 * k
+  const pad = Math.max(8, Math.floor(fs1080 / 4)) * k
   g.font = fontCss(o.title_font, fs); g.textAlign = 'center'; g.textBaseline = 'top'
   const x = clamp(Number(o.title_x), 0.3, 0.7) * Wd, top = clamp(Number(o.title_y), 0, 0.92) * Ht
   const wrapW = 2 * (Math.min(x, Wd - x) - 90 * k), lines: string[] = []
@@ -242,8 +283,8 @@ export function capAnchor(capY: number, Wd: number, Ht: number, o: RenderOpts): 
 export function drawCaption(g: CanvasRenderingContext2D, cap: Cap, capY: number, Wd: number, Ht: number, t: number, o: RenderOpts): Box {
   const k = Wd / outSize(o)[0], st = o.caption_style, hi = String(o.caption_color)
   const [cx, cy] = capAnchor(capY, Wd, Ht, o)
-  const chars = cap.texts.join(' ').length, fsBase = 86 * clamp(Number(o.caption_size), 50, MAX_TEXT_SIZE.caption) / 100 * fontOf(o.caption_font).scale
-  const fs1080 = chars <= 16 ? fsBase : Math.max(fsBase * 0.75, fsBase * 18 / chars), fs = fs1080 * k
+  const chars = cap.texts.join(' ').length, capX = Math.floor(cx / k)
+  const fs1080 = captionSize(cap.texts, o, 2 * (Math.min(capX, outSize(o)[0] - capX) - 70)), fs = fs1080 * k
   g.font = fontCss(o.caption_font, fs); g.textAlign = 'left'; g.textBaseline = 'middle'
   const sp = g.measureText(' ').width, widths = cap.texts.map(w => g.measureText(w).width)
   const maxW = 2 * (Math.min(cx, Wd - cx) - 70 * k), lines: number[][] = [[]]

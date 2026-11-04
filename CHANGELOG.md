@@ -5,6 +5,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.42.0] - 2026-11-04
+
+Auto-frame is quicker and works with every layout, and titles and captions size themselves to fit.
+
+### Fixed
+- **Auto-frame was slow.** It read 24 frames one after another, each with its own FFmpeg that opened the whole video (a 9-hour VOD's index is tens of MB) and then decoded up to 2 s of frames to reach the exact moment. Now 4 read at once, and each decodes only the keyframe it lands on (a facecam doesn't need the exact moment). On a 5-minute 1080p60 test video reading took 0.7 s instead of 3.3 s, and a long VOD saves more. The look also starts while a new video opens, so pressing Auto-frame (or the automatic run) usually gets its answer at once. A file whose keyframes can't be found that way is still read exactly.
+- **Auto-frame only worked with Cam + game.** It always switched to Cam + game or Whole frame, so on Cam only, Blur fit or Square blur pressing it threw your layout away, and a new video was only framed by itself while you were on Cam + game with the box in its default corner. Now it frames the layout you're on:
+  - **Cam + game and Cam only:** the box goes around the facecam. With no facecam the box stays where it is, and it says so.
+  - **Whole frame:** follows the person on screen.
+  - **Blur fit and Square blur:** the picture is centred on the person.
+  - If you haven't chosen a layout (or the camera box is still in its default corner), it picks one, as before.
+  - Opening a new video runs it in every layout, but it only fills in what nobody set: a box you drew, Follow face turned off and a focus point you moved stay as they are. The new UI runs it too (it only ran when you pressed the button).
+- **A long word in a big title or caption ran off the sides of the frame.** A single word can't wrap, so at 300% "UNBELIEVABLE" was cut off on both sides.
+
+### Added
+- **Auto size (Text › Title and Text › Captions, on by default).** A short title gets up to 30% bigger and a long one smaller (to 60%) so it stays within three lines. A caption gets smaller when its longest word wouldn't fit, and never bigger. Text › Size is still the size it starts from; turn Auto size off to use exactly that. The preview in both UIs picks the same size as the render. Auto size is kept in saved caption styles.
+
+### Tests
+- `tests/test_framing.py`: Auto-frame for each layout (keeps Cam only, Blur fit and Square blur; boxes the facecam; centres on the person; on opening a video, leaves a drawn box, Follow face and the focus point alone), the frames read at once find the facecam, a file whose keyframes can't be read the fast way is read exactly, and the look is saved.
+- `tests/test_captions_anim.py`: a short title grows, a long one shrinks, off is Text › Size, a long word at 300% fits in every font, a caption only shrinks. Rendered with libass, the long word ran off both sides before and is inside now.
+- `web/src/features/review/draw.test.ts`: the preview's sizes are the render's (the same numbers).
+- `tests/e2e.py`: Auto-frame on Cam only and on Square blur through the app.
+
 ## [4.41.2] - 2026-11-04
 
 Long YouTube videos that stopped while their video and sound were being joined.
