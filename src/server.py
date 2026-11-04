@@ -1277,7 +1277,7 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
                 fixed = (d.get("len_mode") or pr.get("length") or 0) > 0
                 a2, b2 = engine.refine_with_words(d["start"], d["end"], d.get("peak", d["start"]), words,
                                                   max_move=3.0 if fixed else 8.0)
-                a2, b2 = max(0.0, a2), min(pr["analysis"].duration, b2)
+                a2, b2 = max(0.0, a2), min(_media_end(pr) or pr["analysis"].duration, b2)
                 if b2 - a2 >= 3 and (abs(a2 - d["start"]) > 0.05 or abs(b2 - d["end"]) > 0.05):
                     d["start"], d["end"] = round(a2, 2), round(b2, 2)
                     d["orig"] = [d["start"], d["end"]]
@@ -1317,12 +1317,21 @@ def _find_clip(pr: dict, cid) -> Optional[dict]:
     return None
 
 
+def _media_end(pr: dict) -> Optional[float]:
+    """Where a clip may end at the latest: the analysis's length, or the file's when that is shorter.
+    A live moment's analysis can run up to ~1 s past its MP4, and a cut ending there stopped the
+    Review player short instead of looping (issue 42)."""
+    ends = [x for x in (pr["analysis"].duration if "analysis" in pr else None,
+                        float((pr.get("info") or {}).get("duration") or 0)) if x]
+    return min(ends) if ends else None
+
+
 def _apply_clip_state(pr: dict, d: dict, b: dict):
     if b.get("state") in ("todo", "kept", "skipped"):
         d["state"] = b["state"]
     if "start" in b and "end" in b:
         st, en = float(b["start"]), float(b["end"])
-        dur = pr["analysis"].duration if "analysis" in pr else None
+        dur = _media_end(pr)
         if dur:
             st, en = max(0.0, st), min(dur, en)
         if en - st >= 1:

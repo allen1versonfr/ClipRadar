@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.41.1] - 2026-11-04
+
+Review clips that stopped instead of looping, and blank clips that now leave a trace in the error log.
+
+### Fixed
+- **A live moment's clip could stop at the end of its file in Review.** A moment's analysis can run up to about 1 s past its MP4. Writing the title moves a cut to the end of a sentence, and that end was only kept inside the analysis, so it could land past the end of the file, and a hand trim could too. Cuts now stop at whichever is shorter, the file or the analysis. A clip that still reaches the end of its file loops from its start instead of stopping.
+
+### Changed
+- **The Review player's media errors go to the error log** (Settings › About › Error log), once per video: the error code, what the window said, whether the video had played, and how often it was reloaded. A clip that goes blank now leaves a record next to whatever titles, captions or renders were doing at the time (issue 42).
+
 ## [4.41.0] - 2026-11-04
 
 "Your PC ran out of memory" only when it did, face following that keeps up with cuts and finds people standing back, fewer clips called too dark, titles that say what happened, and radar sounds.

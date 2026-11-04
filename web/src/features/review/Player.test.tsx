@@ -5,10 +5,12 @@ import { Player } from './Player'
 // Each live moment is its own video, so one player shows clips from several. A video the window can't
 // play gets a copy that it can; that mustn't carry over to the next clip's video.
 let asked: string[]
+let logged: Array<Record<string, any>>
 let finish: Array<() => void>
 
 beforeEach(() => {
   asked = []
+  logged = []
   finish = []
   vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) as Record<string, any> : undefined
@@ -17,6 +19,7 @@ beforeEach(() => {
       asked.push(body!.pid)
       answer = { ready: false, job: 'j_' + body!.pid }
     }
+    if (path === '/api/client_error') logged.push(body!)
     if (path.startsWith('/api/job/j_')) {
       // the copy is ready once the test says so
       await new Promise<void>(res => finish.push(res))
@@ -92,5 +95,27 @@ describe('Player, a decode error after playing', () => {
     await waitFor(() => expect(asked).toEqual(['h']))
     expect(load).not.toHaveBeenCalled()
     load.mockRestore()
+  })
+  it('a media error goes to the error log once per video, with its code', async () => {
+    const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    render(<Player src="/vod/k" pid="k" clipKey="k:1" start={0} end={10} />)
+    const el = video()
+    Object.defineProperty(el, 'error', { configurable: true, value: { code: 3, message: 'PIPELINE_ERROR_DECODE' } })
+    fireEvent.loadedData(el)
+    fireEvent.error(el)
+    fireEvent.error(el)
+    await waitFor(() => expect(logged).toHaveLength(1))
+    expect(logged[0]!.message).toBe('Review video error 3')
+    expect(logged[0]!.detail).toContain('PIPELINE_ERROR_DECODE')
+    expect(logged[0]!.detail).toContain('/vod/k')
+    load.mockRestore()
+  })
+  it('a clip whose cut runs past the end of its file loops instead of stopping', () => {
+    render(<Player src="/vod/e" pid="e" clipKey="e:1" start={4} end={12} />)
+    const el = video()
+    el.currentTime = 11.5
+    fireEvent.ended(el)
+    expect(el.currentTime).toBe(4)
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
   })
 })
