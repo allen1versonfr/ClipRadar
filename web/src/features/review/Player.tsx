@@ -1,6 +1,7 @@
 import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { Job, PreviewCopy } from '../../api/schemas'
+import { reportError } from '../../errors'
 import { getPref, setPref } from '../../prefs'
 import { fmt } from './model'
 
@@ -23,6 +24,7 @@ const making: Record<string, number> = {}
 const listeners = new Set<() => void>()
 const changed = () => listeners.forEach(f => f())
 const reloads: Record<string, number> = {}            // decode errors recovered by loading the video again
+const reported = new Set<string>()                    // videos whose media error already went to the error log
 
 /** The clip's stretch of the video, looping, with the preview volume the original page uses (vc_volume,
  *  vc_muted). A video the window can't play switches to Clip Radar's 480p copy (/api/preview). */
@@ -136,8 +138,23 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipK
       if (el?.videoWidth) played.current = url
       if (el && !el.videoWidth && copy !== 'ready') void makeCopy()           // sound but no picture
     }
+    // a clip cut past the end of its file (a live moment's analysis can be ~1 s longer than its MP4) reached
+    // the end instead of its loop point and stopped: loop from there too
+    function onEnded() {
+      const el = v.current
+      if (!el) return
+      el.currentTime = range.current.start
+      void el.play().catch(() => {})
+    }
     function onError() {
       const el = v.current
+      // into errors.jsonl, once per video: a clip that goes blank leaves its error code next to what titles,
+      // captions or renders were doing at that moment (issue 42)
+      if (el?.error && !reported.has(url)) {
+        reported.add(url)
+        reportError(`Review video error ${el.error.code}`, `${el.error.message || ''} | ${url} | played: ${played.current === url}`
+          + ` | reloads: ${reloads[url] ?? 0} | copy: ${copy || 'none'} | at ${el.currentTime.toFixed(1)} s`)
+      }
       if (el && el.error?.code === 3 /* MEDIA_ERR_DECODE */ && played.current === url && (reloads[url] ?? 0) < 2) {
         reloads[url] = (reloads[url] ?? 0) + 1
         const at = el.currentTime, wasPlaying = !el.paused || autoPlay
@@ -158,7 +175,7 @@ export const Player = forwardRef<PlayerHandle, { src: string; pid: string; clipK
           {children}
           <video ref={v} src={url} playsInline preload="auto" data-testid="rv-video" style={children ? { display: 'none' } : undefined}
                  onTimeUpdate={onTime} onPlay={() => setPaused(false)} onPause={() => setPaused(true)}
-                 onLoadedData={onLoaded} onError={onError}
+                 onLoadedData={onLoaded} onError={onError} onEnded={onEnded}
                  onClick={() => { const el = v.current; if (el) void (el.paused ? el.play().catch(() => {}) : el.pause()) }} />
           {progress !== undefined && <p className="rv-making">This video needs a copy the window can play. Making it… {Math.round(progress * 100)}%</p>}
           {copy === 'failed' && <p className="rv-making">This video can't be previewed here. Renders still use the original.</p>}
