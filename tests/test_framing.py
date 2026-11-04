@@ -254,6 +254,72 @@ if _ff and framing.available():
 else:
     print("[skip] no FFmpeg: framing a real video not checked")
 
+# ---------------------------------------------------------------- Auto-frame for the layout you're on (4.42)
+CAM_FOUND = {"layout": "split", "cam": [0.8, 0.0, 0.2, 0.35], "track": "off", "confidence": 1.0, "reason": "Found a facecam"}
+PERSON = {"layout": "full", "track": "auto", "confidence": 0.9, "face_x": 0.31, "face_y": 0.4, "reason": "A person fills the frame"}
+NOBODY = {"layout": "full", "track": "off", "confidence": 1.0, "reason": "No face on screen"}
+DEF = list(framing.DEFAULT_CAM)
+check("nobody chose a layout: Auto-frame picks it (as before)",
+      framing.fit(CAM_FOUND, "split", DEF, picked=False)["set"] == {"layout": "split", "layout_auto": True, "cam": CAM_FOUND["cam"],
+                                                                   "cams": [], "track": "off"}
+      and framing.fit(PERSON, "split", DEF, picked=False)["set"]["layout"] == "full")
+check("... and a wide frame becomes tall for Cam + game", framing.fit(CAM_FOUND, "split", DEF, picked=False, aspect="16:9")["set"]["aspect"] == "9:16")
+check("untouched: picked by Auto-frame, or Cam + game with the box in its corner",
+      framing.untouched("full", None, True) and framing.untouched("split", DEF) and not framing.untouched("split", [0.7, 0, 0.3, 0.3])
+      and not framing.untouched("cam", DEF) and not framing.untouched("blur", DEF))
+r = framing.fit(CAM_FOUND, "cam", DEF)
+check("Cam only stays Cam only, with the facecam boxed (it switched to Cam + game)", r["set"] == {"cam": CAM_FOUND["cam"], "cams": []}, r)
+check("Cam + game you chose: boxed, the layout kept", "layout" not in framing.fit(CAM_FOUND, "split", [0.7, 0.1, 0.2, 0.2])["set"])
+r = framing.fit(PERSON, "cam", DEF)
+check("Cam only with no facecam: nothing changes, and it says why", r["set"] == {} and "No facecam" in r["note"], r)
+check("Whole frame: follows a person", framing.fit(PERSON, "full")["set"] == {"track": "auto"})
+check("Whole frame: a facecam stream doesn't switch layout", framing.fit(CAM_FOUND, "full")["set"] == {})
+for lay in ("blur", "square"):
+    check(f"{lay}: centred on the person", framing.fit(PERSON, lay)["set"] == {"game_x": 0.31})
+    check(f"{lay}: nobody, nothing changes", framing.fit(NOBODY, lay)["set"] == {} and framing.fit(NOBODY, lay)["note"])
+# opening a video runs it by itself: it only fills in what nobody set
+check("opening a video: a facecam box still in its corner is boxed (Cam only too)",
+      framing.fit(CAM_FOUND, "cam", DEF, auto=True)["set"] == {"cam": CAM_FOUND["cam"], "cams": []})
+check("opening a video: a box you drew is kept", framing.fit(CAM_FOUND, "cam", [0.7, 0.1, 0.2, 0.2], auto=True)["set"] == {})
+check("opening a video: Follow face and your focus point are left alone",
+      framing.fit(PERSON, "full", auto=True)["set"] == {} and framing.fit(PERSON, "square", auto=True)["set"] == {})
+check("nothing to suggest says why", framing.fit({"layout": "", "reason": "Face finding isn't available"}, "cam")["note"]
+      == "Face finding isn't available")
+
+if _ff and framing.available():
+    # a long video's frames: a few FFmpegs at once, each decoding only the keyframe it lands on (4.42; one at a
+    # time, each decoding up to 2 s of frames to reach the exact moment, took seconds on a long VOD)
+    import time
+    vid = os.path.join(tempfile.mkdtemp(prefix="vc_spread_"), "cam.mp4")
+    subprocess.run([_ff, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1280x720:r=30:d=60", "-loop", "1", "-i",
+                    os.path.join(HERE, "assets", "face.jpg"), "-filter_complex",
+                    "[1]scale=160:200[f];[0][f]overlay=x=W-w-30:y=30:shortest=1[v]", "-map", "[v]", "-t", "60",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-g", "60", "-pix_fmt", "yuv420p", vid], check=True, timeout=300)
+    t0 = time.time()
+    fr = framing.read_spread(vid, 60.0)
+    took = time.time() - t0
+    check("a facecam is found from 24 frames read at once", fr.shape[0] == 24
+          and (framing.find_facecam(framing.detect_fine(fr)) or {}).get("cam", [0])[0] > 0.7, (fr.shape, took))
+    real_run = framing.subprocess.run
+    fast_tries = []
+
+    def no_keyframes(cmd, **kw):           # as for a file whose keyframes aren't marked: the fast read gives nothing
+        if "-skip_frame" in cmd:
+            fast_tries.append(1)
+            return subprocess.CompletedProcess(cmd, 0, b"", b"")
+        return real_run(cmd, **kw)
+    framing.subprocess.run = no_keyframes
+    try:
+        got = framing.read_spread(vid, 60.0, 4)
+    finally:
+        framing.subprocess.run = real_run
+    check("a file whose keyframes can't be found the fast way is read exactly", got.shape[0] == 4 and len(fast_tries) == 4,
+          (got.shape, len(fast_tries)))
+    d = tempfile.mkdtemp(prefix="vc_suggest_")
+    first = framing.suggest(vid, 60.0, cache_dir=d)
+    check("Auto-frame's look is saved (v2: with where the person is)", first.get("v") == 2 and first.get("layout") == "split"
+          and framing.suggest(vid, 60.0, cache_dir=d) == first, first)
+
 # ---------------------------------------------------------------- saved framings
 saved = exports.clean({"frame_presets": [{"name": "Cam right", "opts": {"layout": "split", "cam": [0.8, 0, 0.2, 0.35], "bad": 1,
                                                                         "track": "off"}}, {"name": "x", "opts": {"cam": [1, 2]}}]})

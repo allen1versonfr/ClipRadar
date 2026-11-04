@@ -304,6 +304,16 @@ class Handler(BaseHTTPRequestHandler):
                                       cache_dir=locations.temp_dir(os.path.basename(pr["workdir"]), "framing"))
             except Exception as e:
                 return self._err(f"Couldn't look for faces: {str(e)[:160]}")
+            # with the layout you're on (?layout=&cam=&layout_auto=&aspect=&auto=): what to change for it, and why
+            lay = (q.get("layout") or [""])[0]
+            if lay:
+                try:
+                    cam = [float(x) for x in (q.get("cam") or [""])[0].split(",")]
+                except ValueError:
+                    cam = None
+                flag = lambda k: (q.get(k) or [""])[0] in ("1", "true")  # noqa: E731
+                res = dict(res, **framing.fit(res, lay, cam, picked=not framing.untouched(lay, cam, flag("layout_auto")),
+                                               auto=flag("auto"), aspect=(q.get("aspect") or ["9:16"])[0]))
             return self._json(dict(res, available=True))
         if p == "/api/perf":
             return self._json(S.perf_view())

@@ -93,7 +93,7 @@ const DEFAULTS = { layout: 'split', cam: [0, 0, 0.25, 0.25], cams: [], cam_heigh
   captions: true, caption_pos: 'auto', caption_color: '#ffe600', caption_size: 100, words_per_line: 3, uppercase: true,
   caption_style: 'pop', caption_font: 'classic', caption_anim: true, caption_motion: 'pop', caption_speed: 100,
   caption_emph: false, caption_filler: true, caption_punct: true, caption_spacing: 100, caption_offset: 0, cap_x: 0.5, cap_y: 0.7,
-  title_style: 'box', title_font: 'classic', title_size: 100, title_color: '#ffffff', title_outline: 100, title_x: 0.5, title_y: 0.05,
+  title_style: 'box', title_font: 'classic', title_size: 100, title_color: '#ffffff', title_outline: 100, title_x: 0.5, title_y: 0.05, title_fit: true, caption_fit: true,
   whisper_model: 'small', language: '', hw_encode: true, aspect: '9:16', cap_outline: 100, cap_shadow: 100,
   track: 'auto', track_target: 'auto', focus_y: 0.4 };
 const opts = Object.assign({}, DEFAULTS, store.get('opts', {}));
@@ -490,7 +490,7 @@ function openVod(p) {
   }
   startWorkspace();
   if (p.pick_note && !p.restored) toast(p.pick_note, '', 6000);
-  if (!p.restored && layoutUntouched()) autoFrame();
+  if (!p.restored) autoFrame(true);      // a new video: framed for the layout you're on
   listen();
   const og = p.origin || {};
   if (og.start > 0 && !p.restored && og.start < p.duration) {
@@ -1487,10 +1487,32 @@ Object.keys(FONTS).filter(k => k !== 'classic').forEach(k => document.fonts.load
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const hit = { title: null, cap: null };   // where the title and captions were drawn (canvas px), for dragging
 
+// Text › Auto size (engine.fit_text, fitText in web/src/features/review/draw.ts): sizes from estimated widths,
+// so the preview picks the size the render does
+const FONT_GLYPH = { classic: [0.6, 0.51], montserrat: [0.45, 0.38], poppins: [0.36, 0.32], inter: [0.54, 0.45],
+  anton: [0.26, 0.25], bebas: [0.28, 0.28], bangers: [0.23, 0.23], luckiest: [0.44, 0.45] };
+function textWidth(text, fs, font) {
+  const [up, lo] = FONT_GLYPH[font] || FONT_GLYPH.classic; let w = 0;
+  for (const c of text) w += c !== c.toLowerCase() || /\d/.test(c) ? up : lo;
+  return fs * w;
+}
+function fitText(text, fs, width, font, grow = 1, lines = 3) {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length || width <= 0) return Math.floor(fs);
+  const fnt = font in FONT_GLYPH ? font : 'classic';
+  const one = width * 0.92 / Math.max(1e-6, textWidth(words.join(' '), 1, fnt));
+  let out = one >= fs ? Math.min(fs * grow, one) : Math.max(fs * 0.6, Math.min(fs, one * lines * 0.85));
+  out = Math.min(out, width * 0.96 / Math.max(1e-6, Math.max(...words.map(w => textWidth(w, 1, fnt)))));
+  return Math.max(20, Math.floor(out));
+}
 function drawTitle(g, text, Wd, Ht) {
   const k = Wd / OUT()[0], st = opts.title_style;
-  const fs = 64 * clamp(opts.title_size, 50, 300) / 100 * fontOf(opts.title_font).scale * k;
-  const pad = Math.max(8, Math.floor(64 * clamp(opts.title_size, 50, 300) / 100 * fontOf(opts.title_font).scale / 4)) * k;
+  let fs1080 = 64 * clamp(opts.title_size, 50, 300) / 100 * fontOf(opts.title_font).scale;
+  if (opts.title_fit !== false && text.trim()) {
+    const W = OUT()[0], tx = Math.floor(clamp(opts.title_x, .3, .7) * W);
+    fs1080 = fitText(text.trim(), Math.floor(fs1080), 2 * (Math.min(tx, W - tx) - 90), opts.title_font, 1.3, 3);
+  }
+  const fs = fs1080 * k, pad = Math.max(8, Math.floor(fs1080 / 4)) * k;
   g.font = fontCss(opts.title_font, fs); g.textAlign = 'center'; g.textBaseline = 'top';
   const words = text.trim().split(/\s+/), lines = []; let line = '';
   const x = clamp(opts.title_x, .3, .7) * Wd, top = clamp(opts.title_y, 0, .92) * Ht;
@@ -1605,7 +1627,12 @@ function drawCaption(g, cap, capY, Wd, Ht, t) {
   const k = Wd / OUT()[0], st = opts.caption_style, hi = opts.caption_color;
   const [cx, cy] = capAnchor(capY, Wd, Ht);
   const chars = cap.texts.join(' ').length, fsBase = 86 * opts.caption_size / 100 * fontOf(opts.caption_font).scale;
-  const fs1080 = chars <= 16 ? fsBase : Math.max(fsBase * .75, fsBase * 18 / chars), fs = fs1080 * k;
+  let fs1080 = chars <= 16 ? fsBase : Math.max(fsBase * .75, fsBase * 18 / chars);
+  if (opts.caption_fit !== false) {
+    const W = OUT()[0], capX = Math.floor(cx / k);
+    fs1080 = Math.min(fs1080, fitText(cap.texts.join(' '), Math.floor(fs1080), 2 * (Math.min(capX, W - capX) - 70), opts.caption_font, 1, 2));
+  }
+  const fs = fs1080 * k;
   g.font = fontCss(opts.caption_font, fs); g.textAlign = 'left'; g.textBaseline = 'middle';
   const sp = g.measureText(' ').width, widths = cap.texts.map(w => g.measureText(w).width);
   const maxW = 2 * (Math.min(cx, Wd - cx) - 70 * k), lines = [[]]; let lw = 0;
@@ -1897,7 +1924,7 @@ function syncControls() {
   $('#wpl').value = opts.words_per_line; $('#wplOut').textContent = opts.words_per_line;
   $('#capOutline').value = opts.cap_outline ?? 100; $('#capOutlineOut').textContent = (opts.cap_outline ?? 100) + '%';
   $('#capShadow').value = opts.cap_shadow ?? 100; $('#capShadowOut').textContent = (opts.cap_shadow ?? 100) + '%';
-  $('#model').value = opts.whisper_model; $('#lang').value = opts.language; $('#upper').checked = opts.uppercase;
+  $('#model').value = opts.whisper_model; $('#lang').value = opts.language; $('#upper').checked = opts.uppercase; $('#titleFit').checked = opts.title_fit !== false; $('#capFit').checked = opts.caption_fit !== false;
   $('#hw').checked = opts.hw_encode;
   $('#capMotion').value = opts.caption_motion || (opts.caption_anim ? 'pop' : 'none');
   $('#capSpeed').value = opts.caption_speed || 100; $('#capSpeedOut').textContent = (opts.caption_speed || 100) + '%';
@@ -1960,25 +1987,27 @@ function showTrack(r) {
     ? `${r.reason || 'Following the face'} (seen in ${Math.round((r.coverage || 0) * 100)}% of the clip). The crop moves smoothly, holds still while a face is hidden, and only moves to someone else once the person it follows has gone.`
     : `${r.reason || 'No face found'}. The crop stays at the focus point.`;
 }
-async function autoFrame() {
+// Auto-frame fills in the layout you're on: the facecam box for Cam + game and Cam only, following the face
+// for Whole frame, the person in the middle for Blur fit and Square blur. When you haven't chosen a layout (or
+// the camera box is still in its default corner, which on a stream without a facecam is the chat or the
+// game) it picks the layout too. The server decides (framing.fit), the React UI asks the same way.
+function framingQuery(auto) {
+  return new URLSearchParams({ layout: opts.layout || 'split', cam: (opts.cam || []).join(','), layout_auto: opts.layout_auto ? '1' : '',
+    aspect: opts.aspect || '9:16', auto: auto ? '1' : '' }).toString();
+}
+async function autoFrame(auto = false) {
   if (!W || !W.pid) return;
   const pid = W.pid, b = $('#autoFrame'); b.disabled = true; $('#autoFrameNote').textContent = 'Looking for faces…';
   try {
-    const r = await api(`/api/framing/${pid}`);
+    const r = await api(`/api/framing/${pid}?${framingQuery(auto)}`);
     if (!W || W.pid !== pid) return;
-    if (!r.layout) { $('#autoFrameNote').textContent = r.reason || 'Nothing to suggest.'; return; }
-    opts.layout = r.layout; if (r.cam) opts.cam = r.cam; if (r.track) opts.track = r.track;
-    opts.layout_auto = true;      // picked for this video: the next new video gets its own pick
-    if (r.layout === 'split' && opts.aspect === '16:9') opts.aspect = '9:16';
-    hideExact(); syncControls();
-    $('#autoFrameNote').textContent = r.reason + (r.confidence < .6 ? ' (not sure: check it)' : '');
+    const set = r.set || {};
+    if (Object.keys(set).length) { Object.assign(opts, set); hideExact(); syncControls(); }
+    $('#autoFrameNote').textContent = r.note ?? (r.reason || 'Nothing to suggest.');
   } catch (e) { $('#autoFrameNote').textContent = e.message; }
   finally { b.disabled = false; }
 }
-$('#autoFrame').onclick = autoFrame;
-// a new video is auto-framed unless you chose the layout or drew the camera box yourself: the default
-// Cam + game box is the top-left corner, which on a stream without a facecam is the chat or the game
-const layoutUntouched = () => opts.layout_auto || (opts.layout === 'split' && JSON.stringify(opts.cam) === JSON.stringify(DEFAULTS.cam));
+$('#autoFrame').onclick = () => autoFrame();
 $('#zoom').oninput = e => { opts.game_zoom = e.target.value / 100; syncControls(); };
 $('#caps').onchange = e => { opts.captions = e.target.checked; syncControls(); };
 $('#capPos').onchange = e => { opts.caption_pos = e.target.value; syncControls(); };
@@ -1989,6 +2018,8 @@ $('#wpl').oninput = e => { opts.words_per_line = +e.target.value; syncControls()
 $('#model').onchange = e => { opts.whisper_model = e.target.value; syncControls(); relisten(); };
 $('#lang').onchange = e => { opts.language = e.target.value; syncControls(); relisten(); };
 $('#upper').onchange = e => { opts.uppercase = e.target.checked; syncControls(); };
+$('#titleFit').onchange = e => { opts.title_fit = e.target.checked; syncControls(); };
+$('#capFit').onchange = e => { opts.caption_fit = e.target.checked; syncControls(); };
 $('#hw').onchange = e => { opts.hw_encode = e.target.checked; syncControls(); };
 function relisten() { if (W && W.kind === 'vod') { W.clips.forEach(c => { c.listened = false; }); listen(); } }
 
@@ -3352,7 +3383,7 @@ $('#pfPriority').onclick = e => { const v = e.target.closest('button')?.dataset.
 // saved caption styles
 const CAP_KEYS = ['captions', 'caption_pos', 'caption_color', 'caption_size', 'words_per_line', 'uppercase', 'caption_style', 'caption_font',
   'caption_anim', 'caption_motion', 'caption_speed', 'caption_emph', 'caption_filler', 'caption_punct', 'caption_spacing', 'caption_offset',
-  'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_x', 'title_y'];
+  'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_x', 'title_y', 'title_fit', 'caption_fit'];
 function renderCapPresets() {
   $('#capTemplates').innerHTML = CAP_TEMPLATES.map((p, i) => `<button class="chip" data-ct="${i}" title="Use this look (you can change anything after)">${esc(p.name)}</button>`).join('');
   $('#capPresets').innerHTML = capPresets.length ? capPresets.map((p, i) => `<span class="cp"><button class="chip" data-cp="${i}" title="Use this style">${esc(p.name)}</button><button class="cp-x" data-cpx="${i}" title="Delete">×</button></span>`).join('')

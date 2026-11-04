@@ -577,6 +577,12 @@ def framing_checks(a, tmp):
     inside = box[0] <= real[0] + 0.01 and box[1] <= real[1] + 0.01 and box[0] + box[2] >= real[0] + real[2] - 0.01 \
         and box[1] + box[3] >= real[1] + real[3] - 0.01 and box[2] < 0.35
     rec("auto-frame: a facecam in the corner gives Cam + game, boxed around the camera", s2.get("layout") == "split" and inside, s2)
+    s3 = get(f"/api/framing/{pids['cam']}?layout=cam&cam=0,0,0.25,0.25&auto=1")
+    rec("auto-frame on Cam only keeps Cam only, with the facecam boxed (4.42)",
+        (s3.get("set") or {}).get("cam") == s2.get("cam") and "layout" not in (s3.get("set") or {}), s3)
+    s4 = get(f"/api/framing/{pids['irl']}?layout=square&cam=0,0,0.25,0.25")
+    rec("auto-frame on Square blur centres the square on the person (4.42)",
+        abs((s4.get("set") or {}).get("game_x", -1) - (s1.get("face_x") or 0)) < 0.01 and "layout" not in s4["set"], s4)
     opts = {"layout": "full", "aspect": "9:16", "captions": False, "hw_encode": False, "track": "auto"}
     tr = post("/api/framing/track", {"pid": pids["irl"], "start": 2, "end": 30, "opts": opts})
     xs = [x for _, x in tr.get("path", [])]

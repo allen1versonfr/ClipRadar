@@ -938,6 +938,8 @@ def do_analyze(job, body: dict):
         if tuned:
             log(f"Ranking tuned to what you kept and skipped before ({learning.describe(s.streamer)['using']}).")
     save_project_soon(pid, 0.1)
+    if not saved:
+        _warm_framing(pr)
     model, lang = _deep_model(body.get("deep_model") or "auto"), body.get("language") or ""
     if saved and pr["deep_done"] and pr["gems"]:
         pass                                    # quiet gems came back with the project
@@ -1504,6 +1506,8 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         caption_size=_int_in(o.get("caption_size"), 100, 50, engine.MAX_TEXT_SIZE["caption"]),
         words_per_line=int(o.get("words_per_line", 3)),
         uppercase=bool(o.get("uppercase", True)),
+        title_fit=o.get("title_fit", True) is not False,
+        caption_fit=o.get("caption_fit", True) is not False,
         caption_style=str(o.get("caption_style", "pop")),
         caption_font=str(o.get("caption_font", "classic")),
         caption_anim=bool(o.get("caption_anim", True)),
@@ -1531,6 +1535,24 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
     )
 
 
+def _framing_dir(pr: dict) -> str:
+    return locations.temp_dir(os.path.basename(pr["workdir"]), "framing")
+
+
+def _warm_framing(pr: dict) -> None:
+    """Look for a facecam or a person while the video opens, so Layout › Auto-frame (which a new video runs by
+    itself) has its answer ready instead of starting then: a few seconds on a long VOD, in the background."""
+    if not pr.get("video") or not framing.available():
+        return
+
+    def run():
+        try:
+            framing.suggest(pr["video"], float(pr["info"].get("duration") or 0) or 60.0, cache_dir=_framing_dir(pr))
+        except Exception as e:
+            print(f"  Auto-frame skipped: {str(e)[:160]}", flush=True)
+    threading.Thread(target=run, name="framing-warm", daemon=True).start()
+
+
 def _auto_layout(pr: dict) -> dict:
     """Layout › Auto-frame's pick for a project as render options ({} when it can't tell). For renders
     asked for without a layout: the default Cam + game box is the top-left corner, which on a stream
@@ -1538,8 +1560,7 @@ def _auto_layout(pr: dict) -> dict:
     if not pr.get("video") or not framing.available():
         return {}
     try:
-        r = framing.suggest(pr["video"], float(pr["info"].get("duration") or 0) or 60.0,
-                            cache_dir=locations.temp_dir(os.path.basename(pr["workdir"]), "framing"))
+        r = framing.suggest(pr["video"], float(pr["info"].get("duration") or 0) or 60.0, cache_dir=_framing_dir(pr))
     except Exception as e:
         print(f"  Auto-frame skipped: {str(e)[:160]}", flush=True)
         return {}

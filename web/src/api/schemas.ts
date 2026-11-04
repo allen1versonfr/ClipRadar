@@ -584,6 +584,8 @@ export const TrackPath = z.looseObject({
 export const FramingSuggest = z.looseObject({
   layout: z.string().default(''), cam: z.array(z.number()).length(4).optional(), track: z.string().optional(),
   reason: z.string().default(''), confidence: z.number().default(1),
+  /** asked with the layout you're on: the options to change for it, and what Auto-frame did */
+  set: z.record(z.string(), z.unknown()).default({}), note: z.string().optional(),
 })
 
 /** /api/check: the content check's answer for the clips it looked at. */

@@ -173,20 +173,35 @@ def read_frames(video: str, start: float, end: float, fps: float = SAMPLE_FPS) -
     return np.concatenate(parts) if parts else np.zeros((0, IN_H, IN_W, 3), dtype=np.uint8)
 
 
+SPREAD_WORKERS = 4
+
+
+def _spread_frame(video: str, t: float, fast: bool = True) -> Optional[np.ndarray]:
+    """One double-size frame near t. Fast: the keyframe at or before t, decoded alone (the moment doesn't have to
+    be exact for spotting a facecam); else the frame at t, decoded up from that keyframe (a file whose keyframes
+    aren't marked gives nothing the fast way)."""
+    seek = ["-noaccurate_seek", "-skip_frame", "nokey"] if fast else []
+    cmd = [engine.ffmpeg(), "-v", "error", "-nostdin", *seek, "-ss", f"{float(t):.3f}", "-i", video, "-frames:v", "1",
+           "-an", "-sn", "-dn", "-vf", f"scale={IN_W * 2}:{IN_H * 2}:flags=bilinear", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
+    try:
+        raw = subprocess.run(cmd, capture_output=True, timeout=60, stdin=subprocess.DEVNULL,
+                             creationflags=engine.CREATE_NO_WINDOW).stdout
+    except Exception:
+        raw = b""
+    if len(raw) < IN_W * IN_H * 12:
+        return _spread_frame(video, t, False) if fast else None
+    return np.frombuffer(raw[: IN_W * IN_H * 12], dtype=np.uint8).reshape(IN_H * 2, IN_W * 2, 3)
+
+
 def read_spread(video: str, duration: float, count: int = 24) -> np.ndarray:
     """A few frames spread across a whole video, at twice the detector's size (for spotting a facecam:
-    webcam faces are small)."""
-    frames = []
-    for t in np.linspace(duration * 0.05, duration * 0.95, count):
-        cmd = [engine.ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{float(t):.3f}", "-i", video, "-frames:v", "1", "-an",
-               "-vf", f"scale={IN_W * 2}:{IN_H * 2}:flags=bilinear", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
-        try:
-            raw = subprocess.run(cmd, capture_output=True, timeout=60, stdin=subprocess.DEVNULL,
-                                 creationflags=engine.CREATE_NO_WINDOW).stdout
-        except Exception:
-            raw = b""
-        if len(raw) >= IN_W * IN_H * 12:
-            frames.append(np.frombuffer(raw[: IN_W * IN_H * 12], dtype=np.uint8).reshape(IN_H * 2, IN_W * 2, 3))
+    webcam faces are small). Each FFmpeg spends most of its time opening the video (a 9-hour VOD's index is tens
+    of MB) and, seeking exactly, decoding up to 2 s of frames it throws away; so a few run at once, and each
+    decodes only the keyframe it lands on."""
+    from concurrent.futures import ThreadPoolExecutor
+    ts = [float(t) for t in np.linspace(duration * 0.05, duration * 0.95, count)]
+    with ThreadPoolExecutor(SPREAD_WORKERS) as ex:
+        frames = [f for f in ex.map(lambda t: _spread_frame(video, t), ts) if f is not None]
     return np.stack(frames) if frames else np.zeros((0, IN_H * 2, IN_W * 2, 3), dtype=np.uint8)
 
 
@@ -568,42 +583,119 @@ def find_facecam(detections: list) -> Optional[dict]:
             "steady": round(float(still.mean()), 2)}
 
 
+_suggest_locks: dict = {}
+
+
 def suggest(video: str, duration: float, cache_dir: str = "") -> dict:
     """What layout fits this video: a facecam in a corner (Cam + game), a person filling the frame
-    (follow the face), or neither (whole frame). Cached next to the video."""
+    (follow the face), or neither (whole frame). Cached next to the video. Opening a video starts this in the
+    background (warm), so pressing Auto-frame usually finds it done; one look per video at a time."""
     cpath = os.path.join(cache_dir, "framing.json") if cache_dir else ""
+    with _lock:
+        lk = _suggest_locks.setdefault(cpath or video, threading.Lock())
+    with lk:
+        return _suggest(video, duration, cpath)
+
+
+def _suggest(video: str, duration: float, cpath: str) -> dict:
     if cpath and os.path.isfile(cpath):
         try:
             with open(cpath, encoding="utf-8") as f:
                 d = json.load(f)
-            if d.get("v") == 1:
+            if d.get("v") == 2:
                 return d
         except (OSError, ValueError):
             pass
     if not available():
-        return {"v": 1, "layout": "", "reason": "Face finding isn't available", "confidence": 0.0}
+        return {"v": 2, "layout": "", "reason": "Face finding isn't available", "confidence": 0.0}
     dets = detect_fine(read_spread(video, duration))
     seen = sum(1 for d in dets if d) / max(1, len(dets))
     cam = find_facecam(dets)
     if cam:
-        res = {"v": 1, "layout": "split", "cam": cam["cam"], "track": "off", "confidence": cam["steady"],
+        res = {"v": 2, "layout": "split", "cam": cam["cam"], "track": "off", "confidence": cam["steady"],
                "reason": "Found a facecam: camera on top, gameplay below"}
     elif seen >= 0.5:
         big = [max(d, key=lambda f: (f[2] - f[0])) for d in dets if d]
-        res = {"v": 1, "layout": "full", "track": "auto", "confidence": round(seen, 2),
+        res = {"v": 2, "layout": "full", "track": "auto", "confidence": round(seen, 2),
                "face_w": round(float(np.median([f[2] - f[0] for f in big])), 3),
+               "face_x": round(float(np.median([(f[0] + f[2]) / 2 for f in big])), 3),
+               "face_y": round(float(np.median([(f[1] + f[3]) / 2 for f in big])), 3),
                "reason": "A person fills the frame: following their face"}
     else:
-        res = {"v": 1, "layout": "full", "track": "off", "confidence": round(1 - seen, 2),
+        res = {"v": 2, "layout": "full", "track": "off", "confidence": round(1 - seen, 2),
                "reason": "No face on screen: showing the middle of the frame"}
     res["faces_seen"] = round(seen, 2)
     if cpath:
         try:
+            os.makedirs(os.path.dirname(cpath), exist_ok=True)
             from persist import write_json
             write_json(cpath, res)
         except OSError:
             pass
     return res
+
+
+DEFAULT_CAM = (0.0, 0.0, 0.25, 0.25)       # RenderOpts.cam: the box nobody has moved
+
+
+def _is_default_cam(cam) -> bool:
+    try:
+        return len(cam) == 4 and all(abs(float(a) - b) < 1e-6 for a, b in zip(cam, DEFAULT_CAM))
+    except (TypeError, ValueError):
+        return False
+
+
+def untouched(layout: str, cam=None, layout_auto: bool = False) -> bool:
+    """Nobody chose the layout: Auto-frame picked it before, or it's still Cam + game with the box in its
+    default corner (which on a stream without a facecam shows the chat or a corner of the game)."""
+    return bool(layout_auto) or (layout == "split" and _is_default_cam(cam))
+
+
+def fit(r: dict, layout: str, cam=None, picked: bool = True, auto: bool = False, aspect: str = "9:16") -> dict:
+    """What Auto-frame changes, for the layout you're on: {"set": {option: value}, "note": what it did}.
+    picked: you chose this layout (Layout › Cam + game, Whole frame, ...); otherwise Auto-frame picks the layout too.
+    auto: run by itself on opening a video, not by pressing the button. Then it only fills in what nobody set:
+    a facecam box still in its default corner. A box you drew, Follow face turned off, or a focus point you
+    moved stay as they are.
+    Before 4.42 Auto-frame always switched to Cam + game or Whole frame, so on Cam only, Blur fit or Square blur
+    it threw your layout away, and opening a new video only framed it when you were on Cam + game."""
+    if not r.get("layout"):
+        return {"set": {}, "note": r.get("reason") or "Nothing to suggest."}
+    sure = "" if float(r.get("confidence", 1)) >= 0.6 else " (not sure: check it)"
+    found_cam, person = r.get("cam"), r.get("layout") == "full" and r.get("track") == "auto"
+    if not picked:
+        out = {"layout": r["layout"], "layout_auto": True}
+        if found_cam:
+            out.update(cam=found_cam, cams=[])
+        if r.get("track"):
+            out["track"] = r["track"]
+        if r["layout"] == "split" and aspect == "16:9":
+            out["aspect"] = "9:16"           # Cam + game needs a tall frame
+        return {"set": out, "note": r.get("reason", "") + sure}
+    if layout in ("split", "cam"):
+        if found_cam:
+            if auto and not _is_default_cam(cam):
+                return {"set": {}, "note": "Kept the facecam box you drew."}
+            return {"set": {"cam": found_cam, "cams": []}, "note": "Found the facecam: boxed it" + sure}
+        tip = ": Whole frame can follow the person instead" if person else ""
+        return {"set": {}, "note": "No facecam found, so the box stays where it is" + tip}
+    if layout == "full":
+        if person:
+            return {"set": {} if auto else {"track": "auto"}, "note": "Following the person's face" + sure}
+        if found_cam:
+            return {"set": {}, "note": "Only a facecam on screen, so the crop stays at the focus point: Cam + game shows it on top"}
+        return {"set": {}, "note": "No face on screen, so the crop stays at the focus point"}
+    if layout in ("blur", "square"):
+        what = "square" if layout == "square" else "picture"
+        if person and r.get("face_x") is not None:
+            if auto:
+                return {"set": {}, "note": ""}
+            return {"set": {"game_x": round(min(max(float(r["face_x"]), 0.0), 1.0), 3)},
+                    "note": f"Centred the {what} on the person" + sure}
+        if found_cam:
+            return {"set": {}, "note": "Found a facecam: Cam + game or Cam only show it bigger"}
+        return {"set": {}, "note": f"No person on screen, so the {what} stays at the focus point"}
+    return {"set": {}, "note": r.get("reason", "")}
 
 
 def caption_y(face_y: Optional[float], face_h: Optional[float], H: int, default: float) -> float:

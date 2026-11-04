@@ -25,7 +25,7 @@ export const CAP_TEMPLATES: Preset[] = [
 /** What a saved caption style keeps, and a saved framing. */
 export const CAP_KEYS = ['captions', 'caption_pos', 'caption_color', 'caption_size', 'words_per_line', 'uppercase', 'caption_style', 'caption_font',
   'caption_anim', 'caption_motion', 'caption_speed', 'caption_emph', 'caption_filler', 'caption_punct', 'caption_spacing', 'caption_offset',
-  'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_color', 'title_outline', 'title_x', 'title_y'] as const
+  'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_color', 'title_outline', 'title_x', 'title_y', 'title_fit', 'caption_fit'] as const
 export const FRAME_KEYS = ['layout', 'cam', 'cams', 'cam_height', 'game_zoom', 'game_x', 'track', 'track_target', 'focus_y', 'aspect'] as const
 const pick = (o: RenderOpts, keys: readonly string[]) => Object.fromEntries(keys.map(k => [k, o[k]]))
 /** Reset to default: how captions and titles look out of the box; positions stay. */
@@ -105,6 +105,7 @@ export function TextPanel({ opts, set, capPresets, whisper, guides, onGuides, on
         <Seg label="Title style" value={String(opts.title_style)} options={TITLE_STYLES} onChange={v => set({ title_style: v })} />
         <Fonts label="Title font" value={String(opts.title_font)} onChange={v => set({ title_font: v })} />
         <Range label="Size" value={Number(opts.title_size)} min={60} max={MAX_TEXT_SIZE.title} step={5} out={pct(opts.title_size)} onChange={v => set({ title_size: v })} />
+        <Check label="Auto size: a short title bigger, a long one smaller" checked={opts.title_fit !== false} onChange={v => set({ title_fit: v })} />
         {opts.title_style === 'outline' && (
           <div className="rv-swatches" role="radiogroup" aria-label="Title text colour" data-testid="title-colors">
             {TITLE_COLORS.map(c => (
@@ -133,6 +134,7 @@ export function TextPanel({ opts, set, capPresets, whisper, guides, onGuides, on
             <input type="color" aria-label="Custom highlight colour" value={String(opts.caption_color)} onChange={e => set({ caption_color: e.target.value })} />
           </div>
           <Range label="Text size" value={Number(opts.caption_size)} min={50} max={MAX_TEXT_SIZE.caption} step={5} out={pct(opts.caption_size)} onChange={v => set({ caption_size: v })} />
+          <Check label="Auto size: smaller when a long word wouldn't fit" checked={opts.caption_fit !== false} onChange={v => set({ caption_fit: v })} />
           <Range label="Words at once" value={Number(opts.words_per_line)} min={1} max={6} out={String(opts.words_per_line)} onChange={v => set({ words_per_line: v })} />
           <Range label="Outline" value={Number(opts.cap_outline ?? 100)} min={0} max={250} step={10} out={pct(opts.cap_outline ?? 100)} onChange={v => set({ cap_outline: v })} />
           <Range label="Shadow" value={Number(opts.cap_shadow ?? 100)} min={0} max={250} step={10} out={pct(opts.cap_shadow ?? 100)} onChange={v => set({ cap_shadow: v })} />
@@ -196,6 +198,12 @@ export function TextPanel({ opts, set, capPresets, whisper, guides, onGuides, on
   )
 }
 
+/** /api/framing/<project>'s query: the layout you're on, so Auto-frame fills it in (auto: run by itself on opening a video). */
+export function framingQuery(o: RenderOpts, auto = false): string {
+  return new URLSearchParams({ layout: String(o.layout || 'split'), cam: (Array.isArray(o.cam) ? o.cam : []).join(','),
+    layout_auto: o.layout_auto ? '1' : '', aspect: String(o.aspect || '9:16'), auto: auto ? '1' : '' }).toString()
+}
+
 export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, onSavePresets }: {
   opts: RenderOpts; set: SetOpts; pid: string; frameAt: number; framePresets: Preset[]; trackNote: string
   onSavePresets: (list: Preset[]) => Promise<void>
@@ -231,11 +239,10 @@ export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, 
   async function autoFrame() {
     setAutoBusy(true); setAutoNote('Looking for faces…')
     try {
-      const r = await api(FramingSuggest, `/api/framing/${pid}`)
-      if (!r.layout) { setAutoNote(r.reason || 'Nothing to suggest.'); return }
-      set({ layout: r.layout, layout_auto: true, ...(r.cam ? { cam: r.cam, cams: [] } : {}), ...(r.track ? { track: r.track } : {}),
-        ...(r.layout === 'split' && opts.aspect === '16:9' ? { aspect: '9:16' } : {}) })
-      setAutoNote(r.reason + (r.confidence < 0.6 ? ' (not sure: check it)' : ''))
+      // framed for the layout you're on; picks the layout too when you haven't (framing.fit decides)
+      const r = await api(FramingSuggest, `/api/framing/${pid}?${framingQuery(opts)}`)
+      if (Object.keys(r.set).length) set(r.set as Partial<RenderOpts>)
+      setAutoNote(r.note ?? (r.reason || 'Nothing to suggest.'))
     } catch (e) { setAutoNote(e instanceof Error ? e.message : String(e)) }
     finally { setAutoBusy(false) }
   }
@@ -251,7 +258,7 @@ export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, 
         <Seg label="Layout" value={String(opts.layout)} onChange={v => set({ layout: v, layout_auto: false })}
              options={[['split', 'Cam + game'], ['full', 'Whole frame'], ['cam', 'Cam only'], ['blur', 'Blur fit'], ['square', 'Square blur']]} />
         <span className="row wrap"><button className="btn sm" disabled={autoBusy} onClick={() => void autoFrame()}
-              title="Look for a facecam or a person and pick the layout that fits">Auto-frame</button><span className="hint">{autoNote}</span></span>
+              title="Look for a facecam or a person and frame the layout you're on (or pick one, if you haven't)">Auto-frame</button><span className="hint">{autoNote}</span></span>
       </div>
       {lay === 'full' && (
         <div className="fld">

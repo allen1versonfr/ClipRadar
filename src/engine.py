@@ -2774,6 +2774,8 @@ class RenderOpts:
     title_outline: int = 100        # border thickness of the Outline and Yellow styles, percent of normal (0-300)
     title_x: float = 0.5            # title centre x and top y, fractions of the frame
     title_y: float = 0.05           # top of the title box
+    title_fit: bool = True          # Text › Title › Auto size: a short title bigger, a long one smaller (fit_text)
+    caption_fit: bool = True        # Text › Captions › Auto size: a caption shrinks until its longest word fits
     whisper_model: str = "small"
     language: str = ""              # "" = auto-detect
     hw_encode: bool = True
@@ -3319,6 +3321,38 @@ CAPTION_STYLES = ("pop", "box", "karaoke", "glow", "clean")
 TITLE_STYLES = ("box", "dark", "accent", "outline", "yellow")
 TITLE_YELLOW = "#FFE600"
 MAX_TEXT_SIZE = {"title": 300, "caption": 250}     # percent: Text tab › Size goes this far
+# average width of a capital (or digit) and of any other character, as a share of the font size, as libass draws
+# each face (measured, plus about 5%; libass sizes a font by its full line height, so glyphs come out narrower
+# than a browser's at the same size; "classic" is Arial Black on Windows): for Auto size, which has to agree with
+# the preview without measuring the text. draw.ts and app.js keep the same table.
+FONT_GLYPH = {"classic": (0.6, 0.51), "montserrat": (0.45, 0.38), "poppins": (0.36, 0.32), "inter": (0.54, 0.45),
+              "anton": (0.26, 0.25), "bebas": (0.28, 0.28), "bangers": (0.23, 0.23), "luckiest": (0.44, 0.45)}
+TITLE_GROW = 1.3                   # Auto size makes a short title at most this much bigger
+FIT_MIN = 0.6                      # ... and a long one (or caption) at most this much smaller, unless a word won't fit
+
+
+def text_width(text: str, fs: float, font: str) -> float:
+    """About how wide text is at font size fs (pixels), from FONT_GLYPH."""
+    up, lo = FONT_GLYPH.get(font, FONT_GLYPH["classic"])
+    return fs * sum(up if (c != c.lower() or c.isdigit()) else lo for c in text)
+
+
+def fit_text(text: str, fs: int, width: float, font: str, grow: float = 1.0, lines: int = 3) -> int:
+    """Text › Auto size: the font size for text in a box `width` wide, starting from fs (Text › Size).
+    Text that fits on one line grows to fill it (at most `grow` times fs); text that would need more than
+    `lines` lines shrinks until it doesn't (to FIT_MIN of fs); and the longest word always fits on a line, which
+    at a big size it didn't (a single word can't wrap, so it ran off the frame). Keep in step with fitText in
+    web/src/features/review/draw.ts and src/ui/app.js."""
+    words = text.split()
+    if not words or width <= 0:
+        return int(fs)
+    one = width * 0.92 / max(1e-6, text_width(" ".join(words), 1.0, font))      # the size that fills one line
+    if one >= fs:
+        out = min(fs * grow, one)
+    else:
+        out = max(fs * FIT_MIN, min(float(fs), one * lines * 0.85))            # wrapping leaves gaps at line ends
+    out = min(out, width * 0.96 / max(1e-6, max(text_width(w, 1.0, font) for w in words)))
+    return max(20, int(out))
 
 
 def fonts_dir() -> Path:
@@ -3585,6 +3619,11 @@ def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, titl
         cap_style = f"Style: Cap,{cfont},{base_fs},{white},{white},{black},&H64000000,{cbold},0,0,0,100,100,1,0,1,0,{shd(4)},5,70,70,0,1"
     else:
         cap_style = f"Style: Cap,{cfont},{base_fs},{white},{white},{black},&H96000000,{cbold},0,0,0,100,100,1,0,1,{bord},{shd(3)},5,70,70,0,1"
+    tx = int(min(max(o.title_x, 0.3), 0.7) * W)
+    th = min(tx, W - tx) - 90           # wrap the title inside the frame around its own centre
+    if title.strip() and getattr(o, "title_fit", True):
+        title_fs = fit_text(title.strip(), title_fs, 2 * th, o.title_font if o.title_font in FONT_GLYPH else "classic",
+                            TITLE_GROW, 3)
     tpad = max(8, title_fs // 4)
     if tstyle in ("outline", "yellow"):
         tcol = _ass_color(TITLE_YELLOW if tstyle == "yellow" else getattr(o, "title_color", "#FFFFFF") or "#FFFFFF").rstrip("&")
@@ -3619,8 +3658,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if m.get("kind") != "image" and str(m.get("text") or "").strip():
             lines.append(_mark_dialogue(m, W, H, clip_len))
     if title.strip():
-        tx = int(min(max(o.title_x, 0.3), 0.7) * W)
-        th = min(tx, W - tx) - 90           # wrap the title inside the frame around its own centre
         ty = int(min(max(o.title_y, 0.0), 0.92) * H) + (tpad if tstyle not in ("outline", "yellow") else 0)
         lines.append(f"Dialogue: 1,{_ass_time(0)},{_ass_time(clip_len)},Title,,{tx - th},{W - tx - th},0,,"
                      f"{{\\an8\\pos({tx},{ty})}}{_ass_escape(title.strip())}")
@@ -3642,6 +3679,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         chars = sum(len(t) for t in texts) + len(texts) - 1
         # shrink long chunks so they stay on one or two lines
         fs = base_fs if chars <= 16 else max(int(base_fs * 0.75), int(base_fs * 18 / chars))
+        if getattr(o, "caption_fit", True):
+            fs = min(fs, fit_text(" ".join(w["word"].upper() if o.uppercase else w["word"] for w in ch), fs, 2 * half,
+                                  o.caption_font if o.caption_font in FONT_GLYPH else "classic", 1.0, 2))
         chunk_end = ch[-1]["end"]
         if ci + 1 < len(chunks):
             chunk_end = min(max(chunk_end, ch[-1]["end"] + 0.3), chunks[ci + 1][0]["start"])

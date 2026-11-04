@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Clip } from '../../api/schemas'
 import { RENDER_DEFAULTS, type RenderOpts } from '../../prefs'
-import { camRects, capAnchor, captionAt, chunksFor, dragPlace, drawLayout, layoutOf, maskWord, outSize, replaceWord } from './draw'
+import { camRects, capAnchor, captionAt, captionSize, chunksFor, dragPlace, drawLayout, fitText, layoutOf, maskWord, outSize, replaceWord, textWidth, titleSize } from './draw'
 
 const o = (over: object = {}) => ({ ...RENDER_DEFAULTS, ...over }) as RenderOpts
 const words = 'so um what was that! no way'.split(' ').map((w, i) => ({ start: 10 + i * 0.4, end: 10.3 + i * 0.4, word: w }))
@@ -80,5 +80,26 @@ describe('several facecams', () => {
     const capY = drawLayout(g, src, 1920, 1080, 540, 960, o({ layout: 'cam', cams: [[0.75, 0, 0.25, 0.25], [0, 0.75, 0.25, 0.25]] }), null, null)
     expect(out).toEqual([[0, 0, 540, 320], [0, 320, 540, 320], [0, 640, 540, 320]])
     expect(capY).toBe(320)
+  })
+})
+
+describe('Text › Auto size, as the render sizes it (engine.fit_text)', () => {
+  const longTitle = "I can't believe chat made me do this at three in the morning on a Tuesday with no sleep at all, again"
+  it('picks the same sizes as the render (test_captions_anim.py checks these numbers too)', () => {
+    expect(fitText('No way', 64, 900, 'classic', 1.3, 3)).toBe(83)
+    expect(fitText(longTitle, 64, 900, 'classic', 1.3, 3)).toBe(40)
+    expect(fitText('UNBELIEVABLEEEEE', 192, 900, 'luckiest', 1.3, 3)).toBe(122)
+    expect(fitText('ABSOLUTELY UNBELIEVABLE', 154, 940, 'classic', 1, 2)).toBe(107)
+  })
+  it('a short title grows, a long one shrinks, and off is Text › Size', () => {
+    expect(titleSize('No way', o())).toBe(83)
+    expect(titleSize(longTitle, o())).toBe(40)
+    expect(titleSize(longTitle, o({ title_fit: false }))).toBe(64)
+  })
+  it('a caption only ever shrinks, until its longest word fits', () => {
+    expect(captionSize(['NO', 'WAY'], o({ caption_size: 250 }), 940)).toBe(215)
+    expect(captionSize(['ABSOLUTELY', 'UNBELIEVABLE'], o({ caption_size: 250 }), 940)).toBeLessThan(155)
+    expect(textWidth('UNBELIEVABLE', captionSize(['ABSOLUTELY', 'UNBELIEVABLE'], o({ caption_size: 250 }), 940), 'classic')).toBeLessThanOrEqual(940)
+    expect(captionSize(['ABSOLUTELY', 'UNBELIEVABLE'], o({ caption_size: 250, caption_fit: false }), 940)).toBeCloseTo(215 * 18 / 23)      // the long-caption shrink alone
   })
 })

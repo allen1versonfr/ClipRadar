@@ -321,6 +321,7 @@
                 <div class="tiles t4" id="titleStyles"></div>
                 <div class="fld">Font<div class="font-grid" id="titleFont"></div></div>
                 <label class="fld inline">Size<input type="range" id="titleSize" min="60" max="150" step="5" value="100"><output id="titleSizeOut" class="tnum"></output></label>
+                <label class="fld switch-label" title="A short title gets bigger, a long one smaller, and every word stays inside the frame">Auto size<span class="switch"><input type="checkbox" id="titleFit" checked><i></i></span></label>
 
                 <div class="sep"></div>
                 <label class="fld switch-label sec-switch"><h3>Captions</h3><span class="switch"><input type="checkbox" id="caps" checked><i></i></span></label>
@@ -329,6 +330,7 @@
                   <div class="fld">Font<div class="font-grid" id="capFont"></div></div>
                   <div class="fld inline">Highlight<div class="swatches" id="swatches"></div></div>
                   <label class="fld inline">Text size<input type="range" id="capSize" min="70" max="140" step="5" value="100"><output id="capSizeOut" class="tnum"></output></label>
+                  <label class="fld switch-label" title="A caption with a long word gets smaller, so it stays inside the frame">Auto size<span class="switch"><input type="checkbox" id="capFit" checked><i></i></span></label>
                   <label class="fld inline">Words at once<input type="range" id="wpl" min="1" max="6" value="3"><output id="wplOut" class="tnum"></output></label>
                   <label class="fld inline">Outline<input type="range" id="capOutline" min="0" max="250" step="10" value="100"><output id="capOutlineOut" class="tnum"></output></label>
                   <label class="fld inline">Shadow<input type="range" id="capShadow" min="0" max="250" step="10" value="100"><output id="capShadowOut" class="tnum"></output></label>
@@ -370,7 +372,7 @@
                 </div>
                 <div class="fld">Layout
                   <div class="seg" id="layoutSeg"><button data-v="split" class="on" title="Facecam on top, gameplay below">Cam + game</button><button data-v="full" title="Crop of the whole frame">Whole frame</button><button data-v="cam" title="Just the facecam, filling the frame">Cam only</button><button data-v="blur" title="The whole frame, fitted, over a blurred copy">Blur fit</button><button data-v="square" title="A square crop of the frame, centred over a blurred copy. Focus and Zoom pick which part">Square blur</button></div>
-                  <div class="row auto-frame"><button class="btn sm" id="autoFrame" title="Look for a facecam or a person and pick the layout that fits">Auto-frame</button><span class="hint" id="autoFrameNote"></span></div>
+                  <div class="row auto-frame"><button class="btn sm" id="autoFrame" title="Look for a facecam or a person and frame the layout you're on (or pick one, if you haven't)">Auto-frame</button><span class="hint" id="autoFrameNote"></span></div>
                 </div>
                 <div id="trackBlock">
                   <label class="fld switch-label">Follow the streamer's face<span class="switch"><input type="checkbox" id="track" checked><i></i></span></label>

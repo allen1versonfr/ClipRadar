@@ -127,7 +127,7 @@ check("Outline takes the colour you pick", c[3] == "&H00FFD100", c[3])
 b100, b300 = int(fields(title_style(R(title_style="yellow")))[16]), int(fields(title_style(R(title_style="yellow", title_outline=300)))[16])
 check("the border is about 3 times thicker at 300%", abs(b300 - 3 * b100) <= 2 and b100 >= 7, (b100, b300))
 check("and gone at 0%", fields(title_style(R(title_style="outline", title_outline=0)))[16] == "0")
-s100, s300 = int(fields(title_style(R(title_size=100)))[2]), int(fields(title_style(R(title_size=300)))[2])
+s100, s300 = int(fields(title_style(R(title_size=100, title_fit=False)))[2]), int(fields(title_style(R(title_size=300, title_fit=False)))[2])
 check("titles go up to 300% (they stopped at 160%)", s300 == 3 * s100, (s100, s300))
 cap = lambda o: int(fields(next(ln for ln in engine.build_ass(WORDS, o, 1300, 5.0).splitlines() if ln.startswith("Style: Cap,")))[2])  # noqa: E731
 check("captions go up to 250% (they stopped at 160%)", cap(R(caption_size=250)) == int(86 * 2.5) and cap(R(caption_size=900)) == cap(R(caption_size=250)))
@@ -200,6 +200,61 @@ for text, m, want in LINES:
     got = [" ".join(w["word"] for w in c) for c in engine._chunks(ws, R(words_per_line=m, caption_filler=True,
                                                                         caption_punct=True), 99)]
     check(f"caption lines: {text!r}", got == want, got)
+
+# ---- Text › Auto size (4.42): a short title bigger, a long one smaller, and no word wider than the frame. draw.test.ts
+# checks the preview gets the same sizes
+
+
+def title_fs(title, **kw):
+    ass = engine.build_ass([], R(**kw), 1300, 5.0, title=title)
+    return int(fields(next(ln for ln in ass.splitlines() if ln.startswith("Style: Title,")))[2])
+
+
+def cap_fs(word_list, **kw):
+    ws = [{"start": 0.2 + i * 0.3, "end": 0.45 + i * 0.3, "word": w} for i, w in enumerate(word_list)]
+    ln = next(ln for ln in engine.build_ass(ws, R(**kw), 1300, 5.0).splitlines() if ln.startswith("Dialogue: 0,"))
+    return int(ln.split("\\fs", 1)[1].split("\\", 1)[0].split("}", 1)[0])
+
+
+base = title_fs("No way", title_fit=False)
+check("auto size: a short title is bigger, at most 1.3x", base < title_fs("No way") <= int(base * 1.3), (base, title_fs("No way")))
+long_t = "I can't believe chat made me do this at three in the morning on a Tuesday with no sleep at all, again"
+check("auto size: a long title is smaller (not under 60%)",
+      int(base * 0.6) <= title_fs(long_t) < base, (base, title_fs(long_t)))
+check("auto size off: the size is Text › Size", title_fs(long_t, title_fit=False) == base == title_fs("No way", title_fit=False))
+for font in engine.FONT_GLYPH:
+    fs = title_fs("UNBELIEVABLEEEEE", title_size=300, title_font=font)
+    check(f"auto size: one long word at 300% fits inside the title's box ({font})",
+          engine.text_width("UNBELIEVABLEEEEE", fs, font) <= 2 * (540 - 90), (fs, round(engine.text_width("UNBELIEVABLEEEEE", fs, font))))
+big = cap_fs(["no", "way"], caption_size=250)
+check("auto size: a short caption keeps its size", big == cap_fs(["no", "way"], caption_size=250, caption_fit=False), big)
+huge = cap_fs(["absolutely", "unbelievable"], caption_size=250, words_per_line=2)
+check("auto size: a caption's longest word fits the frame at 250%",
+      engine.text_width("UNBELIEVABLE", huge, "classic") <= 2 * (540 - 70)
+      and huge < cap_fs(["absolutely", "unbelievable"], caption_size=250, words_per_line=2, caption_fit=False), huge)
+check("auto size never grows a caption", cap_fs(["hi"]) == cap_fs(["hi"], caption_fit=False))
+if shutil.which("ffmpeg"):
+    # as libass really draws it: at 300% a long word ran off both sides of the frame; with Auto size it's inside
+    fdir = tempfile.mkdtemp(prefix="vc_fonts_")
+    for name in os.listdir(engine.fonts_dir()):
+        shutil.copy(os.path.join(engine.fonts_dir(), name), fdir)
+
+    def title_cols(title, **kw):
+        with open(os.path.join(fdir, "t.ass"), "w", encoding="utf-8") as f:
+            f.write(engine.build_ass([], R(title_style="yellow", **kw), 1300, 1.0, title=title))
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=black:s=1080x1920:d=0.5", "-vf",
+                              "ass=t.ass:fontsdir=.", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                             capture_output=True, cwd=fdir).stdout
+        cols = np.where((np.frombuffer(raw, np.uint8).reshape(1920, 1080) > 40).any(axis=0))[0]
+        return (int(cols.min()), int(cols.max())) if cols.size else (0, 0)
+    for font in ("montserrat", "inter", "bebas", "luckiest"):
+        off, on = (title_cols("UNBELIEVABLEEEEE", title_font=font, title_size=300, title_fit=fit) for fit in (False, True))
+        check(f"rendered: a long word at 300% stays inside the frame with Auto size ({font})",
+              off[0] < 20 and off[1] > 1060 and 40 <= on[0] and on[1] <= 1040 and on[1] - on[0] > 500, (off, on))
+# the same numbers draw.test.ts expects of the preview's fitText
+for args, want in ((("No way", 64, 900, "classic", 1.3, 3), 83), ((long_t, 64, 900, "classic", 1.3, 3), 40),
+                   (("UNBELIEVABLEEEEE", 192, 900, "luckiest", 1.3, 3), 122), (("ABSOLUTELY UNBELIEVABLE", 154, 940, "classic", 1, 2), 107)):
+    check(f"fit_text{args[1:]} = {want} (draw.test.ts expects the same)", engine.fit_text(*args) == want, engine.fit_text(*args))
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)
