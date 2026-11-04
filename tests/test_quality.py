@@ -280,6 +280,20 @@ if shutil.which("ffmpeg"):
     it = {"start": 0.0, "end": 4.0}
     server._check_picture(it, {"video": os.path.join(ptmp, "sharp.mp4")})
     check("a good clip gets none", not it.get("warning"), it)
+    # 4.41: a dim picture with something lit in it (a streamer lit by their screen in a dark room) was "very dark" on
+    # almost every clip; only a picture with next to nothing visible is
+    dim = lambda name, size, at, vf="": subprocess.run(  # noqa: E731
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x0c0c10:s=1280x720:r=30:d=4", "-f", "lavfi", "-i",
+         f"testsrc2=size={size}:rate=30:duration=4", "-filter_complex", f"[0][1]overlay={at}" + (f",{vf}" if vf else ""),
+         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", os.path.join(ptmp, name)], check=True)
+    dim("lit.mp4", "360x420", "460:150")
+    dim("litblur.mp4", "360x420", "460:150", "boxblur=12:2")
+    dim("hud.mp4", "120x60", "20:20")
+    pc = {n: engine.picture_check(os.path.join(ptmp, n + ".mp4"), 0, 4) for n in ("lit", "litblur", "hud")}
+    check("a dark room with the streamer lit isn't too dark (it was before 4.41)", pc["lit"] == {"dark": 0.0, "blurry": 0.0}, pc)
+    check("nor blurry: a dim picture's edges are just fainter", pc["lit"]["blurry"] == 0.0, pc)
+    check("a dim picture that really is blurred is blurry", pc["litblur"]["blurry"] >= 0.6, pc)
+    check("nearly black with a small overlay is still too dark", pc["hud"]["dark"] >= 0.6, pc)
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

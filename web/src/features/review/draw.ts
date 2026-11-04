@@ -141,19 +141,55 @@ export const emphasised = (w: string) => {
   return EMPH.has(core.toLowerCase()) || w.endsWith('!') || (core.length > 2 && core === core.toUpperCase() && /[A-Z]/.test(core))
 }
 export interface Chunk { words: Word[]; start: number; end: number }
+// a caption line doesn't end on a word that leads into the next ("I went to the | store"): engine.LINE_LEADS
+const LINE_LEADS = new Set(['the', 'a', 'an', 'to', 'of', 'my', 'your', 'his', 'her', 'our', 'their', 'its', 'in', 'on',
+  'at', 'for', 'with', 'from'])
+const LINE_LEADS_SOFT = new Set(['and', 'or', 'but', 'this', 'that', 'i', "i'm", 'we', 'you', 'he', 'she', 'they',
+  "it's", 'is', 'was', 'are', 'be', 'if', 'so', 'as'])
+
+/** How bad ws[i:j] is as one line of at most m words: the same sums as the render (engine._line_cost). */
+function lineCost(ws: Word[], i: number, j: number, m: number): number {
+  const n = ws.length, k = j - i, last = ws[j - 1]!.word
+  let c = 1 + 0.15 * (m - k)
+  const bare = last.replace(/[^\w']/g, '').toLowerCase()
+  if (j < n && /[\p{L}\p{N}]$/u.test(last)) c += LINE_LEADS.has(bare) ? 2 : LINE_LEADS_SOFT.has(bare) ? 0.8 : 0
+  if (k === 1) c += 1.2
+  if (j < n && /[,;:]$/.test(last)) c -= 0.8
+  return c
+}
+
+/** One run of speech in lines of at most m words: the fewest, evenest lines that don't end on "the" or leave a
+ *  word on its own (engine._balance). Ties go to the longer first line. */
+function balance(ws: Word[], m: number): Word[][] {
+  const n = ws.length
+  if (n <= m) return [ws]
+  const best = [0, ...Array<number>(n).fill(Infinity)], back = Array<number>(n + 1).fill(0)
+  for (let j = 1; j <= n; j++) {
+    for (let i = j - 1; i >= Math.max(0, j - m); i--) {
+      const c = best[i]! + lineCost(ws, i, j, m)
+      if (c < best[j]! - 1e-9) { best[j] = c; back[j] = i }
+    }
+  }
+  const lines: Word[][] = []
+  for (let j = n; j > 0; j = back[j]!) lines.unshift(ws.slice(back[j]!, j))
+  return lines
+}
+
 export function chunksFor(c: Pick<Clip, 'words' | 'start' | 'end'>, o: RenderOpts): Chunk[] {
   const ws = captionWords((c.words as Word[]).filter(w => w.start >= c.start - 0.2 && w.start < c.end), o)
-  const chunks: Word[][] = []
+  const runs: Word[][] = []
   let ch: Word[] = []
   for (const w of ws) {
     const prev = ch.at(-1)
-    // a line typed in the Captions tab stays together (g); otherwise break by length, pauses and sentence ends
-    const brk = prev && ((w.g || prev.g) ? w.g !== prev.g
-      : (ch.length >= Math.max(1, Number(o.words_per_line)) || w.start - prev.end > 0.6 || /[.?!]$/.test(prev.word)))
-    if (brk) { chunks.push(ch); ch = [] }
+    // a line typed in the Captions tab stays together (g); otherwise runs of speech end at pauses and sentence
+    // ends, and each is split into balanced lines
+    const brk = prev && ((w.g || prev.g) ? w.g !== prev.g : (w.start - prev.end > 0.6 || /[.?!]$/.test(prev.word)))
+    if (brk) { runs.push(ch); ch = [] }
     ch.push(w)
   }
-  if (ch.length) chunks.push(ch)
+  if (ch.length) runs.push(ch)
+  const m = Math.max(1, Number(o.words_per_line) || 1)
+  const chunks = runs.flatMap(r => r[0]!.g ? [r] : balance(r, m))
   return chunks.map((k, i) => {
     const last = k.at(-1)!
     const end = i + 1 < chunks.length ? Math.min(Math.max(last.end, last.end + 0.3), chunks[i + 1]![0]!.start) : last.end + 0.4

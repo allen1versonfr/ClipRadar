@@ -3114,7 +3114,9 @@ def _load_whisper(model_size: str, log: Log):
     silence = np.zeros(16000, dtype=np.float32)
     errors = []
     tries = [("cpu", "int8")]
-    if gpu.nvidia_gpu():
+    if gpu.nvidia_gpu() and time.time() < _card_rest[0]:
+        pass                       # the card ran out of memory mid-clip a moment ago: the CPU for now
+    elif gpu.nvidia_gpu():
         if gpu.cuda_libs():
             # float16 first; int8_float16 takes about half the graphics memory, for cards float16 doesn't fit on
             # (4.36: before, a card that ran out of memory went straight to the CPU)
@@ -3143,6 +3145,12 @@ def _load_whisper(model_size: str, log: Log):
 
 _whisper_device: dict = {}         # model size -> "cuda" or "cpu", for the ones loaded
 _whisper_said: dict = {}
+# The card can run out of memory part-way through a clip (a game, the GPU encoder, titles and Deep scan share it), not
+# just while loading. That went to the render as "Your PC ran out of memory" with RAM to spare; now that clip is heard
+# again on the CPU, and Whisper stays on the CPU this long before the card gets another try.
+CARD_REST = 600
+_card_rest = [0.0]
+_CARD_ERROR = re.compile(r"cuda|cublas|cudnn|out of memory|device memory", re.I)
 
 
 def whisper_device() -> str:
@@ -3209,28 +3217,44 @@ def transcribe(audio, model_size: str, language: str, log: Log, prompt: str = ""
 def _transcribe(audio, model_size: str, language: str, log: Log, prompt: str, progress: Progress = _noop) -> list:
     with _whisper_lock:
         model = _load_whisper(model_size, log)
-        kw = dict(language=language or None, word_timestamps=True, vad_filter=True, beam_size=5,
-                  vad_parameters={"min_silence_duration_ms": 400}, condition_on_previous_text=False)
-        if prompt:
-            kw["initial_prompt"] = prompt[:400]
         try:
-            segs, _ = model.transcribe(audio, **kw)
-        except TypeError:                      # an older faster-whisper without some of these options
-            kw.pop("condition_on_previous_text", None)
-            segs, _ = model.transcribe(audio, **kw)
-        words = []
-        total = max(0.1, len(audio) / 16000)
-        for seg in segs:
-            progress(min(1.0, float(getattr(seg, "end", 0) or 0) / total))
-            # Whisper's own check for text made up during silence or music
-            if getattr(seg, "no_speech_prob", 0) > 0.6 and getattr(seg, "avg_logprob", 0) < -1.0:
-                continue
-            if _HALLUCINATION.search(getattr(seg, "text", "") or ""):
-                continue
-            for w in seg.words or []:
-                txt = w.word.strip()
-                if txt:
-                    words.append({"start": float(w.start), "end": float(w.end), "word": txt})
+            return _hear(model, audio, language, prompt, progress)
+        except Exception as e:
+            if _whisper_device.get(model_size) != "cuda" or not _CARD_ERROR.search(str(e)):
+                raise
+            why = str(e).splitlines()[0][:140] if str(e) else type(e).__name__
+            log(f"The graphics card ran out of room for Whisper ({why}); hearing this on the CPU.")
+            print(f"  Whisper on the GPU stopped ({why}); this and the next {CARD_REST // 60} minutes on the CPU.", flush=True)
+            _card_rest[0] = time.time() + CARD_REST
+            _whisper_cache.pop(model_size, None)
+            import gc
+            gc.collect()
+            return _hear(_load_whisper(model_size, log), audio, language, prompt, progress)
+
+
+def _hear(model, audio, language: str, prompt: str, progress: Progress) -> list:
+    kw = dict(language=language or None, word_timestamps=True, vad_filter=True, beam_size=5,
+              vad_parameters={"min_silence_duration_ms": 400}, condition_on_previous_text=False)
+    if prompt:
+        kw["initial_prompt"] = prompt[:400]
+    try:
+        segs, _ = model.transcribe(audio, **kw)
+    except TypeError:                      # an older faster-whisper without some of these options
+        kw.pop("condition_on_previous_text", None)
+        segs, _ = model.transcribe(audio, **kw)
+    words = []
+    total = max(0.1, len(audio) / 16000)
+    for seg in segs:
+        progress(min(1.0, float(getattr(seg, "end", 0) or 0) / total))
+        # Whisper's own check for text made up during silence or music
+        if getattr(seg, "no_speech_prob", 0) > 0.6 and getattr(seg, "avg_logprob", 0) < -1.0:
+            continue
+        if _HALLUCINATION.search(getattr(seg, "text", "") or ""):
+            continue
+        for w in seg.words or []:
+            txt = w.word.strip()
+            if txt:
+                words.append({"start": float(w.start), "end": float(w.end), "word": txt})
     return words
 
 
@@ -3347,8 +3371,51 @@ def _emphasised(word: str) -> bool:
     return core.lower() in EMPH_WORDS or word.endswith("!") or (len(core) > 2 and core.isupper())
 
 
+# a caption line doesn't end on a word that leads into the next ("I went to the | store"); an article, preposition
+# or possessive is worse than a pronoun, a conjunction or "is" ("this is | the biggest burger" reads fine)
+LINE_LEADS = {"the", "a", "an", "to", "of", "my", "your", "his", "her", "our", "their", "its", "in", "on", "at", "for",
+              "with", "from"}
+LINE_LEADS_SOFT = {"and", "or", "but", "this", "that", "i", "i'm", "we", "you", "he", "she", "they", "it's", "is", "was",
+                   "are", "be", "if", "so", "as"}
+
+
+def _line_cost(ws: list, i: int, j: int, m: int) -> float:
+    """How bad ws[i:j] is as one caption line of at most m words (the same sums as the UI's preview)."""
+    n, k = len(ws), j - i
+    c = 1.0 + 0.15 * (m - k)                       # fewer, fuller lines
+    last = ws[j - 1]["word"]
+    bare = re.sub(r"[^\w']", "", last).lower()
+    if j < n and last[-1:].isalnum():
+        c += 2.0 if bare in LINE_LEADS else 0.8 if bare in LINE_LEADS_SOFT else 0.0      # "...to the" | "store"
+    if k == 1:
+        c += 1.2                                   # a word on its own
+    if j < n and last[-1:] in ",;:":
+        c -= 0.8                                   # a comma is a natural place for a new line
+    return c
+
+
+def _balance(ws: list, m: int) -> list:
+    """One run of speech in lines of at most m words: the fewest, evenest lines that don't end on "the" or leave a
+    word on its own (4.41: before, every m words, so "so I went | to the store | yesterday" and "...to the | store").
+    Ties go to the longer first line, as the old cut did."""
+    n = len(ws)
+    if n <= m:
+        return [ws]
+    best, back = [0.0] + [float("inf")] * n, [0] * (n + 1)
+    for j in range(1, n + 1):
+        for i in range(j - 1, max(0, j - m) - 1, -1):
+            c = best[i] + _line_cost(ws, i, j, m)
+            if c < best[j] - 1e-9:
+                best[j], back[j] = c, i
+    lines, j = [], n
+    while j > 0:
+        lines.append(ws[back[j]:j])
+        j = back[j]
+    return lines[::-1]
+
+
 def _chunks(words: list, o: "RenderOpts", clip_len: float) -> list:
-    chunks: list = []
+    runs: list = []
     cur: list = []
     for w in words:
         if w["start"] >= clip_len:
@@ -3357,16 +3424,15 @@ def _chunks(words: list, o: "RenderOpts", clip_len: float) -> list:
         if prev and (w.get("g") or prev.get("g")):
             brk = w.get("g") != prev.get("g")      # a line typed in the app stays one caption
         else:
-            brk = bool(cur) and (len(cur) >= max(1, o.words_per_line)
-                                 or w["start"] - prev["end"] > 0.6
-                                 or prev["word"][-1:] in ".?!")
+            brk = bool(cur) and (w["start"] - prev["end"] > 0.6 or prev["word"][-1:] in ".?!")
         if brk:
-            chunks.append(cur)
+            runs.append(cur)
             cur = []
         cur.append(w)
     if cur:
-        chunks.append(cur)
-    return chunks
+        runs.append(cur)
+    m = max(1, int(o.words_per_line))
+    return [ln for r in runs for ln in ([r] if r[0].get("g") else _balance(r, m))]
 
 
 WM_POSITIONS = ("tl", "tr", "bl", "br", "c")
@@ -3775,7 +3841,10 @@ def write_srt(words: list, o: "RenderOpts", path: str, clip_len: float):
     os.replace(tmp, path)
 
 
-DARK_LUMA = 38          # average brightness (0-255) under this reads as "can't see anything" on a phone
+DARK_LUMA = 38          # average brightness (0-255) under this is a dim picture ...
+SEEN_LUMA = 50          # ... and it's too dark to watch when under SEEN_SHARE of it is brighter than this. Dim on average
+SEEN_SHARE = 0.03       # isn't enough: a streamer lit by their screen in a dark room averages about 31, a night scene
+                        # with a HUD 18, and both are easy to watch (10% and 4% of the picture bright). Nearly black is 0-1%
 BLUR_SHARP = 20.0      # edge strength (Laplacian variance, 192 px wide) under this is a smear (sharp video: 200-1500)
 
 
@@ -3796,9 +3865,12 @@ def picture_check(video: str, start: float, end: float, samples: int = 5) -> dic
             continue
         g = np.frombuffer(p.stdout, np.uint8).reshape(h, w).astype(np.float32)
         got += 1
-        if float(g.mean()) < DARK_LUMA:
+        if float(g.mean()) < DARK_LUMA and float((g > SEEN_LUMA).mean()) < SEEN_SHARE:
             dark += 1
             continue                                   # a dark frame is low-detail anyway: count it once
+        top = float(np.percentile(g, 99))
+        if top < 200:
+            g = g * (255.0 / max(top, 32.0))           # a dim picture's edges are as sharp as a bright one's, just fainter
         lap = g[1:-1, 2:] + g[1:-1, :-2] + g[2:, 1:-1] + g[:-2, 1:-1] - 4 * g[1:-1, 1:-1]
         if float(lap.var()) < BLUR_SHARP:
             blurry += 1

@@ -179,8 +179,29 @@ LEAD_FILLER = {"um", "uh", "uhh", "umm", "so", "and", "but", "like", "yeah", "ok
 DANGLING_END = {"the", "a", "an", "to", "of", "and", "but", "or", "so", "my", "your", "our", "this", "that", "i",
                 "i'm", "it's", "is", "was", "are", "in", "on", "at", "for", "with", "as", "be", "we",
                 "they", "he", "she", "if", "when", "because", "than", "there", "just", "really", "very"}
+# a piece that stops on one of these stops before what was said or thought ("I think the patch notes said")
+LEADS_INTO = {"said", "says", "goes", "think", "thought", "know", "knew", "like", "asked", "told", "then"}
 DANGLING_START = {"of", "to", "and", "but", "or", "than", "that", "which", "with", "for", "as", "at", "in", "on",
                   "would", "could", "should", "is", "are", "was", "were", "be", "been", "being"}
+# where a new clause starts, in speech without punctuation (YouTube's automatic captions): a good place to cut
+# a long run ("...yesterday | and the guy behind the counter just looks at me | and goes are you famous")
+CLAUSE_START = {"and", "but", "so", "because", "then", "okay", "ok", "oh", "wait", "i", "i'm", "it's", "he", "she",
+                "we", "they", "there's", "that's", "this", "no", "yeah", "like", "goes", "what", "why", "how"}
+# words that say nothing about what happened: a line made only of these ("Let's see if that's true", "Why did I do
+# that") is a poor title however close to the peak it was said; one with a specific word ("spider", "cliff",
+# "queen") says what the clip is
+PLAIN = set("""
+let's lets see seen if that's thats true really just here there then now know think thought want wanna gonna going
+get got getting do did does done doing make made have has had having will would can could should be been being am
+not all out up off one some any how who what why when where which this these those that it it's its me him her them
+his hers our ours their they're you're we're i'm im i'd i'll i've don't dont can't cant didn't won't isn't wasn't
+again still even ever never always very much more most too also only well right good bad nice cool okay yes yeah
+come came go went say said tell told look looks looking guys chat bro dude man thing things stuff something
+anything nothing everything way time today real quick literally actually honestly basically every
+""".split())
+# "...and goes are you famous": the words before a quote, dropped from a title made of it
+QUOTATIVE = re.compile(r"^(?:(?:he|she|they|i|you|and|then)\s+)*(?:goes|says|was like|were like|is like|be like)\s+",
+                       re.I)
 # short words that are real words, so a line made of them isn't taken for Whisper mishearing noise
 SHORT_WORDS = {"i", "a", "no", "so", "oh", "ok", "go", "my", "me", "we", "he", "is", "it", "to", "do", "up", "on",
                "in", "at", "be", "us", "yo", "ya", "of", "or", "an", "as", "if", "by", "am", "hi", "ah", "uh", "um"}
@@ -216,35 +237,60 @@ def _phrases(words: list) -> list:
             cur = []
     if cur:
         out.append(cur)
-    # split very long phrases at commas, else into pieces of 4-9 words, cut where the speaker paused
-    # longest and never right after a word that leads into the next ("the", "my", "this"). Automatic
-    # captions have no punctuation at all, so a cut every 8 words landed mid-sentence: "I loved every
-    # second of it this" (this starter house...). Pieces cut this way are marked for _score_phrase.
+    # Split very long phrases into pieces of 3-11 words, choosing all the cuts together: where the speaker
+    # paused, after a comma, before a word that starts a clause, and never right after a word that leads into
+    # the next ("the", "my", "this"). Automatic captions have no punctuation at all: a cut every few words landed
+    # mid-sentence ("I loved every second of it this", "In my life it's literally the size"). Pieces cut this
+    # way are marked for _score_phrase.
     final = []
     for ph in out:
         if len(ph) <= 11:
             final.append(ph)
             continue
-        i = 0
-        while i < len(ph):
-            rest = ph[i:]
-            if len(rest) <= 11:
-                cut = len(rest)
-            else:
-                cut = next((k + 1 for k in range(2, 9) if rest[k]["word"].endswith(",")), 0)
-                if not cut:
-                    def gap(k):        # the break after rest[k - 1]
-                        lead = re.sub(r"[^\w']", "", rest[k - 1]["word"]).lower() in DANGLING_END
-                        return rest[k]["start"] - rest[k - 1]["end"] - (1.0 if lead else 0.0) + 0.01 * k
-                    cut = max(range(4, 10), key=gap)
-            piece = [dict(w) for w in rest[:cut]]
-            if i:
+        for k, (a, b) in enumerate(_cuts(ph)):
+            piece = [dict(w) for w in ph[a:b]]
+            if a:
                 piece[0]["_cut_start"] = True
-            if i + cut < len(ph) and not piece[-1]["word"].endswith(","):
+            if b < len(ph) and not piece[-1]["word"].endswith(","):
                 piece[-1]["_cut_end"] = True
             final.append(piece)
-            i += cut
     return final
+
+
+def _bare(w: str) -> str:
+    return re.sub(r"[^\w']", "", w).lower()
+
+
+def _cuts(ph: list) -> list:
+    """Where to cut a long run of speech: [(start, end)] pieces of 3-11 words, the best cuts over the whole run."""
+    n = len(ph)
+
+    def brk(k: int) -> float:                 # how good a cut before ph[k] is
+        prev, nxt = ph[k - 1]["word"], ph[k]["word"]
+        g = 3.0 * min(1.0, max(0.0, ph[k]["start"] - ph[k - 1]["end"]))
+        g += 1.0 if prev.endswith((",", ";", ":")) else 0.0
+        g += 0.8 if _bare(nxt) in CLAUSE_START else -1.0 if _bare(nxt) in DANGLING_START else 0.0
+        g -= 1.5 if _bare(prev) in DANGLING_END else 0.0
+        return g
+
+    best = [float("-inf")] * (n + 1)
+    back = [0] * (n + 1)
+    best[0] = 0.0
+    for b in range(3, n + 1):
+        for a in range(max(0, b - 11), b - 2):
+            if best[a] == float("-inf"):
+                continue
+            ln = b - a
+            v = best[a] + (brk(b) - 0.4 if b < n else 0.0) - 0.15 * abs(ln - 7)     # a cut needs a reason
+            if v > best[b]:
+                best[b], back[b] = v, a
+    if best[n] == float("-inf"):
+        return [(0, n)]
+    cuts, b = [], n
+    while b > 0:
+        cuts.append((back[b], b))
+        b = back[b]
+    return cuts[::-1]
 
 
 def _phrase_text(ph: list) -> str:
@@ -252,6 +298,9 @@ def _phrase_text(ph: list) -> str:
     while words and re.sub(r"[^\w']", "", words[0]).lower() in LEAD_FILLER:
         words = words[1:]
     text = " ".join(words)
+    bare = QUOTATIVE.sub("", text)
+    if bare != text and len(bare.split()) >= 3:
+        text = bare
     text = re.sub(r"\s+([,.!?])", r"\1", text).strip(" ,;:-")
     text = text.rstrip(".")
     text = re.sub(r",$", "", text)
@@ -277,9 +326,17 @@ def _score_phrase(ph: list, text: str, peak_rel: float) -> float:
         s += 1.5
     if text.endswith("?"):
         s += 1
-    s += min(2.0, 0.6 * sum(1 for t in toks if t in STRONG))
+    strong = sum(1 for t in toks if t in STRONG)
+    s += min(2.0, 0.6 * strong)
     if toks and all(t in FILLER for t in toks):
         s -= 3
+    # a title says what happened: specific words ("spider", "cliff", "queen") count; a line with none, said
+    # flatly, says nothing on its own ("Let's see if that's true")
+    specific = sum(1 for t in toks if len(t) >= 3 and t not in PLAIN and t not in FILLER and t not in STRONG
+                   and t not in DANGLING_END and t not in DANGLING_START)
+    s += min(1.8, 0.6 * specific)
+    if not specific and strong < 2 and "!" not in text:
+        s -= 1.5 if text.endswith("?") else 2.5
     if len(text) > 55:
         s -= 2
     mid = (ph[0]["start"] + ph[-1]["end"]) / 2
@@ -291,7 +348,7 @@ def _score_phrase(ph: list, text: str, peak_rel: float) -> float:
     # a piece cut out of a longer sentence that starts or stops mid-thought
     if ph[0].get("_cut_start") and toks and toks[0] in DANGLING_START:
         s -= 1.5
-    if ph[-1].get("_cut_end") and toks and toks[-1] in DANGLING_END:
+    if ph[-1].get("_cut_end") and toks and (toks[-1] in DANGLING_END or toks[-1] in LEADS_INTO):
         s -= 1.5
     return s
 
@@ -582,7 +639,8 @@ def describe(vibe: Optional[str], quote: str, streamer: str = "", emoji: str = "
         credit = [f", live on {name}'s stream", f" ({name} on {where})", f" · {name}'s stream"][seed % 3]
         text = hook + (credit if name else "")
     else:
-        text = f"A moment from {name}'s stream" if name else "A moment from the stream"
+        what = "stream" if where == "Twitch" else "video"       # a YouTube or X upload isn't a stream
+        text = f"A moment from {name}'s {what}" if name else f"A moment from the {what}"
     return f"{text} {emoji}".strip()
 
 
@@ -669,9 +727,12 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
 
     emoji = VIBES[vibe]["emoji"] if vibe else "👀"
     tags = hashtags(vibe, name, game, platform, t_word, category, seed)
-    # the description says something the title on the video doesn't: the reaction when the title is the quote
-    desc = describe(vibe, "" if quote and quote == title_a and vibe else quote, name, emoji, platform,
-                    used | {title_a.lower(), title_b.lower()}, seed)
+    # the description says something the title on the video doesn't: the reaction when the title is the quote, or
+    # (no reaction to go on) the next best line said. It repeated the title in quotes before 4.41.
+    said = quote
+    if quote and quote == title_a:
+        said = "" if vibe else next((q for q in good_quotes[1:] if q.lower() not in title_a.lower()), "")
+    desc = describe(vibe, said, name, emoji, platform, used | {title_a.lower(), title_b.lower()}, seed)
     return {
         "title": title,
         "title_a": title_a,

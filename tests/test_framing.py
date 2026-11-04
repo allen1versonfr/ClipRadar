@@ -9,6 +9,7 @@ the crop expression ffmpeg gets, captions moving off the face, and saved framing
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 
@@ -141,6 +142,36 @@ check("a second person and a missed frame don't pull the crop away", mid < 0.35,
 check("once the first person has gone, the crop moves to the other", r["path"][-1][1] > 0.7, r["path"][-1])
 check("and never whips across", max(abs(b - a) for (_, a), (_, b) in zip(r["path"], r["path"][1:])) <= framing.MAX_SPEED * 0.5 + 1e-6)
 
+# ---------------------------------------------------------------- cuts, turned heads (4.41)
+# an edited video: the face on the left for 4 s, then a cut to a shot with them on the right
+shots = [[face_at(0.25)] for _ in range(int(4 * FPS))] + [[face_at(0.75)] for _ in range(int(4 * FPS))]
+panned = framing.follow(shots, FPS, crop_frac=0.32)
+r = framing.follow(shots, FPS, crop_frac=0.32, cuts=[4.1])
+at = lambda res, t: framing.path_at(res["path"], t)  # noqa: E731
+check("before 4.41 the crop panned across a cut, the face out of it for a while",
+      abs(at(panned, 4.6) - 0.75) > 0.16, round(at(panned, 4.6), 3))
+check("the crop jumps at the cut, as the video does", abs(at(r, 4.08) - 0.25) < 0.02 and abs(at(r, 4.1) - 0.75) < 0.02,
+      (round(at(r, 4.08), 3), round(at(r, 4.1), 3)))
+check("and says so", r["cuts"] == 1 and "cut" in r["reason"], r["reason"])
+check("each shot holds still on its face", all(abs(x - (0.25 if t < 4.1 else 0.75)) < 0.02 for t, x in r["path"]), r["path"])
+nobody = [[face_at(0.3)] for _ in range(int(4 * FPS))] + [[] for _ in range(int(3 * FPS))]
+r = framing.follow(nobody, FPS, fallback=0.6, crop_frac=0.32, cuts=[4.0])
+check("a shot with nobody in it goes to the focus point at the cut", abs(at(r, 4.5) - 0.6) < 0.01, round(at(r, 4.5), 3))
+# a turned head scores lower: it keeps the face followed, but a weak face elsewhere isn't followed
+turned = [[face_at(0.3)] for _ in range(8)] + [[face_at(0.3, sc=0.65)] for _ in range(40)]
+check("a weaker detection keeps the face followed", framing.follow(turned, FPS, crop_frac=0.32)["coverage"] == 1.0)
+stray = [[face_at(0.3)] for _ in range(8)] + [[face_at(0.8, sc=0.65)] for _ in range(40)]
+check("a weak face somewhere else isn't followed", framing.follow(stray, FPS, crop_frac=0.32)["coverage"] < 0.2)
+# cuts: the picture and its colours both change at once; a camera moving keeps its colours
+calm = np.random.default_rng(4).integers(0, 255, (9, 16, 3), dtype=np.uint8)
+other = np.random.default_rng(9).integers(0, 255, (9, 16, 3), dtype=np.uint8)
+big_ = lambda small: np.kron(small, np.ones((27, 20, 1), dtype=np.uint8))[:240, :320]  # noqa: E731
+frames = np.stack([big_(calm)] * 6 + [big_(other)] * 6)
+check("a cut is found", framing.find_cuts(framing.thumbs(frames)) == [6], framing.find_cuts(framing.thumbs(frames)))
+moving = np.stack([np.roll(big_(calm), 24 * k, axis=1) for k in range(12)])
+check("a camera moving isn't a cut", framing.find_cuts(framing.thumbs(moving)) == [])
+check("nor is a still shot", framing.find_cuts(framing.thumbs(np.stack([big_(calm)] * 12))) == [])
+
 # ---------------------------------------------------------------- ffmpeg expression and paths
 e = framing.x_expr([(0, 0.5), (1, 0.6), (2, 0.6)], 1920, 608)
 check("crop expression moves between keyframes, held after the last, inside the frame",
@@ -184,6 +215,44 @@ check("captions stay put when the face is elsewhere", framing.caption_y(0.2, 0.1
 _, cy = engine.build_filter({"width": 1920, "height": 1080}, o, [(0, 0.5)], {"face_y": 0.68, "face_h": 0.25})
 top, bot = (0.68 - 0.25 * 0.7) * 1920, (0.68 + 0.25 * 0.9) * 1920
 check("render captions avoid the face", cy <= top - 140 or cy >= bot + 140, (cy, top, bot))
+
+# ---------------------------------------------------------------- a real video: a cut and a wide shot (needs FFmpeg)
+try:
+    _ff = engine.ffmpeg()
+except Exception:
+    _ff = None
+if _ff and framing.available():
+    vid = os.path.join(tempfile.mkdtemp(prefix="vc_framing_"), "shots.mp4")
+    W_, H_ = 960, 540
+    p = subprocess.Popen([_ff, "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W_}x{H_}", "-r", "15",
+                          "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", vid], stdin=subprocess.PIPE)
+    truth = []
+    # a close shot on the left, a cut to the right, then a wide shot: a face 1/11 of the picture's height on the left
+    for secs, cx_, scale, seed in ((3, 0.25, 1.0, 1), (3, 0.72, 1.0, 2), (3, 0.22, 0.5, 3)):
+        bg = np.kron(np.random.default_rng(seed).integers(0, 255, (9, 16, 3), dtype=np.uint8),
+                     np.ones((60, 60, 1), dtype=np.uint8))
+        f_ = face if scale == 1.0 else face[::2, ::2]
+        im = bg.copy()
+        x0, y0 = int(cx_ * W_ - f_.shape[1] / 2), int(H_ * 0.35)
+        im[y0:y0 + f_.shape[0], x0:x0 + f_.shape[1]] = f_
+        for _ in range(secs * 15):
+            p.stdin.write(im.tobytes())
+            truth.append((cx_, f_.shape[1] / W_))
+    p.stdin.close()
+    p.wait()
+    info_ = {"width": W_, "height": H_}
+    o_ = engine.RenderOpts(layout="full", track="auto")
+    cf_ = framing.crop_frac(info_, o_)
+    res = framing.track(vid, 0.0, 9.0, info_, o_)
+    inside = sum(1 for k, (c_, w_) in enumerate(truth)
+                 if abs(framing.path_at(res["path"], k / 15) - c_) + w_ / 2 <= cf_ / 2) / len(truth) if res["path"] else 0
+    check("both cuts are found, to the frame or so", res.get("cuts") == 2
+          and all(abs(a - b) < 0.1 for a, b in zip([t2 for (t, _), (t2, _) in zip(res["path"], res["path"][1:]) if t2 - t < 0.025],
+                                                    [3.0, 6.0])), res["path"])
+    check("the whole face is in the crop in nearly every frame (48% before 4.41: it panned across cuts, and the wide "
+          "shot's face was too small to find)", inside > 0.95, round(inside, 3))
+else:
+    print("[skip] no FFmpeg: framing a real video not checked")
 
 # ---------------------------------------------------------------- saved framings
 saved = exports.clean({"frame_presets": [{"name": "Cam right", "opts": {"layout": "split", "cam": [0.8, 0, 0.2, 0.35], "bad": 1,

@@ -114,6 +114,31 @@ check("captions: cut where the speaker paused", any(p.endswith("of it") for p in
 rc = titles.generate(ws, [], 5.0, set())
 check("captions: the title is a whole thought", not rc["title_a"].lower().endswith(" this"), rc["title_a"])
 
+# 4.41: titles that say what happened
+auto = W("so i went to the store yesterday and the guy behind the counter just looks at me and goes are you famous "
+         "and i was like no man i just have one of those faces")
+pieces = [" ".join(w["word"] for w in ph) for ph in titles._phrases(auto)]
+check("automatic captions are cut where clauses start, not every few words",
+      pieces == ["so i went to the store yesterday", "and the guy behind the counter just looks at me",
+                 "and goes are you famous", "and i was like no man", "i just have one of those faces"], pieces)
+check("'goes' before a quote isn't part of the title", titles._phrase_text(titles._phrases(auto)[2]) == "Are you famous",
+      titles._phrase_text(titles._phrases(auto)[2]))
+burger = titles.generate(W("this is the biggest burger i have ever seen in my life it's literally the size of my head "
+                           "okay here goes nothing"), [], 4.0, set())
+check("a line from automatic captions is a whole thought", burger["title_a"] in (
+    "It's literally the size of my head", "This is the biggest burger i have ever seen in my life"), burger["title_a"])
+spider = titles.generate(W("Okay so I'm gonna go grab some water real quick. Wait, what is that? Oh my god, there's a "
+                           "spider on my desk! Get it off, get it off!"), ["KEKW"] * 20, 8.0, set())
+check("what happened beats a reaction to it", "spider on my desk" in spider["title_a"], spider["title_a"])
+plain = titles.generate(W("So today we're going to be looking at the new update. I think the patch notes said they "
+                          "changed the recoil on the rifle. Let's see if that's true."), [], 6.0, set(), streamer="Sam")
+check("a flat line with nothing specific isn't the title, near the peak or not",
+      plain["title_a"] != "Let's see if that's true" and "recoil" in plain["title_a"], plain["title_a"])
+check("the caption doesn't repeat the title in quotes", plain["title_a"] not in plain["description"], plain["description"])
+check("nor stop before what was said", not plain["description"].split('"')[1].endswith("said"), plain["description"])
+check("a YouTube upload is a video, not a stream", titles.describe(None, "", "Sam", platform="youtube").startswith(
+    "A moment from Sam's video"))
+
 # many clips of one mood: the templates take turns once they're all used
 used, got = set(), []
 for i in range(30):
