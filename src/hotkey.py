@@ -62,13 +62,9 @@ def simulate() -> bool:
 
 
 def beep(ok: bool = True):
-    if sys.platform != "win32":
-        return
-    try:
-        import winsound
-        winsound.MessageBeep(winsound.MB_OK if ok else winsound.MB_ICONHAND)
-    except Exception:
-        pass
+    """A clip grabbed: a radar contact blip. Couldn't grab one: signal lost (4.41: Windows' beeps before)."""
+    import sounds
+    sounds.play("contact" if ok else "lost")
 
 
 def start(on_press: Callable):

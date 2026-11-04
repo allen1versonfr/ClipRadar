@@ -12,6 +12,20 @@ describe('captions, as the render groups them', () => {
     expect(chunksFor(clip, o()).map(c => c.words.map(w => w.word).join(' '))).toEqual(['so um what', 'was that!', 'no way'])
     expect(chunksFor(clip, o({ caption_filler: false, words_per_line: 2 })).map(c => c.words.length)).toEqual([2, 2, 2])
   })
+  it('lines are balanced and never end on a word that leads into the next (the same cases as the render, 4.41)', () => {
+    const cases: Array<[string, number, string[]]> = [
+      ['so I went to the store yesterday.', 3, ['so I went', 'to the store', 'yesterday.']],
+      ['this is the biggest burger I have ever seen', 3, ['this is', 'the biggest burger', 'I have', 'ever seen']],
+      ['I had him, I had him one shot and then I walk off the cliff', 3, ['I had him,', 'I had him', 'one shot and', 'then I walk', 'off the cliff']],
+      ['give me the remote right now please', 4, ['give me the remote', 'right now please']],
+      ['we got him no way', 3, ['we got him', 'no way']],
+    ]
+    for (const [text, m, want] of cases) {
+      const ws = text.split(' ').map((w, i) => ({ start: 10 + i * 0.3, end: 10.25 + i * 0.3, word: w }))
+      const c = Clip.parse({ id: 1, pid: 'p', start: 10, end: 99, words: ws })
+      expect(chunksFor(c, o({ words_per_line: m, caption_filler: true, caption_punct: true })).map(r => r.words.map(w => w.word).join(' '))).toEqual(want)
+    }
+  })
   it('the word being said is the highlighted one, in capitals, with replacements and timing offset', () => {
     const cap = captionAt(clip, 10.45, o(), { um: 'uh' })!
     expect(cap.texts).toEqual(['SO', 'UH', 'WHAT'])

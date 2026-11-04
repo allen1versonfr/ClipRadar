@@ -186,5 +186,20 @@ if shutil.which("ffmpeg"):
 else:
     print("[skip] no ffmpeg here: renders not checked")
 
+# ---- caption lines (4.41): balanced, never ending on a word that leads into the next. The UI's preview (draw.ts,
+# app.js) has the same cases: what you see in Review is what renders
+LINES = [("so I went to the store yesterday.", 3, ["so I went", "to the store", "yesterday."]),
+         ("this is the biggest burger I have ever seen", 3, ["this is", "the biggest burger", "I have", "ever seen"]),
+         ("I had him, I had him one shot and then I walk off the cliff", 3,
+          ["I had him,", "I had him", "one shot and", "then I walk", "off the cliff"]),
+         ("give me the remote right now please", 4, ["give me the remote", "right now please"]),
+         ("we got him no way", 3, ["we got him", "no way"]),
+         ("so um what was that! no way", 3, ["so um what", "was that!", "no way"])]
+for text, m, want in LINES:
+    ws = [{"start": 10 + i * 0.3, "end": 10.25 + i * 0.3, "word": w} for i, w in enumerate(text.split())]
+    got = [" ".join(w["word"] for w in c) for c in engine._chunks(ws, R(words_per_line=m, caption_filler=True,
+                                                                        caption_punct=True), 99)]
+    check(f"caption lines: {text!r}", got == want, got)
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

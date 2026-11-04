@@ -410,8 +410,8 @@ def run_job(job, fn):
                 job_logger(job)("Cancelled.")
         except Exception as e:
             job["status"] = "error"
-            job["error"] = ("Your PC ran out of memory. Close some programs (or let other work finish), then try again."
-                            if isinstance(e, MemoryError) or "out of memory" in str(e).lower() else str(e) or type(e).__name__)
+            mem = memory_error(e)
+            job["error"] = mem[1] if mem else str(e) or type(e).__name__
             job_logger(job)(f"Error: {job['error'].splitlines()[0]}")
             if not isinstance(e, RuntimeError):
                 traceback.print_exc()
@@ -1566,13 +1566,8 @@ def play_sound(event: str, it: dict):
     if not exports.load().get("sounds", True):
         return
     SOUND_LOG.append((event, it.get("id")))
-    if sys.platform != "win32":
-        return
-    try:
-        import winsound
-        winsound.MessageBeep(winsound.MB_ICONASTERISK if event == "ready" else winsound.MB_OK)
-    except Exception:
-        pass
+    import sounds
+    sounds.play("lock" if event == "ready" else "contact")       # radar pings (4.41), not Windows' beeps
 
 
 def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
@@ -2212,7 +2207,34 @@ def start_preview_render(pid: str, c: dict, opts: dict, at: float) -> dict:
 # Why a render failed, as (kind, retryable). Retryable kinds can come right on a second try with nothing
 # changed (a stall, a file another program had open); the rest need something fixed first, so they're
 # never retried automatically and the message says what to change.
-RETRYABLE = {"stalled", "broken_output", "file_locked", "memory", "interrupted"}
+RETRYABLE = {"stalled", "broken_output", "file_locked", "memory", "gpu_memory", "ffmpeg_memory", "interrupted"}
+
+RAM_SHORT = 0.75 * 1024 ** 3        # free memory under this when something failed for memory: the PC really was short
+_CARD_WORDS = re.compile(r"cuda|cublas|cudnn|nvenc|openencodesession|d3d11|dxva|surface pool|vram|vulkan|"
+                         r"device memory|graphics card|\bgpu\b", re.I)
+
+
+def memory_error(e: BaseException) -> Optional[tuple]:
+    """(kind, message) when e is about memory, else None. Only Python's MemoryError, or memory words when the
+    PC's free memory really is low, mean "your PC ran out of memory". The graphics card has its own memory,
+    which a game, the GPU encoder or Whisper can fill with RAM to spare; and FFmpeg says "Cannot allocate
+    memory" for things that aren't memory at all (a hardware decoder's frames running out, a filter it can't
+    set up). Both used to say the PC ran out of memory, on PCs with gigabytes free."""
+    low = (str(e) or "").lower()
+    words = "out of memory" in low or "cannot allocate memory" in low or "surface pool" in low
+    if not words and not isinstance(e, MemoryError):
+        return None
+    free = locations.memory()["free"]
+    if isinstance(e, MemoryError) or (free is not None and free < RAM_SHORT):
+        return "memory", "Your PC ran out of memory. Close some programs (or let other work finish), then retry."
+    if _CARD_WORDS.search(low):
+        return "gpu_memory", ("The graphics card ran out of memory (a game, other renders or Whisper can fill it; your "
+                              "PC's own memory was fine). Close games or other programs using the graphics card, or turn "
+                              "off \"Use the GPU to encode\" in the Layout tab, then retry.")
+    gb = f"{free / 1024 ** 3:.1f} GB" if free is not None else "plenty"
+    return "ffmpeg_memory", (f"FFmpeg stopped with \"Cannot allocate memory\", but your PC had {gb} free, so it wasn't "
+                             "short of memory: FFmpeg says this for other failures too. Retry; if it happens again, turn "
+                             "off \"Use the GPU to encode\" in the Layout tab, or press Reset there.")
 
 
 def classify_render_error(e: Exception) -> tuple:
@@ -2222,6 +2244,7 @@ def classify_render_error(e: Exception) -> tuple:
     if isinstance(e, engine.RenderInputError):
         return e.kind, raw, raw
     errno_ = getattr(e, "errno", None) or getattr(e, "winerror", None)
+    mem = memory_error(e)
     rules = [
         ("disk_full", errno_ in (28, 112) or "no space left" in low or "not enough space" in low,
          "Your drive is full. Free up space (Settings › Storage: Clear temporary files, Delete VODs) or choose another "
@@ -2230,8 +2253,7 @@ def classify_render_error(e: Exception) -> tuple:
          "The clip's file is open in another program, like a video player. Close it, then retry."),
         ("source_missing", "vod for this clip was deleted" in low or "no such file" in low and "input" not in low,
          "The stream recording for this clip was deleted, so it can't be rendered any more."),
-        ("memory", "cannot allocate memory" in low or isinstance(e, MemoryError) or "out of memory" in low,
-         "Your PC ran out of memory. Close some programs, then retry."),
+        ("memory", mem is not None and mem[0] != "ffmpeg_memory", mem[1] if mem else ""),
         ("captions", "error initializing filter 'subtitles'" in low or "libass" in low or "fontconfig" in low,
          "The captions couldn't be drawn. Try the Classic font in the Text tab, then retry."),
         ("encoder", "error while opening encoder" in low or "nvenc" in low or "qsv" in low or "amf" in low,
@@ -2246,6 +2268,7 @@ def classify_render_error(e: Exception) -> tuple:
         ("stalled", "made no progress" in low,
          "FFmpeg stopped making progress and was stopped. Retry; if it keeps happening, turn off "
          "\"Use the GPU to encode\" in the Layout tab or try a shorter clip."),
+        ("ffmpeg_memory", mem is not None, mem[1] if mem else ""),
         ("source_damaged", "invalid data found" in low or "moov atom" in low or "end of file" in low
          or "no video track" in low,
          "The source video is damaged or incomplete, so this part couldn't be read."),
@@ -2254,7 +2277,7 @@ def classify_render_error(e: Exception) -> tuple:
     ]
     for kind, hit, msg in rules:
         if hit:
-            return kind, msg, raw[-1500:]
+            return (mem[0] if kind == "memory" else kind), msg, raw[-1500:]
     first = raw.strip().splitlines()[-1] if raw.strip() else type(e).__name__
     return "unknown", f"Rendering stopped with an error: {first[:200]}", raw[-1500:]
 

@@ -37,6 +37,13 @@ GROUP_SIZE = 0.4              # another face at least this big (vs the biggest) 
 GROUP_FIT = 0.92             # people are framed together when they span under this share of the crop
 SWITCH_S = 1.5               # someone else is followed only after the person followed is gone this long
 TARGETS = ("auto", "largest", "left", "right", "point")
+KEEP_SCORE = 0.6              # a weaker detection still counts when it's the face already followed (a turned head)
+FINE_BELOW = 0.9              # the first look found the face in fewer frames than this: look again at twice the size
+CHUNK = 32                    # frames read and looked at together (a long clip never sits in memory whole)
+CUT_DIFF = 28.0               # a new shot: the picture changes this much (mean, 0-255) ...
+CUT_HIST = 0.12               # ... and its colours this much (0-2; within a shot, 0.01 to 0.03), from one look to the next
+CUT_FPS = 30.0                # how finely a cut's moment is found
+MAX_CUTS = 24
 
 _lock = threading.Lock()
 _session = [None, False]      # (session, tried)
@@ -95,41 +102,75 @@ def _nms(boxes: np.ndarray, scores: np.ndarray, iou: float = 0.3) -> list:
     return keep
 
 
-def detect(frames: np.ndarray) -> list:
+def detect(frames: np.ndarray, min_score: float = 0.0) -> list:
     """Faces in frames (N x 240 x 320 x 3, RGB uint8). Per frame: [(x1, y1, x2, y2, score)] as
-    fractions of the frame."""
+    fractions of the frame, scored at least min_score (MIN_SCORE when not given)."""
     s = _sess()
     if s is None or not len(frames):
         return [[] for _ in range(len(frames))]
-    x = ((frames.astype(np.float32) - 127.0) / 128.0).transpose(0, 3, 1, 2)
+    min_score = min_score or MIN_SCORE
     out = []
-    for i in range(0, len(x), 8):
-        batch = x[i:i + 8]
-        for one in batch:                       # the model takes one frame at a time
-            sc, bx = s.run(None, {"input": one[None]})
-            sc, bx = sc[0, :, 1], bx[0]
-            m = sc >= MIN_SCORE
-            if not m.any():
-                out.append([])
-                continue
-            b, c = np.clip(bx[m], 0, 1), sc[m]
-            out.append([(*map(float, b[k]), float(c[k])) for k in _nms(b, c)])
+    for frame in frames:
+        # one frame at a time, as the model takes them (a whole clip turned to float32 at once was 4x its size)
+        one = ((frame.astype(np.float32) - 127.0) / 128.0).transpose(2, 0, 1)[None]
+        sc, bx = s.run(None, {"input": one})
+        sc, bx = sc[0, :, 1], bx[0]
+        m = sc >= min_score
+        if not m.any():
+            out.append([])
+            continue
+        b, c = np.clip(bx[m], 0, 1), sc[m]
+        out.append([(*map(float, b[k]), float(c[k])) for k in _nms(b, c)])
     return out
+
+
+def stream_frames(video: str, start: float, end: float, fps: float = SAMPLE_FPS, w: int = IN_W, h: int = IN_H,
+                  chunk: int = CHUNK):
+    """Frames of start..end at fps, stretched to w x h (the boxes are fractions, so they map back), as arrays of up
+    to `chunk` frames: a long clip is looked at a piece at a time instead of held in memory whole."""
+    n_want = max(1, int((end - start) * fps) + 1)
+    cmd = [engine.ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, start):.3f}", "-t", f"{max(0.1, end - start):.3f}",
+           "-i", video, "-an", "-vf", f"fps={fps},scale={w}:{h}:flags=bilinear", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                             creationflags=engine.CREATE_NO_WINDOW)
+    except OSError:
+        return
+    try:
+        import procjob
+        procjob.adopt(p)
+    except Exception:
+        pass
+    # a stuck read (a damaged file, a network drive gone) ends after as long as the old one-shot read allowed
+    timer = threading.Timer(max(60.0, (end - start) * 3 * (w * h) / (IN_W * IN_H)), p.kill)
+    timer.daemon = True
+    timer.start()
+    size, got, buf = w * h * 3, 0, []
+    try:
+        while got < n_want:
+            raw = p.stdout.read(size)
+            if len(raw) < size:
+                break
+            buf.append(np.frombuffer(raw, dtype=np.uint8).reshape(h, w, 3))
+            got += 1
+            if len(buf) >= chunk:
+                yield np.stack(buf)
+                buf = []
+        if buf:
+            yield np.stack(buf)
+    finally:
+        timer.cancel()
+        try:
+            p.kill()
+        except OSError:
+            pass
+        p.wait()
 
 
 def read_frames(video: str, start: float, end: float, fps: float = SAMPLE_FPS) -> np.ndarray:
     """Small frames for face finding (stretched to 320x240; the boxes are fractions, so they map back)."""
-    n_want = max(1, int((end - start) * fps) + 1)
-    cmd = [engine.ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, start):.3f}", "-t", f"{max(0.1, end - start):.3f}",
-           "-i", video, "-an", "-vf", f"fps={fps},scale={IN_W}:{IN_H}:flags=bilinear", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
-    try:
-        p = subprocess.run(cmd, capture_output=True, timeout=max(60, (end - start) * 3), stdin=subprocess.DEVNULL,
-                           creationflags=engine.CREATE_NO_WINDOW)
-        raw = p.stdout
-    except Exception:
-        raw = b""
-    k = len(raw) // (IN_W * IN_H * 3)
-    return np.frombuffer(raw[: k * IN_W * IN_H * 3], dtype=np.uint8).reshape(k, IN_H, IN_W, 3)[:n_want]
+    parts = list(stream_frames(video, start, end, fps))
+    return np.concatenate(parts) if parts else np.zeros((0, IN_H, IN_W, 3), dtype=np.uint8)
 
 
 def read_spread(video: str, duration: float, count: int = 24) -> np.ndarray:
@@ -149,14 +190,14 @@ def read_spread(video: str, duration: float, count: int = 24) -> np.ndarray:
     return np.stack(frames) if frames else np.zeros((0, IN_H * 2, IN_W * 2, 3), dtype=np.uint8)
 
 
-def detect_fine(big: np.ndarray) -> list:
+def detect_fine(big: np.ndarray, min_score: float = 0.0) -> list:
     """Faces in double-size frames: the whole frame plus each quarter, so small faces are found too."""
     whole = big[:, ::2, ::2]
-    out = [list(f) for f in detect(np.ascontiguousarray(whole))]
+    out = [list(f) for f in detect(np.ascontiguousarray(whole), min_score)]
     for qy in (0, 1):
         for qx in (0, 1):
             tile = np.ascontiguousarray(big[:, qy * IN_H:(qy + 1) * IN_H, qx * IN_W:(qx + 1) * IN_W])
-            for i, faces in enumerate(detect(tile)):
+            for i, faces in enumerate(detect(tile, min_score)):
                 for x1, y1, x2, y2, sc in faces:
                     out[i].append(((x1 + qx) / 2, (y1 + qy) / 2, (x2 + qx) / 2, (y2 + qy) / 2, sc))
     res = []
@@ -209,63 +250,69 @@ def _pick(faces: list, prev: Optional[float], target: str, point: tuple, crop_fr
     return max(faces, key=size)                  # auto / largest: the biggest face is usually the streamer
 
 
-def follow(detections: list, fps: float = SAMPLE_FPS, target: str = "auto", point: tuple = (0.5, 0.4),
-           fallback: float = 0.5, crop_frac: float = 0.3164) -> dict:
-    """Turn per-frame faces into a smooth path for the crop's centre.
-    crop_frac: crop width as a fraction of the source width (how much of the frame shows).
-    Returns {"path": [(t, x)], "confidence": 0-1, "coverage", "face_y", "face_h", "reason"}."""
-    n = len(detections)
-    raw = np.full(n, np.nan)
-    ys, hs, ws = [], [], []
-    prev = None
-    away, switch, groups = 0, max(1, int(SWITCH_S * fps)), 0
-    for i, faces in enumerate(detections):
-        f = _pick(faces, prev, target, point, crop_frac)
-        if f is not None and prev is not None and abs((f[0] + f[2]) / 2 - prev) >= 0.12:
-            # someone else: only move over once the person followed has really gone (not when
-            # they're missed for a moment while a second person is in view)
-            away += 1
-            f = f if away >= switch else None
-        if f is not None:
-            away = 0
-            groups += len(f) > 5
-            raw[i] = prev = (f[0] + f[2]) / 2
-            ys.append((f[1] + f[3]) / 2)
-            hs.append(f[3] - f[1])
-            ws.append(f[2] - f[0])
-    have = ~np.isnan(raw)
-    cov = float(have.mean()) if n else 0.0
-    out = {"coverage": round(cov, 2), "face_y": round(float(np.median(ys)), 3) if ys else None,
-           "face_h": round(float(np.median(hs)), 3) if hs else None}
-    if n == 0 or cov < MIN_COVERAGE:
-        return dict(out, path=[], confidence=round(cov, 2),
-                    reason="No face found" if cov == 0 else "Face only seen now and then, so the crop stays put")
-    if np.median(ws) < 0.07 and float(np.ptp(raw[have])) < 0.06:
-        # a small face that never moves is a facecam overlay: following it would crop to the corner
-        return dict(out, path=[], confidence=round(cov, 2), reason="Only a facecam face, so the crop stays put")
-    # fill gaps: hold the last position for a while, then ease back to your focus point
-    hold = int(HOLD_S * fps)
-    x = raw.copy()
-    last, gap = None, 0
-    first = float(raw[have][0])
-    for i in range(n):
-        if have[i]:
-            last, gap = raw[i], 0
-            continue
-        gap += 1
-        base = last if last is not None else first
-        x[i] = base if gap <= hold else base + (fallback - base) * min(1.0, (gap - hold) / (fps * 2))
-    # steady: a median knocks out single-frame jumps (a second face, a false detection)
+def thumbs(frames: np.ndarray) -> list:
+    """What cut finding keeps of each frame: a tiny grey picture and a colour histogram (a few KB, not the frame)."""
+    out = []
+    for f in frames:
+        small = f[::8, ::8].astype(np.float32)
+        hist = np.concatenate([np.histogram(small[..., c], bins=16, range=(0, 256))[0] for c in range(3)])
+        out.append((small.mean(axis=2), hist / max(1.0, hist.sum() / 3)))
+    return out
+
+
+def _change(a, b) -> tuple:
+    return float(np.abs(a[0] - b[0]).mean()), float(np.abs(a[1] - b[1]).sum() / 3)
+
+
+def find_cuts(th: list) -> list:
+    """Frame numbers where a new shot starts (an edited video's cuts, a stream switching scenes): the picture and
+    its colours both change at once. A camera that moves or turns changes the picture, but keeps its colours."""
+    if len(th) < 2:
+        return []
+    ch = [_change(a, b) for a, b in zip(th, th[1:])]
+    pix = np.array([c[0] for c in ch])
+    cuts = []
+    for k, (d, hd) in enumerate(ch):
+        near = np.delete(pix[max(0, k - 4):k + 5], min(k, 4))
+        if d >= CUT_DIFF and hd >= CUT_HIST and d >= 2.5 * max(4.0, float(np.median(near)) if near.size else 0.0):
+            cuts.append(k + 1)
+    return cuts[:MAX_CUTS]
+
+
+def cut_time(video: str, start: float, i: int, fps: float = SAMPLE_FPS) -> float:
+    """When the cut found between looks i-1 and i really happens (seconds from start), to a frame or so: the
+    crop jumps there, not up to a quarter second early or late."""
+    a, b = start + (i - 1) / fps, start + i / fps
+    w, h = 64, 36
+    cmd = [engine.ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, a):.3f}", "-t", f"{b - a + 1 / CUT_FPS:.3f}",
+           "-i", video, "-an", "-vf", f"fps={CUT_FPS},scale={w}:{h}:flags=bilinear", "-pix_fmt", "rgb24",
+           "-f", "rawvideo", "-"]
+    try:
+        raw = subprocess.run(cmd, capture_output=True, timeout=30, stdin=subprocess.DEVNULL,
+                             creationflags=engine.CREATE_NO_WINDOW).stdout
+    except Exception:
+        raw = b""
+    k = len(raw) // (w * h * 3)
+    if k < 2:
+        return (i - 0.5) / fps
+    f = np.frombuffer(raw[: k * w * h * 3], dtype=np.uint8).reshape(k, h, w, 3).astype(np.float32)
+    d = np.abs(np.diff(f, axis=0)).mean(axis=(1, 2, 3))
+    # the new shot's first frame is read at most a step after the cut: its middle is closest
+    return round(min(b, max(a, a + (int(np.argmax(d)) + 1.5) / CUT_FPS)) - start, 3)
+
+
+def _steady(x: np.ndarray, fps: float) -> np.ndarray:
+    """One shot's face positions as a camera would move: no single-frame jumps, no chasing small wiggles,
+    smooth both ways (no lag), and never faster than MAX_SPEED."""
+    n = len(x)
     k = 5
     pad = np.pad(x, (k // 2, k // 2), mode="edge")
     x = np.array([np.median(pad[i:i + k]) for i in range(n)])
-    # don't chase small wiggles: the crop only moves once the face drifts out of a middle band
     cam = np.empty(n)
     cam[0] = x[0]
     for i in range(1, n):
         d = x[i] - cam[i - 1]
         cam[i] = cam[i - 1] + (d - np.sign(d) * DEADZONE if abs(d) > DEADZONE else 0.0)
-    # smooth both ways (no lag), then cap the speed so it never whips across
     a = 0.25
     for rng in (range(1, n), range(n - 2, -1, -1)):
         for i in rng:
@@ -274,15 +321,92 @@ def follow(detections: list, fps: float = SAMPLE_FPS, target: str = "auto", poin
     step = MAX_SPEED / fps
     for i in range(1, n):
         cam[i] = cam[i - 1] + float(np.clip(cam[i] - cam[i - 1], -step, step))
+    return cam
+
+
+def follow(detections: list, fps: float = SAMPLE_FPS, target: str = "auto", point: tuple = (0.5, 0.4),
+           fallback: float = 0.5, crop_frac: float = 0.3164, cuts: tuple = ()) -> dict:
+    """Turn per-frame faces into a smooth path for the crop's centre.
+    crop_frac: crop width as a fraction of the source width (how much of the frame shows).
+    cuts: seconds where a new shot starts. The crop jumps there, as the video does, instead of panning across
+    (a face in the new shot was out of the crop for a second or two), and each shot is framed on its own.
+    Returns {"path": [(t, x)], "confidence": 0-1, "coverage", "face_y", "face_h", "reason", "cuts"}."""
+    n = len(detections)
+    cx = lambda f: (f[0] + f[2]) / 2  # noqa: E731
+    cuts = sorted({round(float(t), 3) for t in cuts if 0 < float(t) * fps < n - 0.5})
+    first_of = {min(n - 1, max(1, int(np.ceil(t * fps - 1e-6)))): t for t in cuts}
+    starts = sorted({0, *first_of})
+    raw = np.full(n, np.nan)
+    ys, hs, ws = [], [], []
+    prev = None
+    away, switch, groups = 0, max(1, int(SWITCH_S * fps)), 0
+    for i, faces in enumerate(detections):
+        if i in first_of:
+            prev, away = None, 0             # a new shot: whoever is in it, from its first frame
+        # a weak detection only keeps the face already followed (a turned head, a hand in front)
+        faces = [f for f in faces if f[4] >= MIN_SCORE or (prev is not None and abs(cx(f) - prev) < 0.12)]
+        f = _pick(faces, prev, target, point, crop_frac)
+        if f is not None and prev is not None and abs(cx(f) - prev) >= 0.12:
+            # someone else: only move over once the person followed has really gone (not when
+            # they're missed for a moment while a second person is in view)
+            away += 1
+            f = f if away >= switch else None
+        if f is not None:
+            away = 0
+            groups += len(f) > 5
+            raw[i] = prev = cx(f)
+            ys.append((f[1] + f[3]) / 2)
+            hs.append(f[3] - f[1])
+            ws.append(f[2] - f[0])
+    have = ~np.isnan(raw)
+    cov = float(have.mean()) if n else 0.0
+    out = {"coverage": round(cov, 2), "face_y": round(float(np.median(ys)), 3) if ys else None,
+           "face_h": round(float(np.median(hs)), 3) if hs else None, "cuts": len(starts) - 1}
+    if n == 0 or cov < MIN_COVERAGE:
+        return dict(out, path=[], confidence=round(cov, 2),
+                    reason="No face found" if cov == 0 else "Face only seen now and then, so the crop stays put")
+    if np.median(ws) < 0.07 and float(np.ptp(raw[have])) < 0.06:
+        # a small face that never moves is a facecam overlay: following it would crop to the corner
+        return dict(out, path=[], confidence=round(cov, 2), reason="Only a facecam face, so the crop stays put")
     half = crop_frac / 2
-    cam = np.clip(cam, half, 1 - half) if crop_frac < 1 else np.full(n, 0.5)
-    # keyframes every half second are plenty: the crop moves in straight lines between them
-    every = max(1, int(round(fps / 2)))
-    idx = list(range(0, n, every)) + ([n - 1] if (n - 1) % every else [])
-    path = [(round(i / fps, 2), round(float(cam[i]), 4)) for i in idx]
-    jitter = float(np.median(np.abs(np.diff(raw[have])))) if have.sum() > 2 else 0.0
+    hold = int(HOLD_S * fps)
+    every = max(1, int(round(fps / 2)))       # keyframes every half second: the crop moves in straight lines between
+    path, jit = [], []
+    for s, a in enumerate(starts):
+        b = starts[s + 1] if s + 1 < len(starts) else n
+        seg, got = raw[a:b], have[a:b]
+        if got.any():
+            # fill gaps: hold the last position for a while, then ease back to your focus point
+            x = seg.copy()
+            last, gap, first = None, 0, float(seg[got][0])
+            for i in range(len(x)):
+                if got[i]:
+                    last, gap = seg[i], 0
+                    continue
+                gap += 1
+                base = last if last is not None else first
+                x[i] = base if gap <= hold else base + (fallback - base) * min(1.0, (gap - hold) / (fps * 2))
+            cam = _steady(x, fps)
+            if got.sum() > 2:
+                jit.extend(np.abs(np.diff(seg[got])).tolist())
+        else:
+            cam = np.full(b - a, fallback)    # a shot with nobody in it: your focus point
+        cam = np.clip(cam, half, 1 - half) if crop_frac < 1 else np.full(b - a, 0.5)
+        if s and path:
+            t = first_of[a]
+            if t - 0.02 > path[-1][0]:
+                path.append((round(t - 0.02, 3), path[-1][1]))     # the old shot's framing up to the cut ...
+            path.append((round(t, 3), round(float(cam[0]), 4)))   # ... and the new one's from it
+        idx = list(range(a, b, every)) + ([b - 1] if (b - 1 - a) % every else [])
+        for i in idx:
+            t = round(i / fps, 3)
+            if not path or t > path[-1][0]:
+                path.append((t, round(float(cam[i - a]), 4)))
+    jitter = float(np.median(jit)) if jit else 0.0
     conf = cov * float(np.clip(1 - jitter * 10, 0.5, 1.0))     # a face that jumps around is less certain
     reason = "Keeping both people in frame" if groups > 0.5 * have.sum() else "Following the face"
+    if len(starts) > 1:
+        reason += f", cutting with the video ({len(starts) - 1} cut{'s' if len(starts) > 2 else ''})"
     return dict(out, path=path, confidence=round(conf, 2), reason=reason)
 
 
@@ -364,7 +488,7 @@ def shift(path: list, offset: float, length: float) -> list:
     if not path:
         return []
     ts = [0.0] + [t - offset for t, _ in path if 0 < t - offset < length] + [length]
-    return [(round(t, 2), round(float(path_at(path, t + offset)), 4)) for t in ts]
+    return [(round(t, 3), round(float(path_at(path, t + offset)), 4)) for t in ts]
 
 
 def crop_frac(info: dict, o) -> float:
@@ -382,7 +506,7 @@ def track(video: str, start: float, end: float, info: dict, o, cache_dir: str = 
     point = (float(getattr(o, "game_x", 0.5)), float(getattr(o, "focus_y", 0.4)))
     cf = crop_frac(info, o)
     key = hashlib.sha1(json.dumps([os.path.basename(video), os.path.getsize(video) if os.path.exists(video) else 0,
-                                   round(start, 2), round(end, 2), target, point, round(cf, 3), 3]).encode()).hexdigest()[:16]
+                                   round(start, 2), round(end, 2), target, point, round(cf, 3), 4]).encode()).hexdigest()[:16]
     cpath = os.path.join(cache_dir, f"track_{key}.json") if cache_dir else ""
     if cpath and os.path.isfile(cpath):
         try:
@@ -390,9 +514,24 @@ def track(video: str, start: float, end: float, info: dict, o, cache_dir: str = 
                 return json.load(f)
         except (OSError, ValueError):
             pass
-    frames = read_frames(video, start, end)
-    res = follow(detect(frames), SAMPLE_FPS, target, point, fallback=point[0], crop_frac=cf)
-    log(f"Framing: {res['reason'].lower()} ({int(res['coverage'] * 100)}% of frames)")
+    dets, th = [], []
+    for frames in stream_frames(video, start, end):
+        dets += detect(frames, KEEP_SCORE)
+        th += thumbs(frames)
+    cuts = [cut_time(video, start, i) for i in find_cuts(th)]
+    seen = lambda ds: sum(1 for d in ds if any(f[4] >= MIN_SCORE for f in d)) / max(1, len(ds))  # noqa: E731
+    looks = "first look"
+    if dets and seen(dets) < FINE_BELOW:
+        # Faces under about an eighth of the picture's height (someone standing back, a wide shot) are too small at
+        # 320x240 (measured: 1 to 3 of 16 frames with a face 90 px tall in 1080p, 15 to 16 looking at each quarter at
+        # twice the size). That's about 5x the work, so only when the first look missed the face in some frames.
+        fine = []
+        for big in stream_frames(video, start, end, w=IN_W * 2, h=IN_H * 2):
+            fine += detect_fine(big, KEEP_SCORE)
+        if len(fine) == len(dets) and seen(fine) > seen(dets):
+            dets, looks = fine, "looked again closer"
+    res = follow(dets, SAMPLE_FPS, target, point, fallback=point[0], crop_frac=cf, cuts=cuts)
+    log(f"Framing: {res['reason'].lower()} ({int(res['coverage'] * 100)}% of frames, {looks})")
     if cpath:
         try:
             os.makedirs(cache_dir, exist_ok=True)

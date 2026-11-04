@@ -479,7 +479,9 @@ EXPORT FORMAT
   to drop into Discord. Import... and From link... bring in a watermark or
   campaign file, or a logo image, from your PC or a Discord link.
   Volume (Clip tab): make one clip quieter or louder than the rest.
-  A sound plays when you add a clip to the render queue and when it's ready.
+  A sound plays when you add a clip to the render queue (a radar blip) and
+  when it's ready (two pings locking on). Ctrl+Alt+C blips when it grabs a
+  clip, and a falling tone means it couldn't.
 
 CAMPAIGNS (CLIPPING ORGANISATIONS AND DISCORDS)
   Settings > Campaigns keeps each clipping campaign's rules together:

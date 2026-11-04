@@ -32,6 +32,8 @@ for _s in (sys.stdout, sys.stderr):
 os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
+import numpy as np  # noqa: E402
+
 import engine  # noqa: E402
 import gpu  # noqa: E402
 
@@ -152,13 +154,21 @@ loaded = []
 class FakeModel:
     def __init__(self, size, device, compute_type):
         loaded.append((device, compute_type))
+        self.device = device
         if (device, compute_type) in FakeModel.fails:
             raise RuntimeError(FakeModel.fails[(device, compute_type)])
 
     def transcribe(self, *a, **k):
-        return iter([]), None
+        if self.device == "cuda" and FakeModel.oom_mid_clip and len(a[0]) > 16000:     # the 1 s warm-up passes
+            def segs():                                     # out of graphics memory part-way through the clip
+                raise RuntimeError("CUDA failed with error out of memory")
+                yield
+            return segs(), None
+        return iter([types.SimpleNamespace(end=1.0, text=" hello", no_speech_prob=0.0, avg_logprob=-0.2,
+                                           words=[types.SimpleNamespace(start=0.1, end=0.5, word=" hello")])]), None
 
 
+FakeModel.oom_mid_clip = False
 sys.modules["faster_whisper"] = types.SimpleNamespace(WhisperModel=FakeModel)
 real = (gpu.nvidia_gpu, gpu.cuda_libs)
 try:
@@ -182,6 +192,24 @@ try:
           server._deep_model("auto") == "base")
     gpu.cuda_libs = lambda: True
     check("and 'small' when it can", server._deep_model("auto") == "small")
+    # 4.41: the card running out of memory part-way through a clip (a game, the GPU encoder, titles at the same time)
+    # went to the render as "Your PC ran out of memory"; now that clip is heard again on the CPU
+    FakeModel.fails = {}
+    FakeModel.oom_mid_clip = True
+    engine._whisper_cache.clear()
+    engine._card_rest[0] = 0.0
+    loaded.clear()
+    logs = []
+    got = engine._transcribe(np.zeros(16000 * 20, dtype=np.float32), "small", "en", logs.append, "")
+    check("out of graphics memory mid-clip: heard again on the CPU", [w["word"] for w in got] == ["hello"]
+          and loaded[-1] == ("cpu", "int8") and engine.whisper_device() == "cpu", (got, loaded))
+    check("and it says so", any("graphics card ran out of room" in m for m in logs), logs)
+    loaded.clear()
+    engine._whisper_cache.clear()
+    engine._transcribe(np.zeros(16000 * 20, dtype=np.float32), "small", "en", lambda m: None, "")
+    check("the next clips stay on the CPU for a while, not failing on the card again", loaded == [("cpu", "int8")], loaded)
+    FakeModel.oom_mid_clip = False
+    engine._card_rest[0] = 0.0
 finally:
     gpu.nvidia_gpu, gpu.cuda_libs = real
     engine._whisper_cache.clear()

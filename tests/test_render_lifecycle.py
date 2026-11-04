@@ -56,6 +56,27 @@ for raw, want in (("[Parsed_crop_0 @ 0x1] Failed to configure input pad on Parse
                   ("moov atom not found", "source_damaged")):
     k = server.classify_render_error(RuntimeError(raw))[0]
     check(f"FFmpeg's '{raw.splitlines()[0][:40]}…' is classed as {want}", k == want, k)
+# 4.41: "Your PC ran out of memory" only when it did. The graphics card's memory and FFmpeg's "Cannot allocate memory"
+# (which it says for things that aren't memory at all) were both called the PC's, on PCs with gigabytes free
+import locations  # noqa: E402
+_mem = locations.memory
+try:
+    locations.memory = lambda: {"free": 12 * 1024 ** 3, "total": 32 * 1024 ** 3}
+    for raw, want in (("ffmpeg render failed:\n[h264_nvenc @ 0x1] OpenEncodeSession failed: out of memory (10)", "gpu_memory"),
+                      ("Couldn't transcribe the clip to censor it (CUDA failed with error out of memory).", "gpu_memory"),
+                      ("ffmpeg render failed:\nError while filtering: Cannot allocate memory", "ffmpeg_memory"),
+                      ("ffmpeg render failed:\n[Parsed_crop_2] Failed to configure input pad on Parsed_crop_2\n"
+                       "Error reinitializing filters!\nCannot allocate memory", "layout")):
+        k, msg, _ = server.classify_render_error(RuntimeError(raw))
+        check(f"with 12 GB free, '{raw.splitlines()[-1][:40]}…' is {want}", k == want and "Your PC ran out" not in msg, (k, msg))
+    k, msg, _ = server.classify_render_error(MemoryError())
+    check("Python itself out of memory is the PC's", k == "memory" and "Your PC ran out of memory" in msg, (k, msg))
+    locations.memory = lambda: {"free": 300 * 1024 ** 2, "total": 8 * 1024 ** 3}
+    k, msg, _ = server.classify_render_error(RuntimeError("ffmpeg render failed:\nError while filtering: Cannot allocate memory"))
+    check("with 300 MB free, it is the PC's memory", k == "memory" and "Your PC ran out of memory" in msg, (k, msg))
+    check("all of them can be retried", {"memory", "gpu_memory", "ffmpeg_memory"} <= server.RETRYABLE)
+finally:
+    locations.memory = _mem
 check("deterministic failures aren't retryable", not ({"layout", "encoder", "source_damaged", "source_missing",
                                                       "captions", "disk_full"} & server.RETRYABLE))
 red = server.redact("--twitch-token abc oauth:SECRET1 https://x/v?token=SECRET2&a=1 Authorization: Bearer SECRET3 "

@@ -5,6 +5,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.41.0] - 2026-11-04
+
+"Your PC ran out of memory" only when it did, face following that keeps up with cuts and finds people standing back, fewer clips called too dark, titles that say what happened, and radar sounds.
+
+### Fixed
+- **"Your PC ran out of memory" on PCs with plenty free.** Any error with "out of memory" or "Cannot allocate memory" in it was called the PC's memory. Two were not:
+  - **The graphics card's memory.** Since 4.38.2 a render's captions run Whisper on the card alongside titles, Deep scan and the GPU encoder. The card running out part-way through a clip went straight to the render, with censoring on as "Your PC ran out of memory" (with censoring off, the clip lost its captions). Now that clip is heard again on the CPU, and Whisper stays on the CPU for 10 minutes before the card gets another try. A render that still fails on the card's memory says so: close games or other programs using the graphics card, or turn off "Use the GPU to encode".
+  - **FFmpeg's "Cannot allocate memory"**, which it also says for failures that have nothing to do with memory. With your PC's memory not short, the message says how much was free, and that it's FFmpeg refusing the clip. A layout that couldn't be built is reported as the layout again, where an extra "Cannot allocate memory" line had made it a memory error.
+  - Your PC's memory is blamed only for Python's own MemoryError, or when free memory really is under 0.75 GB. All three can be retried.
+- **"Most of this clip is very dark" on almost every clip.** A frame counted as too dark when its average brightness was under 38 of 255, which a streamer lit by their screen in a dark room is (about 31), as are a night scene with a HUD and an RGB-lit room. Now it's too dark only when it's dim and under 3% of the picture is bright enough to see: those three pass, nearly black footage is still caught. A dim picture is also checked for blur at its own contrast, so a sharp low-light clip isn't called blurry, and a blurred one still is.
+
+### Changed
+- **Follow face (Layout › Whole frame):**
+  - **Cuts.** In an edited video the crop panned across a cut at its usual speed, so after a cut to someone on the other side they were out of the picture for up to 2 seconds. Cuts are found now (the picture and its colours change at once; a camera moving doesn't count), timed to the frame, and the crop jumps with the video. Each shot is framed on its own, and a shot with nobody in it goes to your Focus point.
+  - **Faces further away.** A face under about an eighth of the picture's height (someone standing back, a wide shot) was too small to find: 1 to 3 frames in 16 with a face 90 px tall in 1080p. When the first look misses the face in some frames, it looks again at twice the size, a quarter at a time: 15 to 16 in 16. That look takes about 5x as long, so it only runs when needed; framing is still saved per clip.
+  - **A turned head** scores lower with the face finder: a weaker find now keeps the face already followed, but a weak one somewhere else still doesn't move the crop.
+  - On a test video with a cut and a wide shot, the whole face was in the crop in 48% of frames, and is in 100% now. Frames are read and looked at 32 at a time: a long clip's frames, and 4x their size again while being looked at, were all held in memory at once.
+- **Titles say what happened.** A line counted as a good title for being 3 to 8 words long and said near the peak, so "Let's see if that's true" could be one. Lines with something specific in them (a spider, a cliff, the queen) now come first, and a flat line with nothing specific isn't used as a title. YouTube's automatic captions (no punctuation) were cut into pieces every few words ("In my life it's literally the size", "One of those faces"); now they're cut where a clause starts or the speaker pauses ("It's literally the size of my head"), and "he goes" before a quote is dropped ("Are you famous"). On 10 sample clips, 10 titles say what happened, where 6 did.
+- **Post captions** no longer repeat the title in quotes when there was no chat reaction to describe: they use the next best line said, else "A moment from X's stream" (or "video", for YouTube and X).
+- **Caption lines** are balanced and don't end on a word that leads into the next. They were cut every N words (Text › Words per line), so "I went to the | store" and a word left on its own were common. Lines are still at most N words; a comma is a good place to break. The preview in both UIs breaks lines the same way as the render.
+- **Notification sounds are radar sounds**, made by Clip Radar instead of Windows' standard beeps: a blip when a clip is added to the queue, two pings locking on when it's ready, a blip when Ctrl+Alt+C grabs a clip and a falling tone when it can't. They're saved once as small WAV files in Clip Radar's data folder. Settings › Export format › Sounds still turns them off.
+
+### Tests
+- `tests/test_render_lifecycle.py`: with 12 GB free, the graphics card's memory, FFmpeg's "Cannot allocate memory" and a layout failure aren't "Your PC ran out of memory"; with 300 MB free, they are. These failed before the fix, with the reported message.
+- `tests/test_gpu.py`: Whisper running out of graphics memory mid-clip hears it again on the CPU, and stays there for a while.
+- `tests/test_quality.py`: a dark room with the streamer lit isn't too dark or blurry; blurred, it's blurry; nearly black with a small overlay is still too dark.
+- `tests/test_framing.py`: the crop jumps at a cut and holds each shot, a weak detection keeps the followed face but doesn't pull the crop elsewhere, cuts are found but a moving camera isn't one, and on a real video (with FFmpeg) both cuts are found and the face stays in the crop.
+- `tests/test_titles.py`: automatic captions cut on clauses, what happened over a reaction to it, no flat line as a title, a caption that doesn't repeat the title.
+- `tests/test_captions_anim.py` and `web/src/features/review/draw.test.ts`: the same caption-line cases in the render and the preview.
+- `tests/test_sounds.py` (new): each sound is short, ends cleanly, is a WAV Windows can play and is written once; "ready" rises, "lost" falls.
+
 ## [4.40.0] - 2026-11-02
 
 Upload to TikTok is quicker and stops less often on the caption, and Skip in Review goes up to scored under 90.
