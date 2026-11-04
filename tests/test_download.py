@@ -47,10 +47,12 @@ import os, subprocess, sys, time
 mode = os.environ["FAKE_MODE"]
 out = [a for a in sys.argv if "vod.%(ext)s" in a][0].replace("%(ext)s", "mp4")
 folder = os.path.dirname(out)
+if mode == "handoff":       # YouTube: video and sound, but the sound was on disk already (listened to ahead)
+    print('VCPARTS [{"filesize": 970}, {"filesize": 30}]', flush=True)
 for k in range(1, 11):
     print(f"VCPROG {k * 100} 1000 None None None 5000000 {10 - k}", flush=True)
     time.sleep(0.05)
-if mode == "join":
+if mode in ("join", "handoff"):
     with open(out, "wb") as f:                     # the downloaded pieces, before they're joined
         f.write(b"x" * 100000 * int(os.environ["FAKE_JOIN_S"]))
     with open(os.path.join(folder, "vod.temp.mp4"), "wb") as f:
@@ -96,6 +98,14 @@ check("quiet but still writing its file: the download finishes", r is not None a
 check("the step says the video is being put together", any("together" in s for s in steps), steps[-3:])
 pcts = [int(s.rsplit(" ", 1)[1].rstrip("%")) for s in steps if s.startswith("Putting the video together, ")]
 check("and how far the joining has got", pcts and all(0 < p <= 100 for p in pcts) and pcts == sorted(pcts), steps[-5:])
+
+# the sound was on disk already, so only the video reports progress (to 97% of the parts): the join is
+# still shown, and the bar moves while it runs (it sat still at the video's share before 4.41.2)
+steps.clear()
+r, err, took = run("handoff", FAKE_JOIN_S=9)
+check("sound fetched ahead: the download finishes", r is not None and r[0].endswith("vod.mp4"), err)
+pcts = [int(s.rsplit(" ", 1)[1].rstrip("%")) for s in steps if s.startswith("Putting the video together, ")]
+check("sound fetched ahead: the join is shown, with how far it has got", len(pcts) >= 2 and pcts == sorted(pcts), steps[-5:])
 
 # quiet and writing nothing: stopped after the limit, child processes included
 pidfile = os.path.join(tmp, "child.pid")
@@ -190,6 +200,36 @@ st = engine._Stepper(seen3.append, lambda s: None, lambda s: None)
 for i, n in ((10, 100), (50, 100), (40, 100)):     # a piece count that goes back never moves the bar back
     st.update(None, None, i, n, None, None)
 check("the bar never goes backwards", seen3 == sorted(seen3), seen3)
+
+# ---------------------------------------------------------------- joins without +faststart
+# yt-dlp adds +faststart to every MP4 it joins: a second pass that rewrites the whole file without it
+# growing. On an 18 GB YouTube VOD that was over 3 minutes of no growth, and the stall check stopped it.
+import yt_dlp  # noqa: E402
+
+ppa = yt_dlp.parse_options(engine.NO_FASTSTART + ["https://example.com"]).ydl_opts["postprocessor_args"]
+check("the CLI's join of video and sound turns +faststart off", ppa.get("merger") == ["-movflags", "-faststart"], ppa)
+check("and Twitch's join still does", ppa.get("fixupm3u8") == ["-movflags", "-faststart"], ppa)
+
+ff = engine.which("ffmpeg")
+if ff:
+    from yt_dlp.postprocessor.ffmpeg import FFmpegMergerPP
+    md = tempfile.mkdtemp(prefix="vc_merge_")
+    v, a, out = (os.path.join(md, n) for n in ("vod.f1.mp4", "vod.f2.webm", "vod.mp4"))
+    subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=10", "-t", "2", "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p", v], check=True, stdin=subprocess.DEVNULL)
+    subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440", "-t", "2", "-c:a", "libopus", a],
+                   check=True, stdin=subprocess.DEVNULL)
+    ydl = yt_dlp.YoutubeDL({"quiet": True, "ffmpeg_location": os.path.dirname(ff),
+                            "postprocessor_args": {"merger": ["-movflags", "-faststart"]}})
+    info = {"filepath": out, "__files_to_merge": [v, a],
+            "requested_formats": [{"acodec": "none", "vcodec": "h264", "protocol": "https", "filepath": v},
+                                  {"acodec": "opus", "vcodec": "none", "protocol": "https", "filepath": a}]}
+    FFmpegMergerPP(ydl).run(info)
+    head = open(out, "rb").read()
+    check("a merged MP4 keeps its index at the end (written once, no rewrite pass)",
+          0 < head.find(b"mdat") < head.find(b"moov"), (head.find(b"mdat"), head.find(b"moov")))
+else:
+    print("[skip] no FFmpeg: the real merge isn't checked")
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)
