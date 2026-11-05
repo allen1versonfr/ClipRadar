@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.45.1] - 2026-11-05
+
+Opening a video with a big chat is a few seconds quicker, and reopening it too.
+
+### Changed
+- **Chat is read once per open.** After finding the moments, Clip Radar weighed every chat message a second time to work out how fast chat was speeding up, and did it again each time you reopened a video. For a 9-hour stream with 300,000 messages that was about 3.3 seconds each time, in plain Python. The chat's per-second reaction is now kept with the analysis (and saved with it), so that step takes 0.05 s. Clips, scores and reasons are the same as before. A video opened with an older version reads its chat once more the first time, then not again.
+
+### Tests
+- `tests/test_chat_once.py` (new, in CI): opening weighs each message once and reopening none, every signal comes out as before, an analysis saved by an older version still opens, and a video without chat.
+
 ## [4.45.0] - 2026-11-05
 
 The clips viewers made from a Twitch VOD now help rank it, an optional punch-in zoom, titles that keep off the streamer's face, Upload to TikTok fixes, and fixes from an audit of VOD downloading (`docs/audits/vod-download-audit-2026-11-05.md`).
