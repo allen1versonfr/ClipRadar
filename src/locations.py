@@ -271,7 +271,9 @@ def stale_partials(roots: list, older_than: float = 24 * 3600) -> list:
             except OSError:
                 continue
             for f in files:
-                if f.startswith("vod.") and (f.endswith((".part", ".ytdl")) or ".part-Frag" in f):
+                # also a join that was stopped (vod.temp.*) and TwitchDownloader's unfinished file (4.45)
+                if f.startswith("vod.") and (f.endswith((".part", ".ytdl")) or ".part-Frag" in f
+                                             or f.startswith("vod.temp.") or f == "vod.tdl-part.mp4"):
                     fp = os.path.join(pd, f)
                     try:
                         if now - os.path.getmtime(fp) > older_than:

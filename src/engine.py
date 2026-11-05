@@ -546,6 +546,11 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
             url, workdir, meta, log, ["--cookies-from-browser", cookies_browser] if cookies_browser else []))
     info: dict = {}
     chat_soon = None
+    vclips = None
+    if vod_id:
+        # the clips viewers made from it (twitchclips): one quick request, alongside everything else
+        import twitchclips
+        vclips = _Soon.start(("vclips", workdir), lambda s: twitchclips.refresh(workdir, vod_id, log))
     if not chat_file and c["platform"] == "twitch":
         chat_soon = _Soon.start(("chat", workdir), lambda s: _with_info(lambda inf: _download_chat(url, vod_id, workdir, log, inf)))
     elif not chat_file and c["platform"] == "youtube" and _meta(workdir).get("kind") == "vod":
@@ -578,6 +583,12 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         if sound is not None:
             if not got_video:
                 sound.cancel.set()            # the video failed or was stopped: so does the sound
+            elif not sound.mark.wait(SOUND_GRACE_S):
+                # the video is here and the sound-only copy still isn't: it's stuck. It used to be waited
+                # for with no limit, so a wedged sound download held the whole job at "Downloading".
+                # The video itself is listened to instead.
+                log("The sound-only download is taking too long; listening to the video instead.")
+                sound.cancel.set()
             sound.mark.wait()                 # its download is over either way (see cookie_file above)
         if got_video and handoff and os.path.exists(handoff):
             try:
@@ -597,6 +608,11 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
             step("Reading YouTube's Most replayed graph, comments and captions")
         extras.wait()
         check()
+    if vclips is not None:
+        try:
+            vclips.wait()
+        except Exception as e:                # optional: ranking goes on without it
+            log(f"Couldn't read the clips viewers made ({str(e)[:80]}).")
     step("Getting chat replay")
     if chat_file:
         shutil.copyfile(chat_file, os.path.join(workdir, "chat.json"))
@@ -716,8 +732,11 @@ def _check_download_space(workdir: str, need: float):
     if free is None:
         return
     # x2: yt-dlp's last step (joining a Twitch download's pieces, or a video and its sound) writes a new copy
-    # before it deletes the old one (measured: 32.7 GB + 31.6 GB on disk at once for a 9-hour VOD)
-    need = need * 2.1 + 300e6 if need else 2e9          # unknown size: a stream download needs a few GB
+    # before it deletes the old one (measured: 32.7 GB + 31.6 GB on disk at once for a 9-hour VOD).
+    # A download picked up again (paused, or stopped by a crash) already has some of it on disk: that part
+    # isn't needed twice. Before, resuming a big VOD on a nearly full drive was refused.
+    have = min(float(_download_bytes(dl)), need) if need else 0.0
+    need = (need - have) + need * 1.1 + 300e6 if need else 2e9   # unknown size: a stream download needs a few GB
     if free < need:
         raise RuntimeError(f"Not enough space to download this: {free / 1e9:.1f} GB free on that drive, about "
                            f"{need / 1e9:.1f} GB needed. Free up space (Settings › Storage) or choose another folder for "
@@ -809,6 +828,8 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
     dl = locations.download_dir(workdir)              # Settings › Storage › Downloaded videos
     os.makedirs(dl, exist_ok=True)
     existing = _video_in(dl) or _video_in(workdir)
+    if existing:
+        existing = _reusable(existing, log, step, check)
     meta_p = os.path.join(workdir, "meta.json")
     if existing:
         log("VOD already downloaded, reusing it.")
@@ -862,17 +883,27 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
     if tdl and vod_id:
         step("Downloading the VOD (TwitchDownloader)")
         log("Trying TwitchDownloaderCLI instead...")
-        out = os.path.join(dl, "vod.mp4")
-        cmd = [tdl, "videodownload", "--id", vod_id, "-o", out, "-t", str(FRAGMENTS)]
+        # TwitchDownloader's FFmpeg writes its output file in place, so a download stopped part way left a
+        # vod.mp4 with no index that the next open reused as finished. It writes to TDL_PART now and the
+        # file only becomes vod.mp4 once TwitchDownloader says it's done.
+        part = os.path.join(dl, TDL_PART)
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+        cmd = [tdl, "videodownload", "--id", vod_id, "-o", part, "-t", str(FRAGMENTS)]
         if which("ffmpeg"):
             cmd += ["--ffmpeg-path", ffmpeg()]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                              stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace",
-                             creationflags=CREATE_NO_WINDOW)
+                             creationflags=CREATE_NO_WINDOW, **({} if os.name == "nt" else {"start_new_session": True}))
         procjob.adopt(p)      # ends with Clip Radar, even if it crashes (Windows)
         tail = []
+        last = [time.monotonic()]
+        stalled = _watch_stall(p, dl, last)     # it had no stall check: a stuck one waited for ever
         try:
             for line in p.stdout:
+                last[0] = time.monotonic()
                 tail = (tail + [line.strip()])[-8:]
                 m = re.search(r"(\d{1,3})%", line)
                 if m:
@@ -884,7 +915,11 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
                     raise
         finally:
             p.wait()
+        if p.returncode == 0 and os.path.isfile(part) and os.path.getsize(part) > 1024:
+            os.replace(part, os.path.join(dl, "vod.mp4"))
         video = _video_in(dl)
+        if stalled[0] and not video:
+            tail.append(f"stopped after {DOWNLOAD_STALL_S // 60} minutes with nothing written")
         if p.returncode == 0 and video:
             title = f"Twitch VOD {vod_id}"
             _save_meta(workdir, title=title)
@@ -1108,6 +1143,7 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
 # one down to under 100 KB/s instead of letting it crawl.
 FRAGMENTS = 16
 DOWNLOAD_STALL_S = 180       # no output and no file growth for this long: the download is stuck
+SOUND_GRACE_S = 180          # the video is down: how much longer its sound-only copy may take
 
 # yt-dlp joins a Twitch download's pieces with FFmpeg and +faststart, which writes the whole MP4 and then
 # reads and rewrites all of it again to put the index first: only useful for playing over the internet.
@@ -1117,6 +1153,110 @@ DOWNLOAD_STALL_S = 180       # no output and no file growth for this long: the d
 # rewrites the whole file without it getting any bigger, so on a 9-hour, 18 GB YouTube VOD the stall check
 # saw 3 minutes of no growth and stopped a join that was nearly done (4.41.2).
 NO_FASTSTART = ["--ppa", "FixupM3u8:-movflags -faststart", "--ppa", "Merger:-movflags -faststart"]
+
+
+TDL_PART = "vod.tdl-part.mp4"     # TwitchDownloader's output until it's finished (its stem isn't "vod")
+
+
+def _watch_stall(p: subprocess.Popen, folder: str, last: list) -> list:
+    """Stop p, with everything it started, when it has printed nothing (last[0], a monotonic time the
+    caller moves on every line) and its files in folder haven't grown for DOWNLOAD_STALL_S.
+    Returns [stalled], set when it had to."""
+    stalled = [False]
+
+    def watch():
+        size = -1
+        while p.poll() is None:
+            now = _download_bytes(folder)
+            if now != size:
+                if size >= 0:
+                    last[0] = time.monotonic()
+                size = now
+            if time.monotonic() - last[0] > DOWNLOAD_STALL_S:
+                stalled[0] = True
+                kill_tree(p)
+                return
+            time.sleep(2)
+    threading.Thread(target=watch, daemon=True).start()
+    return stalled
+
+
+def _container(path: str) -> Optional[str]:
+    """FFprobe's format name for a file ("mov,mp4,m4a,3gp,3g2,mj2", "mpegts"...), '' when FFprobe can't read
+    it as a video at all (an MP4 stopped part way has no index), None when that can't be told."""
+    try:
+        p = subprocess.run([ffprobe(), "-v", "error", "-show_entries", "format=format_name,duration", "-of", "json", path],
+                           capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+                           encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW)
+    except Exception:
+        return None
+    if p.returncode != 0:
+        return ""
+    try:
+        fmt = json.loads(p.stdout or "{}").get("format") or {}
+    except ValueError:
+        return None
+    return str(fmt.get("format_name") or "")
+
+
+def _reusable(video: str, log: Log, step: Log = _noop, check: Check = _noop) -> Optional[str]:
+    """A VOD found on disk from an earlier download, made usable, or None to download it again.
+
+    yt-dlp joins a Twitch download in place: the pieces become vod.mp4 (really MPEG-TS), then FFmpeg
+    writes vod.temp.mp4 and swaps it in. On a 9-hour VOD that join takes about 6 minutes, and a download
+    paused, cancelled, stalled or closed during it left the MPEG-TS vod.mp4 behind, which every later open
+    reused as finished: the preview wouldn't play it, seeking was off and clips could come out blank.
+    That file has the whole VOD in it, so it's finished here (the same copy yt-dlp makes). An MP4 FFprobe
+    can't read at all (one stopped while being written, before 4.45 TwitchDownloader's) is removed so the
+    download starts again instead of failing later at every step."""
+    folder = os.path.dirname(video)
+    for f in os.listdir(folder):
+        if f.startswith("vod.temp."):                 # a join that was stopped: only half a file
+            try:
+                os.remove(os.path.join(folder, f))
+            except OSError:
+                pass
+    kind = _container(video)
+    if kind is None:
+        return video                                   # can't tell (no FFprobe): as before
+    if kind == "":
+        log("The video downloaded before is unreadable (its download was stopped part way). Downloading it again.")
+        try:
+            os.remove(video)
+        except OSError:
+            return video
+        return None
+    if "mpegts" in kind and video.lower().endswith((".mp4", ".m4v")):
+        step("Putting the video together (its download was stopped while it was joined)")
+        log("The VOD downloaded before was never joined into one video. Joining it now.")
+        tmp = os.path.join(folder, "vod.temp" + os.path.splitext(video)[1])
+        cmd = [ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", video, "-map", "0", "-dn", "-ignore_unknown",
+               "-c", "copy", "-bsf:a", "aac_adtstoasc", "-f", "mp4", tmp]
+        p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                             creationflags=CREATE_NO_WINDOW, **({} if os.name == "nt" else {"start_new_session": True}))
+        procjob.adopt(p)
+        try:
+            while p.poll() is None:
+                try:
+                    check()
+                except Cancelled:
+                    kill_tree(p)
+                    raise
+                time.sleep(0.5)
+        finally:
+            p.wait()
+            err = (p.stderr.read() or b"").decode("utf-8", "replace") if p.stderr else ""
+            if p.returncode != 0:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        if p.returncode == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 1024:
+            os.replace(tmp, video)
+            return video
+        log(f"Couldn't join it ({err.strip().splitlines()[-1][:160] if err.strip() else 'FFmpeg failed'}); "
+            "using it as it is.")
+    return video
 
 
 def _download_bytes(folder: str) -> int:
@@ -1238,7 +1378,21 @@ def _download_chat(url: str, vod_id: Optional[str], workdir: str, log: Log, info
         try:
             if os.path.exists(out):
                 os.remove(out)
-            run([tdl, "chatdownload", "--id", vod_id, "-o", out, "-t", "8"], timeout=3600)
+            # ended with Clip Radar like the video's download (it ran on for up to an hour after a crash)
+            part = os.path.join(workdir, "chat.part.json")      # TwitchDownloader picks the format by extension
+            p = subprocess.Popen([tdl, "chatdownload", "--id", vod_id, "-o", part, "-t", "8"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                 creationflags=CREATE_NO_WINDOW)
+            procjob.adopt(p)
+            try:
+                tail = p.communicate(timeout=3600)[0].decode("utf-8", "replace").strip()
+            except subprocess.TimeoutExpired:
+                kill_tree(p)
+                raise RuntimeError("TwitchDownloaderCLI timed out after an hour")
+            if p.returncode != 0 or not os.path.isfile(part):
+                raise RuntimeError(tail or f"TwitchDownloaderCLI exited with code {p.returncode}")
+            # written whole, then put in place: a chat download stopped part way left a cut-off chat.json
+            os.replace(part, out)
             chat = load_chat(out, info)
             log(f"Got {len(chat):,} chat messages.")
             return chat
@@ -1915,6 +2069,10 @@ class Analysis:
     comment_people: Optional[np.ndarray] = None
     captions: Optional[np.ndarray] = None  # 4.39: lines in YouTube's captions that land (no chat only), 0..1
     chapters: Optional[list] = None
+    # 4.45: Twitch VODs (twitchclips): how much viewers clipped each second 0..1, clips and their views there
+    vclips: Optional[np.ndarray] = None
+    vclip_people: Optional[np.ndarray] = None
+    vclip_views: Optional[np.ndarray] = None
     # 4.32: messages per second and those that were plain talk (shifted by the delay), and how much chat
     # counts where it's just talking (detect.talk_mult)
     said_rate: Optional[np.ndarray] = None
@@ -1969,6 +2127,9 @@ class Analysis:
                              ("captions", self.captions, ytextra.CAPTION_GAIN)):
             if arr is not None:
                 parts[k] = float(w.get(k, 1.0)) * gain * _fit(arr, n)
+        if self.vclips is not None:
+            import twitchclips
+            parts["viewers"] = float(w.get("viewers", 1.0)) * twitchclips.GAIN * _fit(self.vclips, n)
         ag = float(w.get("agree", AGREE_WEIGHT))
         if ag > 0 and self.has_chat and self.has_audio and 0 < wc < 1:
             import detect
@@ -1991,7 +2152,8 @@ class Analysis:
                        surge=cut(self.surge), emote_z=cut(self.emote_z), emote_rate=cut(self.emote_rate),
                        react=cut(self.react), noise=cut(self.noise), replay=cut(self.replay),
                        comments=cut(self.comments), comment_people=cut(self.comment_people), captions=cut(self.captions),
-                       chapters=self.chapters,
+                       chapters=self.chapters, vclips=cut(self.vclips), vclip_people=cut(self.vclip_people),
+                       vclip_views=cut(self.vclip_views),
                        said_rate=cut(self.said_rate), talk_rate=cut(self.talk_rate), talk=cut(self.talk))
         sub.combine(self.chat_weight_pct)
         return sub
@@ -2150,6 +2312,8 @@ def _finish(an: Analysis, chat: list, emote_set, weights: Optional[dict], chat_w
     detect.enrich(an, chat, an.chat_delay, emote_set)
     if workdir:
         ytextra.apply(an, ytextra.load(workdir))       # a YouTube video: Most replayed and comments
+        import twitchclips
+        twitchclips.apply(an, twitchclips.load(workdir))   # a Twitch VOD: the clips viewers made from it
     an._emotes = emote_set
     an.combine(chat_weight_pct, weights or detect.preset("any"))
     return an
@@ -2685,6 +2849,10 @@ def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: flo
             parts.append(f"{k} comments point here")
     if an.captions is not None and float(np.max(an.captions[max(0, i - 6):i + 4], initial=0)) > 0.5:
         parts.append("a line that lands")
+    import twitchclips
+    vc = twitchclips.reason(an, i)
+    if vc:
+        parts.append(vc)
     if an.chapters:
         import ytextra
         ch = ytextra.chapter_at(an.chapters, float(i))

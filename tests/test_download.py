@@ -231,5 +231,116 @@ if ff:
 else:
     print("[skip] no FFmpeg: the real merge isn't checked")
 
+# ---------------------------------------------------------------- 4.45 audit: a VOD found on disk
+# A Twitch download stopped while yt-dlp joined it left vod.mp4 as MPEG-TS (and half a vod.temp.mp4);
+# every later open reused it as finished. It's joined now. An MP4 FFprobe can't read is downloaded again.
+if ff:
+    rd = tempfile.mkdtemp(prefix="vc_reuse_")
+    ts = os.path.join(rd, "vod.mp4")
+    subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=10", "-f", "lavfi",
+                    "-i", "sine=frequency=440", "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                    "-f", "mpegts", ts], check=True, stdin=subprocess.DEVNULL)
+    open(os.path.join(rd, "vod.temp.mp4"), "wb").write(b"x" * 5000)          # the join that was stopped
+    check("before: the raw pieces are MPEG-TS", "mpegts" in (engine._container(ts) or ""), engine._container(ts))
+    got = engine._reusable(ts, logs.append)
+    check("a VOD stopped while being joined is joined, not reused as it was",
+          got == ts and "mp4" in (engine._container(ts) or "") and "mpegts" not in engine._container(ts), engine._container(ts))
+    check("and the half-written join is gone", not os.path.exists(os.path.join(rd, "vod.temp.mp4")))
+    check("a finished MP4 is reused as it is", engine._reusable(ts, logs.append) == ts)
+    bad = os.path.join(tempfile.mkdtemp(prefix="vc_bad_"), "vod.mp4")
+    open(bad, "wb").write(b"\x00\x00\x00\x20ftypisom" + b"x" * 5000)           # stopped before its index
+    check("an MP4 stopped part way is removed so it downloads again",
+          engine._reusable(bad, logs.append) is None and not os.path.exists(bad))
+    real_probe = engine.ffprobe
+    engine.ffprobe = lambda: "/no/such/ffprobe"
+    keep = os.path.join(tempfile.mkdtemp(prefix="vc_keep_"), "vod.mp4")
+    open(keep, "wb").write(b"x" * 5000)
+    check("no FFprobe: a VOD on disk is reused as before (never deleted on a guess)",
+          engine._reusable(keep, logs.append) == keep and os.path.exists(keep))
+    engine.ffprobe = real_probe
+else:
+    print("[skip] no FFmpeg: reusing a VOD isn't checked")
+
+# space for a download picked up again: what's on disk isn't needed twice
+real_free = locations.free_space
+real_dir = locations.download_dir
+try:
+    sd = tempfile.mkdtemp(prefix="vc_space_")
+    locations.download_dir = lambda w: sd
+    locations.free_space = lambda d: 50e9
+    try:
+        engine._check_download_space(sd, 32.75e9)
+        fresh_ok = True
+    except RuntimeError:
+        fresh_ok = False
+    check("a fresh 33 GB VOD with 50 GB free is refused (it needs room for the join)", not fresh_ok)
+    with open(os.path.join(sd, "vod.mp4.part"), "wb") as f:
+        f.truncate(int(20e9))                       # sparse: 20 GB already downloaded, no real disk used
+    try:
+        engine._check_download_space(sd, 32.75e9)
+        resumed_ok = True
+    except RuntimeError:
+        resumed_ok = False
+    check("the same VOD with 20 GB of it on disk is let through", resumed_ok)
+finally:
+    locations.free_space = real_free
+    locations.download_dir = real_dir
+
+# TwitchDownloader: its output only becomes vod.mp4 when it says it's done
+TDL = r"""
+import os, sys, time
+out = sys.argv[sys.argv.index("-o") + 1]
+mode = os.environ["TDL_MODE"]
+print("[STATUS] - Downloading 50%", flush=True)
+open(out, "wb").write(b"x" * 4096)
+if mode == "fail":
+    sys.exit(1)
+if mode == "hang":
+    time.sleep(120)
+print("[STATUS] - Downloading 100%", flush=True)
+"""
+tscript = os.path.join(tmp, "fake_tdl.py")
+open(tscript, "w").write(TDL)
+tdl = os.path.join(tmp, "TwitchDownloaderCLI" + (".bat" if os.name == "nt" else ""))
+open(tdl, "w").write(f'@"{sys.executable}" "{tscript}" %*\n' if os.name == "nt"
+                     else f'#!/bin/sh\nexec "{sys.executable}" "{tscript}" "$@"\n')
+os.chmod(tdl, 0o755)
+real_which = engine.which
+engine.which = lambda n: tdl if n == "TwitchDownloaderCLI" else None
+import builtins  # noqa: E402
+real_import = builtins.__import__
+
+
+def no_ytdlp(name, *a, **k):
+    if name == "yt_dlp":
+        raise ImportError(name)
+    return real_import(name, *a, **k)
+
+
+builtins.__import__ = no_ytdlp
+try:
+    for mode in ("fail", "ok", "hang"):
+        os.environ["TDL_MODE"] = mode
+        wd = tempfile.mkdtemp(prefix="vc_tdl_")
+        t0 = time.monotonic()
+        try:
+            res = engine._download_video("https://www.twitch.tv/videos/1", "1", wd, 1080, "", logs.append,
+                                         lambda f: None, steps.append, lambda: None)
+        except RuntimeError as e:
+            res = str(e)
+        took = time.monotonic() - t0
+        has_vod = engine._video_in(wd)
+        if mode == "fail":
+            check("TwitchDownloader stopped part way: no vod.mp4 left to be reused", has_vod is None and isinstance(res, str), res)
+        elif mode == "ok":
+            check("TwitchDownloader finished: its file becomes vod.mp4",
+                  isinstance(res, tuple) and res[0].endswith("vod.mp4") and not os.path.exists(os.path.join(wd, engine.TDL_PART)), res)
+        else:
+            check("a stuck TwitchDownloader is stopped instead of waited for for ever",
+                  isinstance(res, str) and has_vod is None and took < 30, (res, round(took, 1)))
+finally:
+    builtins.__import__ = real_import
+    engine.which = real_which
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)
