@@ -26,7 +26,7 @@ import json
 import math
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 import numpy as np
