@@ -353,7 +353,10 @@ p.notice { margin: 0; }
 .rv-row-m { display: flex; flex-wrap: wrap; gap: 0 8px; }
 .rv-flag { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 6px; border-radius: 50%; background: var(--warn); color: #1a1205; font-size: 11px; font-weight: 700; }
 .qpill { padding: 0 6px; border-radius: 4px; border: 1px solid var(--line2); font-variant-numeric: tabular-nums; }
-.qpill.q3 { border-color: var(--tx2); color: var(--tx0); font-weight: 650; }   /* a high score stands out by weight: green is for actions */
+/* score grades (owner's choice, DESIGN.md): green 80+, yellow 70+, red under 50; the number is always there too */
+.qpill.top { border-color: var(--accent); color: var(--accent); font-weight: 650; }
+.qpill.good { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.qpill.low { border-color: var(--danger); color: var(--danger); }
 .rv-empty, .rv-pick p { margin: 8px 0; }
 .rv-pick { padding: 20px 24px; display: flex; flex-direction: column; gap: 10px; }
 .rv-open { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-width: 640px; }

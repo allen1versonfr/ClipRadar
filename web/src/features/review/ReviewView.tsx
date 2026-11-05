@@ -849,7 +849,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                       <span className="rv-row-main">
                         <span className={`rv-row-t ellipsis${x.listened || x.userTitle ? '' : ' pending'}`}>{flagged && <span className="rv-flag" title="Content check: needs review">!</span>}{x.title || 'Untitled'}</span>
                         <span className="rv-row-m muted small">
-                          {x.quality > 0 && <span className={`qpill q${qClass(x.quality)}`} title={`Score ${x.quality} of 100`}>{x.quality}</span>}
+                          {x.quality > 0 && <span className={`qpill ${qClass(x.quality)}`} title={`Score ${x.quality} of 100`}>{x.quality}</span>}
                           <span>#{x.id}</span><span>{fmt(x.start)}</span><span>{Math.round(x.end - x.start)}s</span>
                           {state && <span className={xq?.status === 'error' ? 'err-tx' : ''}>{state}</span>}
                         </span>
@@ -968,7 +968,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
               <div className="row wrap rv-facts">
                   <b>{isGem(c) ? `Quiet gem #${c.id}` : `Clip #${c.id}`}</b>
                   <span className="muted">{fmtA(c.start)} to {fmtA(c.end)} ({(c.end - c.start).toFixed(1)}s)</span>
-                  {c.quality > 0 && <span className={`qpill q${qClass(c.quality)}`}>Score {c.quality}</span>}
+                  {c.quality > 0 && <span className={`qpill ${qClass(c.quality)}`}>Score {c.quality}</span>}
                   {st && st !== 'clean' && st !== 'off' && <span className={st === 'needs_review' || st === 'excluded' ? 'warn-tx' : 'muted'}>{CHECK_LABEL[st]}</span>}
                 </div>
               <div className="rv-acts">

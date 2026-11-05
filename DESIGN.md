@@ -30,6 +30,10 @@ picked to carry out the owner's answers and can be changed here.
 - **Status colours keep their meaning:** danger `#f05a5e`, warning `#e3a33b`, live recording `#f2484d`.
   Success / ready uses the accent itself: green already means done, so a second green would only blur
   the two.
+- **Clip score grades** (set by the owner on 2026-11-05, an exception to "green only for actions"):
+  80 and up in the accent green, 70 to 79 in the warning yellow, under 50 in the danger red, 50 to 69
+  plain. They reuse the status colours rather than adding new ones, and the number is always shown, so
+  the grade never depends on colour alone.
 
 ## Type
 

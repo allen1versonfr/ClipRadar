@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- **Clip scores are coloured by grade** in Review's clip list and the clip's header: 80 and up green, 70 to 79 yellow, under 50 red, 50 to 69 plain. The number is always shown with it.
+
 ## [4.43.0] - 2026-11-05
 
 The previous UI is gone, and fixes from a second design audit, this time of the running app (`anti-slop/audit-002-2026-11-05.md`).
