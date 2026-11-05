@@ -21,6 +21,8 @@ export const FIX_EXPLAIN: Record<string, string> = {
   mask_title: 'The flagged words in the title are replaced with stars.',
   mask_post: 'The flagged words in the post caption are replaced with stars.' }
 export const FLAG_STATE: Record<string, string> = { open: '', accepted: 'Left as is', dismissed: 'Dismissed' }
+/** A category's severity in words, the same in Settings › Content check and on each flag in Review. */
+export const SEV: Record<number, string> = { 3: 'Serious', 2: 'Medium', 1: 'Mild' }
 
 export const flagsOf = (c: Clip) => (c.safety?.flags ?? []) as unknown as Flag[]
 export const fixesOf = (c: Clip) => ((c.check?.fixes ?? []) as Fix[])

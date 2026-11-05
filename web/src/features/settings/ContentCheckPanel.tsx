@@ -4,8 +4,8 @@ import { Safety } from '../../api/schemas'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
 import { usePoll } from '../../hooks/usePoll'
+import { SEV } from '../review/checks'
 
-const SEV: Record<number, string> = { 3: 'Serious', 2: 'Medium', 1: 'Mild' }
 const SENS: Array<[string, string]> = [['all', 'Everything'], ['skip_mild', 'Skip mild'], ['serious', 'Only serious']]
 const SENS_HINT: Record<string, string> = {
   all: 'Flags everything it knows, swearing included.',

@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.42.1] - 2026-11-04
+
+Small visual fixes from a design audit (`anti-slop/audit-001-2026-11-04.md`): fewer decorative chips, and content-check severity you can read without colour.
+
+### Fixed
+- **A content-check flag's severity was shown only by colour.** A red or amber stripe down its left edge was the only sign of how serious it was. Each flag now says Serious, Medium or Mild, the same words Settings › Content check uses, in that colour.
+- **Settings group headings** (Clips, Posting, Finding clips, App) were small spaced-out capitals. They're now ordinary text, set apart by weight and grey.
+- **Settings › Clip ranking** marked its lists with small capsule chips (FACTS, LEARNED, BUILT IN). They're now plain text in brackets after the heading.
+- **Fully rounded tags everywhere.** The Active campaign tag, clip scores, the version tags in Updates, "Tuned to your picks", the exact preview's close button and the Settings menu on a narrow window now use the app's normal corner. Only the live indicator and the menu's counts stay round.
+- **README:** a plainer banner (the logo and name on graphite, without the grid, glow and chips), and the version badge is green like the app instead of the old yellow.
+
+### Removed
+- An unused style for the old "preview" tag.
+
 ## [4.42.0] - 2026-11-04
 
 Auto-frame is quicker and works with every layout, and titles and captions size themselves to fit.
