@@ -24,7 +24,7 @@ import { Overview } from './Overview'
 import { filterFor, type Span } from './streamMap'
 import { LiveHead } from './LiveHead'
 import { setReviewTodo } from '../../shell'
-import { DeepBox, type Detect, DetectDialog, HeadFacts, TitleChoices } from './StreamTools'
+import { DeepBox, type Detect, DetectDialog, HeadFacts, HeadTools, TitleChoices } from './StreamTools'
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]
 /** What following the face found (Layout tab). */
@@ -43,6 +43,18 @@ const feedback = (c: Clip, action: string, extra: object = {}) => { api(Ok, '/ap
 /** Review: #review lists the videos open now; #review/<project> reviews one, #review/live/<session> a live session. */
 export function ReviewView({ pid, live = false, active = true, whisper = true }: { pid: string | undefined; live?: boolean; active?: boolean; whisper?: boolean }) {
   return pid ? <Workspace key={`${live}:${pid}`} pid={pid} live={live} active={active} whisper={whisper} /> : <Picker />
+}
+
+/** A clip with content flags to look at: red when one of them is serious, yellow otherwise. */
+function FlagIcon({ serious }: { serious: boolean }) {
+  const label = serious ? 'Content check: a serious flag to review' : 'Content check: needs review'
+  return (
+    <svg className={`rv-flag${serious ? ' serious' : ''}`} viewBox="0 0 12 13" role="img" aria-label={label}>
+      <title>{label}</title>
+      <rect x="1" y="0.5" width="1.6" height="12.5" rx="0.6" fill="currentColor" />
+      <path d="M2.6 1h8.4L8.6 4.25 11 7.5H2.6z" fill="currentColor" />
+    </svg>
+  )
 }
 
 function Picker() {
@@ -789,10 +801,14 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
         <h1 id="rv-title" className="ellipsis" title={meta.title}>{meta.title}</h1>
         {live ? <LiveHead live={live} moments={clips.length} onSettings={b => void liveSettings(b)} onClip={() => void clipNow()} onStop={() => void stopLive()} />
           : <>
-            <HeadFacts meta={meta} onDetect={() => setDetOpen(true)} />
-            <DeepBox deep={deep} gems={counts.gems} onStart={() => void startDeep()} onStop={() => void stopDeep()} />
+            <HeadFacts meta={meta} />
+            <span className="rv-tools">
+              {listening && clips.some(x => !x.listened) && <span className="muted small" data-testid="rv-listening">Writing titles ({clips.filter(x => x.listened).length} of {clips.length})</span>}
+              <HeadTools meta={meta} onDetect={() => setDetOpen(true)} />
+              <DeepBox deep={deep} gems={counts.gems} onStart={() => void startDeep()} onStop={() => void stopDeep()} />
+            </span>
           </>}
-        {listening && clips.some(x => !x.listened) && <span className="muted small" data-testid="rv-listening">Writing titles ({clips.filter(x => x.listened).length} of {clips.length})</span>}
+        {live && listening && clips.some(x => !x.listened) && <span className="muted small" data-testid="rv-listening">Writing titles ({clips.filter(x => x.listened).length} of {clips.length})</span>}
       </header>
 
       <div className="rv-grid">
@@ -807,7 +823,9 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
             ))}
           </div>
           {filter === 'todo' && counts.todo > 0 && (
-            <div className="rv-batch" data-testid="batch-bar">
+            <details className="rv-bulk" data-testid="batch-bar">
+              <summary>Keep or skip several at once</summary>
+              <div className="rv-batch">
               <label className="fld inline">Keep the top
                 <select className="input" value={batchN} onChange={e => setBatchN(e.target.value)} data-testid="batch-count">
                   {['3', '5', '10'].map(n => <option key={n} value={n}>{n}</option>)}<option value="0">all</option>
@@ -820,7 +838,8 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                 </select>
               </label>
               <button className="btn sm ghost" onClick={() => void batchSkip()} data-testid="batch-skip">Skip</button>
-            </div>
+              </div>
+            </details>
           )}
           {filter === 'flagged' && (
             <div className="rv-batch" data-testid="rv-flagbar">
@@ -842,12 +861,13 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                 const state = x.state === 'kept' ? (xq?.status === 'error' ? 'Render failed' : xq?.status === 'done' ? 'Rendered'
                   : xq?.status === 'rendering' ? 'Rendering' : xq ? 'In render queue' : 'Kept') : x.state === 'skipped' ? 'Skipped' : ''
                 const flagged = checkStatus(x, safety?.enabled !== false) === 'needs_review'
+                const serious = flagged && flagsOf(x).some(f => f.status === 'open' && (f.severity ?? 1) >= 3)
                 return (
                   <li key={keyOf(x)}>
                     <button className={`rv-row${keyOf(x) === cur ? ' on' : ''}`} aria-current={keyOf(x) === cur} onClick={() => select(x)} data-testid="rv-row">
                       <img src={x.thumb} alt="" loading="lazy" />
                       <span className="rv-row-main">
-                        <span className={`rv-row-t ellipsis${x.listened || x.userTitle ? '' : ' pending'}`}>{flagged && <span className="rv-flag" title="Content check: needs review">!</span>}{x.title || 'Untitled'}</span>
+                        <span className={`rv-row-t${x.listened || x.userTitle ? '' : ' pending'}`}>{flagged && <FlagIcon serious={serious} />}{x.title || 'Untitled'}</span>
                         <span className="rv-row-m muted small">
                           {x.quality > 0 && <span className={`qpill ${qClass(x.quality)}`} title={`Score ${x.quality} of 100`}>{x.quality}</span>}
                           <span>#{x.id}</span><span>{fmt(x.start)}</span><span>{Math.round(x.end - x.start)}s</span>

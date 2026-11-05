@@ -17,13 +17,12 @@ export function trimNote(t: { n: number; start: number; end: number } | null | u
   return `Clips ${[part(t.start, 'start'), part(t.end, 'end')].filter(Boolean).join(', ')}`
 }
 
-/** The VOD's facts: where it's from, how long, chat, how many strong moments, what ranking learned. */
-export function HeadFacts({ meta, onDetect }: { meta: Project; onDetect: () => void }) {
-  const p = meta, cs = p.chat_stats as { chatters: number; ignored?: number; raids?: number }, est = p.estimate, lr = p.learning, og = p.origin
+/** The VOD's facts: where it's from, how long, chat, how many strong moments. */
+export function HeadFacts({ meta }: { meta: Project }) {
+  const p = meta, cs = p.chat_stats as { chatters: number; ignored?: number; raids?: number }, est = p.estimate, og = p.origin
   const hours = p.duration / 3600
   const len = hours >= 1 ? `${Math.round(hours * 10) / 10}-hour` : `${Math.max(1, Math.round(p.duration / 60))}-minute`
   const chatTip = cs.ignored ? `${cs.ignored.toLocaleString()} bot, command and sub messages ignored${cs.raids ? `, ${plural(cs.raids, 'raid')} played down` : ''}` : undefined
-  const trim = trimNote(lr.trim)
   return (
     <span className="rv-facts-head muted small" data-testid="rv-facts">
       {og.platform && og.platform !== 'local' && <span title={og.url}>{[og.label, og.uploader, og.uploaded].filter(Boolean).join(' · ')}</span>}
@@ -32,11 +31,21 @@ export function HeadFacts({ meta, onDetect }: { meta: Project; onDetect: () => v
         ? <><b className="tnum">{cs.chatters.toLocaleString()}</b> chatters</> : <><b className="tnum">{p.chat_count.toLocaleString()}</b> chat messages</>}</span>
       {est.strong != null && <span title={`Distinct moments that stand out clearly (${est.good ?? 0} worth a look in total)`} data-testid="rv-estimate">
         About <b className="tnum">{est.strong}</b> strong {est.strong === 1 ? 'moment' : 'moments'} in this {len} stream</span>}
+    </span>
+  )
+}
+
+/** The header's tools on the right: what ranking learned from you, and the detection settings. */
+export function HeadTools({ meta, onDetect }: { meta: Project; onDetect: () => void }) {
+  const p = meta, lr = p.learning
+  const trim = trimNote(lr.trim)
+  return (
+    <>
       {lr.active && <span className="tuned" title={`Ranking learned from ${lr.decisions} of your keeps and skips${lr.using === 'all your picks' ? ' across all streamers' : ''}`}>Tuned to your picks</span>}
       {trim && <span className="tuned" title={`Learned from ${lr.trim?.n ?? 0} clips you trimmed before keeping. Settings › Clip ranking can forget it.`}>{trim}</span>}
-      <button className="link" onClick={onDetect} title="Stream type, how many moments, clip lengths. Click to change or compare." data-testid="rv-detect-open">
-        {p.detect_text || 'Detection settings'}</button>
-    </span>
+      <button className="btn sm ghost" onClick={onDetect} title={`${p.detect_text ? `Now: ${p.detect_text}. ` : ''}Stream type, how many moments, clip lengths: change or compare.`}
+              data-testid="rv-detect-open">Detection settings</button>
+    </>
   )
 }
 

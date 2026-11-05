@@ -111,6 +111,8 @@ h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .home { padding: 20px 24px 32px; display: flex; flex-direction: column; gap: 16px; max-width: 1200px; margin-inline: auto; }
 .home h2 { font-size: 15px; font-weight: 650; margin: 0; }
 .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+/* Past broadcast leads: the wider card, first; live clipping beside it */
+@media (min-width: 1100px) { .sources { grid-template-columns: minmax(0, 3fr) minmax(340px, 2fr); } }
 .panel { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 16px; }
 .panel.source { display: flex; flex-direction: column; gap: 12px; }
 .panel header p { margin: 4px 0 0; }
@@ -324,7 +326,7 @@ p.notice { margin: 0; }
 .review { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px 24px; min-width: 0; }
 .rv-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; min-width: 0; }
 .rv-head h1 { margin: 0; font-size: 18px; max-width: 100%; }
-.rv-grid { display: grid; grid-template-columns: clamp(200px, 21vw, 300px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.rv-grid { display: grid; grid-template-columns: clamp(250px, 23vw, 340px) minmax(0, 1fr); gap: 16px; align-items: start; }
 /* a clip open: the stage (player, timeline, trims) and, on its right, the inspector (Keep / Skip, tabs, title),
    as in the previous UI. The inspector scrolls on its own, so Keep and the tabs stay in reach. */
 .rv-main.has-insp { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 26vw, 360px); gap: 16px; align-items: start; }
@@ -341,7 +343,13 @@ p.notice { margin: 0; }
 }
 .rv-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .rv-list .seg { align-self: stretch; }
-.rv-list .seg button { flex: 1; padding-inline: 5px; min-width: 0; font-size: 12px; }   /* five tabs in a narrow list */
+/* the tabs wrap as whole buttons when there are five, never mid-label */
+.rv-list .seg { flex-wrap: wrap; }
+.rv-list .seg button { flex: 1 1 auto; padding-inline: 8px; font-size: 12px; white-space: nowrap; }
+/* Keep or skip several at once: an occasional action, folded away until opened */
+.rv-bulk > summary { cursor: pointer; color: var(--tx1); font-size: 12px; padding: 4px 2px; list-style-position: inside; }
+.rv-bulk > summary:hover { color: var(--tx0); }
+.rv-bulk[open] > summary { margin-bottom: 6px; }
 .rv-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r); }
 .rv-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: calc(100 * var(--vh) - 260px); overflow-y: auto; }
 .rv-row { width: 100%; display: flex; gap: 10px; align-items: center; padding: 6px; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--tx0); text-align: left; }
@@ -349,9 +357,13 @@ p.notice { margin: 0; }
 .rv-row.on { border-color: var(--accent); background: var(--bg2); }
 .rv-row img { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; flex: none; background: var(--bg3); }
 .rv-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* a title gets two lines before it's cut, so most read in full */
+.rv-row-t { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .rv-row-t.pending { color: var(--tx1); font-style: italic; }
 .rv-row-m { display: flex; flex-wrap: wrap; gap: 0 8px; }
-.rv-flag { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 6px; border-radius: 50%; background: var(--warn); color: #1a1205; font-size: 11px; font-weight: 700; }
+/* a clip with content flags to look at: a small flag, red when one is serious, yellow otherwise */
+.rv-flag { display: inline-block; width: 12px; height: 13px; margin-right: 6px; vertical-align: -1px; color: var(--warn); }
+.rv-flag.serious { color: var(--danger); }
 .qpill { padding: 0 6px; border-radius: 4px; border: 1px solid var(--line2); font-variant-numeric: tabular-nums; }
 /* score grades (owner's choice, DESIGN.md): green 80+, yellow 70+, red under 50; the number is always there too */
 .qpill.top { border-color: var(--accent); color: var(--accent); font-weight: 650; }
@@ -448,8 +460,10 @@ p.notice { margin: 0; }
 /* Review: the whole stream (overview, header facts, deep scan, detection settings, title A/B) */
 .rv-facts-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
 .rv-facts-head b { color: var(--tx0); font-weight: 600; }
-.rv-facts-head .tuned { padding: 0 6px; border: 1px solid var(--line2); border-radius: 4px; }
-.rv-deep { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.rv-tools .tuned { padding: 0 6px; border: 1px solid var(--line2); border-radius: 4px; color: var(--tx1); font-size: 12px; }
+.rv-deep { display: inline-flex; align-items: center; gap: 8px; }
+/* the stream's tools on the right of the header: what ranking learned, detection settings, deep scan */
+.rv-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-left: auto; }
 .rv-overview { position: relative; display: flex; flex-direction: column; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
 .rv-ov-ruler { display: flex; justify-content: space-between; gap: 12px; }
 .rv-ov-ruler span:nth-child(2) { text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

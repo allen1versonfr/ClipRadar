@@ -188,6 +188,8 @@ with sync_playwright() as pw:
     page.wait_for_timeout(400)                # dialogs fade in: colours are only final after that
     axe(page, "Review: detection settings dialog")
     page.keyboard.press("Escape")
+    if not page.evaluate("document.querySelector('[data-testid=batch-bar]').open"):      # Keep or skip several is folded away
+        page.click("[data-testid=batch-bar] > summary")
     page.get_by_test_id("batch-keep").click()
     page.get_by_role("alertdialog").wait_for()
     page.wait_for_timeout(400)                # dialogs fade in: colours are only final after that
