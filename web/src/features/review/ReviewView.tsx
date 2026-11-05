@@ -52,14 +52,25 @@ function Picker() {
   return (
     <section className="rv-pick" data-testid="review-picker">
       <h1>Review</h1>
-      {ready.length ? (
+      {src.error && <p className="banner err" role="alert">{src.error}</p>}
+      {!src.data && !src.error && <p className="muted">Loading…</p>}
+      {src.data && (ready.length || lives.length ? (
         <ul className="rv-open">
-          {ready.map(x => <li key={x.id}><a className="btn" href={`#review/${x.pid}`}>{x.title || x.source}</a></li>)}
-          {lives.map(x => <li key={x.id}><a className="btn" href={`#review/live/${x.id}`}>Live: {x.title || x.source}</a></li>)}
+          {lives.map(x => (
+            <li key={x.id}><a className="rv-open-row" href={`#review/live/${x.id}`}>
+              <b>{x.title || x.source}</b>
+              <span className="muted small"><span className="live-word">Live</span> · {plural(x.moments, 'moment')} so far</span>
+            </a></li>
+          ))}
+          {ready.map(x => (
+            <li key={x.id}><a className="rv-open-row" href={`#review/${x.pid}`}>
+              <b>{x.title || x.source}</b>
+              <span className="muted small">{x.todo ? `${plural(x.todo, 'clip')} to review` : 'All reviewed'}
+                {x.duration > 0 && ` · ${fmt(x.duration)} long`}{x.label && ` · ${x.label}`}</span>
+            </a></li>
+          ))}
         </ul>
-      ) : lives.length ? (
-        <ul className="rv-open">{lives.map(x => <li key={x.id}><a className="btn" href={`#review/live/${x.id}`}>Live: {x.title || x.source}</a></li>)}</ul>
-      ) : <p className="muted">No video is open. Find clips in a video on <a href="#home">Home</a>, then review them here.</p>}
+      ) : <p className="muted">No video is open. Find clips in a video on <a href="#home">Home</a>, then review them here.</p>)}
     </section>
   )
 }

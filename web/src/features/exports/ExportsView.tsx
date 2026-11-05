@@ -112,22 +112,24 @@ export function ExportsView() {
       {queue.error && <p className="banner err" role="alert">{queue.error}</p>}
       {!queue.data && !queue.error && <p className="muted pad">Loading…</p>}
       {queue.data && !items.length && (
-        <p className="empty" data-testid="exports-empty">Nothing rendered yet. Keep a clip in Review and it renders here.</p>
+        <p className="empty" data-testid="exports-empty">Nothing rendered yet. Keep a clip in <a href="#review">Review</a> and it renders here.</p>
       )}
       {items.length > 0 && (
         <div className="ex-split">
-          <table className="ex-table" data-testid="exports-table">
-            <thead>
-              <tr><th aria-label="Thumbnail" /><th>Clip</th><th className="r">Length</th><th>Status</th><th>Posted</th><th aria-label="Remove" /></tr>
-            </thead>
-            <tbody>
-              {rows.map(q => (
-                <Row key={q.id} q={q} now={now} selected={q.id === sel?.id} onSelect={() => setSelId(q.id)}
-                     onRemove={() => act('/api/queue/remove', { id: q.id })}
-                     onRetry={() => act('/api/queue/retry', { id: q.id }, 'Rendering again…')} />
-              ))}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="ex-table" data-testid="exports-table">
+              <thead>
+                <tr><th aria-label="Thumbnail" /><th>Clip</th><th className="r">Length</th><th>Status</th><th>Posted</th><th aria-label="Remove" /></tr>
+              </thead>
+              <tbody>
+                {rows.map(q => (
+                  <Row key={q.id} q={q} now={now} selected={q.id === sel?.id} onSelect={() => setSelId(q.id)}
+                       onRemove={() => act('/api/queue/remove', { id: q.id })}
+                       onRetry={() => act('/api/queue/retry', { id: q.id }, 'Rendering again…')} />
+                ))}
+              </tbody>
+            </table>
+          </div>
           {sel && <Detail q={sel} campaigns={camps} onChanged={queue.refresh}
                           onRetry={() => act('/api/queue/retry', { id: sel.id }, 'Rendering again…')}
                           onRemove={() => act('/api/queue/remove', { id: sel.id })}

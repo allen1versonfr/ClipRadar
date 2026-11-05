@@ -16,8 +16,8 @@ import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 ROUTES = os.path.join(ROOT, "src", "routes.py")       # the request handler
-# where UI code lives: the original page and the React app's sources (when it exists)
-UI_SOURCES = [os.path.join(ROOT, "src", "ui"), os.path.join(ROOT, "web", "src")]
+# where UI code lives: the React app's sources
+UI_SOURCES = [os.path.join(ROOT, "web", "src")]
 UI_EXT = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".html")
 
 

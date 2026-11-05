@@ -62,16 +62,16 @@ export function RunningNow() {
               {live ? <>
                 <button className="btn sm" onClick={() => go(liveUrl(x.id))} data-src-open-live={x.id}>Open</button>
                 {on ? <button className="btn sm ghost" onClick={() => act(`/api/live/${x.id}/stop`, {})}>Stop</button>
-                  : <button className="link" onClick={() => act('/api/sources/forget', { live: x.id })}>Hide</button>}
+                  : <button className="btn sm ghost" onClick={() => act('/api/sources/forget', { live: x.id })}>Hide</button>}
               </> : x.status === 'running' ? <>
                 <button className="btn sm ghost" title="Stop for now; Resume carries on where it left off" onClick={() => act('/api/sources/pause', { job: x.id })}>Pause</button>
-                <button className="link" onClick={() => act('/api/cancel', { job: x.id })}>Cancel</button>
+                <button className="btn sm ghost danger-text" onClick={() => act('/api/cancel', { job: x.id })}>Cancel</button>
               </> : x.status === 'done' ? <>
                 <button className="btn sm" onClick={() => go(reviewUrl(x.pid))}>Open</button>
-                <button className="link" onClick={() => act('/api/sources/forget', { job: x.id })}>Hide</button>
+                <button className="btn sm ghost" onClick={() => act('/api/sources/forget', { job: x.id })}>Hide</button>
               </> : <>
                 <button className="btn sm" onClick={() => act('/api/sources/resume', { job: x.id })}>{x.status === 'error' ? 'Try again' : 'Resume'}</button>
-                <button className="link" onClick={() => act('/api/sources/forget', { job: x.id })}>Hide</button>
+                <button className="btn sm ghost" onClick={() => act('/api/sources/forget', { job: x.id })}>Hide</button>
               </>}
             </span>
           </div>

@@ -1,5 +1,8 @@
 # Moving the UI to React
 
+**Finished in 4.43.0:** the original page (`src/ui/index.html`, `app.js`, `app.css`) was removed, and the
+React app is the only UI. The rest of this file is how the move was done, kept for the contract it describes.
+
 What the server already does for a React UI, and the contract the new UI has to keep so the
 tests, the app window and updates keep working. Written alongside
 [the readiness audit](audits/react-readiness-2026-10-22.md).
@@ -10,20 +13,15 @@ tests, the app window and updates keep working. Written alongside
 |---|---|
 | `web/` | The React app's source: Vite, React 19, TypeScript (strict), Zod. Unit tests with Vitest (`npm test`). |
 | `src/web/` | Its build output (`npm run build`). Git-ignored; CI and `build_exe.bat` build it. |
-| `src/ui/` | The original page. Stays shipped and is always served at `/legacy/`. |
 | `src/ui/fonts/`, `src/ui/icon.*` | Shared: the React app loads Inter and caption fonts from `/ui/fonts/…` instead of bundling a second copy. |
 
 ### Which UI is where
 
-Since 4.25.0 **the React app is at `/`** (`REACT_IS_DEFAULT = True` in `src/server.py`), after the audit in
-`docs/audit-new-ui.md`. The original page is the "Previous UI":
+The React app is at `/` (since 4.25.0, after the audit in `docs/audit-new-ui.md`), and the only UI since 4.43.0.
 
-- `/legacy/` always serves the original page; its top bar has "Back to the new UI". Without a React build
-  (running from source without `npm run build`), the original page is at `/` too.
-- `/next/` still serves the React app (its address before 4.25.0).
-- `CLIPRADAR_UI=web` serves it at `/` and refuses to fall back to the original page.
-- `CLIPRADAR_UI=legacy` turns the React build off entirely, `/next/` included (CI runs `test_ui.py` that way too).
-- `/api/status` reports `"ui"` (what's at `/`: `"web"` or `"legacy"`), `"next"` (whether `/next/` works) and `"api": 1`.
+- `/next/` still serves it (its address before 4.25.0), and an old `/legacy/` link opens it too.
+- Without a React build (running from source without `npm run build`), `/` answers 503 and says how to build it.
+- `/api/status` reports `"ui"` (`"web"`, or `"missing"` with no build), `"next"` (whether the build is there) and `"api": 1`.
 
 Screens switch by `#hash` (`/next/#exports`), so the app needs no router and works the same at `/next/` and
 at `/`, and a reload keeps the screen.
@@ -33,7 +31,7 @@ When the build is served, the server answers:
 - `/assets/*` from `src/web/assets/`, cached forever (`immutable`): Vite's file names are content hashes.
 - In web mode, other files at the top of `src/web/` as they are, and any other path without a file extension
   with `index.html`.
-- `/api/*`, `/files/*`, `/vod/*`, `/export/*`, `/wmimg/*`, `/ui/*`, `/legacy/*` exactly as before.
+- `/api/*`, `/files/*`, `/vod/*`, `/export/*`, `/wmimg/*`, `/ui/*` exactly as before.
 
 `.js`/`.mjs`/`.css`/fonts/`.wasm` are served with fixed content types. Windows' registry sometimes
 maps `.js` to `text/plain`, and browsers refuse to run a module script with that type: without
@@ -59,7 +57,7 @@ npm test                    # Vitest: API client, schemas, polling, Exports, Hom
 npm run build               # type-checks (tsc --noEmit), then writes src/web
 python tests/test_web_exports.py   # the built Exports screen against real renders in a real browser
 python tests/test_web_home.py      # Home through to Review with a real video
-python tests/test_web_settings.py  # Settings: saved on the server and shown in the original page
+python tests/test_web_settings.py  # Settings: saved on the server
 python tests/test_web_review.py    # Review: a generated video, keep / skip / bulk skip, saved with the VOD
 ```
 

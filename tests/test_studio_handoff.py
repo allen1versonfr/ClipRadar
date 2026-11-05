@@ -1,5 +1,5 @@
 """
-Upload to TikTok from Exports, end to end: each UI (the new one at /, the previous one at /legacy/) in a real browser, the real server, and
+Upload to TikTok from Exports, end to end: in a real browser, the real server, and
 Clip Radar's TikTok window (a second, headless browser) on a stand-in for TikTok Studio
 (tests/fake_studio.py). The caption you edit is the one TikTok gets, and is kept with the clip; with
 Press Post off the clip waits for you in TikTok Studio, with it on TikTok gets the post and Exports
@@ -26,7 +26,6 @@ os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 os.environ["CLIPRADAR_NO_BROWSER"] = "1"               # the manual way records what it would open
 os.environ["CLIPRADAR_STUDIO_HEADLESS"] = "1"
-os.environ.pop("CLIPRADAR_UI", None)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
@@ -72,13 +71,10 @@ with sync_playwright() as pw:
                              "stage": "done", "progress": 1.0, "step": "Done", "error": "", "path": clip,
                              "name": os.path.basename(clip), "folder": tmp, "created": time.time(), "opts": {}})
     srv, url = server.start(7990)
-    # the same journey on each UI: where its parts are
-    UIS = [("new UI", "/#exports", {"row": "[data-testid=export-row]", "table": "[data-testid=exports-table]", "auto": "[data-testid=tt-auto]",
+    # where the journey's parts are in Exports
+    UIS = [("Exports", "/#exports", {"row": "[data-testid=export-row]", "table": "[data-testid=exports-table]", "auto": "[data-testid=tt-auto]",
                                      "press": "[data-testid=tt-press]", "press_click": "[data-testid=tt-press]", "caption": "[data-testid=tt-caption]",
-                                     "status": "[data-testid=tt-status]", "panel": "[data-testid=tt-panel]", "hint": "[data-testid=tt-panel]"}),
-           ("previous UI", "/legacy/", {"row": "#exTable tr", "table": "#exTable", "auto": "#ttAuto", "press": "#ttPress",
-                                         "press_click": "#ttPressRow .switch", "caption": "#ttCaption", "status": "#ttStatus",
-                                         "panel": "#ttPanel", "hint": "#ttPressHint"})]
+                                     "status": "[data-testid=tt-status]", "panel": "[data-testid=tt-panel]", "hint": "[data-testid=tt-panel]"})]
     page = None
     try:
         for ui, path, S in UIS:

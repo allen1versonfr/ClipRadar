@@ -90,7 +90,6 @@ export function App() {
       <header className="top">
         <span className="brand">Clip Radar</span>
         <span className="top-acts">
-          <a className="btn ghost sm" href="/legacy/" title="Clip Radar's previous look, for a while. Your clips and settings are shared.">Previous UI</a>
           <button className="btn ghost sm" onClick={() => void quit(busy.current)} data-testid="quit">Quit</button>
         </span>
       </header>

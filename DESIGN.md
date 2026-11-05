@@ -1,7 +1,6 @@
 # Clip Radar design direction
 
-Set by the product owner on 2026-10-23 (answers to four questions). Applies to the new UI (`web/`) and,
-for the accent colour, to the current UI (`src/ui/`) too. Values marked *chosen by the agent* were
+Set by the product owner on 2026-10-23 (answers to four questions). Applies to the app's UI (`web/`). Values marked *chosen by the agent* were
 picked to carry out the owner's answers and can be changed here.
 
 ## Identity
@@ -15,7 +14,7 @@ picked to carry out the owner's answers and can be changed here.
 
 ## Colour
 
-- **One accent: electric green.** It replaces the old signature yellow in both UIs. Used only for the
+- **One accent: electric green.** It replaced the old signature yellow. Used only for the
   main action on a screen, the current selection, and progress, never as decoration.
   - `--accent: #2fe36f` (*chosen by the agent*: a saturated green that reads as "go" and holds 10:1+
     contrast on the graphite surfaces)
@@ -36,9 +35,8 @@ picked to carry out the owner's answers and can be changed here.
 
 - **Inter**, as now (already bundled in `src/ui/fonts/`; chosen for legibility of numbers and small
   labels in a dense tool).
-- New UI scale (*chosen by the agent* for "bigger type"): body 14px; screen titles 22px / 700 with
-  -0.01em tracking; section titles 15px / 650; primary buttons 600 weight. The current UI keeps its
-  sizes until each screen is ported.
+- Scale (*chosen by the agent* for "bigger type"): body 14px; screen titles 22px / 700 with
+  -0.01em tracking; section titles 15px / 650; primary buttons 600 weight.
 
 ## Dials
 
@@ -52,5 +50,5 @@ picked to carry out the owner's answers and can be changed here.
 ## Not changed without asking
 
 - The app icon / logo (`src/ui/icon.svg`).
-- Caption colours offered for the clips themselves (`CAP_TEMPLATES`, `SWATCHES` in `src/ui/app.js`):
+- Caption colours offered for the clips themselves (`CAP_TEMPLATES`, `SWATCHES` in `web/src/features/review/StylePanels.tsx`):
   those style the video, not the app.

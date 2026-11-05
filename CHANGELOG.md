@@ -5,6 +5,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.43.0] - 2026-11-05
+
+The previous UI is gone, and fixes from a second design audit, this time of the running app (`anti-slop/audit-002-2026-11-05.md`).
+
+### Removed
+- **The previous UI.** The page you could still open with "Previous UI" (top bar and Settings › About) is removed, along with that button and the `CLIPRADAR_UI=legacy` setting. Your clips and settings were always shared, so nothing is lost. An old `/legacy/` link now opens the app.
+
+### Fixed
+- **On a narrow window, Exports and Settings › Content check scrolled sideways.** Their tables were 12 to 15 px wider than a phone-width window. Now only the table scrolls when it has to, and Exports' columns are tighter there.
+- **Home › "The video is" cut off its first choice mid-word.** The choices are short now (Automatic, A stream or long video, Already a clip), and what the chosen one does is written underneath.
+- **Green only means "do this" or "selected".** High clip scores in Review are bright and bold instead of green, and the overview draws the loudest moments in light grey. The selected clip and kept clips stay green.
+- **Home › Running now** mixed buttons and underlined links for the same kind of action. Open, Pause, Cancel, Stop and Hide are all buttons now (Cancel in red).
+
+### Changed
+- **Review with no video open** lists each open video with how many clips are left to review, how long it is and what it is, instead of a bare file-name button. Live sessions show how many moments they have so far.
+- **Exports, empty:** "Review" in "Keep a clip in Review" is a link.
+
+### Tests
+- `tests/test_api_contract.py`: with no React build, `/` says how to build it (503), `/legacy/` opens the app, and `/ui/app.js` is gone.
+- `tests/test_preview_fallback.py` runs in the React UI (it ran on the previous page); `test_studio_handoff.py`, `test_live_switch.py`, `test_web_*` drop their previous-UI passes. CI runs `tests/test_ui.py` once.
+- `web/src/prefs.test.ts`: the render defaults are pinned in the test, since the page they were compared with is gone.
+
 ## [4.42.1] - 2026-11-04
 
 Small visual fixes from a design audit (`anti-slop/audit-001-2026-11-04.md`): fewer decorative chips, and content-check severity you can read without colour.

@@ -77,13 +77,11 @@ HERE = paths.RES_DIR
 API_VERSION = 1
 MAX_BODY = 16 << 20       # largest POST body accepted (requests carry paths and settings, never files)
 
-# Two UIs ship side by side:
-#   src/web  the React build (`npm run build` in web/ writes it here): at / (since 4.25.0), and at /next/
-#   src/ui   the previous page (index.html + app.js): always at /legacy/, and at / when there's no build
-# CLIPRADAR_UI=legacy turns the React build off entirely; CLIPRADAR_UI=web serves it at / and refuses
-# to fall back to the previous page.
+# The UI is the React build (`npm run build` in web/ writes it to src/web), at / and at /next/ (the
+# address 4.25 to 4.42 used for it, kept so old links still open). src/ui holds what it loads from
+# /ui/: the Inter fonts, the caption fonts the renderer shares, and the icons. The previous page that
+# lived there was removed in 4.43.0.
 WEB_DIR = HERE / "web"
-REACT_IS_DEFAULT = True
 # mimetypes reads the Windows registry, where .js is sometimes text/plain: module scripts (what a
 # Vite build emits) are then refused by the browser. Pin the types the UI depends on.
 for _ext, _type in ((".js", "text/javascript"), (".mjs", "text/javascript"), (".css", "text/css"),
@@ -91,23 +89,17 @@ for _ext, _type in ((".js", "text/javascript"), (".mjs", "text/javascript"), (".
                     (".woff2", "font/woff2"), (".ttf", "font/ttf"), (".otf", "font/otf"),
                     (".wasm", "application/wasm"), (".map", "application/json"), (".webp", "image/webp")):
     mimetypes.add_type(_type, _ext)
-_UI_PREFIXES = ("/api/", "/ui/", "/files/", "/vod/", "/export/", "/wmimg/", "/assets/", "/legacy/", "/next/")
-
-
-def ui_mode() -> str:
-    """Which UI is at /: "web", "legacy", or "missing" (CLIPRADAR_UI=web without a build)."""
-    want = os.environ.get("CLIPRADAR_UI", "auto").strip().lower()
-    if want == "legacy":
-        return "legacy"
-    built = (WEB_DIR / "index.html").is_file()
-    if want == "web":
-        return "web" if built else "missing"
-    return "web" if built and REACT_IS_DEFAULT else "legacy"
+_UI_PREFIXES = ("/api/", "/ui/", "/files/", "/vod/", "/export/", "/wmimg/", "/assets/", "/next/")
 
 
 def web_available() -> bool:
-    """The React build can be served (at /next/, or at / in web mode)."""
-    return os.environ.get("CLIPRADAR_UI", "auto").strip().lower() != "legacy" and (WEB_DIR / "index.html").is_file()
+    """The React build is there to serve (a source checkout has none until `npm run build`)."""
+    return (WEB_DIR / "index.html").is_file()
+
+
+def ui_mode() -> str:
+    """For /api/status: "web", or "missing" when there's no build."""
+    return "web" if web_available() else "missing"
 import locations  # noqa: E402
 WORKROOT = locations.path("projects")        # where new projects go (Settings › Storage › Projects)
 PORT = int(os.environ.get("CLIPRADAR_PORT", "7860"))
@@ -2565,11 +2557,16 @@ def sources_view() -> dict:
         body = j.get("body") or {}
         c = sources.classify(body.get("source", ""))
         res = j.get("result") or {}
+        pr = projects.get(res.get("pid", "")) or {}
+        an = pr.get("analysis")
         out.append({"type": "vod", "id": j["id"], "status": j["status"], "step": j["step"], "progress": round(j["progress"], 3),
                     "eta": j.get("eta"), "source": body.get("source", ""), "label": c["label"],
                     "title": res.get("title") or (os.path.basename(body.get("source", "")) if c["platform"] == "local" else c["url"]),
                     "pid": res.get("pid", ""), "error": (j.get("error") or "").splitlines()[0] if j.get("error") else "",
-                    "started": j["started"]})
+                    "started": j["started"],
+                    # for Review's list of open videos: what's left to review in each, and how long it is
+                    "todo": sum(1 for d in pr.get("clips", []) if d.get("state", "todo") == "todo"),
+                    "duration": round(float(getattr(an, "duration", 0) or 0), 1)})
     for sess in live_sessions.values():
         if sess.status not in LIVE_ON and time.time() - sess.started > 6 * 3600:
             continue

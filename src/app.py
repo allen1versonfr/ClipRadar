@@ -239,8 +239,8 @@ def selftest(out_json: str, media: str = "") -> int:
         except Exception as e:
             rec(f"tool {tool}", False, e)
 
-    rec("ui bundled", (paths.RES_DIR / "ui" / "index.html").is_file(), paths.RES_DIR)
-    rec("new ui bundled", (paths.RES_DIR / "web" / "index.html").is_file(), paths.RES_DIR)      # the UI at / since 4.25.0
+    rec("ui bundled", (paths.RES_DIR / "web" / "index.html").is_file(), paths.RES_DIR)
+    rec("ui fonts bundled", (paths.RES_DIR / "ui" / "fonts" / "Inter-Regular.woff").is_file(), paths.RES_DIR)
     try:
         rec("encoder", True, engine.video_encoder(engine.RenderOpts())[0])
     except Exception as e:

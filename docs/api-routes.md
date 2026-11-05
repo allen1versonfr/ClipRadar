@@ -1,8 +1,5 @@
 | Method | Path |
 |---|---|
-| GET | `/legacy` |
-| GET | `/legacy/` |
-| GET | `/legacy/index.html` |
 | GET | `/` |
 | GET | `/index.html` |
 | GET | `/next` |
@@ -35,6 +32,7 @@
 | GET | `/api/locations` |
 | GET | `/api/framing/{id}` |
 | GET | `/api/perf` |
+| GET | `/api/timings` |
 | GET | `/api/strip/{id}` |
 | GET | `/api/project/{id}` |
 | GET | `/api/clips/{id}` |

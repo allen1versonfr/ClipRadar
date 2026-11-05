@@ -46,10 +46,11 @@ export function Overview({ clips, curve, dur, cur, free, playhead, onClip, onPre
         g.fillRect(a, 0, b - a, base)
         if (on) { g.fillStyle = acc; g.fillRect(a, 0, b - a, 2) }
       }
-      const hi = Math.max(3, ...curve), bw = Wd / Math.max(1, n)  // the signal: the hottest moments in accent
+      // the signal: the hottest moments brightest, in greys (green is for the selected and kept clips)
+      const hi = Math.max(3, ...curve), bw = Wd / Math.max(1, n)
       for (let i = 0; i < n; i++) {
         const v = Math.max(0, curve[i]! / hi), h = Math.max(1, v * (base - 8)), lv = heatLevel(v)
-        g.fillStyle = lv === 2 ? acc : lv === 1 ? '#5a6274' : '#363a44'
+        g.fillStyle = lv === 2 ? '#c4c7ce' : lv === 1 ? '#5a6274' : '#363a44'
         g.fillRect(i * bw, base - h, Math.max(1, bw - (bw > 3 ? 1 : 0)), h)
       }
       g.font = '600 10.5px Inter, system-ui, sans-serif'; g.textAlign = 'center'

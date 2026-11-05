@@ -5,7 +5,7 @@ import * as handoff from '../../handoff'
 import { HomeView } from './HomeView'
 import { sourceDetail } from './RunningNow'
 
-const STATUS = { version: '4.15.0', api: 1, ui: 'legacy', ffmpeg: true, ytdlp: true, whisper: true, laughter: true,
+const STATUS = { version: '4.15.0', api: 1, ui: 'web', ffmpeg: true, ytdlp: true, whisper: true, laughter: true,
   twitchdownloader: true, can_download_tools: true, live: '' }
 
 type Call = [string, Record<string, unknown> | undefined]
@@ -125,8 +125,8 @@ describe('Home', () => {
     await waitFor(() => expect(calls).toContainEqual(['/api/live/s1/stop', {}]))
   })
 
-  it('describes each source as the original page does', () => {
-    const base = { title: '', source: '', label: '', step: '', progress: 0, pid: '', error: '', recorded: 0, moments: 0, chat_state: '' }
+  it('describes each source in one line', () => {
+    const base = { title: '', source: '', label: '', step: '', progress: 0, pid: '', error: '', recorded: 0, moments: 0, chat_state: '', todo: 0, duration: 0 }
     expect(sourceDetail({ ...base, type: 'vod', id: 'a', status: 'running', step: 'Reading chat', progress: 0.25, eta: 40 }))
       .toBe('Reading chat · 25% · about 40 s left')
     expect(sourceDetail({ ...base, type: 'live', id: 'b', status: 'recording', recorded: 75, moments: 2, chat_state: 'quiet' }))

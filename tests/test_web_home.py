@@ -1,8 +1,8 @@
 """
 The new UI's Home screen against the real server and a real video, in a real browser: it's the
-default screen at /next/, Find clips opens a video with the options you chose, Running now shows it,
-and when it's ready the video opens in Review (the original page's, until Review is ported) with
-its clips. Recent then lists it, and the settings you picked are the ones the original page uses.
+default screen, Find clips opens a video with the options you chose, Running now shows it,
+and when it's ready the video opens in Review with
+its clips. Recent then lists it, and the settings you picked are remembered.
 
 Needs the React build (cd web && npm run build), FFmpeg and Playwright; skipped without them.
 
@@ -27,7 +27,6 @@ for _s in (sys.stdout, sys.stderr):
 os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
-os.environ.pop("CLIPRADAR_UI", None)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
@@ -89,7 +88,7 @@ with sync_playwright() as pw:
           live_bg.replace(" ", "") != "rgb(47,227,111)", live_bg)
     check("no tools banner when the tools are there", page.locator("[data-testid=tools-banner]").count() == 0)
 
-    # choices made here are the original page's choices too
+    # choices made here are remembered
     vodcard = page.get_by_role("region", name="Past broadcast or video")
     vodcard.get_by_label("Clips to suggest").select_option("5")
     vodcard.get_by_label("Stream type").select_option("gaming")
@@ -109,7 +108,7 @@ with sync_playwright() as pw:
     check("and it's this UI's Review", "/next/" in page.url and page.evaluate("ClipRadarTest.open().kind") == "vod", page.url)
     stored = page.evaluate("({count: localStorage.getItem('vc_count2'), preset: localStorage.getItem('vc_preset'),"
                            " cw: localStorage.getItem('vc_cw'), src: localStorage.getItem('vc_src')})")
-    check("the options picked in the new UI are the original page's options",
+    check("the options picked are remembered",
           stored["count"] == '"5"' and stored["preset"] == '"gaming"' and stored["cw"] == "55"
           and json.loads(stored["src"]) == vod, stored)
     job = next((j for j in server.jobs.values() if j["kind"] == "analyze"), {})
@@ -124,15 +123,7 @@ with sync_playwright() as pw:
     page.wait_for_function("location.hash.startsWith('#review/')", timeout=60000)
     page.wait_for_selector("[data-testid=batch-bar]", state="visible", timeout=60000)
     check("a Recent video opens again in Review", len(page.evaluate("ClipRadarTest.clips()")) >= 1)
-    # what the new UI doesn't have yet opens in the original page, on that screen
-    page.goto(url + "/legacy/#view=settings")      # the hand-over link the new UI uses (legacyViewUrl)
-    page.wait_for_selector("#view-settings", state="visible", timeout=15000)
-    check("a #view=settings hand-over lands on Settings", page.locator("#view-home").is_hidden())
-    page.evaluate("location.hash = '#view=exports'")
-    page.wait_for_selector("#view-exports", state="visible", timeout=5000)
-    check("a hand-over link works without a reload too", page.locator("#view-settings").is_hidden()
-          and page.evaluate("location.hash") == "", page.evaluate("location.hash"))
-    check("no errors in either page", not errors, errors[:5])
+    check("no errors in the page", not errors, errors[:5])
     browser.close()
 
 server.SHUTTING_DOWN[0] = True

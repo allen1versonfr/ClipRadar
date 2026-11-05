@@ -140,24 +140,13 @@ jobs:
         with:
           web-tests: "true"
 
-      # The UI smoke test, once with each UI, with the app's FFmpeg on PATH: without it the test only
-      # checks that each screen lays out, and skips the journey (open a video, keep the top 3, render,
-      # skip by score). Both talk to the page only through data-testid attributes and
-      # window.ClipRadarTest (docs/react-migration.md); the React run follows its hand-over to the
-      # original page's Review while that isn't ported.
-      - name: UI smoke test (previous UI)
-        shell: pwsh
-        env:
-          CLIPRADAR_UI: legacy
-        run: |
-          $env:PATH = "$PWD\tools;$env:PATH"
-          python tests/test_ui.py
-
-      - name: UI smoke test (React UI)
+      # The UI smoke test, with the app's FFmpeg on PATH: without it the test only checks that each
+      # screen lays out, and skips the journey (open a video, keep the top 3, render, skip by score).
+      # It talks to the page only through data-testid attributes and window.ClipRadarTest
+      # (docs/react-migration.md).
+      - name: UI smoke test
         if: steps.setup.outputs.web == 'True'
         shell: pwsh
-        env:
-          CLIPRADAR_UI: web
         run: |
           $env:PATH = "$PWD\tools;$env:PATH"
           python tests/test_ui.py

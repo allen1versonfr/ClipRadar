@@ -27,7 +27,6 @@ os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 os.environ["CLIPRADAR_TEST"] = "1"
 os.environ["CLIPRADAR_WAIT_POLL"] = "3"
-os.environ.pop("CLIPRADAR_UI", None)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
@@ -61,7 +60,7 @@ with sync_playwright() as pw:
         print("SKIPPED: no Chromium-based browser (set CLIPRADAR_BROWSER)")
         sys.exit(0)
     def journey(path, ui):
-        """The same steps on each UI: both keep window.ClipRadarTest.open() and data-src-open-live."""
+        """The steps in Review, which keeps window.ClipRadarTest.open() and data-src-open-live for this test."""
         server.live_sessions[a].extra.pop("next", None)
         page = browser.new_page(viewport={"width": 1366, "height": 860})
         errors = []
@@ -100,8 +99,7 @@ with sync_playwright() as pw:
         page.close()
 
     try:
-        journey("/", "new UI")
-        journey("/legacy/", "previous UI")
+        journey("/", "Review")
     finally:
         browser.close()
         for s in list(server.live_sessions.values()):

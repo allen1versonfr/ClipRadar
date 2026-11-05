@@ -28,7 +28,6 @@ os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 os.environ["CLIPRADAR_PREVIEW_VP9"] = "1"
-os.environ.pop("CLIPRADAR_UI", None)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
@@ -71,25 +70,23 @@ with sync_playwright() as pw:
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     try:
-        page.goto(url + "/legacy/")         # the previous UI's player (test_web_review.py covers the new one)
-        page.wait_for_timeout(800)
+        page.goto(url + "/")
         page.fill("[data-testid=source-input]", vod)
         page.click("[data-testid=find-clips]")
-        page.wait_for_selector("[data-testid=batch-bar]", state="visible", timeout=120000)
-        page.wait_for_function("document.querySelector('#vod').src.includes('preview=1')", timeout=120000)
+        page.wait_for_function("location.hash.startsWith('#review/') && !!document.querySelector('[data-testid=rv-video]')", timeout=120000)
+        vid = "document.querySelector('[data-testid=rv-video]')"
+        page.wait_for_function(f"{vid}.currentSrc.includes('preview=1')", timeout=120000)
         check("a video the window can't play gets a preview copy, without asking", True)
-        page.wait_for_function("document.querySelector('#vod').readyState >= 2 && document.querySelector('#vod').videoWidth > 0",
-                               timeout=30000)
-        st = page.evaluate("(() => { const v = document.querySelector('#vod'); return {w: v.videoWidth, h: v.videoHeight,"
-                           " t: v.currentTime, badge: document.querySelector('#phoneBadge').textContent} })()")
+        page.wait_for_function(f"{vid}.readyState >= 2 && {vid}.videoWidth > 0", timeout=30000)
+        st = page.evaluate(f"(() => {{ const v = {vid}; return {{w: v.videoWidth, h: v.videoHeight}} }})()")
         check("the copy plays, with a picture no taller than the source (360p here)", st["w"] == 640 and st["h"] == 360, st)
-        check("no 'can't play' badge once it plays", "can't play" not in st["badge"], st)
-        page.evaluate("document.querySelector('#vod').play()")
-        t0 = page.evaluate("document.querySelector('#vod').currentTime")
+        check("no 'making a copy' note once it plays", page.locator(".rv-making").count() == 0)
+        page.evaluate(f"{vid}.play()")
+        t0 = page.evaluate(f"{vid}.currentTime")
         page.wait_for_timeout(1500)
-        t1 = page.evaluate("document.querySelector('#vod').currentTime")
+        t1 = page.evaluate(f"{vid}.currentTime")
         check("and it actually plays (time moves)", t1 > t0 + 0.5, (t0, t1))
-        pid = page.evaluate("document.querySelector('#vod').dataset.src.split('/vod/')[1]")
+        pid = page.evaluate("decodeURIComponent(location.hash.split('/')[1])")
         pr = server.projects[pid]
         check("the copy is in Clip Radar's temp files, not next to your video",
               os.path.isfile(server.preview_path(pr)) and not os.path.dirname(server.preview_path(pr)).startswith(tmp)

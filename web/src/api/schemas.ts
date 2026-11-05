@@ -143,6 +143,8 @@ export const Source = z.looseObject({
   recorded: z.number().default(0),
   moments: z.number().default(0),
   chat_state: z.string().default(''),
+  todo: z.number().default(0),          // an open video's clips left to review
+  duration: z.number().default(0),      // and its length, in seconds
 })
 export type Source = z.infer<typeof Source>
 export const Sources = z.looseObject({
