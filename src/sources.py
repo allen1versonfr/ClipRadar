@@ -140,7 +140,7 @@ def describe(info: dict, c: Optional[dict] = None) -> dict:
     elif info.get("availability") in ("private",):
         out["problem"] = "That video is private."
     elif info.get("availability") in ("premium_only", "subscriber_only"):
-        out["problem"] = "That video is for members or subscribers only. Sign in under Home › Advanced › Sign in with, using the browser where you're a member."
+        out["problem"] = "That video is for members or subscribers only. Under Settings › Downloads and tools › Use cookies from, choose the browser where you're a member."
     if plat == "x" and not info.get("formats") and not info.get("url") and not out["problem"] and info:
         out["problem"] = "That post doesn't have a video Clip Radar can download."
     return out
@@ -154,9 +154,9 @@ def _platform_of(info: dict) -> str:
 _ERRORS = [
     (r"private video|this video is private", "That video is private."),
     (r"sign in to confirm your age|age[- ]restricted|inappropriate for some users",
-     "That video is age-restricted. Sign in under Home › Advanced › Sign in with, using a browser where you're signed in to {p}."),
+     "That video is age-restricted. Under Settings › Downloads and tools › Use cookies from, choose a browser where you're signed in to {p}."),
     (r"members[- ]only|join this channel|subscriber[- ]only|only available to (channel )?members",
-     "That video is for members or subscribers only. Sign in under Home › Advanced › Sign in with, using the browser where you're a member."),
+     "That video is for members or subscribers only. Under Settings › Downloads and tools › Use cookies from, choose the browser where you're a member."),
     (r"video (is )?unavailable|has been removed|no longer available|account .* terminated|does not exist|404",
      "That video isn't available any more (removed, or the link is wrong)."),
     (r"not made this video available in your country|geo.?restrict|blocked it in your country",
@@ -165,7 +165,7 @@ _ERRORS = [
     (r"no video could be found|no video formats found|does not contain (any )?video|unable to extract video|no media found",
      "That post doesn't have a video Clip Radar can download."),
     (r"nsfw|sensitive content|log ?in|login required|authentication|cookies",
-     "{p} needs you to be signed in to show this. Choose your browser under Home › Advanced › Sign in with."),
+     "{p} needs you to be signed in to show this. Choose your browser under Settings › Downloads and tools › Use cookies from."),
     (r"premieres? in|live event will begin|is_upcoming|scheduled",
      "That livestream hasn't started yet. Use Live clipping with 'Wait for the stream to start'."),
     (r"429|too many requests|rate.?limit", "{p} is limiting downloads right now. Wait a few minutes and try again."),

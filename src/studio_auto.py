@@ -474,9 +474,25 @@ def upload(path: str, caption: str, press_post: bool, url: str, step: Callable[[
             check()
     try:
         for attempt in range(2):
+            at = {"step": "browser", "pressed": False}       # how far it got, for what a failure means
+
+            def where(s: str):
+                at["step"] = STEP_OF.get(s, at["step"])
+                step(s)
             try:
-                return _upload_once(path, caption, press_post, url, step, check)
+                return _upload_once(path, caption, press_post, url, where, check, at)
             except (cdp.CDPError, OSError) as e:
+                if at["pressed"]:
+                    # 4.45: Post was pressed. Starting again would upload, and maybe post, the clip a second time
+                    raise StudioError("post", "Lost Clip Radar's TikTok window after pressing Post. Check your TikTok "
+                                              "profile before uploading it again: it may have been posted.") from None
+                if str(e).startswith(PAGE_SCRIPT):
+                    # 4.45: TikTok's page didn't have what a step looks for. That isn't the window going away: starting
+                    # again uploaded the video a second time, then said the window was lost and opened TikTok in
+                    # your own browser too
+                    raise StudioError(at["step"], f"TikTok Studio's page didn't respond as expected while "
+                                                  f"{STEP_WORDS.get(at['step'], 'uploading')}. TikTok may have changed "
+                                                  "the page: finish it in the TikTok window.") from None
                 if attempt:
                     raise StudioError("browser", f"Lost Clip Radar's TikTok window ({e}). Try again.") from None
                 step("The TikTok window went away; opening it again")
@@ -486,8 +502,18 @@ def upload(path: str, caption: str, press_post: bool, url: str, step: Callable[[
     raise StudioError("browser", "Lost Clip Radar's TikTok window. Try again.")
 
 
+PAGE_SCRIPT = "Page script failed"        # cdp.Page.eval's error when a script on the page throws
+# the step names a failure carries (the UI says them: postStatus.ts TT_STEP), from the step lines shown
+STEP_OF = {"Opening TikTok Studio": "browser", "Putting the video in": "file box", "Typing the caption": "caption box",
+           "Uploading the video to TikTok": "upload", "Pressing Post": "post"}
+STEP_WORDS = {"browser": "opening it", "file box": "putting the video in", "caption box": "typing the caption",
+              "upload": "TikTok was taking the video in", "post": "pressing Post"}
+
+
 def _upload_once(path: str, caption: str, press_post: bool, url: str, step: Callable[[str], None],
-                 check: Callable[[], None]) -> dict:
+                 check: Callable[[], None], at: Optional[dict] = None) -> dict:
+    """at: filled in as it goes; at["pressed"] once Post has been pressed (upload() never starts again after that)."""
+    at = at if at is not None else {}
     step("Opening TikTok Studio")
     port = open_browser(url)
     page = _tab(port, url)
@@ -537,6 +563,7 @@ def _upload_once(path: str, caption: str, press_post: bool, url: str, step: Call
             return {"posted": False, "pressed": False}
 
         step("Pressing Post")
+        at["pressed"] = True                    # set before the click: a click that went through can't be undone
         page.eval(f"({SELECTORS['post']}).click(), true")
         # TikTok can ask to confirm (for example "Post now" after its content check): pressed as soon as it
         # shows, rather than after a fixed pause

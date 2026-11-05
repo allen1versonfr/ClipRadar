@@ -513,6 +513,9 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         if desc["problem"]:
             raise RuntimeError(desc["problem"])
         _check_download_space(workdir, _size_of(meta))
+        low = low_quality(meta, max_height, c["platform"])
+        if low:
+            log(low)
         log(f"{desc['label']}: {desc['title'] or url}" + (f" by {desc['uploader']}" if desc["uploader"] else "")
             + (f", {fmt_ts(desc['duration'])}" if desc["duration"] else ""))
         _save_meta(workdir, platform=c["platform"], kind=desc["kind"], label=desc["label"], uploader=desc["uploader"],
@@ -546,6 +549,11 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
             url, workdir, meta, log, ["--cookies-from-browser", cookies_browser] if cookies_browser else []))
     info: dict = {}
     chat_soon = None
+    vclips = None
+    if vod_id:
+        # the clips viewers made from it (twitchclips): one quick request, alongside everything else
+        import twitchclips
+        vclips = _Soon.start(("vclips", workdir), lambda s: twitchclips.refresh(workdir, vod_id, log))
     if not chat_file and c["platform"] == "twitch":
         chat_soon = _Soon.start(("chat", workdir), lambda s: _with_info(lambda inf: _download_chat(url, vod_id, workdir, log, inf)))
     elif not chat_file and c["platform"] == "youtube" and _meta(workdir).get("kind") == "vod":
@@ -578,6 +586,12 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         if sound is not None:
             if not got_video:
                 sound.cancel.set()            # the video failed or was stopped: so does the sound
+            elif not sound.mark.wait(SOUND_GRACE_S):
+                # the video is here and the sound-only copy still isn't: it's stuck. It used to be waited
+                # for with no limit, so a wedged sound download held the whole job at "Downloading".
+                # The video itself is listened to instead.
+                log("The sound-only download is taking too long; listening to the video instead.")
+                sound.cancel.set()
             sound.mark.wait()                 # its download is over either way (see cookie_file above)
         if got_video and handoff and os.path.exists(handoff):
             try:
@@ -597,6 +611,11 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
             step("Reading YouTube's Most replayed graph, comments and captions")
         extras.wait()
         check()
+    if vclips is not None:
+        try:
+            vclips.wait()
+        except Exception as e:                # optional: ranking goes on without it
+            log(f"Couldn't read the clips viewers made ({str(e)[:80]}).")
     step("Getting chat replay")
     if chat_file:
         shutil.copyfile(chat_file, os.path.join(workdir, "chat.json"))
@@ -620,6 +639,30 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     return Source(video, chat, title, workdir, streamer, start=c["start"],
                   info={k: m.get(k, "") for k in ("platform", "kind", "label", "uploader", "uploaded")},
                   sound=sound.wait if sound is not None else None)
+
+
+LOW_HEIGHT = 480        # a download this tall or less makes blurry 1080x1920 clips
+
+
+def low_quality(meta: Optional[dict], max_height: int, platform: str) -> str:
+    """A warning when the download will be low resolution although more was asked for, '' otherwise (4.45).
+    YouTube sometimes offers only 360p to a client it doesn't trust (no sign-in, an old yt-dlp): the whole
+    VOD then downloads, is ranked and rendered before the blur shows. The link check already lists what's on
+    offer, so this costs nothing extra; it warns and carries on, since some videos really are 360p."""
+    m = meta or {}
+    rf = m.get("requested_formats") or [m]
+    got = max([int(f.get("height") or 0) for f in rf if isinstance(f, dict)] or [0])
+    if not got or got > LOW_HEIGHT or (0 < max_height <= LOW_HEIGHT):
+        return ""
+    best = max([int(f.get("height") or 0) for f in (m.get("formats") or []) if isinstance(f, dict)
+                and f.get("vcodec") not in (None, "none")] or [got])
+    if best > LOW_HEIGHT:
+        return ""                     # better is on offer but wasn't picked: the format choice, not the site
+    msg = f"Only {got}p is available for this video, so clips will look soft on a phone."
+    if platform == "youtube":
+        msg += (" If it's HD on YouTube, YouTube is holding back the better versions: choose your browser under Settings › "
+                "Downloads and tools › Use cookies from, or press Update downloader there, then open it again.")
+    return msg
 
 
 def _video_format(max_height: int) -> str:
@@ -716,8 +759,11 @@ def _check_download_space(workdir: str, need: float):
     if free is None:
         return
     # x2: yt-dlp's last step (joining a Twitch download's pieces, or a video and its sound) writes a new copy
-    # before it deletes the old one (measured: 32.7 GB + 31.6 GB on disk at once for a 9-hour VOD)
-    need = need * 2.1 + 300e6 if need else 2e9          # unknown size: a stream download needs a few GB
+    # before it deletes the old one (measured: 32.7 GB + 31.6 GB on disk at once for a 9-hour VOD).
+    # A download picked up again (paused, or stopped by a crash) already has some of it on disk: that part
+    # isn't needed twice. Before, resuming a big VOD on a nearly full drive was refused.
+    have = min(float(_download_bytes(dl)), need) if need else 0.0
+    need = (need - have) + need * 1.1 + 300e6 if need else 2e9   # unknown size: a stream download needs a few GB
     if free < need:
         raise RuntimeError(f"Not enough space to download this: {free / 1e9:.1f} GB free on that drive, about "
                            f"{need / 1e9:.1f} GB needed. Free up space (Settings › Storage) or choose another folder for "
@@ -809,6 +855,8 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
     dl = locations.download_dir(workdir)              # Settings › Storage › Downloaded videos
     os.makedirs(dl, exist_ok=True)
     existing = _video_in(dl) or _video_in(workdir)
+    if existing:
+        existing = _reusable(existing, log, step, check)
     meta_p = os.path.join(workdir, "meta.json")
     if existing:
         log("VOD already downloaded, reusing it.")
@@ -862,17 +910,27 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
     if tdl and vod_id:
         step("Downloading the VOD (TwitchDownloader)")
         log("Trying TwitchDownloaderCLI instead...")
-        out = os.path.join(dl, "vod.mp4")
-        cmd = [tdl, "videodownload", "--id", vod_id, "-o", out, "-t", str(FRAGMENTS)]
+        # TwitchDownloader's FFmpeg writes its output file in place, so a download stopped part way left a
+        # vod.mp4 with no index that the next open reused as finished. It writes to TDL_PART now and the
+        # file only becomes vod.mp4 once TwitchDownloader says it's done.
+        part = os.path.join(dl, TDL_PART)
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+        cmd = [tdl, "videodownload", "--id", vod_id, "-o", part, "-t", str(FRAGMENTS)]
         if which("ffmpeg"):
             cmd += ["--ffmpeg-path", ffmpeg()]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                              stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace",
-                             creationflags=CREATE_NO_WINDOW)
+                             creationflags=CREATE_NO_WINDOW, **({} if os.name == "nt" else {"start_new_session": True}))
         procjob.adopt(p)      # ends with Clip Radar, even if it crashes (Windows)
         tail = []
+        last = [time.monotonic()]
+        stalled = _watch_stall(p, dl, last)     # it had no stall check: a stuck one waited for ever
         try:
             for line in p.stdout:
+                last[0] = time.monotonic()
                 tail = (tail + [line.strip()])[-8:]
                 m = re.search(r"(\d{1,3})%", line)
                 if m:
@@ -884,7 +942,11 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
                     raise
         finally:
             p.wait()
+        if p.returncode == 0 and os.path.isfile(part) and os.path.getsize(part) > 1024:
+            os.replace(part, os.path.join(dl, "vod.mp4"))
         video = _video_in(dl)
+        if stalled[0] and not video:
+            tail.append(f"stopped after {DOWNLOAD_STALL_S // 60} minutes with nothing written")
         if p.returncode == 0 and video:
             title = f"Twitch VOD {vod_id}"
             _save_meta(workdir, title=title)
@@ -897,8 +959,9 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
     raise RuntimeError(
         "Couldn't download that VOD.\n"
         f"{err or 'yt-dlp is not installed'}\n"
-        "If it's subscriber-only, set 'Sign in with' under More options to the browser where you're "
-        "logged in to Twitch. If Twitch changed something, press 'Update downloader' under More options.")
+        "If it's subscriber-only, sign in under Settings › Twitch, or choose the browser where you're logged in to "
+        "Twitch under Settings › Downloads and tools › Use cookies from. If Twitch changed something, press Update "
+        "downloader there.")
 
 
 
@@ -1108,6 +1171,7 @@ def _ytdlp_cli(exe, url, workdir, fmt, cookies_browser, log, progress, step, che
 # one down to under 100 KB/s instead of letting it crawl.
 FRAGMENTS = 16
 DOWNLOAD_STALL_S = 180       # no output and no file growth for this long: the download is stuck
+SOUND_GRACE_S = 180          # the video is down: how much longer its sound-only copy may take
 
 # yt-dlp joins a Twitch download's pieces with FFmpeg and +faststart, which writes the whole MP4 and then
 # reads and rewrites all of it again to put the index first: only useful for playing over the internet.
@@ -1117,6 +1181,110 @@ DOWNLOAD_STALL_S = 180       # no output and no file growth for this long: the d
 # rewrites the whole file without it getting any bigger, so on a 9-hour, 18 GB YouTube VOD the stall check
 # saw 3 minutes of no growth and stopped a join that was nearly done (4.41.2).
 NO_FASTSTART = ["--ppa", "FixupM3u8:-movflags -faststart", "--ppa", "Merger:-movflags -faststart"]
+
+
+TDL_PART = "vod.tdl-part.mp4"     # TwitchDownloader's output until it's finished (its stem isn't "vod")
+
+
+def _watch_stall(p: subprocess.Popen, folder: str, last: list) -> list:
+    """Stop p, with everything it started, when it has printed nothing (last[0], a monotonic time the
+    caller moves on every line) and its files in folder haven't grown for DOWNLOAD_STALL_S.
+    Returns [stalled], set when it had to."""
+    stalled = [False]
+
+    def watch():
+        size = -1
+        while p.poll() is None:
+            now = _download_bytes(folder)
+            if now != size:
+                if size >= 0:
+                    last[0] = time.monotonic()
+                size = now
+            if time.monotonic() - last[0] > DOWNLOAD_STALL_S:
+                stalled[0] = True
+                kill_tree(p)
+                return
+            time.sleep(2)
+    threading.Thread(target=watch, daemon=True).start()
+    return stalled
+
+
+def _container(path: str) -> Optional[str]:
+    """FFprobe's format name for a file ("mov,mp4,m4a,3gp,3g2,mj2", "mpegts"...), '' when FFprobe can't read
+    it as a video at all (an MP4 stopped part way has no index), None when that can't be told."""
+    try:
+        p = subprocess.run([ffprobe(), "-v", "error", "-show_entries", "format=format_name,duration", "-of", "json", path],
+                           capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+                           encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW)
+    except Exception:
+        return None
+    if p.returncode != 0:
+        return ""
+    try:
+        fmt = json.loads(p.stdout or "{}").get("format") or {}
+    except ValueError:
+        return None
+    return str(fmt.get("format_name") or "")
+
+
+def _reusable(video: str, log: Log, step: Log = _noop, check: Check = _noop) -> Optional[str]:
+    """A VOD found on disk from an earlier download, made usable, or None to download it again.
+
+    yt-dlp joins a Twitch download in place: the pieces become vod.mp4 (really MPEG-TS), then FFmpeg
+    writes vod.temp.mp4 and swaps it in. On a 9-hour VOD that join takes about 6 minutes, and a download
+    paused, cancelled, stalled or closed during it left the MPEG-TS vod.mp4 behind, which every later open
+    reused as finished: the preview wouldn't play it, seeking was off and clips could come out blank.
+    That file has the whole VOD in it, so it's finished here (the same copy yt-dlp makes). An MP4 FFprobe
+    can't read at all (one stopped while being written, before 4.45 TwitchDownloader's) is removed so the
+    download starts again instead of failing later at every step."""
+    folder = os.path.dirname(video)
+    for f in os.listdir(folder):
+        if f.startswith("vod.temp."):                 # a join that was stopped: only half a file
+            try:
+                os.remove(os.path.join(folder, f))
+            except OSError:
+                pass
+    kind = _container(video)
+    if kind is None:
+        return video                                   # can't tell (no FFprobe): as before
+    if kind == "":
+        log("The video downloaded before is unreadable (its download was stopped part way). Downloading it again.")
+        try:
+            os.remove(video)
+        except OSError:
+            return video
+        return None
+    if "mpegts" in kind and video.lower().endswith((".mp4", ".m4v")):
+        step("Putting the video together (its download was stopped while it was joined)")
+        log("The VOD downloaded before was never joined into one video. Joining it now.")
+        tmp = os.path.join(folder, "vod.temp" + os.path.splitext(video)[1])
+        cmd = [ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", video, "-map", "0", "-dn", "-ignore_unknown",
+               "-c", "copy", "-bsf:a", "aac_adtstoasc", "-f", "mp4", tmp]
+        p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                             creationflags=CREATE_NO_WINDOW, **({} if os.name == "nt" else {"start_new_session": True}))
+        procjob.adopt(p)
+        try:
+            while p.poll() is None:
+                try:
+                    check()
+                except Cancelled:
+                    kill_tree(p)
+                    raise
+                time.sleep(0.5)
+        finally:
+            p.wait()
+            err = (p.stderr.read() or b"").decode("utf-8", "replace") if p.stderr else ""
+            if p.returncode != 0:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        if p.returncode == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 1024:
+            os.replace(tmp, video)
+            return video
+        log(f"Couldn't join it ({err.strip().splitlines()[-1][:160] if err.strip() else 'FFmpeg failed'}); "
+            "using it as it is.")
+    return video
 
 
 def _download_bytes(folder: str) -> int:
@@ -1238,7 +1406,21 @@ def _download_chat(url: str, vod_id: Optional[str], workdir: str, log: Log, info
         try:
             if os.path.exists(out):
                 os.remove(out)
-            run([tdl, "chatdownload", "--id", vod_id, "-o", out, "-t", "8"], timeout=3600)
+            # ended with Clip Radar like the video's download (it ran on for up to an hour after a crash)
+            part = os.path.join(workdir, "chat.part.json")      # TwitchDownloader picks the format by extension
+            p = subprocess.Popen([tdl, "chatdownload", "--id", vod_id, "-o", part, "-t", "8"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                 creationflags=CREATE_NO_WINDOW)
+            procjob.adopt(p)
+            try:
+                tail = p.communicate(timeout=3600)[0].decode("utf-8", "replace").strip()
+            except subprocess.TimeoutExpired:
+                kill_tree(p)
+                raise RuntimeError("TwitchDownloaderCLI timed out after an hour")
+            if p.returncode != 0 or not os.path.isfile(part):
+                raise RuntimeError(tail or f"TwitchDownloaderCLI exited with code {p.returncode}")
+            # written whole, then put in place: a chat download stopped part way left a cut-off chat.json
+            os.replace(part, out)
             chat = load_chat(out, info)
             log(f"Got {len(chat):,} chat messages.")
             return chat
@@ -1915,6 +2097,10 @@ class Analysis:
     comment_people: Optional[np.ndarray] = None
     captions: Optional[np.ndarray] = None  # 4.39: lines in YouTube's captions that land (no chat only), 0..1
     chapters: Optional[list] = None
+    # 4.45: Twitch VODs (twitchclips): how much viewers clipped each second 0..1, clips and their views there
+    vclips: Optional[np.ndarray] = None
+    vclip_people: Optional[np.ndarray] = None
+    vclip_views: Optional[np.ndarray] = None
     # 4.32: messages per second and those that were plain talk (shifted by the delay), and how much chat
     # counts where it's just talking (detect.talk_mult)
     said_rate: Optional[np.ndarray] = None
@@ -1969,6 +2155,9 @@ class Analysis:
                              ("captions", self.captions, ytextra.CAPTION_GAIN)):
             if arr is not None:
                 parts[k] = float(w.get(k, 1.0)) * gain * _fit(arr, n)
+        if self.vclips is not None:
+            import twitchclips
+            parts["viewers"] = float(w.get("viewers", 1.0)) * twitchclips.GAIN * _fit(self.vclips, n)
         ag = float(w.get("agree", AGREE_WEIGHT))
         if ag > 0 and self.has_chat and self.has_audio and 0 < wc < 1:
             import detect
@@ -1991,7 +2180,8 @@ class Analysis:
                        surge=cut(self.surge), emote_z=cut(self.emote_z), emote_rate=cut(self.emote_rate),
                        react=cut(self.react), noise=cut(self.noise), replay=cut(self.replay),
                        comments=cut(self.comments), comment_people=cut(self.comment_people), captions=cut(self.captions),
-                       chapters=self.chapters,
+                       chapters=self.chapters, vclips=cut(self.vclips), vclip_people=cut(self.vclip_people),
+                       vclip_views=cut(self.vclip_views),
                        said_rate=cut(self.said_rate), talk_rate=cut(self.talk_rate), talk=cut(self.talk))
         sub.combine(self.chat_weight_pct)
         return sub
@@ -2150,6 +2340,8 @@ def _finish(an: Analysis, chat: list, emote_set, weights: Optional[dict], chat_w
     detect.enrich(an, chat, an.chat_delay, emote_set)
     if workdir:
         ytextra.apply(an, ytextra.load(workdir))       # a YouTube video: Most replayed and comments
+        import twitchclips
+        twitchclips.apply(an, twitchclips.load(workdir))   # a Twitch VOD: the clips viewers made from it
     an._emotes = emote_set
     an.combine(chat_weight_pct, weights or detect.preset("any"))
     return an
@@ -2685,6 +2877,10 @@ def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: flo
             parts.append(f"{k} comments point here")
     if an.captions is not None and float(np.max(an.captions[max(0, i - 6):i + 4], initial=0)) > 0.5:
         parts.append("a line that lands")
+    import twitchclips
+    vc = twitchclips.reason(an, i)
+    if vc:
+        parts.append(vc)
     if an.chapters:
         import ytextra
         ch = ytextra.chapter_at(an.chapters, float(i))
@@ -2812,6 +3008,9 @@ class RenderOpts:
     track: str = "auto"             # auto: whole-frame crops follow the streamer's face | off
     track_target: str = "auto"      # auto | largest | left | right | point (nearest to game_x, focus_y)
     focus_y: float = 0.4            # vertical focus point (for "point")
+    # 4.45 punch-in: a short push toward the subject on the clip's big beats (Layout › Punch-in)
+    punch: str = "off"              # off | subtle | strong
+    punch_at: list = field(default_factory=list)   # seconds into the clip (punch_beats), filled in at render time
 
 
 W, H = 1080, 1920
@@ -2919,6 +3118,68 @@ def crop_filter(sw: int, sh: int, w: int, h: int, x, y: int) -> str:
     return f"crop={w}:{h}:{x}:{y}"
 
 
+PUNCH_ZOOM = {"subtle": 0.08, "strong": 0.14}   # how far in: past ~15% a face-framed crop starts losing the head
+PUNCH_IN, PUNCH_HOLD, PUNCH_OUT = 0.18, 1.1, 0.7  # seconds: fast in, hold, slow out (reads as intent, not drift)
+PUNCH_MAX = 4               # beats in one clip at most
+PUNCH_GAP = 4.0             # seconds between two beats at least
+PUNCH_EDGE = 1.5            # never in the first or last moments of a clip
+
+
+def punch_beats(an: "Analysis", start: float, end: float, n: int = PUNCH_MAX) -> list:
+    """Seconds into a clip (start..end of the video) to punch in on: the clip's own peaks of the ranking score
+    (chat, loudness, laughter, viewers' clips...), the strongest first, apart from each other, at most n.
+    A clip without a peak above its own middle gets none: a flat clip shouldn't twitch."""
+    if an is None or getattr(an, "score", None) is None:
+        return []
+    sc = np.asarray(an.score, dtype=np.float32)
+    a, b = int(max(0, math.floor(start))), int(min(len(sc), math.ceil(end)))
+    if b - a < 4:
+        return []
+    seg = sc[a:b]
+    floor = float(np.median(seg)) + max(0.6, 0.5 * float(np.std(seg)))
+    cand = [i for i in range(1, len(seg) - 1) if seg[i] >= seg[i - 1] and seg[i] >= seg[i + 1] and seg[i] > floor]
+    cand.sort(key=lambda i: -float(seg[i]))
+    out: list = []
+    length = end - start
+    for i in cand:
+        t = (a + i) - start
+        if t < PUNCH_EDGE or t > length - PUNCH_EDGE - PUNCH_IN:
+            continue
+        if all(abs(t - u) >= PUNCH_GAP for u in out):
+            out.append(round(float(t), 2))
+        if len(out) >= n:
+            break
+    return sorted(out)
+
+
+def punch_filter(o: RenderOpts, w: int, h: int, focus_y: float = 0.45, fps: str = "") -> str:
+    """',fps,zoompan' that pushes a w x h picture in on o.punch_at and back out, or '' when it's off.
+    zoompan, not scale + crop: a crop's size and the input size it centres against are fixed when FFmpeg
+    starts, so a picture scaled up frame by frame was cropped from its top-left corner. zoompan numbers its
+    output frames at its own rate, so the stream is brought to the clip's frame rate (fps) just before it,
+    or a 30 fps source would play at the wrong speed."""
+    amt = PUNCH_ZOOM.get(str(o.punch or "off"))
+    beats = [float(t) for t in (o.punch_at or []) if isinstance(t, (int, float)) and math.isfinite(t) and t >= 0]
+    if not amt or not beats or w < 4 or h < 4 or not fps:
+        return ""
+    beats = sorted(beats)[:PUNCH_MAX]
+
+    def ease(x: str) -> str:            # 0..1, smooth at both ends
+        return f"(({x})*({x})*(3-2*({x})))"
+    env = []
+    for t in beats:
+        rise = f"clip((it-{t - PUNCH_IN:.3f})/{PUNCH_IN},0,1)"
+        fall = f"clip(({t + PUNCH_HOLD + PUNCH_OUT:.3f}-it)/{PUNCH_OUT},0,1)"
+        env.append(f"{ease(rise)}*{ease(fall)}")
+    e = env[0]
+    for x in env[1:]:
+        e = f"max({e},{x})"
+    fy = min(max(float(focus_y), 0.0), 1.0)
+    rate = fps.split(":")[0]
+    return (f",fps={fps},zoompan=z='1+{amt}*{e}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)*{fy:.3f}'"
+            f":d=1:s={w}x{h}:fps={rate},setsar=1")
+
+
 def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: Optional[dict] = None) -> tuple:
     """Return (filter_complex producing [v] in yuv420p, caption_center_y).
     path: [(t, centre x)] for a whole-frame crop that follows a face (3.9 framing).
@@ -3003,11 +3264,19 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         top_h = _even(H * _num(o.cam_height, 0.33, 0.2, 0.5))
         bot_h = H - top_h
         cams, labels = cam_row(W, top_h, True)
-        f = (f"[0:v]split={len(rects) + 1}{labels}[b];{cams};[b]{game_crop(W, bot_h)}[game];"
-             f"[cam][game]vstack=inputs=2,fps={fr},format=yuv420p[v]")
+        pc = punch_filter(o, W, top_h, 0.4, fr)       # on the streamer, not the game
+        cams_out = f"[cam]null{pc}[camp];" if pc else ""
+        f = (f"[0:v]split={len(rects) + 1}{labels}[b];{cams};[b]{game_crop(W, bot_h)}[game];{cams_out}"
+             f"[{'camp' if pc else 'cam'}][game]vstack=inputs=2,fps={fr},format=yuv420p[v]")
         cap_y = top_h  # right on the seam reads best
     elif layout == "full":
-        f = f"[0:v]{game_crop(W, H, path)},fps={fr},format=yuv420p[v]"
+        fy = 0.4
+        if face and face.get("face_y") is not None:
+            try:
+                fy = float(face["face_y"]) / (H if float(face["face_y"]) > 1 else 1)
+            except (TypeError, ValueError):
+                fy = 0.4
+        f = f"[0:v]{game_crop(W, H, path)}{punch_filter(o, W, H, fy, fr)},fps={fr},format=yuv420p[v]"
         cap_y = H * 0.70
         if face and path:
             import framing
@@ -3016,11 +3285,11 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         # the facecam by itself, filling the frame; several, one above the other
         if len(rects) == 1:
             f = (f"[0:v]{cam_crop(o.cam)},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
-                 f"crop={W}:{H},setsar=1,fps={fr},format=yuv420p[v]")
+                 f"crop={W}:{H},setsar=1{punch_filter(o, W, H, 0.4, fr)},fps={fr},format=yuv420p[v]")
             cap_y = H * 0.78
         else:
             cams, labels = cam_row(W, H, False)
-            f = f"[0:v]split={len(rects)}{labels};{cams};[cam]fps={fr},format=yuv420p[v]"
+            f = f"[0:v]split={len(rects)}{labels};{cams};[cam]null{punch_filter(o, W, H, 0.4, fr)},fps={fr},format=yuv420p[v]"
             cap_y = cells(H, len(rects))[0]          # on the first seam, like Cam + game
     elif layout == "blur":
         # the whole picture, fitted inside the frame (never cropped or stretched), on a blurred,
@@ -3033,7 +3302,7 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         f = (f"[0:v]split=2[a][b];"
              f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=12:2,"
              f"eq=brightness=-0.12,scale={W}:{H},setsar=1[bg];"
-             f"[b]{fg}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
+             f"[b]{fg}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2{punch_filter(o, W, H, 0.5, fr)},fps={fr},format=yuv420p[v]")
         cap_y = min(H / 2 + fg_h / 2 + 170, H * 0.8)
     elif layout == "square":
         # a square crop of the picture (Focus and Zoom pick which part), centred in the frame on a
@@ -3043,7 +3312,7 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         f = (f"[0:v]split=2[a][b];"
              f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=12:2,"
              f"eq=brightness=-0.12,scale={W}:{H},setsar=1[bg];"
-             f"[b]{game_crop(side, side)}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
+             f"[b]{game_crop(side, side)}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2{punch_filter(o, W, H, 0.5, fr)},fps={fr},format=yuv420p[v]")
         cap_y = min(H / 2 + side / 2 + 170, H * 0.8)
     else:
         raise ValueError(f"unknown layout {o.layout}")
@@ -3602,7 +3871,42 @@ def title_border(o: "RenderOpts", title_fs: int) -> int:
     return int(round(base * k))
 
 
-def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, title: str = "") -> str:
+TITLE_DEFAULT_Y = 0.05              # RenderOpts.title_y: a title still here was never dragged
+TITLE_TOP = 0.03                    # the platform's own buttons sit above this
+
+
+def title_top(title: str, o: RenderOpts, H: int, fs: int, wrap: int, pad: int, ty: int,
+              face: Optional[dict], caption_y: float) -> int:
+    """Where the title's top goes: ty, unless the title is still where it starts and would cover the face of
+    a clip that follows the streamer (4.45). It then sits above the face if there's room under the platform's
+    top buttons, else below it if that stays clear of the captions, else where it was.
+    face: framing's {"face_y", "face_h"}, fractions of the frame's height (a whole-frame crop keeps it)."""
+    if not face or abs(float(o.title_y) - TITLE_DEFAULT_Y) > 1e-6:
+        return ty
+    try:
+        fy, fh = float(face.get("face_y")), float(face.get("face_h"))
+    except (TypeError, ValueError):
+        return ty
+    if not (0 < fy < 1 and 0 < fh < 1):
+        return ty
+    font = o.title_font if o.title_font in FONT_GLYPH else "classic"
+    lines = max(1, min(3, math.ceil(text_width(title.strip(), fs, font) / max(1, wrap))))
+    tall = int(lines * fs * 1.15 + 2 * pad)
+    top, bot = (fy - fh * 0.9) * H, (fy + fh * 0.6) * H          # the face, with hair above and chin below
+    if ty + tall <= top or ty >= bot:
+        return ty                                                  # clear of it already
+    above = int(top - 24 - tall)
+    if above >= TITLE_TOP * H:
+        return above
+    below = int(bot + 24)
+    if below + tall <= caption_y - 150:
+        return below
+    return ty
+
+
+def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, title: str = "",
+              face: Optional[dict] = None) -> str:
+    """face: where a followed face sits ({"face_y", "face_h"}), so a title that hasn't been moved isn't put on it."""
     W, H = out_size(o)
     hi = _ass_color(o.caption_color)
     cfont, cbold, _ = _font(o.caption_font)
@@ -3659,6 +3963,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             lines.append(_mark_dialogue(m, W, H, clip_len))
     if title.strip():
         ty = int(min(max(o.title_y, 0.0), 0.92) * H) + (tpad if tstyle not in ("outline", "yellow") else 0)
+        ty = title_top(title, o, H, title_fs, 2 * th, tpad, ty, face, center_y)
         lines.append(f"Dialogue: 1,{_ass_time(0)},{_ass_time(clip_len)},Title,,{tx - th},{W - tx - th},0,,"
                      f"{{\\an8\\pos({tx},{ty})}}{_ass_escape(title.strip())}")
 
@@ -4108,7 +4413,9 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         vf, cap_y = build_filter(info, lo, path, fr)
         if use_ass:
             with open(ass_path, "w", encoding="utf-8") as f:
-                f.write(build_ass(words, o, cap_y, length, title))
+                # a followed face (whole frame): the title isn't put on it (title_top)
+                face = fr if effective_layout(lo) == "full" and path else None
+                f.write(build_ass(words, o, cap_y, length, title, face))
             vf = vf.replace("format=yuv420p[v]", f"format=yuv420p,{sub}[v]")
         vf = vf + af
         if wm_imgs:

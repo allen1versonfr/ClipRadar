@@ -26,6 +26,14 @@ describe('posting', () => {
     expect(handoffStatus(item({}), 'typing the caption')!.text).toBe('typing the caption')
     expect(handoffStatus(item({}), undefined)).toBeNull()
   })
+  it('an upload stopped part way, or lost after Post was pressed, says so (4.45)', () => {
+    const stopped = handoffStatus(item({ handoff: { at: 1, auto: 'failed', step: 'stopped', error: 'x' } }), undefined)!
+    expect(stopped.text).toBe('The upload was stopped before it finished.')
+    const post = handoffStatus(item({ handoff: { at: 1, auto: 'failed', step: 'post', error: 'It may have been posted.' } }), undefined)!
+    expect(post.text).toBe('The upload stopped after Clip Radar pressed Post.')
+    expect(post.more).toBe('It may have been posted.')
+    expect(post.more).not.toContain('drag it in')
+  })
   it("the campaign's Discord: sent with what, or why not", () => {
     expect(discordStatus(item({ discord: { at: 1, attached: true } }))!.text).toMatch(/^Sent to Discord .+ with the video\.$/)
     expect(discordStatus(item({ discord: { at: 1, error: 'The webhook was refused.' } }))).toMatchObject({ tone: 'err', text: 'The webhook was refused.' })

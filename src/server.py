@@ -1524,6 +1524,7 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         track="off" if o.get("track") == "off" else "auto",
         track_target=o.get("track_target") if o.get("track_target") in framing.TARGETS else "auto",
         focus_y=_frac(o.get("focus_y"), 0.4),
+        punch=o.get("punch") if o.get("punch") in engine.PUNCH_ZOOM else "off",
     )
 
 
@@ -1908,6 +1909,8 @@ def _render_item(it: dict):
         raise OSError(28, "No space left on device")
 
     it["source_title"] = pr["title"]
+    if ro.punch != "off":                    # Layout › Punch-in: on this clip's own peaks
+        ro.punch_at = engine.punch_beats(pr.get("analysis"), it["start"], it["end"])
     fr = None
     if engine.effective_layout(ro) == "full" and ro.track == "auto":
         set_stage(it, "preparing", "Finding the face")
@@ -2216,6 +2219,10 @@ def start_preview_render(pid: str, c: dict, opts: dict, at: float) -> dict:
             fr = _framing_for(pr, float(c["start"]), float(c["end"]), ro)
             if fr and fr.get("path"):
                 fr = dict(fr, path=framing.shift(fr["path"], seg_a - float(c["start"]), seg_b - seg_a))
+        if ro.punch != "off":                # the clip's beats, on this stretch of it
+            ro.punch_at = [t - (seg_a - float(c["start"])) for t in engine.punch_beats(pr.get("analysis"), float(c["start"]),
+                                                                                   float(c["end"]))]
+            ro.punch_at = [t for t in ro.punch_at if 0 <= t <= seg_b - seg_a]
         name = f"preview_{int(time.time() * 1000)}.mp4"
         job["step"] = "Rendering"
         engine.render_clip(pr["video"], seg_a, seg_b, os.path.join(outdir, name), ro, title=title,

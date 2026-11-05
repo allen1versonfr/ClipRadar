@@ -804,6 +804,16 @@ class Handler(BaseHTTPRequestHandler):
                         S.save_queue_soon()
                         raise RuntimeError(f"{e} The video is selected in File Explorer and the caption is copied, "
                                            f"so you can finish in {where}.") from None
+                    except engine.Cancelled:
+                        # 4.45: stopped (Clip Radar closing): it stayed "Uploading…" for good
+                        it["handoff"].update(auto="failed", step="stopped", error="The upload was stopped before it finished.")
+                        S.save_queue_soon()
+                        raise
+                    except Exception as e:
+                        # 4.45: anything else also left it "Uploading…" for good, and blocked the button's status
+                        it["handoff"].update(auto="failed", step="browser", error=str(e)[:300] or type(e).__name__)
+                        S.save_queue_soon()
+                        raise
                     it["handoff"].update(auto="posted" if r["posted"] else "pressed" if r["pressed"] else "ready")
                     S.save_queue_soon()
                     return r

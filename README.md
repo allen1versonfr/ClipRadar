@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.44.0" src="https://img.shields.io/badge/version-4.44.0-2fe36f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.45.0" src="https://img.shields.io/badge/version-4.45.0-2fe36f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -38,6 +38,7 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
   - It reads how chat reacts, not just how much it types: laughter in many languages ("hahaha", "jajaja", "kkkk", "ㅋㅋㅋ", "草") and stretched words ("LMAOOOO", "noooo"). Chat answering a question the streamer asked ("germany", "2 hours ago", "50") counts for less, and a moment where the streamer and chat react together counts for more.
   - The 7TV emotes chat uses most are read for what they mean (CAUGHT, AINTNOWAY, xdd, HUH, DIESOFCRINGE, o7...), even on YouTube or when the channel's emote lists don't load; emotes for vibing, greetings and sleep (catJAM, peepoHey, Bedge) never make a moment.
   - Awkward moments and confusing ones are clips too, and told apart: "uhhh", "ummm", 😬 and "yikes" make an *awkward moment*; "???", "huh" and "wdym" mean *chat confused*. Each gets a title and hashtags to match.
+  - On a Twitch VOD, the clips viewers made from it count too: a moment several people clipped ranks higher, and its reason says so ("clipped by 4 viewers, 12k views").
   - Ordinary YouTube videos have no chat, so they're ranked with YouTube's Most replayed graph and the timestamps people leave in the top comments ("3:45 when he fell"), next to the sound. YouTube's own captions title the clips straight away, and comments people agree on can title them too.
   - Each clip gets its own length (15 s to 2 minutes): it starts with the setup, runs until the reaction dies down, and never cuts mid-sentence.
   - Quality over quantity: on Automatic it suggests only the moments that stand out against the stream's own best ones, not a set number per hour.
@@ -57,7 +58,8 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
   - Five caption styles: Pop, Highlight, Karaoke, Glow and Clean.
   - Four title styles.
   - Eight bundled fonts, including Montserrat, Anton, Bebas Neue and Bangers.
-- **Layouts and framing:** facecam above gameplay, the whole frame (following the streamer's face), the facecam alone, or a blurred fit. Auto-frame finds a facecam or a person and frames the layout you're on (or picks one). Titles and captions size themselves to fit the frame.
+- **Layouts and framing:** facecam above gameplay, the whole frame (following the streamer's face), the facecam alone, or a blurred fit. Auto-frame finds a facecam or a person and frames the layout you're on (or picks one). Titles and captions size themselves to fit the frame, and a title you haven't moved keeps off the streamer's face.
+  - **Punch-in** (Layout tab): a short push toward the streamer on the clip's biggest moments, then back out, so a clip reads as edited rather than raw footage.
 - **Background render queue.** Clips render to 1080×1920 MP4 on your GPU (NVIDIA, Intel or AMD): it decodes the video and encodes H.264 or H.265, falling back to the CPU for a clip when it has to. With an NVIDIA card, Settings › Performance can add GPU support for Whisper (a one-time download), so titles, captions and Deep scan run on it too. If a render fails, Clip Radar says why in plain words and gives you a Retry button.
 - **Watermarks you can move and share.** Up to six layers of text (any bundled font, colour, outline or box) and logo images, in a corner or dragged anywhere on the clip preview, each with its own size, opacity, rotation and timing. Save sets of them, and share one as a single file (images inside) or import one from a file or a Discord link.
 - **Clipping campaigns and Discords.** Keep each clipping organisation's rules together under **Settings › Campaigns**: text and hashtags every post must carry, minimum and maximum clip length, the campaign's own watermark, and its Discord submission channel (a webhook).
@@ -151,6 +153,7 @@ src/
   discordhook.py  sending clips to a Discord webhook, downloading shared files from a link
   hashtags.py     hashtags for file names and post captions
   chattitles.py   titles from phrases many chatters typed
+  twitchclips.py  the clips viewers made from a Twitch VOD, as a ranking signal
   secret.py       encrypted storage for sign-ins (Windows DPAPI)
   titles.py       auto titles and post captions
   safety.py       content check (TOS scanner) and censoring

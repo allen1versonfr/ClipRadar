@@ -57,14 +57,21 @@ export function TikTokPanel({ q, onChanged, children }: { q: QueueItem; onChange
     try { job = (await api(JobStarted, '/api/handoff', { item: id, caption: text, auto: true })).job }
     catch (e) { set(undefined); if (shown.current === id) setError(err(e)); return }
     let j
-    try {
-      for (;;) {
+    // 4.45: one status check that failed (the app busy for a moment) ended this loop while the upload went on: the
+    // button came back on and the panel said Clip Radar had been closed. Only 40 failures in a row (10 s) give up.
+    for (let misses = 0; ;) {
+      try {
         j = await api(Job, `/api/job/${job}`)
-        if (j.status !== 'running') break
-        set(j.step || 'Working in TikTok Studio')
-        await new Promise(r => setTimeout(r, 250))      // 4.40: 700 ms made every step, and the end, show late
+        misses = 0
+      } catch (e) {
+        if (++misses >= 40) { toast(err(e), 'err'); break }
+        await new Promise(r => setTimeout(r, 250))
+        continue
       }
-    } catch (e) { toast(err(e), 'err') }
+      if (j.status !== 'running') break
+      set(j.step || 'Working in TikTok Studio')
+      await new Promise(r => setTimeout(r, 250))        // 4.40: 700 ms made every step, and the end, show late
+    }
     set(undefined)
     await onChanged()
     const r = j?.result as { posted?: boolean; pressed?: boolean } | undefined
