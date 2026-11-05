@@ -7,7 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [4.45.0] - 2026-11-05
 
-The clips viewers made from a Twitch VOD now help rank it, an optional punch-in zoom, titles that keep off the streamer's face, and fixes from an audit of VOD downloading (`docs/audits/vod-download-audit-2026-11-05.md`).
+The clips viewers made from a Twitch VOD now help rank it, an optional punch-in zoom, titles that keep off the streamer's face, Upload to TikTok fixes, and fixes from an audit of VOD downloading (`docs/audits/vod-download-audit-2026-11-05.md`).
 
 ### Added
 - **Clips viewers made count when ranking a Twitch VOD.** When people watch a stream or its VOD, some of them clip what they liked. Clip Radar reads the clips made from the VOD you open, with how many views each got, and moments several people clipped rank higher. The clip's reason says so: "clipped by 4 viewers, 12k views". This finds what chat and sound miss: a quiet clutch play, or a moment chat was too busy to react to. It needs no sign-in. Twitch only shows the channel's 100 most watched clips for each period, so on an older VOD it's the clips that stood out. It's looked up again after 6 hours, since clips keep being made from a VOD for days. Without clips, or offline, ranking is as before.
@@ -26,12 +26,18 @@ The clips viewers made from a Twitch VOD now help rank it, an optional punch-in 
 - **Twitch chat downloads** end with Clip Radar, like the video's, and a chat download stopped part way no longer leaves a cut-off `chat.json`.
 - **Download errors pointed to controls that are gone** ("Home › Advanced › Sign in with", "More options"). They now say Settings › Downloads and tools › Use cookies from, Settings › Twitch, and Update downloader.
 - Settings › Storage's cleanup of old temporary files also removes a stopped join and TwitchDownloader's unfinished file.
+- **Upload to TikTok said "Upload stopped" for the wrong reasons, and could upload a clip twice.**
+  - When a script on TikTok's page failed (TikTok changed something), it was taken for the TikTok window going away: the whole upload started again, so the video went up a second time. Then it said "Lost Clip Radar's TikTok window" and opened TikTok Studio in your own browser as well. It now says which step stopped (putting the video in, typing the caption, pressing Post) and leaves the window as it is for you to finish.
+  - It never starts again once Post has been pressed, which could have posted the clip twice. If the window goes away after that, it says to check your TikTok profile first, since the clip may have been posted.
+  - An upload that was stopped (Clip Radar closing) or failed in an unexpected way stayed "Uploading…" for good. It now ends as stopped, with the reason.
+  - One status check that didn't get an answer (the app busy for a moment) ended the progress shown under the button while the upload carried on. The button came back on, and the panel said Clip Radar had been closed. It now keeps checking, and only gives up after 10 seconds without an answer.
 
 ### Tests
 - `tests/test_download.py`: a real MPEG-TS joined on reuse, an unreadable MP4 downloaded again, nothing deleted without FFprobe, the space check for a resumed download, a stand-in TwitchDownloader that fails, finishes and hangs, and the low-resolution warning.
 - `tests/test_twitchclips.py` (new, in CI): which of Twitch's periods, only this VOD's clips, each clip once, a stand-in Twitch, saved and reused, Twitch unreachable, the signal, the ranking and the reason.
 - `tests/test_punch.py` (new, in CI): the beats, off and no beats leaving the filter as it was, and every layout rendered with the same length, size and frame count, pushing in from the centre and back out.
 - `tests/test_title_place.py` (new, in CI): where the title goes for a face under it, a face clear of it, a dragged title and a face that fills the frame.
+- `tests/test_studio_retry.py` (new, in CI): Upload to TikTok starts again only when the window went away, never after Post was pressed, and a page that changed is named as the step that failed. `web/`: the stopped and after-Post messages.
 
 ## [4.44.0] - 2026-11-05
 

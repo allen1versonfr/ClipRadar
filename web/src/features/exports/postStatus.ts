@@ -6,7 +6,7 @@ import type { QueueItem } from '../../api/schemas'
 
 export const TT_STEP: Record<string, string> = { browser: 'opening the browser', 'sign-in': 'waiting for you to sign in',
   'file box': 'putting the video in', 'caption box': 'typing the caption', caption: 'typing the caption',
-  upload: 'TikTok was taking the video in', file: 'finding the clip' }
+  upload: 'TikTok was taking the video in', file: 'finding the clip', post: 'pressing Post' }
 
 const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
@@ -38,8 +38,12 @@ export function handoffStatus(q: QueueItem, step: string | undefined): { text: s
     case 'posted': return { text: `Posted at ${at}. TikTok confirmed it in Clip Radar's TikTok window.`, more: '', tone: 'ok' }
     case 'ready': return { text: `The video and caption are in TikTok Studio (${at}).`, more: "Check them in Clip Radar's TikTok window and press Post there.", tone: 'ok' }
     case 'pressed': return { text: `Clip Radar pressed Post at ${at}, but TikTok hadn't confirmed it yet.`, more: "Look in Clip Radar's TikTok window to see whether it went through.", tone: '' }
-    case 'failed': return { text: `The upload stopped while ${TT_STEP[h.step ?? ''] ?? 'working in TikTok Studio'}.`,
-      more: `${h.error ?? ''} The video is selected in File Explorer, so you can drag it in and finish ${h.step === 'browser' ? 'in TikTok Studio, opening in your browser now' : 'there'}.`.trim(), tone: 'err' }
+    case 'failed':
+      // 4.45: stopped before it finished (Clip Radar closing), and lost after Post was pressed, which may have posted
+      if (h.step === 'stopped') return { text: 'The upload was stopped before it finished.', more: 'Upload again, or finish it in the TikTok window.', tone: 'err' }
+      if (h.step === 'post') return { text: 'The upload stopped after Clip Radar pressed Post.', more: h.error ?? '', tone: 'err' }
+      return { text: `The upload stopped while ${TT_STEP[h.step ?? ''] ?? 'working in TikTok Studio'}.`,
+        more: `${h.error ?? ''} The video is selected in File Explorer, so you can drag it in and finish ${h.step === 'browser' ? 'in TikTok Studio, opening in your browser now' : 'there'}.`.trim(), tone: 'err' }
     case 'working': return { text: 'An upload was started but Clip Radar was closed before it finished.', more: 'Upload again, or finish it in the TikTok window.', tone: '' }
     default: return { text: `Opened TikTok Studio ${at}.`, more: "Finish uploading and posting there. Clip Radar can't see your browser, so it doesn't know whether the clip was posted.", tone: '' }
   }

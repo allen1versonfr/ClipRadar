@@ -119,6 +119,7 @@ jobs:
           python tests/test_ytextra.py
           python tests/test_download.py
           python tests/test_twitchclips.py
+          python tests/test_studio_retry.py
           python tests/test_title_place.py
           python tests/test_cleanup.py
           python tests/test_quality.py
