@@ -3302,7 +3302,7 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         f = (f"[0:v]split=2[a][b];"
              f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=12:2,"
              f"eq=brightness=-0.12,scale={W}:{H},setsar=1[bg];"
-             f"[b]{fg}{punch_filter(o, fg_w, fg_h, 0.5, fr)}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
+             f"[b]{fg}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2{punch_filter(o, W, H, 0.5, fr)},fps={fr},format=yuv420p[v]")
         cap_y = min(H / 2 + fg_h / 2 + 170, H * 0.8)
     elif layout == "square":
         # a square crop of the picture (Focus and Zoom pick which part), centred in the frame on a
@@ -3312,7 +3312,7 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         f = (f"[0:v]split=2[a][b];"
              f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=12:2,"
              f"eq=brightness=-0.12,scale={W}:{H},setsar=1[bg];"
-             f"[b]{game_crop(side, side)}{punch_filter(o, side, side, 0.5, fr)}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
+             f"[b]{game_crop(side, side)}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2{punch_filter(o, W, H, 0.5, fr)},fps={fr},format=yuv420p[v]")
         cap_y = min(H / 2 + side / 2 + 170, H * 0.8)
     else:
         raise ValueError(f"unknown layout {o.layout}")
