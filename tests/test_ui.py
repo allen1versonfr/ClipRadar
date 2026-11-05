@@ -119,6 +119,8 @@ with sync_playwright() as p:
         pg.fill("[data-testid=source-input]", vod)
         pg.click("[data-testid=find-clips]")
         pg.wait_for_selector("[data-testid=batch-bar]", state="visible", timeout=120000)
+        if not pg.evaluate("document.querySelector('[data-testid=batch-bar]').open"):      # Keep or skip several is folded away
+            pg.click("[data-testid=batch-bar] > summary")
         pg.select_option("[data-testid=batch-count]", "3")
         pg.evaluate("ClipRadarTest.setOption('captions', false)")          # no Whisper download for this check
         sounds = sum(1 for e, _ in server.SOUND_LOG if e == "queued")
@@ -190,6 +192,8 @@ with sync_playwright() as p:
         pg.evaluate("qs => ClipRadarTest.setTodoQualities(qs)", [80 if i % 2 else 30 for i in range(n_todo)])
         todo = pg.evaluate("ClipRadarTest.clips().filter(c => c.state === 'todo' && !c.gem).map(c => c.quality)")
         check("there are clips under the score to skip", any(q < 50 for q in todo), todo)
+        if not pg.evaluate("document.querySelector('[data-testid=batch-bar]').open"):      # Keep or skip several is folded away
+            pg.click("[data-testid=batch-bar] > summary")
         pg.select_option("[data-testid=skip-score]", "50")
         pg.click("[data-testid=batch-skip]")
         pg.wait_for_timeout(400)
@@ -202,6 +206,8 @@ with sync_playwright() as p:
         pg.wait_for_timeout(300)
         back = pg.evaluate("ClipRadarTest.clips().filter(c => c.state === 'todo' && !c.gem).length")
         check("and Undo brings them back", back == len(todo), (back, todo))
+        if not pg.evaluate("document.querySelector('[data-testid=batch-bar]').open"):      # Keep or skip several is folded away
+            pg.click("[data-testid=batch-bar] > summary")
         pg.select_option("[data-testid=skip-score]", "0")
         pg.click("[data-testid=batch-skip]")
         pg.wait_for_timeout(400)

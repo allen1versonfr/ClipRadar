@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.43.0" src="https://img.shields.io/badge/version-4.43.0-2fe36f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.44.0" src="https://img.shields.io/badge/version-4.44.0-2fe36f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -71,17 +71,19 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
 
 ## Screenshots
 
+Taken from the app on a generated sample video (`python scripts/readme_shots.py` retakes them).
+
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/live.png" alt="Hands-free live clipping: moments are titled, checked and rendered while the stream runs"><p align="center"><sub><b>Hands-free live:</b> clips render on their own while you watch</sub></p></td>
-    <td width="50%"><img src="docs/images/home.png" alt="Home: automatic clip count and length, Deep scan, and ad-free live clipping"><p align="center"><sub><b>Home:</b> automatic clip count and length, Deep scan, ad-free live</sub></p></td>
+    <td width="50%"><img src="docs/images/layout.png" alt="Layout tab: shape, layout, Auto-frame and following the streamer's face, on a clip with a content flag"><p align="center"><sub><b>Layout:</b> shape, layout, Auto-frame, follow the face</sub></p></td>
+    <td width="50%"><img src="docs/images/home.png" alt="Home: a past broadcast or video, and hands-free live clipping"><p align="center"><sub><b>Home:</b> a past broadcast, or hands-free live clipping</sub></p></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/content-check.png" alt="Content check settings with censoring"><p align="center"><sub><b>Content check:</b> flag, hide, mute or bleep</sub></p></td>
-    <td width="50%"><img src="docs/images/exports.png" alt="Exports showing a failed render with its reason and a Retry button"><p align="center"><sub><b>Exports:</b> failures say why, with Retry</sub></p></td>
+    <td width="50%"><img src="docs/images/content-check.png" alt="Content check settings: what to look for, and what to censor"><p align="center"><sub><b>Content check:</b> flag, hide, mute or bleep</sub></p></td>
+    <td width="50%"><img src="docs/images/exports.png" alt="Exports: a rendered clip, ready to upload to TikTok"><p align="center"><sub><b>Exports:</b> rendered clips, ready to upload</sub></p></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/text.png" alt="Text tab: caption and title styles and fonts, with captions dragged into place"><p align="center"><sub><b>Text:</b> styles, fonts and drag-to-place text</sub></p></td>
+    <td width="50%"><img src="docs/images/text.png" alt="Text tab: title and caption styles and fonts"><p align="center"><sub><b>Text:</b> title and caption styles and fonts</sub></p></td>
     <td width="50%"><img src="docs/images/captions.png" alt="Captions tab: fixing a caption line by typing"><p align="center"><sub><b>Captions:</b> fix what was heard, line by line</sub></p></td>
   </tr>
 </table>

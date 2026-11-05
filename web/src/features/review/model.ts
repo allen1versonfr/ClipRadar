@@ -90,4 +90,6 @@ export function fmt(s: number): string {
   const t = Math.max(0, Math.round(s || 0)), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), x = t % 60
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`
 }
-export const qClass = (q: number) => (q >= 75 ? 3 : q >= 50 ? 2 : 1)
+/** A clip score's grade, for its colour: 80+ green, 70+ yellow, under 50 red, and 50 to 69 left plain. */
+export type Grade = 'top' | 'good' | 'fair' | 'low'
+export const qClass = (q: number): Grade => (q >= 80 ? 'top' : q >= 70 ? 'good' : q >= 50 ? 'fair' : 'low')

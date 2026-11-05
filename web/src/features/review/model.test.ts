@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { Clip } from '../../api/schemas'
 import { RENDER_DEFAULTS } from '../../prefs'
-import { checkStatus, gate, keepBody, merge, nextTodo, postFor, prep, visible } from './model'
+import { checkStatus, gate, keepBody, merge, nextTodo, postFor, prep, qClass, visible } from './model'
 
 const clip = (over: object) => Clip.parse({ id: 1, pid: 'p', start: 10, end: 30, title: 'Chat lost it', ...over })
+
+describe('score grades', () => {
+  it('80+ green, 70+ yellow, under 50 red, 50 to 69 plain', () => {
+    expect([100, 80, 79, 70, 69, 50, 49, 1].map(qClass)).toEqual(['top', 'top', 'good', 'good', 'fair', 'fair', 'low', 'low'])
+  })
+})
 
 describe('Review rules', () => {
   it('lists clips by tab; gems only under Gems', () => {

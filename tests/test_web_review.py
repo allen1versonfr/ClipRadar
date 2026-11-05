@@ -227,6 +227,8 @@ with sync_playwright() as pw:
 
     # Skip in bulk asks first (more than 3), and Undo brings them back
     left = page.locator("[data-testid=rv-row]").count()
+    if not page.evaluate("document.querySelector('[data-testid=batch-bar]').open"):      # Keep or skip several is folded away
+        page.click("[data-testid=batch-bar] > summary")
     page.get_by_test_id("batch-skip").click()
     if left > 3:
         page.get_by_role("alertdialog").get_by_role("button", name="Skip").click()

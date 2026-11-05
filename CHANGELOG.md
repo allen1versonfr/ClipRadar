@@ -5,6 +5,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.44.0] - 2026-11-05
+
+Review is easier to scan: scores coloured by grade, a red or yellow flag on clips to check, a wider clip list and a calmer header.
+
+### Changed
+- **Clip scores are coloured by grade** in Review's clip list and the clip's header: 80 and up green, 70 to 79 yellow, under 50 red, 50 to 69 plain. The number is always shown with it.
+- **A clip with content flags shows a small flag** before its title: red when one of its open flags is serious, yellow otherwise. It replaces the yellow "!", which looked like a yellow score next to it.
+- **Review's clip list is wider** (250 to 340 px), titles get two lines before they're cut, and the To review / Skipped / All / Flagged tabs never break mid-label.
+- **Keep or skip several at once** is folded under one line above the list. It's an occasional action, so it no longer pushes the clips down every time.
+- **Review's header** keeps the stream's facts on the left and its tools on the right: Tuned to your picks, Detection settings (now a button, with the current settings in its tooltip), Deep scan and Writing titles.
+- **Home:** Past broadcast or video is the wider card, with Live stream beside it.
+- **README screenshots** are new, taken from the app on a generated sample video. `scripts/readme_shots.py` retakes them. The live clipping picture is replaced by the Layout tab, since without a real stream it could only show a session still connecting.
+
 ## [4.43.0] - 2026-11-05
 
 The previous UI is gone, and fixes from a second design audit, this time of the running app (`anti-slop/audit-002-2026-11-05.md`).
