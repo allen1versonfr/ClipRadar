@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Clip, Safety } from '../../api/schemas'
 import { ago, plural } from '../../format'
-import { FIX_EXPLAIN, FIX_LABEL, FLAG_STATE, fixesOf, flagsOf, isStale, logOf } from './checks'
+import { FIX_EXPLAIN, FIX_LABEL, FLAG_STATE, SEV, fixesOf, flagsOf, isStale, logOf } from './checks'
 import { fmtT } from './captions'
 import { CHECK_LABEL, checkStatus, fmt } from './model'
 
@@ -45,9 +45,9 @@ export function ContentCheck({ clip: c, safety, flaggedTab, proposal, onAct, onP
           {flags.map(f => {
             const state = f.status === 'corrected' ? `Fixed: ${(FIX_LABEL[f.fixed ?? ''] ?? 'fixed').toLowerCase()}` : FLAG_STATE[f.status] ?? ''
             return (
-              <li key={f.fp} className={`cc-flag ${f.status} sev${f.severity ?? 1}`}>
+              <li key={f.fp} className={`cc-flag ${f.status}`}>
                 <div className="cc-flag-h">
-                  <b>{f.label}</b><span className="cc-text">“{f.text}”</span>
+                  <b>{f.label}</b><span className={`cc-sev sev${f.severity ?? 1}`}>{SEV[f.severity ?? 1]}</span><span className="cc-text">“{f.text}”</span>
                   {f.source === 'speech'
                     ? <button className="link tnum" title="Play from here" onClick={() => onSeek(c.start + (f.start ?? 0) - 1)}>{fmtT(Math.max(0, f.start ?? 0))}</button>
                     : <span className="muted">{f.source === 'title' ? 'in the title' : 'in the post caption'}</span>}

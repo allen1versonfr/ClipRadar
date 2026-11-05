@@ -16,7 +16,6 @@ h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .app { display: grid; height: 100%; grid-template: "top top" auto "rail main" 1fr "bar bar" auto / 160px 1fr; }
 .top { grid-area: top; display: flex; align-items: center; gap: var(--gap); padding: 8px 14px; background: var(--bg0); border-bottom: 1px solid var(--line); }
 .brand { font-weight: 700; }
-.preview-tag { font-size: 11px; color: var(--on-accent); background: var(--accent); border-radius: 999px; padding: 1px 8px; font-weight: 600; }
 .top .btn { margin-left: auto; }
 .rail { grid-area: rail; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--bg0); border-right: 1px solid var(--line); }
 .rail a { color: var(--tx1); text-decoration: none; padding: 7px 10px; border-radius: var(--r); }
@@ -169,7 +168,7 @@ details.adv[open] summary { margin-bottom: 10px; }
 .set-nav { position: sticky; top: 0; display: flex; flex-direction: column; gap: 10px; max-height: calc(100 * var(--vh) - 120px); overflow-y: auto; padding: 0 2px 8px; }
 .set-nav h1 { margin: 0 0 2px; }
 .set-nav-group { display: flex; flex-direction: column; gap: 1px; }
-.set-nav-label, .set-group-label { color: var(--tx2); font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; }
+.set-nav-label, .set-group-label { color: var(--tx2); font-size: 12px; font-weight: 650; }   /* weight and grey carry the level, not capitals */
 .set-nav-label { padding: 4px 10px 2px; }
 .set-nav a { color: var(--tx1); text-decoration: none; padding: 5px 10px; border-radius: var(--r); border-left: 2px solid transparent; }
 .set-nav a:hover { background: var(--bg3); color: var(--tx0); }
@@ -184,7 +183,7 @@ details.adv[open] summary { margin-bottom: 10px; }
   .set-nav { position: static; max-height: none; overflow: visible; }
   .set-nav-group { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
   .set-nav-label { width: 100%; }
-  .set-nav a { border: 1px solid var(--line2); border-radius: 99px; padding: 4px 12px; }
+  .set-nav a { border: 1px solid var(--line2); padding: 4px 12px; }
   .set-nav a.on { border-color: var(--line2); background: none; color: var(--tx1); }   /* the menu scrolls away here: no "you are here" */
 }
 .settings h2 { font-size: 15px; font-weight: 650; margin: 0; }
@@ -212,7 +211,7 @@ details.adv[open] summary { margin-bottom: 10px; }
 .ver-list li { border-top: 1px solid var(--line); padding: 4px 0; }
 .ver-list summary { display: flex; gap: 8px; align-items: center; cursor: pointer; padding: 4px 0; }
 .ver-list li.cur summary b { color: var(--accent); }
-.ver-tag { font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line2); color: var(--tx1); }
+.ver-tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line2); color: var(--tx1); }
 .ver-tag.cur, .ver-tag.new { border-color: var(--accent); color: var(--accent); }
 .btn.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
 .btn.danger:hover { background: rgba(240, 90, 94, .12); }
@@ -243,7 +242,7 @@ p.notice { margin: 0; }
 .explain { margin-top: 10px; padding: 12px 14px; background: var(--bg1); border-radius: var(--r); display: flex; flex-direction: column; gap: 6px; }
 .explain h4 { margin: 6px 0 0; font-size: 12px; font-weight: 650; color: var(--tx0); display: flex; gap: 6px; align-items: center; }
 .explain ul { margin: 0; padding-left: 18px; color: var(--tx1); font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
-.explain .tag { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; color: var(--tx2); border: 1px solid var(--line2); border-radius: 999px; padding: 0 6px; }
+.explain .tag { font-size: 12px; font-weight: 400; color: var(--tx2); }   /* where the list comes from, said quietly after the heading */
 .ex-status { margin: 0; font-weight: 600; }
 .ex-status.tuned { color: var(--accent); }
 
@@ -312,7 +311,7 @@ p.notice { margin: 0; }
 .cp-row { width: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: none; color: var(--tx0); text-align: left; }
 .cp-row:hover { background: var(--bg3); }
 .cp-row.on { border-color: var(--accent); }
-.pill { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line2); color: var(--tx0); }
+.pill { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--line2); color: var(--tx0); }
 .cp-edit { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
 @media (pointer: coarse) { .cp-row { min-height: 44px; } }
 
@@ -350,7 +349,7 @@ p.notice { margin: 0; }
 .rv-row-t.pending { color: var(--tx1); font-style: italic; }
 .rv-row-m { display: flex; flex-wrap: wrap; gap: 0 8px; }
 .rv-flag { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 6px; border-radius: 50%; background: var(--warn); color: #1a1205; font-size: 11px; font-weight: 700; }
-.qpill { padding: 0 6px; border-radius: 99px; border: 1px solid var(--line2); font-variant-numeric: tabular-nums; }
+.qpill { padding: 0 6px; border-radius: 4px; border: 1px solid var(--line2); font-variant-numeric: tabular-nums; }
 .qpill.q3 { border-color: var(--accent); color: var(--accent); }
 .rv-empty, .rv-pick p { margin: 8px 0; }
 .rv-pick { padding: 20px 24px; display: flex; flex-direction: column; gap: 10px; }
@@ -423,9 +422,11 @@ p.notice { margin: 0; }
 .safe.high { color: var(--danger); }
 .safe.medium, .safe.low { color: var(--warn); }
 .cc-flags { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.cc-flag { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-left: 3px solid var(--line2); background: var(--bg2); border-radius: 4px; }
-.cc-flag.open.sev3 { border-left-color: var(--danger); }
-.cc-flag.open.sev2, .cc-flag.open.sev1 { border-left-color: var(--warn); }
+.cc-flag { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line2); background: var(--bg2); border-radius: 4px; }
+/* severity is written out, so it reads without colour; the colour only backs up the word */
+.cc-sev { font-size: 12px; font-weight: 650; color: var(--tx1); }
+.cc-flag.open .cc-sev.sev3 { color: var(--danger); }
+.cc-flag.open .cc-sev.sev2, .cc-flag.open .cc-sev.sev1 { color: var(--warn); }
 .cc-flag-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .cc-text { color: var(--tx0); }
 .cc-prop { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px dashed var(--line2); border-radius: var(--r); }
@@ -435,7 +436,7 @@ p.notice { margin: 0; }
 /* Review: the whole stream (overview, header facts, deep scan, detection settings, title A/B) */
 .rv-facts-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
 .rv-facts-head b { color: var(--tx0); font-weight: 600; }
-.rv-facts-head .tuned { padding: 0 6px; border: 1px solid var(--line2); border-radius: 99px; }
+.rv-facts-head .tuned { padding: 0 6px; border: 1px solid var(--line2); border-radius: 4px; }
 .rv-deep { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .rv-overview { position: relative; display: flex; flex-direction: column; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
 .rv-ov-ruler { display: flex; justify-content: space-between; gap: 12px; }
@@ -466,7 +467,7 @@ p.notice { margin: 0; }
 }
 .rv-exact { position: absolute; inset: 0; border-radius: var(--r); overflow: hidden; background: #000; box-shadow: 0 0 0 2px var(--accent); }
 .rv-exact video { width: 100%; height: 100%; object-fit: contain; display: block; }
-.rv-exact-close { position: absolute; top: 8px; right: 8px; min-height: 32px; padding: 4px 12px; border-radius: 99px; border: 1px solid var(--line2); background: rgba(14, 15, 17, .85); color: var(--tx0); font-size: 12px; }
+.rv-exact-close { position: absolute; top: 8px; right: 8px; min-height: 32px; padding: 4px 12px; border-radius: var(--r); border: 1px solid var(--line2); background: rgba(14, 15, 17, .85); color: var(--tx0); font-size: 12px; }
 @media (pointer: coarse) { .rv-exact-close { min-height: 44px; } }
 /* Review on a live session */
 .rv-live { display: flex; flex-direction: column; gap: 6px; width: 100%; }

@@ -123,22 +123,22 @@ function Explanation({ id, x }: { id: string; x: Explain }) {
   return (
     <div className="explain" id={id} data-testid="lr-explain">
       <p className={`ex-status ${x.status}`}>{x.status_text}</p>
-      <h4>What's stored <span className="tag">facts</span></h4>
+      <h4>What's stored <span className="tag">(facts)</span></h4>
       <ul>{explainFacts(x).map(t => <li key={t}>{t}</li>)}</ul>
       {x.compare.length > 0 && (
         <>
-          <h4>How kept and skipped clips differed <span className="tag">facts</span></h4>
+          <h4>How kept and skipped clips differed <span className="tag">(facts)</span></h4>
           {cmp.length ? <ul>{cmp.map(c => <li key={c.label}>{c.label}: {c.says} ({c.kept} kept vs {c.skipped} skipped)</li>)}</ul>
             : <p className="muted small">No clear difference yet.</p>}
         </>
       )}
       {x.learned.length > 0 && (
         <>
-          <h4>What ranking does with it <span className="tag">learned</span></h4>
+          <h4>What ranking does with it <span className="tag">(learned)</span></h4>
           <ul>{x.learned.map(l => <li key={l.label}>{l.label} moves clips {l.direction === 'up' ? 'up' : 'down'} {l.strength}</li>)}</ul>
         </>
       )}
-      <h4>Rules every clip is scored on <span className="tag">built in</span></h4>
+      <h4>Rules every clip is scored on <span className="tag">(built in)</span></h4>
       <ul>{x.rules.map(r => <li key={r}>{r}</li>)}</ul>
       {x.method && <p className="fine">{x.method}</p>}
     </div>
