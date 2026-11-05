@@ -13,8 +13,14 @@ export const PRESETS: Array<[string, string]> = [['any', 'Any stream'], ['gaming
   ['reactions', 'Reactions'], ['interviews', 'Interviews'], ['podcasts', 'Podcasts']]
 // a stream type moves "Rank by" to where that kind of stream's moments show best (as in the original page)
 const PRESET_CHAT: Record<string, number> = { any: 60, gaming: 55, irl: 65, reactions: 50, interviews: 50, podcasts: 45 }
+// "The video is": short choices, so the closed select never cuts one off, and what each does underneath
+const WHOLE_HINT: Record<string, string> = {
+  auto: 'An X video under 3 minutes is taken as a clip; anything else is searched for clips.',
+  no: 'Find the clips in it.',
+  yes: 'Just add captions and crop it.',
+}
 
-/** A setting kept under the original page's key, so both UIs start from the same choice. */
+/** A setting kept under its vc_ key, so it's there next time. */
 function usePref<T>(key: string, fallback: T): [T, (v: T) => void] {
   const [v, setV] = useState<T>(() => getPref(key, fallback))
   return [v, (nv: T) => { setV(nv); setPref(key, nv) }]
@@ -105,10 +111,11 @@ export function VodCard({ status, source, onSource, start = 0 }: { status: Statu
       <div className="form-grid">
         <label className="span2">The video is
           <select className="input" data-testid="whole" value={whole} onChange={e => setWhole(e.target.value)}>
-            <option value="auto">Automatic (an X video under 3 minutes is taken as a clip)</option>
-            <option value="no">A stream or long video: find the clips in it</option>
-            <option value="yes">Already a clip: just add captions and crop it</option>
+            <option value="auto">Automatic</option>
+            <option value="no">A stream or long video</option>
+            <option value="yes">Already a clip</option>
           </select>
+          <small className="hint">{WHOLE_HINT[whole] ?? WHOLE_HINT.auto}</small>
         </label>
         <label>Clips to suggest
           <select className="input" value={count} disabled={whole === 'yes'} onChange={e => setCount(e.target.value)}>

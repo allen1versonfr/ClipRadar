@@ -30,7 +30,6 @@ for _s in (sys.stdout, sys.stderr):
 os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
-os.environ.pop("CLIPRADAR_UI", None)
 os.environ["CLIPRADAR_PREVIEW_VP9"] = "1"
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))

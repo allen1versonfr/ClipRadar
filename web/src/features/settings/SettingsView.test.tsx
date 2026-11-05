@@ -6,7 +6,7 @@ import { Update } from '../../api/schemas'
 import { SettingsView } from './SettingsView'
 import { updateLine } from './UpdatesPanel'
 
-const STATUS = { version: '4.16.0', api: 1, ui: 'legacy', ffmpeg: true, ytdlp: false, whisper: true, laughter: true,
+const STATUS = { version: '4.16.0', api: 1, ui: 'web', ffmpeg: true, ytdlp: false, whisper: true, laughter: true,
   twitchdownloader: true, can_download_tools: true, live: '',
   hotkey: { supported: true, enabled: true, registered: true, keys: 'Ctrl+Alt+C', error: '' } }
 const UPDATE = { current: '4.16.0', state: 'idle', available: true, latest: '4.17.0', notes: 'Faster renders.',

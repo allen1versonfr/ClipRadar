@@ -1,9 +1,9 @@
 """
 The new UI's Review against the real server, in a real browser, on a generated video: the open videos
 are listed, a video opens with its clips, the selected clip plays its stretch, a title you type is saved
-with the VOD, the Text and Layout tabs set the shared render style, a caption line can be added, fixed and undone, the content check box tries, makes and undoes a fix, excludes, removes and brings back a clip, the clip preview matches the current UI's (with those choices) and the title can be dragged on it, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
+with the VOD, the Text and Layout tabs set the shared render style, a caption line can be added, fixed and undone, the content check box tries, makes and undoes a fix, excludes, removes and brings back a clip, the title can be dragged on the clip preview, trimming works (buttons, undo / redo, dragging the end on the timeline, I, Restore), Keep queues a render with your render style and moves on, Skip (the X key) moves it to
 Skipped and asks why, a video the window can't play switches to the preview copy, Skip in bulk asks first and Undo brings the clips back, a reload keeps what you
-did, its preview matches the current UI's on the same clip, and the screen fits a narrow window.
+did, and the screen fits a narrow window.
 
 Needs FFmpeg, the React build (cd web && npm run build) and Playwright; skipped without them.
 
@@ -30,7 +30,6 @@ for _s in (sys.stdout, sys.stderr):
 os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
-os.environ.pop("CLIPRADAR_UI", None)
 os.environ["CLIPRADAR_PREVIEW_VP9"] = "1"      # test browsers have no H.264: the preview copy they can play
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
@@ -321,14 +320,10 @@ with sync_playwright() as pw:
     check("and Undo brings it back", wait_until(lambda: any(d["id"] == flagged["id"] for d in server.projects[pid]["clips"])))
     page.get_by_role("tab", name="To review").click()
 
-    # the clip preview: the same picture as the current UI's, and the title can be dragged
+    # the title can be dragged on the clip preview
     page.mouse.move(5, 5)
     page.evaluate("(() => { const v = document.querySelector('[data-testid=rv-video]'); v.pause(); })()")
-    at = page.evaluate("document.querySelector('[data-testid=rv-video]').currentTime")
-    shrink = """(sel) => { const c = document.createElement('canvas'); c.width = 54; c.height = 96;
-        c.getContext('2d').drawImage(document.querySelector(sel), 0, 0, 54, 96); return Array.from(c.getContext('2d').getImageData(0, 0, 54, 96).data) }"""
     page.wait_for_timeout(400)
-    new_px = page.evaluate(shrink, "[data-testid=clip-preview]")
     page.evaluate("document.querySelector('[data-testid=clip-preview]').scrollIntoView({block: 'center'})")
     pv = page.get_by_test_id("clip-preview").bounding_box()
     page.mouse.move(pv["x"] + pv["width"] / 2, pv["y"] + pv["height"] * 0.07)
@@ -336,24 +331,9 @@ with sync_playwright() as pw:
     page.mouse.move(pv["x"] + pv["width"] / 2, pv["y"] + pv["height"] * 0.3, steps=8)
     page.mouse.up()
     o = json.loads(page.evaluate("localStorage.getItem('vc_opts')") or "{}")
-    check("dragging the title on the preview moves it, in the render style both UIs share", 0.2 < o.get("title_y", 0) < 0.4, o.get("title_y"))
+    check("dragging the title on the preview moves it, in the shared render style", 0.2 < o.get("title_y", 0) < 0.4, o.get("title_y"))
     page.evaluate("localStorage.setItem('vc_opts', JSON.stringify(Object.assign(JSON.parse(localStorage.getItem('vc_opts')), {title_y: 0.05})))")
 
-    # the current UI on the same clip, for the preview comparison
-    sel = page.get_by_test_id("rv-title-input").input_value()
-    sel_id = next(d["id"] for d in server.projects[pid]["clips"] if (d.get("title") or "Untitled") == sel and d.get("state", "todo") == "todo")
-    page.goto(url + f"/legacy/#open={pid}/{sel_id}")      # the same clip in the current UI, to compare the previews
-    page.wait_for_function("window.ClipRadarTest && ClipRadarTest.current()", timeout=15000)
-    check("the current UI opens the same clip (#open=<project>/<clip>)", page.evaluate("ClipRadarTest.current()") == f"{pid}:{sel_id}",
-          (page.evaluate("ClipRadarTest.current()"), sel_id))
-    page.wait_for_function("document.querySelector('#vod').readyState >= 2", timeout=60000)
-    page.evaluate(f"(() => {{ const v = document.querySelector('#vod'); v.pause(); v.currentTime = {at}; }})()")
-    page.wait_for_function(f"Math.abs(document.querySelector('#vod').currentTime - {at}) < 0.05 && !document.querySelector('#vod').seeking", timeout=15000)
-    page.mouse.move(5, 5)
-    page.wait_for_timeout(600)
-    old_px = page.evaluate(shrink, "#phone")
-    diff = sum(abs(a - b) for a, b in zip(new_px, old_px)) / len(new_px)
-    check("the new preview draws the same picture as the current UI's", diff < 10, round(diff, 1))
 
     # the whole stream: its facts, the overview, previewing any moment and making a clip there
     page.goto(url + f"/next/#review/{pid}")
@@ -472,7 +452,7 @@ with sync_playwright() as pw:
                          " - document.documentElement.clientWidth")
     check("Review fits a 420 px window", over <= 0, over)
     page.screenshot(path=os.environ.get("CLIPRADAR_SHOT") or os.path.join(tempfile.gettempdir(), "review.png"), full_page=True)
-    check("no errors in either page", not errors, errors[:5])
+    check("no errors in the page", not errors, errors[:5])
     browser.close()
 
 server.SHUTTING_DOWN[0] = True

@@ -1,14 +1,13 @@
 """
-The contract between the app's local server and whichever UI it serves (the original page in
-src/ui, or the React build in src/web). The React rewrite leans on this: it must be able to treat
-the API as stable, and the server must serve a Vite build correctly.
+The contract between the app's local server and the UI it serves (the React build in src/web): the
+UI must be able to treat the API as stable, and the server must serve a Vite build correctly.
 
   - every API path a UI's source builds exists on the server (scripts/api_routes.py --ui)
   - every GET route answers JSON without crashing, with an id that doesn't exist too
   - POST bodies must be JSON, bounded in size, from this PC (Host and Origin checks)
   - /api/status reports the API version and which UI is served
   - a React build in WEB_DIR is served at /, with hashed /assets/ cached for good, client-side routes
-    answered with index.html, module scripts with a JavaScript type, and the old page still at /legacy/
+    answered with index.html, module scripts with a JavaScript type; with no build, / says how to make one
 
   python tests/test_api_contract.py
 """
@@ -32,7 +31,6 @@ os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 os.environ["CLIPRADAR_NO_BROWSER"] = "1"
-os.environ.pop("CLIPRADAR_UI", None)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
@@ -106,7 +104,7 @@ try:
 
     st = json.loads(req("GET", "/api/status")[2])
     check("status reports the API version", st.get("api") == server.API_VERSION, st.get("api"))
-    check("status reports which UI is served", st.get("ui") == server.ui_mode() and st.get("ui") in ("web", "legacy"), st.get("ui"))
+    check("status reports which UI is served", st.get("ui") == server.ui_mode() and st.get("ui") in ("web", "missing"), st.get("ui"))
 
     # ---------------------------------------------------------------- jobs: only their public fields
     code, _, data = post("/api/analyze", {"source": os.path.join(tempfile.gettempdir(), "no_such_video_x.mp4")})
@@ -141,9 +139,13 @@ try:
     old_web = server.WEB_DIR
     server.WEB_DIR = Path(tempfile.mkdtemp(prefix="vc_noweb_"))       # first, as if it was never built
     code, h, data = req("GET", "/")
-    check("with no React build, / is the original page", code == 200 and b"/ui/app.js" in data, code)
-    code, _, data = req("GET", "/review")
-    check("and client-side paths don't get the page (legacy has no routes)", code == 404, code)
+    check("with no React build, / says how to build it", code == 503 and b"npm run build" in data, (code, data[:80]))
+    st = json.loads(req("GET", "/api/status")[2])
+    check("and status says the UI is missing", st.get("ui") == "missing" and st.get("next") is False, st.get("ui"))
+    code, _, data = req("GET", "/legacy/")
+    check("the previous page is gone (4.43.0)", code != 200 and b"/ui/app.js" not in data, code)
+    code, _, _ = req("GET", "/ui/app.js")
+    check("and its script with it", code == 404, code)
 
     web = Path(tempfile.mkdtemp(prefix="vc_web_"))
     (web / "assets").mkdir()
@@ -154,21 +156,12 @@ try:
     (web / "robots.txt").write_text("User-agent: *", encoding="utf-8")
     server.WEB_DIR = web
     try:
-        # with a build, the new UI is at / (4.25.0); /next/, its old address, still works
+        # with a build, the app is at /; /next/, its address in 4.25 to 4.42, still works
         code, h, data = req("GET", "/")
-        check("with a React build, / is the new UI by default", code == 200 and b'id="root"' in data, (code, data[:60]))
+        check("with a React build, / is the app", code == 200 and b'id="root"' in data, (code, data[:60]))
         code, h, data = req("GET", "/next/")
         check("and /next/ still opens it", code == 200 and b'id="root"' in data, (code, data[:60]))
-        code, h, _ = req("GET", "/assets/index-a1b2c3.js")
-        check("with its bundles", code == 200 and "immutable" in h.get("cache-control", ""), code)
-        st = json.loads(req("GET", "/api/status")[2])
-        check("status says the new UI is at /", st.get("ui") == "web" and st.get("next") is True, st)
-        code, _, data = req("GET", "/legacy/")
-        check("the previous UI stays at /legacy/", code == 200 and b"/ui/app.js" in data, code)
-
-        os.environ["CLIPRADAR_UI"] = "web"
         code, h, data = req("GET", "/")
-        check("with CLIPRADAR_UI=web, / is the new app", code == 200 and b'id="root"' in data, (code, data[:60]))
         check("its index.html is never cached (updates show up)", h.get("cache-control") == "no-cache", h.get("cache-control"))
         code, h, data = req("GET", "/assets/index-a1b2c3.js")
         check("a hashed bundle is served", code == 200 and data == b"console.log('hi')", code)
@@ -190,35 +183,18 @@ try:
         check("paths can't climb out of the build folder", code in (403, 404), code)
         code, _, _ = req("GET", "/..%2Fserver.py")
         check("nor out of the build root", code in (403, 404), code)
-        code, _, data = req("GET", "/legacy/")
-        check("the original page is still at /legacy/", code == 200 and b"/ui/app.js" in data, code)
-        code, h, _ = req("GET", "/ui/app.js")
-        check("and its files still load", code == 200 and h.get("content-type", "").startswith("text/javascript"),
-              (code, h.get("content-type")))
+        code, h, _ = req("GET", "/ui/fonts/Inter-Regular.woff")
+        check("the UI's fonts load from /ui/fonts/", code == 200 and h.get("content-type") == "font/woff", (code, h.get("content-type")))
         code, h, _ = req("GET", "/ui/fonts/captions/Anton-Regular.ttf")
-        check("caption fonts stay at /ui/fonts/ for either UI", code == 200, code)
+        check("and the caption fonts the renderer shares", code == 200, code)
         st = json.loads(req("GET", "/api/status")[2])
-        check("status says the new UI is served", st.get("ui") == "web", st.get("ui"))
+        check("status says the UI is served", st.get("ui") == "web" and st.get("next") is True, st.get("ui"))
         code, h, _ = req("GET", "/api/nosuchroute")
-        check("API 404s stay JSON with the new UI", code == 404 and h.get("content-type") == "application/json", code)
-
-        os.environ["CLIPRADAR_UI"] = "legacy"
-        code, _, data = req("GET", "/")
-        check("CLIPRADAR_UI=legacy brings the original page back", code == 200 and b"/ui/app.js" in data, code)
-        code, _, _ = req("GET", "/assets/index-a1b2c3.js")
-        check("and the build's bundles aren't served then", code == 404, code)
-        code, _, _ = req("GET", "/next/")
-        check("nor the new UI at /next/", code == 404, code)
+        check("API 404s stay JSON", code == 404 and h.get("content-type") == "application/json", code)
+        code, _, data = req("GET", "/legacy/")
+        check("an old /legacy/ link opens the app", code == 200 and b'id="root"' in data, code)
     finally:
         server.WEB_DIR = old_web
-        os.environ.pop("CLIPRADAR_UI", None)
-
-    os.environ["CLIPRADAR_UI"] = "web"
-    server.WEB_DIR = Path(tempfile.mkdtemp(prefix="vc_noweb_"))       # no build there, whatever src/web holds
-    code, _, data = req("GET", "/")
-    check("CLIPRADAR_UI=web with no build says so instead of showing the old page", code == 503, (code, data[:80]))
-    server.WEB_DIR = old_web
-    os.environ.pop("CLIPRADAR_UI", None)
 finally:
     server.SHUTTING_DOWN[0] = True
     srv.shutdown()

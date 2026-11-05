@@ -1,6 +1,5 @@
 """
-The new UI's Exports screen against the real server, real renders and a real browser: it's at /next/
-while the original page stays at /, it follows a render through its stages to Ready without ever
+The new UI's Exports screen against the real server, real renders and a real browser: it follows a render through its stages to Ready without ever
 showing a percentage outside encoding, it explains a real FFmpeg failure with its attempts, Retry
 renders it, and a reload rebuilds the same list from the server (nothing duplicated).
 
@@ -28,7 +27,6 @@ for _s in (sys.stdout, sys.stderr):
 os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
-os.environ.pop("CLIPRADAR_UI", None)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
@@ -91,11 +89,9 @@ with sync_playwright() as pw:
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
 
-    page.goto(url + "/legacy/")
-    check("the previous UI is at /legacy/", page.locator("#exTable").count() == 1)
     page.goto(url + "/next/#exports")
     page.wait_for_selector("[data-testid=exports-empty]", timeout=15000)
-    check("the new UI loads at /next/, with an empty Exports list", True)
+    check("Exports loads at /next/ (old links), with an empty list", True)
     check("with the nav the UI test contract needs", all(page.locator(f"[data-testid=nav-{v}]").count() == 1
                                                           for v in ("home", "review", "exports", "settings")))
 

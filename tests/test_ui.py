@@ -3,9 +3,8 @@ UI smoke test: the window's page loads and every view opens without a script err
 Windows window sizes, with no sideways scrolling. A script error stops the rest of the page from
 working, and nothing else in the test suite would notice.
 
-The test only touches the page through data-testid attributes and window.ClipRadarTest, so it runs
-unchanged against any UI that keeps that contract (docs/react-migration.md). CLIPRADAR_UI picks which
-UI is served (legacy or web).
+The test only touches the page through data-testid attributes and window.ClipRadarTest
+(docs/react-migration.md). It needs the React build (cd web && npm run build).
 
 Needs Playwright and a Chromium-based browser: CLIPRADAR_BROWSER (a chrome/msedge executable), the
 browser Playwright installed, or Microsoft Edge (always there on Windows).

@@ -50,7 +50,7 @@ export function ContentCheckPanel() {
       <p className="muted">Checks what each clip says, its title and its post caption for things that get TikTok videos taken down or held back, before anything is posted.</p>
       {c?.enabled && (
         <>
-          <table className="table compact static sf-table" data-testid="sf-table">
+          <div className="table-scroll"><table className="table compact static sf-table" data-testid="sf-table">
             <thead><tr><th>Look for</th><th className="c">Check</th><th className="c">Censor</th></tr></thead>
             <tbody>
               {c.category_info.map(k => {
@@ -67,7 +67,7 @@ export function ContentCheckPanel() {
                 )
               })}
             </tbody>
-          </table>
+          </table></div>
           <div className="fld">Sensitivity
             <Seg label="Sensitivity" value={c.sensitivity} options={SENS} onChange={v => void save({ sensitivity: v as Safety['sensitivity'] })} />
             <span className="hint">{SENS_HINT[c.sensitivity]}</span>

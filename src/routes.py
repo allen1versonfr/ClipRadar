@@ -166,24 +166,15 @@ class Handler(BaseHTTPRequestHandler):
         p = unquote(u.path)
         q = parse_qs(u.query)
 
-        legacy_index = str(S.HERE / "ui" / "index.html")
-        if p in ("/legacy", "/legacy/", "/legacy/index.html"):
-            return self._send_file(legacy_index, "text/html; charset=utf-8")
-        mode = S.ui_mode()
-        if p in ("/", "/index.html"):
-            if mode == "web":
+        built = S.web_available()
+        if p in ("/", "/index.html", "/next", "/next/", "/next/index.html") or (p.startswith("/next/") and "." not in p.rsplit("/", 1)[-1]):
+            # the app (its screens switch by #hash); /next/ is where 4.25 to 4.42 also served it
+            if built:
                 return self._send_file(str(S.WEB_DIR / "index.html"), "text/html; charset=utf-8")
-            if mode == "missing":
-                return self._err("The new UI isn't built (run npm run build in web/), or unset CLIPRADAR_UI.", 503)
-            return self._send_file(legacy_index, "text/html; charset=utf-8")
-        if p in ("/next", "/next/", "/next/index.html") or (p.startswith("/next/") and "." not in p.rsplit("/", 1)[-1]):
-            # the React UI, to try while the original page stays at / (its screens switch by #hash)
-            if S.web_available():
-                return self._send_file(str(S.WEB_DIR / "index.html"), "text/html; charset=utf-8")
-            return self._err("The new UI isn't in this build.", 404)
+            return self._err("The UI isn't built: run npm ci and npm run build in web/.", 503)
         if p == "/favicon.ico":
             return self._send_file(str(S.HERE / "ui" / "icon.svg"), "image/svg+xml", cache=True)
-        if mode == "web" and not p.startswith(S._UI_PREFIXES):
+        if built and not p.startswith(S._UI_PREFIXES):
             # files from the React build: hashed bundles under /assets/ never change, so cache them
             # for good; anything else at the top (robots.txt, a manifest) is served as is; a path with
             # no file extension is a client-side route and gets the app's index.html.
@@ -206,7 +197,6 @@ class Handler(BaseHTTPRequestHandler):
             base = os.path.realpath(S.HERE / "ui")
             path = os.path.realpath(os.path.join(base, p[4:]))
             if path.startswith(base + os.sep):
-                # no long caching: after an update the window must pick up the new app.js/app.css
                 ctype = "font/woff" if path.endswith(".woff") else None
                 return self._send_file(path, ctype, cache=path.endswith((".svg", ".ico", ".png", ".woff")))
             return self._err("forbidden", 403)

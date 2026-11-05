@@ -1,9 +1,9 @@
 """
 The new UI's Settings screen against the real server, in a real browser. What you change there is
-what the server and the current UI use: how many clips render at once, render priority, download
+saved on the server: how many clips render at once, render priority, download
 quality, the update settings, export format, the watermark, campaigns, caption words, titles, Hashtags and Content check. Clip ranking explains and forgets what it learned. Storage counts the VODs and clips, and Delete VODs asks first and
 then deletes only the VODs. A Twitch token Twitch can't accept is explained, an update check that
-can't reach GitHub says so, the sections not ported yet open the current UI's Settings, and the
+can't reach GitHub says so, and the
 screen fits a narrow window without sideways scrolling.
 
 Needs the React build (cd web && npm run build) and Playwright; skipped without them.
@@ -38,7 +38,6 @@ for name in ("stream_one", "stream_two"):           # two projects, each with a 
     with open(os.path.join(d, "tiktok", "clip.mp4"), "wb") as f:
         f.write(os.urandom(800_000))
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"     # nothing listens: checks fail, quickly
-os.environ.pop("CLIPRADAR_UI", None)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
@@ -143,7 +142,7 @@ with sync_playwright() as pw:
           and prefs.get("priority") == "fast", {k: prefs.get(k) for k in ("renders", "priority")})
     check("and this PC's details are shown", "processor threads" in perf.locator("[data-testid=perf-info]").inner_text())
 
-    # Downloads and tools: the same choice as in the current UI
+    # Downloads and tools
     page.locator("[data-testid=set-tools]").get_by_label("Download quality").select_option("720")
     rows = page.locator("[data-testid=tool-table] tr").all_inner_texts()
     check("every tool is listed with whether it's installed", len(rows) == 5 and "FFmpeg" in rows[0], rows)
@@ -310,7 +309,7 @@ with sync_playwright() as pw:
     page.wait_for_function("document.querySelector('[data-testid=tag-file]').textContent.includes('#Mafia')", timeout=10000)
     check("the preview shows a streamer's own tags", True)
 
-    # Content check: the same settings as the current UI's, saved on the server
+    # Content check: saved on the server
     sf = page.locator("[data-testid=set-safety]")
     sf.get_by_role("radio", name="Bleep it").click()
     sf.get_by_label("Censor Swearing").check()
@@ -333,38 +332,7 @@ with sync_playwright() as pw:
     page.screenshot(path=os.environ.get("CLIPRADAR_SHOT") or os.path.join(tempfile.gettempdir(), "settings.png"))
     page.set_viewport_size({"width": 1366, "height": 860})
 
-    check("Settings has every section: nothing sends you to the current UI",
-          page.get_by_text("More settings are in the current UI").count() == 0)
-    # the current UI's Settings has the same values
-    page.goto(url + "/legacy/#view=settings")
-    page.wait_for_selector("#view-settings", state="visible", timeout=15000)
-    page.wait_for_function("document.querySelector('#pfRenders').value === '2'", timeout=10000)
-    page.wait_for_function("document.querySelector('#sfCensor button.on')?.dataset.v === 'bleep'", timeout=10000)
-    check("the current UI shows the new UI's export format", page.evaluate(
-        "[document.querySelector('#exPreset button.on')?.dataset.v, document.querySelector('#exScale').value,"
-        " document.querySelector('#exTemplate').value]") == ["x", "0.6667", "{title} - {streamer}"], page.evaluate(
-        "[document.querySelector('#exPreset button.on')?.dataset.v, document.querySelector('#exScale').value,"
-        " document.querySelector('#exTemplate').value]"))
-    check("the current UI shows the new UI's watermark", page.evaluate(
-        "[document.querySelector('#wmOn').checked, document.querySelector('#wmLayers').textContent.includes('@clipradar'),"
-        " document.querySelector('#wmLayers').textContent.includes('placed by hand')]") == [True, True, True])
-    check("the current UI shows the new UI's active campaign", page.evaluate(
-        "document.querySelector('#cpActive').selectedOptions[0]?.textContent") == "Clip Co")
-    check("the current UI shows the new UI's caption words", page.evaluate(
-        "[document.querySelector('#cwReplace').value, document.querySelector('#cwVocab').value]") == ["gonna = going to", "Kai, Mafia"])
-    check("the current UI shows the new UI's title choice", page.evaluate("document.querySelector('#tpPick button.on')?.dataset.v") == "b")
-    check("the current UI shows the new UI's hashtags", page.evaluate("document.querySelector('#htFileStreamers').value")
-          == "Kai Cenat: #KaiCenat #Mafia", page.evaluate("document.querySelector('#htFileStreamers').value"))
-    check("the current UI shows the new UI's Content check choices", page.evaluate(
-        "[document.querySelector('#sfCustom').value, document.querySelector('[data-censor=profanity]').checked]")
-        == ["Alex Smith, Springfield", True])
-    check("the current UI shows the new UI's choices", page.evaluate(
-        "[document.querySelector('#pfRenders').value, document.querySelector('#maxh').value,"
-        " document.querySelector('#pfPriority button.on')?.dataset.v, document.querySelector('#updAuto').checked]")
-        == ["2", "720", "fast", False], page.evaluate(
-        "[document.querySelector('#pfRenders').value, document.querySelector('#maxh').value,"
-        " document.querySelector('#pfPriority button.on')?.dataset.v, document.querySelector('#updAuto').checked]"))
-    check("no errors in either page", not errors, errors[:5])
+    check("no errors in the page", not errors, errors[:5])
     browser.close()
 
 server.SHUTTING_DOWN[0] = True

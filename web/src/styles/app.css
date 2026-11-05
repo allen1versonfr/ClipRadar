@@ -83,6 +83,9 @@ h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .ex-table tr { cursor: pointer; }
 .ex-table tbody tr:hover { background: var(--bg2); }
 .ex-table tr.sel { background: var(--bg3); }
+/* a table that can't shrink to a phone-width window scrolls on its own, not the whole screen */
+.table-scroll { min-width: 0; max-width: 100%; overflow-x: auto; }
+@media (max-width: 520px) { .ex-table th, .ex-table td { padding: 8px 6px; } }
 .vt { display: block; width: 30px; aspect-ratio: 9 / 16; border-radius: 3px; overflow: hidden; background: #000; }
 .vt img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .t1 { font-weight: 500; }
@@ -350,10 +353,16 @@ p.notice { margin: 0; }
 .rv-row-m { display: flex; flex-wrap: wrap; gap: 0 8px; }
 .rv-flag { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-right: 6px; border-radius: 50%; background: var(--warn); color: #1a1205; font-size: 11px; font-weight: 700; }
 .qpill { padding: 0 6px; border-radius: 4px; border: 1px solid var(--line2); font-variant-numeric: tabular-nums; }
-.qpill.q3 { border-color: var(--accent); color: var(--accent); }
+.qpill.q3 { border-color: var(--tx2); color: var(--tx0); font-weight: 650; }   /* a high score stands out by weight: green is for actions */
 .rv-empty, .rv-pick p { margin: 8px 0; }
 .rv-pick { padding: 20px 24px; display: flex; flex-direction: column; gap: 10px; }
-.rv-open { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.rv-open { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-width: 640px; }
+/* each open video as a row: its name, then what's left to review in it */
+.rv-open-row { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line2); border-radius: var(--r);
+  background: var(--bg2); color: var(--tx0); text-decoration: none; min-width: 0; }
+.rv-open-row:hover { background: var(--bg3); }
+.rv-open-row b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-open-row .live-word { color: var(--danger); font-weight: 600; }
 .rv-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .rv-player { display: flex; flex-direction: column; gap: 6px; }
 .rv-video { position: relative; background: #000; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16 / 9; max-height: calc(42 * var(--vh)); }

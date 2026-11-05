@@ -31,7 +31,6 @@ os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 os.environ["CLIPRADAR_TEST"] = "1"
 os.environ["CLIPRADAR_WAIT_POLL"] = "3"
 os.environ["CLIPRADAR_PREVIEW_VP9"] = "1"      # the copy in VP9, which every test browser plays
-os.environ.pop("CLIPRADAR_UI", None)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
