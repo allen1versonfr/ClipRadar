@@ -274,13 +274,15 @@ try:
     except RuntimeError:
         fresh_ok = False
     check("a fresh 33 GB VOD with 50 GB free is refused (it needs room for the join)", not fresh_ok)
-    with open(os.path.join(sd, "vod.mp4.part"), "wb") as f:
-        f.truncate(int(20e9))                       # sparse: 20 GB already downloaded, no real disk used
+    real_bytes = engine._download_bytes
+    engine._download_bytes = lambda folder: int(20e9)     # 20 GB already downloaded (a real file that big is slow on Windows)
     try:
         engine._check_download_space(sd, 32.75e9)
         resumed_ok = True
     except RuntimeError:
         resumed_ok = False
+    finally:
+        engine._download_bytes = real_bytes
     check("the same VOD with 20 GB of it on disk is let through", resumed_ok)
 finally:
     locations.free_space = real_free
@@ -321,6 +323,8 @@ builtins.__import__ = no_ytdlp
 try:
     for mode in ("fail", "ok", "hang"):
         os.environ["TDL_MODE"] = mode
+        # starting the stand-in can take several seconds on Windows CI: only the stuck one gets the short limit
+        engine.DOWNLOAD_STALL_S = 4 if mode == "hang" else 60
         wd = tempfile.mkdtemp(prefix="vc_tdl_")
         t0 = time.monotonic()
         try:
@@ -341,6 +345,7 @@ try:
 finally:
     builtins.__import__ = real_import
     engine.which = real_which
+    engine.DOWNLOAD_STALL_S = 4
 
 # ---------------------------------------------------------------- 4.45: only a low resolution on offer
 yt360 = {"requested_formats": [{"height": 360, "vcodec": "avc1"}, {"vcodec": "none"}],
