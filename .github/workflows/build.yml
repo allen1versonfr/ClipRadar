@@ -118,6 +118,8 @@ jobs:
           python tests/test_hashtags.py
           python tests/test_ytextra.py
           python tests/test_download.py
+          python tests/test_twitchclips.py
+          python tests/test_title_place.py
           python tests/test_cleanup.py
           python tests/test_quality.py
           python tests/test_campaigns.py
@@ -166,6 +168,7 @@ jobs:
           python tests/test_gpu_choice.py
           python tests/test_timing.py
           python tests/test_layout_geometry.py
+          python tests/test_punch.py
           python tests/test_precut.py
           python tests/test_youtube_speed.py
           python tests/test_child_cleanup.py

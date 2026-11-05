@@ -26,7 +26,7 @@ export const CAP_TEMPLATES: Preset[] = [
 export const CAP_KEYS = ['captions', 'caption_pos', 'caption_color', 'caption_size', 'words_per_line', 'uppercase', 'caption_style', 'caption_font',
   'caption_anim', 'caption_motion', 'caption_speed', 'caption_emph', 'caption_filler', 'caption_punct', 'caption_spacing', 'caption_offset',
   'cap_x', 'cap_y', 'cap_outline', 'cap_shadow', 'title_style', 'title_font', 'title_size', 'title_color', 'title_outline', 'title_x', 'title_y', 'title_fit', 'caption_fit'] as const
-export const FRAME_KEYS = ['layout', 'cam', 'cams', 'cam_height', 'game_zoom', 'game_x', 'track', 'track_target', 'focus_y', 'aspect'] as const
+export const FRAME_KEYS = ['layout', 'cam', 'cams', 'cam_height', 'game_zoom', 'game_x', 'track', 'track_target', 'focus_y', 'aspect', 'punch'] as const
 const pick = (o: RenderOpts, keys: readonly string[]) => Object.fromEntries(keys.map(k => [k, o[k]]))
 /** Reset to default: how captions and titles look out of the box; positions stay. */
 export const styleDefaults = () => Object.fromEntries(CAP_KEYS.filter(k => !['cap_x', 'cap_y', 'title_x', 'title_y'].includes(k))
@@ -319,6 +319,13 @@ export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, 
       )}
       <Range label="Zoom" value={Math.round(Number(opts.game_zoom) * 100)} min={100} max={200} step={5} out={`${+Number(opts.game_zoom).toFixed(2)}×`}
              onChange={v => set({ game_zoom: v / 100 })} />
+      <div className="fld">Punch-in
+        <Seg label="Punch-in" value={String(opts.punch || 'off')} onChange={v => set({ punch: v })}
+             options={[['off', 'Off'], ['subtle', 'Subtle'], ['strong', 'Strong']]} />
+        <span className="hint" data-testid="rv-punch-note">
+          {lay === 'split' ? 'Pushes in on the facecam' : 'Pushes in on the picture'} on the clip's biggest moments (up to 4), then eases back out. Shows in the exact preview and the export.
+        </span>
+      </div>
       <div className="fld">Saved framings
         <Presets list={framePresets} onUse={p => { set(p.opts); toast(`Using "${p.name}".`) }}
                  onDelete={i => void onSavePresets(framePresets.filter((_, j) => j !== i))} />

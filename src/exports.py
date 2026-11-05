@@ -90,7 +90,7 @@ CAP_KEYS = ("captions", "caption_pos", "caption_color", "caption_size", "words_p
             "caption_font", "caption_anim", "caption_motion", "caption_speed", "caption_emph", "caption_filler",
             "caption_punct", "caption_spacing", "caption_offset", "cap_x", "cap_y", "cap_outline", "cap_shadow", "title_style", "title_font",
             "title_size", "title_x", "title_y", "title_fit", "caption_fit")
-FRAME_KEYS = ("layout", "cam", "cam_height", "game_zoom", "game_x", "track", "track_target", "focus_y", "aspect")
+FRAME_KEYS = ("layout", "cam", "cam_height", "game_zoom", "game_x", "track", "track_target", "focus_y", "aspect", "punch")
 
 
 def _frame_val(k, v):

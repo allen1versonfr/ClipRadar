@@ -342,5 +342,18 @@ finally:
     builtins.__import__ = real_import
     engine.which = real_which
 
+# ---------------------------------------------------------------- 4.45: only a low resolution on offer
+yt360 = {"requested_formats": [{"height": 360, "vcodec": "avc1"}, {"vcodec": "none"}],
+         "formats": [{"height": 144, "vcodec": "avc1"}, {"height": 360, "vcodec": "avc1"}, {"vcodec": "none"}]}
+w = engine.low_quality(yt360, 1080, "youtube")
+check("YouTube offering only 360p: a warning, with what to do", "360p" in w and "Use cookies from" in w, w)
+check("a 1080p download: no warning", engine.low_quality({"requested_formats": [{"height": 1080}]}, 1080, "youtube") == "")
+check("you asked for 480p: no warning", engine.low_quality(yt360, 480, "youtube") == "")
+check("better on offer but not picked: not the site's doing, no warning",
+      engine.low_quality(dict(yt360, formats=yt360["formats"] + [{"height": 720, "vcodec": "avc1"}]), 1080, "youtube") == "")
+check("a low-resolution X video: warned, without the YouTube advice",
+      "YouTube" not in engine.low_quality({"height": 360, "formats": [{"height": 360, "vcodec": "avc1"}]}, 1080, "x"))
+check("nothing known: no warning", engine.low_quality({}, 1080, "youtube") == "" and engine.low_quality(None, 1080, "x") == "")
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

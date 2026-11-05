@@ -513,6 +513,9 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         if desc["problem"]:
             raise RuntimeError(desc["problem"])
         _check_download_space(workdir, _size_of(meta))
+        low = low_quality(meta, max_height, c["platform"])
+        if low:
+            log(low)
         log(f"{desc['label']}: {desc['title'] or url}" + (f" by {desc['uploader']}" if desc["uploader"] else "")
             + (f", {fmt_ts(desc['duration'])}" if desc["duration"] else ""))
         _save_meta(workdir, platform=c["platform"], kind=desc["kind"], label=desc["label"], uploader=desc["uploader"],
@@ -636,6 +639,30 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
     return Source(video, chat, title, workdir, streamer, start=c["start"],
                   info={k: m.get(k, "") for k in ("platform", "kind", "label", "uploader", "uploaded")},
                   sound=sound.wait if sound is not None else None)
+
+
+LOW_HEIGHT = 480        # a download this tall or less makes blurry 1080x1920 clips
+
+
+def low_quality(meta: Optional[dict], max_height: int, platform: str) -> str:
+    """A warning when the download will be low resolution although more was asked for, '' otherwise (4.45).
+    YouTube sometimes offers only 360p to a client it doesn't trust (no sign-in, an old yt-dlp): the whole
+    VOD then downloads, is ranked and rendered before the blur shows. The link check already lists what's on
+    offer, so this costs nothing extra; it warns and carries on, since some videos really are 360p."""
+    m = meta or {}
+    rf = m.get("requested_formats") or [m]
+    got = max([int(f.get("height") or 0) for f in rf if isinstance(f, dict)] or [0])
+    if not got or got > LOW_HEIGHT or (0 < max_height <= LOW_HEIGHT):
+        return ""
+    best = max([int(f.get("height") or 0) for f in (m.get("formats") or []) if isinstance(f, dict)
+                and f.get("vcodec") not in (None, "none")] or [got])
+    if best > LOW_HEIGHT:
+        return ""                     # better is on offer but wasn't picked: the format choice, not the site
+    msg = f"Only {got}p is available for this video, so clips will look soft on a phone."
+    if platform == "youtube":
+        msg += (" If it's HD on YouTube, YouTube is holding back the better versions: choose your browser under Settings › "
+                "Downloads and tools › Use cookies from, or press Update downloader there, then open it again.")
+    return msg
 
 
 def _video_format(max_height: int) -> str:
@@ -932,8 +959,9 @@ def _download_video(url: str, vod_id: Optional[str], workdir: str, max_height: i
     raise RuntimeError(
         "Couldn't download that VOD.\n"
         f"{err or 'yt-dlp is not installed'}\n"
-        "If it's subscriber-only, set 'Sign in with' under More options to the browser where you're "
-        "logged in to Twitch. If Twitch changed something, press 'Update downloader' under More options.")
+        "If it's subscriber-only, sign in under Settings › Twitch, or choose the browser where you're logged in to "
+        "Twitch under Settings › Downloads and tools › Use cookies from. If Twitch changed something, press Update "
+        "downloader there.")
 
 
 
@@ -2980,6 +3008,9 @@ class RenderOpts:
     track: str = "auto"             # auto: whole-frame crops follow the streamer's face | off
     track_target: str = "auto"      # auto | largest | left | right | point (nearest to game_x, focus_y)
     focus_y: float = 0.4            # vertical focus point (for "point")
+    # 4.45 punch-in: a short push toward the subject on the clip's big beats (Layout › Punch-in)
+    punch: str = "off"              # off | subtle | strong
+    punch_at: list = field(default_factory=list)   # seconds into the clip (punch_beats), filled in at render time
 
 
 W, H = 1080, 1920
@@ -3087,6 +3118,68 @@ def crop_filter(sw: int, sh: int, w: int, h: int, x, y: int) -> str:
     return f"crop={w}:{h}:{x}:{y}"
 
 
+PUNCH_ZOOM = {"subtle": 0.08, "strong": 0.14}   # how far in: past ~15% a face-framed crop starts losing the head
+PUNCH_IN, PUNCH_HOLD, PUNCH_OUT = 0.18, 1.1, 0.7  # seconds: fast in, hold, slow out (reads as intent, not drift)
+PUNCH_MAX = 4               # beats in one clip at most
+PUNCH_GAP = 4.0             # seconds between two beats at least
+PUNCH_EDGE = 1.5            # never in the first or last moments of a clip
+
+
+def punch_beats(an: "Analysis", start: float, end: float, n: int = PUNCH_MAX) -> list:
+    """Seconds into a clip (start..end of the video) to punch in on: the clip's own peaks of the ranking score
+    (chat, loudness, laughter, viewers' clips...), the strongest first, apart from each other, at most n.
+    A clip without a peak above its own middle gets none: a flat clip shouldn't twitch."""
+    if an is None or getattr(an, "score", None) is None:
+        return []
+    sc = np.asarray(an.score, dtype=np.float32)
+    a, b = int(max(0, math.floor(start))), int(min(len(sc), math.ceil(end)))
+    if b - a < 4:
+        return []
+    seg = sc[a:b]
+    floor = float(np.median(seg)) + max(0.6, 0.5 * float(np.std(seg)))
+    cand = [i for i in range(1, len(seg) - 1) if seg[i] >= seg[i - 1] and seg[i] >= seg[i + 1] and seg[i] > floor]
+    cand.sort(key=lambda i: -float(seg[i]))
+    out: list = []
+    length = end - start
+    for i in cand:
+        t = (a + i) - start
+        if t < PUNCH_EDGE or t > length - PUNCH_EDGE - PUNCH_IN:
+            continue
+        if all(abs(t - u) >= PUNCH_GAP for u in out):
+            out.append(round(float(t), 2))
+        if len(out) >= n:
+            break
+    return sorted(out)
+
+
+def punch_filter(o: RenderOpts, w: int, h: int, focus_y: float = 0.45, fps: str = "") -> str:
+    """',fps,zoompan' that pushes a w x h picture in on o.punch_at and back out, or '' when it's off.
+    zoompan, not scale + crop: a crop's size and the input size it centres against are fixed when FFmpeg
+    starts, so a picture scaled up frame by frame was cropped from its top-left corner. zoompan numbers its
+    output frames at its own rate, so the stream is brought to the clip's frame rate (fps) just before it,
+    or a 30 fps source would play at the wrong speed."""
+    amt = PUNCH_ZOOM.get(str(o.punch or "off"))
+    beats = [float(t) for t in (o.punch_at or []) if isinstance(t, (int, float)) and math.isfinite(t) and t >= 0]
+    if not amt or not beats or w < 4 or h < 4 or not fps:
+        return ""
+    beats = sorted(beats)[:PUNCH_MAX]
+
+    def ease(x: str) -> str:            # 0..1, smooth at both ends
+        return f"(({x})*({x})*(3-2*({x})))"
+    env = []
+    for t in beats:
+        rise = f"clip((it-{t - PUNCH_IN:.3f})/{PUNCH_IN},0,1)"
+        fall = f"clip(({t + PUNCH_HOLD + PUNCH_OUT:.3f}-it)/{PUNCH_OUT},0,1)"
+        env.append(f"{ease(rise)}*{ease(fall)}")
+    e = env[0]
+    for x in env[1:]:
+        e = f"max({e},{x})"
+    fy = min(max(float(focus_y), 0.0), 1.0)
+    rate = fps.split(":")[0]
+    return (f",fps={fps},zoompan=z='1+{amt}*{e}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)*{fy:.3f}'"
+            f":d=1:s={w}x{h}:fps={rate},setsar=1")
+
+
 def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: Optional[dict] = None) -> tuple:
     """Return (filter_complex producing [v] in yuv420p, caption_center_y).
     path: [(t, centre x)] for a whole-frame crop that follows a face (3.9 framing).
@@ -3171,11 +3264,19 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         top_h = _even(H * _num(o.cam_height, 0.33, 0.2, 0.5))
         bot_h = H - top_h
         cams, labels = cam_row(W, top_h, True)
-        f = (f"[0:v]split={len(rects) + 1}{labels}[b];{cams};[b]{game_crop(W, bot_h)}[game];"
-             f"[cam][game]vstack=inputs=2,fps={fr},format=yuv420p[v]")
+        pc = punch_filter(o, W, top_h, 0.4, fr)       # on the streamer, not the game
+        cams_out = f"[cam]null{pc}[camp];" if pc else ""
+        f = (f"[0:v]split={len(rects) + 1}{labels}[b];{cams};[b]{game_crop(W, bot_h)}[game];{cams_out}"
+             f"[{'camp' if pc else 'cam'}][game]vstack=inputs=2,fps={fr},format=yuv420p[v]")
         cap_y = top_h  # right on the seam reads best
     elif layout == "full":
-        f = f"[0:v]{game_crop(W, H, path)},fps={fr},format=yuv420p[v]"
+        fy = 0.4
+        if face and face.get("face_y") is not None:
+            try:
+                fy = float(face["face_y"]) / (H if float(face["face_y"]) > 1 else 1)
+            except (TypeError, ValueError):
+                fy = 0.4
+        f = f"[0:v]{game_crop(W, H, path)}{punch_filter(o, W, H, fy, fr)},fps={fr},format=yuv420p[v]"
         cap_y = H * 0.70
         if face and path:
             import framing
@@ -3184,11 +3285,11 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         # the facecam by itself, filling the frame; several, one above the other
         if len(rects) == 1:
             f = (f"[0:v]{cam_crop(o.cam)},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
-                 f"crop={W}:{H},setsar=1,fps={fr},format=yuv420p[v]")
+                 f"crop={W}:{H},setsar=1{punch_filter(o, W, H, 0.4, fr)},fps={fr},format=yuv420p[v]")
             cap_y = H * 0.78
         else:
             cams, labels = cam_row(W, H, False)
-            f = f"[0:v]split={len(rects)}{labels};{cams};[cam]fps={fr},format=yuv420p[v]"
+            f = f"[0:v]split={len(rects)}{labels};{cams};[cam]null{punch_filter(o, W, H, 0.4, fr)},fps={fr},format=yuv420p[v]"
             cap_y = cells(H, len(rects))[0]          # on the first seam, like Cam + game
     elif layout == "blur":
         # the whole picture, fitted inside the frame (never cropped or stretched), on a blurred,
@@ -3201,7 +3302,7 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         f = (f"[0:v]split=2[a][b];"
              f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=12:2,"
              f"eq=brightness=-0.12,scale={W}:{H},setsar=1[bg];"
-             f"[b]{fg}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
+             f"[b]{fg}{punch_filter(o, fg_w, fg_h, 0.5, fr)}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
         cap_y = min(H / 2 + fg_h / 2 + 170, H * 0.8)
     elif layout == "square":
         # a square crop of the picture (Focus and Zoom pick which part), centred in the frame on a
@@ -3211,7 +3312,7 @@ def build_filter(info: dict, o: RenderOpts, path: Optional[list] = None, face: O
         f = (f"[0:v]split=2[a][b];"
              f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=12:2,"
              f"eq=brightness=-0.12,scale={W}:{H},setsar=1[bg];"
-             f"[b]{game_crop(side, side)}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
+             f"[b]{game_crop(side, side)}{punch_filter(o, side, side, 0.5, fr)}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fr},format=yuv420p[v]")
         cap_y = min(H / 2 + side / 2 + 170, H * 0.8)
     else:
         raise ValueError(f"unknown layout {o.layout}")
@@ -3770,7 +3871,42 @@ def title_border(o: "RenderOpts", title_fs: int) -> int:
     return int(round(base * k))
 
 
-def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, title: str = "") -> str:
+TITLE_DEFAULT_Y = 0.05              # RenderOpts.title_y: a title still here was never dragged
+TITLE_TOP = 0.03                    # the platform's own buttons sit above this
+
+
+def title_top(title: str, o: RenderOpts, H: int, fs: int, wrap: int, pad: int, ty: int,
+              face: Optional[dict], caption_y: float) -> int:
+    """Where the title's top goes: ty, unless the title is still where it starts and would cover the face of
+    a clip that follows the streamer (4.45). It then sits above the face if there's room under the platform's
+    top buttons, else below it if that stays clear of the captions, else where it was.
+    face: framing's {"face_y", "face_h"}, fractions of the frame's height (a whole-frame crop keeps it)."""
+    if not face or abs(float(o.title_y) - TITLE_DEFAULT_Y) > 1e-6:
+        return ty
+    try:
+        fy, fh = float(face.get("face_y")), float(face.get("face_h"))
+    except (TypeError, ValueError):
+        return ty
+    if not (0 < fy < 1 and 0 < fh < 1):
+        return ty
+    font = o.title_font if o.title_font in FONT_GLYPH else "classic"
+    lines = max(1, min(3, math.ceil(text_width(title.strip(), fs, font) / max(1, wrap))))
+    tall = int(lines * fs * 1.15 + 2 * pad)
+    top, bot = (fy - fh * 0.9) * H, (fy + fh * 0.6) * H          # the face, with hair above and chin below
+    if ty + tall <= top or ty >= bot:
+        return ty                                                  # clear of it already
+    above = int(top - 24 - tall)
+    if above >= TITLE_TOP * H:
+        return above
+    below = int(bot + 24)
+    if below + tall <= caption_y - 150:
+        return below
+    return ty
+
+
+def build_ass(words: list, o: RenderOpts, center_y: float, clip_len: float, title: str = "",
+              face: Optional[dict] = None) -> str:
+    """face: where a followed face sits ({"face_y", "face_h"}), so a title that hasn't been moved isn't put on it."""
     W, H = out_size(o)
     hi = _ass_color(o.caption_color)
     cfont, cbold, _ = _font(o.caption_font)
@@ -3827,6 +3963,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             lines.append(_mark_dialogue(m, W, H, clip_len))
     if title.strip():
         ty = int(min(max(o.title_y, 0.0), 0.92) * H) + (tpad if tstyle not in ("outline", "yellow") else 0)
+        ty = title_top(title, o, H, title_fs, 2 * th, tpad, ty, face, center_y)
         lines.append(f"Dialogue: 1,{_ass_time(0)},{_ass_time(clip_len)},Title,,{tx - th},{W - tx - th},0,,"
                      f"{{\\an8\\pos({tx},{ty})}}{_ass_escape(title.strip())}")
 
@@ -4276,7 +4413,9 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         vf, cap_y = build_filter(info, lo, path, fr)
         if use_ass:
             with open(ass_path, "w", encoding="utf-8") as f:
-                f.write(build_ass(words, o, cap_y, length, title))
+                # a followed face (whole frame): the title isn't put on it (title_top)
+                face = fr if effective_layout(lo) == "full" and path else None
+                f.write(build_ass(words, o, cap_y, length, title, face))
             vf = vf.replace("format=yuv420p[v]", f"format=yuv420p,{sub}[v]")
         vf = vf + af
         if wm_imgs:

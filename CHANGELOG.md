@@ -5,6 +5,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.45.0] - 2026-11-05
+
+The clips viewers made from a Twitch VOD now help rank it, an optional punch-in zoom, titles that keep off the streamer's face, and fixes from an audit of VOD downloading (`docs/audits/vod-download-audit-2026-11-05.md`).
+
+### Added
+- **Clips viewers made count when ranking a Twitch VOD.** When people watch a stream or its VOD, some of them clip what they liked. Clip Radar reads the clips made from the VOD you open, with how many views each got, and moments several people clipped rank higher. The clip's reason says so: "clipped by 4 viewers, 12k views". This finds what chat and sound miss: a quiet clutch play, or a moment chat was too busy to react to. It needs no sign-in. Twitch only shows the channel's 100 most watched clips for each period, so on an older VOD it's the clips that stood out. It's looked up again after 6 hours, since clips keep being made from a VOD for days. Without clips, or offline, ranking is as before.
+- **Punch-in** (Review › Layout): a short push toward the streamer on the clip's biggest moments (up to 4, at least 4 seconds apart), fast in, held for a second, then slowly back out. **Subtle** goes 8% closer, **Strong** 14%. On Cam + game it pushes in on the facecam. The moments come from the clip's own score peaks, so a flat clip gets none. It shows in the exact preview and the export. Off by default.
+- **A warning when a video is only on offer in low resolution.** YouTube sometimes offers only 360p to a client it doesn't trust, and the whole video downloaded before the blur showed. The link check now says so up front, with what to do. The download goes on, since some videos really are 360p.
+
+### Changed
+- **A title you haven't moved keeps off the streamer's face** in Whole frame clips that follow the face. When the face sits under the title, the title goes above the face if there's room under TikTok's top buttons, or below it if that stays clear of the captions. A title you dragged stays where you put it. The Review preview still shows the title where it starts.
+
+### Fixed
+- **A Twitch VOD stopped while it was being put together was reused broken.** yt-dlp joins a Twitch download in place: the pieces become `vod.mp4` first, then FFmpeg rewrites it into a real MP4, which takes about 6 minutes on a 9-hour VOD. Pausing, cancelling, a stall, closing Clip Radar or a crash during that left the unjoined file, and every later open said "VOD already downloaded, reusing it". The preview wouldn't play it, seeking was off, and clips could come out blank. It's joined now when it's opened again, and the half-written copy is removed.
+- **A VOD downloaded by TwitchDownloader and stopped part way was reused as finished.** It writes to its own file now, which only becomes the VOD when TwitchDownloader says it's done. A file left like that by an older version, which can't be read, is downloaded again. Nothing is deleted when Clip Radar can't check the file.
+- **A stuck TwitchDownloader download waited for ever.** It now has the same stall check as yt-dlp: 3 minutes with nothing printed and nothing written stops it.
+- **A stuck sound-only download held the whole job** after the video had finished. It now gets 3 more minutes, then the video itself is listened to.
+- **Resuming a big download on a nearly full drive was refused**, because the space check asked for the whole VOD twice, including what was already downloaded.
+- **Twitch chat downloads** end with Clip Radar, like the video's, and a chat download stopped part way no longer leaves a cut-off `chat.json`.
+- **Download errors pointed to controls that are gone** ("Home › Advanced › Sign in with", "More options"). They now say Settings › Downloads and tools › Use cookies from, Settings › Twitch, and Update downloader.
+- Settings › Storage's cleanup of old temporary files also removes a stopped join and TwitchDownloader's unfinished file.
+
+### Tests
+- `tests/test_download.py`: a real MPEG-TS joined on reuse, an unreadable MP4 downloaded again, nothing deleted without FFprobe, the space check for a resumed download, a stand-in TwitchDownloader that fails, finishes and hangs, and the low-resolution warning.
+- `tests/test_twitchclips.py` (new, in CI): which of Twitch's periods, only this VOD's clips, each clip once, a stand-in Twitch, saved and reused, Twitch unreachable, the signal, the ranking and the reason.
+- `tests/test_punch.py` (new, in CI): the beats, off and no beats leaving the filter as it was, and every layout rendered with the same length, size and frame count, pushing in from the centre and back out.
+- `tests/test_title_place.py` (new, in CI): where the title goes for a face under it, a face clear of it, a dragged title and a face that fills the frame.
+
 ## [4.44.0] - 2026-11-05
 
 Review is easier to scan: scores coloured by grade, a red or yellow flag on clips to check, a wider clip list and a calmer header.

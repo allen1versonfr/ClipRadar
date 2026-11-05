@@ -40,8 +40,15 @@ it is finished.
    is renamed when complete.
 7. **Cleanup** (Settings › Storage, old temporary files) also removes a stopped join's `vod.temp.*` and
    TwitchDownloader's unfinished file after a day, like yt-dlp's `.part` files.
+8. **Download errors sent people to controls that no longer exist.** "Home › Advanced › Sign in with" and
+   "More options" went with the previous UI (4.43). The messages now point to Settings › Downloads and tools ›
+   Use cookies from, Settings › Twitch, and Update downloader.
+9. **A video only on offer in low resolution downloaded without a word.** YouTube sometimes offers only 360p
+   to a client it doesn't trust. The whole video then downloaded and was ranked and rendered before the blur
+   showed. The link check already lists every format, so a warning with what to do is logged up front
+   (`low_quality`). The download goes on, since some videos really are 360p.
 
-Tests: `tests/test_download.py`, with a real MPEG-TS joined, an unreadable MP4 removed, nothing deleted without
+Tests: `tests/test_download.py`, with the low-resolution warning, a real MPEG-TS joined, an unreadable MP4 removed, nothing deleted without
 FFprobe, the resumed space check, and a stand-in TwitchDownloader that fails, finishes and hangs.
 
 ## Checked, no change needed
