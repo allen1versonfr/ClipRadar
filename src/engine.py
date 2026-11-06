@@ -2099,6 +2099,9 @@ class Analysis:
     chapters: Optional[list] = None
     # 4.45: Twitch VODs (twitchclips): how much viewers clipped each second 0..1, clips and their views there
     vclips: Optional[np.ndarray] = None
+    # 4.45.1: chat's reaction per second (chat_rate, at chat_delay), kept so detect.enrich doesn't weigh every
+    # message again: it did, on every open and every reopen, about 3 s a pass for 300,000 messages
+    chat_rate: Optional[np.ndarray] = None
     vclip_people: Optional[np.ndarray] = None
     vclip_views: Optional[np.ndarray] = None
     # 4.32: messages per second and those that were plain talk (shifted by the delay), and how much chat
@@ -2181,7 +2184,7 @@ class Analysis:
                        react=cut(self.react), noise=cut(self.noise), replay=cut(self.replay),
                        comments=cut(self.comments), comment_people=cut(self.comment_people), captions=cut(self.captions),
                        chapters=self.chapters, vclips=cut(self.vclips), vclip_people=cut(self.vclip_people),
-                       vclip_views=cut(self.vclip_views),
+                       vclip_views=cut(self.vclip_views), chat_rate=cut(self.chat_rate),
                        said_rate=cut(self.said_rate), talk_rate=cut(self.talk_rate), talk=cut(self.talk))
         sub.combine(self.chat_weight_pct)
         return sub
@@ -2278,7 +2281,7 @@ def _analysis_key(video: str, chat: list, chat_delay: float, events: bool) -> Op
 
 def _save_analysis(path: str, key: str, an: Analysis):
     arrays = {"chat_z": np.asarray(an.chat_z, dtype=np.float32), "audio_z": np.asarray(an.audio_z, dtype=np.float32)}
-    for name in ("loud", "fine", "said_rate", "talk_rate"):
+    for name in ("loud", "fine", "said_rate", "talk_rate", "chat_rate"):
         v = getattr(an, name)
         if v is not None:
             arrays[name] = np.asarray(v, dtype=np.float32)
@@ -2300,9 +2303,10 @@ def _load_analysis(path: str, key: str) -> Optional[Analysis]:
             return None
         get = lambda n: f[n].copy() if n in f.files else None  # noqa: E731
         events = {k: f["ev_" + k].copy() for k in meta.get("events", [])} or None
+        # an analysis saved before 4.45.1 has no chat_rate: enrich weighs the chat once, as before
         return Analysis(float(meta["duration"]), f["chat_z"].copy(), f["audio_z"].copy(), bool(meta["has_chat"]),
                         bool(meta["has_audio"]), events=events, loud=get("loud"), fine=get("fine"),
-                        said_rate=get("said_rate"), talk_rate=get("talk_rate"),
+                        said_rate=get("said_rate"), talk_rate=get("talk_rate"), chat_rate=get("chat_rate"),
                         chat_stats=meta.get("chat_stats"), chat_delay=float(meta.get("chat_delay", 6.0)),
                         delay_sure=bool(meta.get("delay_sure")))
 
@@ -2337,7 +2341,9 @@ def _finish(an: Analysis, chat: list, emote_set, weights: Optional[dict], chat_w
             workdir: str = "") -> Analysis:
     import detect
     import ytextra
-    detect.enrich(an, chat, an.chat_delay, emote_set)
+    # the chat rate analyze already worked out (or saved): not every message weighed a second time
+    rate = an.chat_rate if chat and an.chat_rate is not None and len(an.chat_rate) == len(an.audio_z) else None
+    detect.enrich(an, chat, an.chat_delay, emote_set, rate=rate)
     if workdir:
         ytextra.apply(an, ytextra.load(workdir))       # a YouTube video: Most replayed and comments
         import twitchclips
@@ -2417,6 +2423,7 @@ def score_signals(loud: Optional[np.ndarray], chat: list, n: int, duration: floa
                   fine=None if fine is None else _fit(fine, n * FINE_HZ, -100.0), chat_stats=stats,
                   said_rate=_fit(said, n) if has_chat and said is not None else None,
                   talk_rate=_fit(talk, n) if has_chat and talk is not None else None)
+    an.chat_rate = rate.astype(np.float32) if chat else None
     an.combine(chat_weight_pct)
     return an
 
