@@ -1,7 +1,8 @@
 """
 Retakes the README screenshots (docs/images/*.png, not the banner) from the real app: the real server and
-UI, in a real browser, on a generated sample video that says it's a sample. Nothing is staged in the
-page: the clips, titles, flags and renders are what Clip Radar made of that video.
+UI, in a real browser, on a real VOD you have permission to show (--video, with its chat replay as --chat),
+or else on a generated sample video that says it's a sample. Nothing is staged in the page: the clips,
+titles, flags and renders are what Clip Radar made of that video.
 
 Whisper isn't run (no model download): the clips are marked as listened to, as they are once Whisper has
 found no speech, and the captions are typed in on the Captions tab, as a user would. Live clipping isn't
@@ -11,6 +12,10 @@ Needs FFmpeg on PATH, the React build (cd web && npm run build) and Playwright.
 
   python scripts/readme_shots.py            # writes docs/images
   python scripts/readme_shots.py <folder>   # or somewhere else, to compare first
+  python scripts/readme_shots.py --video "NMS BOXING 5.mp4" --chat chat.json   # a real VOD and its chat
+
+The video's file name is the project's title in the pictures. The chat is a TwitchDownloader-style JSON
+(its "streamer" names the channel).
 """
 
 from __future__ import annotations
@@ -24,8 +29,15 @@ import tempfile
 import time
 import urllib.request
 
+import argparse  # noqa: E402
+
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "images")
+_ap = argparse.ArgumentParser()
+_ap.add_argument("out", nargs="?", default=os.path.join(ROOT, "docs", "images"))
+_ap.add_argument("--video", help="a real video to show instead of the generated sample")
+_ap.add_argument("--chat", help="its chat replay (TwitchDownloader JSON)")
+ARGS = _ap.parse_args()
+OUT = os.path.abspath(ARGS.out)
 os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_shots_")
 os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_shots_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"     # no update check in the pictures
@@ -89,12 +101,18 @@ def main() -> None:
         sys.exit("Needs FFmpeg on PATH and the React build (cd web && npm run build).")
     os.makedirs(OUT, exist_ok=True)
     tmp = tempfile.mkdtemp(prefix="vc_shots_media_")
-    vod = os.path.join(tmp, "Sample stream.mp4")
-    sample_video(vod, 300)
+    if ARGS.video:
+        vod = os.path.abspath(ARGS.video)
+    else:
+        vod = os.path.join(tmp, "Sample stream.mp4")
+        sample_video(vod, 300)
     srv, url = server.start(7989)
     try:
-        job = call(url, "/api/analyze", {"source": vod, "count": 6})["job"]
-        wait(lambda: call(url, "/api/job/" + job)["status"] != "running", 240)
+        body = {"source": vod, "count": 6}
+        if ARGS.chat:
+            body["chat_file"] = os.path.abspath(ARGS.chat)
+        job = call(url, "/api/analyze", body)["job"]
+        wait(lambda: call(url, "/api/job/" + job)["status"] != "running", 1800)
         pid = call(url, "/api/job/" + job)["result"]["pid"]
         for d in server.projects[pid]["clips"]:          # as after Whisper found no speech: titles are final
             d["listened"] = True
