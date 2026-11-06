@@ -121,6 +121,7 @@ jobs:
           python tests/test_twitchclips.py
           python tests/test_studio_retry.py
           python tests/test_chat_once.py
+          python tests/test_autopilot_pin.py
           python tests/test_title_place.py
           python tests/test_cleanup.py
           python tests/test_quality.py
