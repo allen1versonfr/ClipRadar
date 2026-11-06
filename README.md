@@ -27,7 +27,7 @@
 Clip Radar watches a Twitch stream the way your chat does. It finds the moments where chat explodes and the audio spikes, cuts them into vertical 9:16 clips with captions and a title, and lets you review and post them to TikTok. It works on a past broadcast, or live while you're still streaming. Everything runs on your own PC.
 
 <p align="center">
-  <img src="docs/images/review.png" alt="Reviewing suggested clips in a 9:16 phone preview" width="100%">
+  <img src="docs/images/review.png" alt="Reviewing clips found in a boxing stream, in a 9:16 phone preview" width="100%">
 </p>
 
 ## Features
@@ -73,11 +73,11 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
 
 ## Screenshots
 
-Taken from the app on a generated sample video (`python scripts/readme_shots.py` retakes them).
+Taken from the app on 40 minutes of a real Twitch VOD, jasontheween's [NMS BOXING 5](https://www.twitch.tv/videos/2910903624) (shown with permission), with its chat replay. The clips, titles, scores and flags are what Clip Radar found in it. `python scripts/readme_shots.py --video <file> --chat <chat.json>` retakes them.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/layout.png" alt="Layout tab: shape, layout, Auto-frame and following the streamer's face, on a clip with a content flag"><p align="center"><sub><b>Layout:</b> shape, layout, Auto-frame, follow the face</sub></p></td>
+    <td width="50%"><img src="docs/images/layout.png" alt="Layout tab: shape, layout, Auto-frame, following the face and punch-in, on a clip with a content flag"><p align="center"><sub><b>Layout:</b> shape, layout, Auto-frame, follow the face, punch-in</sub></p></td>
     <td width="50%"><img src="docs/images/home.png" alt="Home: a past broadcast or video, and hands-free live clipping"><p align="center"><sub><b>Home:</b> a past broadcast, or hands-free live clipping</sub></p></td>
   </tr>
   <tr>
