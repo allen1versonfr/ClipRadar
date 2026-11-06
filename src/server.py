@@ -40,6 +40,8 @@ from typing import Optional
 
 import numpy as np
 
+import autopilot
+import autopilot_steps
 import engine
 import live
 import paths
@@ -158,6 +160,8 @@ def shutdown_all(wait: float = 6.0):
 
 
 SHUTTING_DOWN = [False]
+autopilot.shutting_down = lambda: SHUTTING_DOWN[0]
+autopilot_steps.register()       # here, not in start(): tests and tools drive this module without starting it
 
 
 shutdown_hook = [shutdown_all]
@@ -1283,6 +1287,7 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
             _title_clip(pr, d, words, used)
             timer.add("writing the title", time.time() - t0)
             d["listened"] = True
+            autopilot.clip_titled(pid, d)
             job["progress"] = (n + 1) / max(1, len(todo))
             if not pr.get("live"):
                 save_project_soon(pid, 3.0)
@@ -2674,41 +2679,7 @@ def live_on_moment(sess, m: dict):
     ds = [projects[x]["clips"][0] for x in sess.moments if x in projects and projects[x].get("clips")]
     for c, q in zip(ds, sess.grades([float(c.get("score") or 0) for c in ds])):
         c["quality"] = q
-    extra = sess.extra
-    aired = m.get("aired")
-
-    def done(_pid):
-        now = time.time()
-        d["lat"]["title"] = round(now - d["created"], 2)
-        sess.note_latency("title", d["lat"]["title"])
-        if aired and not extra.get("auto_render"):
-            d["lat"]["total"] = round(now - aired, 2)       # ready to look at: cut, captioned and titled
-            sess.note_latency("total", d["lat"]["total"])
-            sess.last_lat = dict(d["lat"])
-        if not extra.get("auto_render"):
-            return
-        cfg = safety.load_config()
-        sf = d.get("safety") or {}
-        if cfg.get("enabled", True) and cfg.get("hold", True) and sf.get("level") == "high":
-            # hands-free never renders a clip that could get the account in trouble: it waits for you
-            worst = next((f for f in sf.get("flags", []) if f["severity"] == 3), {})
-            d["held"] = f"Held for review: {worst.get('label', 'flagged')}" + (
-                f" ({worst.get('text')})" if worst.get("text") else "")
-            sess.log(f"Moment {m['number']} held back by the content check")
-            return
-        why = checkflow.blocks_render(d, cfg)
-        if why:
-            d["held"] = "Held for review: flags not reviewed yet"
-            sess.log(f"Moment {m['number']} held back: {why}")
-            return
-        c = dict(d, rank=m["number"])
-        c["post"] = d.get("post", "")
-        it = queue_add(mid, c, extra.get("opts") or {})
-        it["prio"] = _live_prio(d)
-        it["auto"] = True                      # rendered on its own (hands-free), not by you
-        it["lat"], it["aired"] = dict(d["lat"]), aired
-        d["auto_queued"] = True
-    start_listening(mid, [d["id"]], extra.get("model") or "small", extra.get("language") or "", on_done=done)
+    autopilot.moment_found(sess, mid, d, m.get("aired"))     # titled, then maybe rendered: autopilot_steps
 
 
 def _live_delay(v):
