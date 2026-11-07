@@ -86,7 +86,7 @@ deadline = time.time() + 180
 while time.time() < deadline and call("/api/job/" + job)["status"] == "running":
     time.sleep(0.5)
 pid = call("/api/job/" + job)["result"]["pid"]
-server.start_listening = lambda pid, order, model, lang, on_done=None: server.new_job("listen")
+server.start_listening = lambda pid, order, model, lang: server.new_job("listen")
 first = server.projects[pid]["clips"][0]
 call("/api/queue/add", {"pid": pid, "clip": {"id": first["id"], "rank": first["id"], "start": first["start"], "end": first["end"],
                                              "title": "A11y", "post": "", "thumb": "", "gain": 0},

@@ -54,7 +54,7 @@ VIEW = {"width": 1440, "height": 900}
 safety.save_config({"custom": ["watch"]})          # the title "Watch till the end" gets a flag to show
 
 
-def _no_whisper(pid, order, model, lang, on_done=None):
+def _no_whisper(pid, order, model, lang):
     job = server.new_job("listen")
     server.projects[pid]["listen_job"] = job["id"]
     return job
