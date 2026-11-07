@@ -46,6 +46,7 @@ os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
+import autopilot  # noqa: E402
 import campaigns  # noqa: E402
 import cleanup  # noqa: E402
 import discordhook  # noqa: E402
@@ -417,7 +418,7 @@ try:
     sess = FakeSession(hands_free=True, keep_watching=True, opts={"layout": "full"}, model="medium", language="en",
                        params={"source": "https://www.twitch.tv/kai", "chat_weight": 70, "preset": "gaming"})
     sess.status = "ended"
-    server._watch_for_next(sess)
+    autopilot.session_ended(sess)       # was server._watch_for_next(sess), before issue 50 phase 5
     src, body = STARTED[0] if STARTED else ("", {})
     check("10: a stream that ends by itself: the next session starts", len(STARTED) == 1 and src == "https://www.twitch.tv/kai", STARTED)
     check("10: with the same settings, waiting for the stream to go live",
@@ -431,13 +432,13 @@ try:
         sess = FakeSession(hands_free=True, keep_watching=True)
         sess.extra.update(change)
         sess.status = "ended"
-        server._watch_for_next(sess)
+        autopilot.session_ended(sess)       # was server._watch_for_next(sess), before issue 50 phase 5
         check(f"10: {label}: no next session", STARTED == [] and "next" not in sess.extra, STARTED)
     for status in ("stopped", "error"):
         STARTED.clear()
         sess = FakeSession(hands_free=True, keep_watching=True)
         sess.status = status
-        server._watch_for_next(sess)
+        autopilot.session_ended(sess)       # was server._watch_for_next(sess), before issue 50 phase 5
         check(f"10: a session that {'was stopped' if status == 'stopped' else 'failed'}: no next session", STARTED == [], STARTED)
 finally:
     server.start_live_session = _real_start

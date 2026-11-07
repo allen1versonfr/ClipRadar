@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 
 import autopilot
-from autopilot import CLIP_TITLED, MOMENT_FOUND, RENDER_DONE, Ctx, Step
+from autopilot import APP_STARTED, CLIP_SKIPPED, CLIP_TITLED, MOMENT_FOUND, RENDER_DONE, SESSION_ENDED, Ctx, Step
 
 
 def _live(ctx: Ctx) -> bool:
@@ -114,6 +114,65 @@ def latency_render(ctx: Ctx):
     server._live_rendered(ctx.it)
 
 
+# ---------------------------------------------------------------- clip_skipped
+
+def _hands_free_item(ctx: Ctx) -> bool:
+    """Only a clip that rendered on its own (hands-free); one you rendered yourself is never touched."""
+    return ctx.it is not None and bool(ctx.it.get("auto"))
+
+
+def skipped_on(ctx: Ctx) -> bool:
+    """Settings › Storage: delete a hands-free render you then skipped."""
+    import cleanup
+    return bool(cleanup.load()["skipped"])
+
+
+def delete_skipped_render(ctx: Ctx):
+    """Delete the file of a hands-free render you skipped, and take it out of Exports."""
+    import cleanup
+    import server
+    it = ctx.it
+    if not cleanup.skipped_render(it):
+        return "skipped", "nothing to delete"
+    with server.queue_lock:
+        if it in server.queue:
+            server.queue.remove(it)
+    server.save_queue_soon(0)
+
+
+# ---------------------------------------------------------------- session_ended
+
+def keep_watching_on(ctx: Ctx) -> bool:
+    """Keep watching: the stream ended on its own (not stopped by you, not failed) and Keep watching is on."""
+    extra = ctx.sess.extra
+    return ctx.sess.status == "ended" and not extra.get("user_stopped") and bool(extra.get("keep_watching"))
+
+
+def keep_watching(ctx: Ctx):
+    """Start the next session on the same channel, with the same settings, waiting for it to go live."""
+    import server
+    sess = ctx.sess
+    params = dict(sess.extra["params"])
+    params.update(wait_for_live=True, opts=sess.extra.get("opts"),
+                  hands_free=sess.extra.get("auto_render"), frequency=sess.frequency, min_quality=sess.min_quality,
+                  model=sess.extra.get("model"), language=sess.extra.get("language"))
+    try:
+        nxt = server.start_live_session(params["source"], params)
+        sess.extra["next"] = nxt.id
+        sess.log("Waiting for the next stream.")
+    except Exception as e:
+        sess.log(f"Couldn't keep watching: {e}")
+        return "failed", f"{type(e).__name__}: {e}"
+
+
+# ---------------------------------------------------------------- app_started
+
+def cleanup_start(ctx: Ctx):
+    """Settings › Storage › Clean up automatically, once at start (run_cleanup checks which rules are on)."""
+    import server
+    server.run_cleanup()
+
+
 STEPS = (
     Step("title_moment", MOMENT_FOUND, enabled=lambda ctx: True, run=title_moment, concerns=_live),
     # the title's latency first: a hands-free item carries it (it["lat"]), and a held clip still has it
@@ -125,6 +184,10 @@ STEPS = (
     Step("discord", RENDER_DONE, enabled=discord_on, run=discord, outward=True),
     Step("cleanup_vods", RENDER_DONE, enabled=lambda ctx: True, run=cleanup_vods),
     Step("latency_render", RENDER_DONE, enabled=lambda ctx: True, run=latency_render),
+    Step("delete_skipped_render", CLIP_SKIPPED, enabled=skipped_on, run=delete_skipped_render, concerns=_hands_free_item),
+    Step("keep_watching", SESSION_ENDED, enabled=keep_watching_on, run=keep_watching,
+         concerns=lambda ctx: ctx.sess is not None),
+    Step("cleanup_start", APP_STARTED, enabled=lambda ctx: True, run=cleanup_start),
 )
 
 

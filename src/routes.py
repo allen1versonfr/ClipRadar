@@ -750,7 +750,7 @@ class Handler(BaseHTTPRequestHandler):
             if act == "stop":
                 sess.extra["user_stopped"] = True
                 if sess.status == "waiting":
-                    sess.status = "stopped"
+                    sess._set_status("stopped")
                 threading.Thread(target=sess.stop, daemon=True).start()
             elif act == "clip":
                 if sess.status not in ("recording", "reconnecting"):
