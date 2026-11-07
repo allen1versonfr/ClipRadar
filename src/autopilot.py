@@ -31,7 +31,10 @@ MOMENT_FOUND = "moment_found"
 CLIP_TITLED = "clip_titled"
 RENDER_DONE = "render_done"
 RENDER_FAILED = "render_failed"
-EVENTS = (MOMENT_FOUND, CLIP_TITLED, RENDER_DONE, RENDER_FAILED)
+CLIP_SKIPPED = "clip_skipped"
+SESSION_ENDED = "session_ended"
+APP_STARTED = "app_started"
+EVENTS = (MOMENT_FOUND, CLIP_TITLED, RENDER_DONE, RENDER_FAILED, CLIP_SKIPPED, SESSION_ENDED, APP_STARTED)
 
 
 @dataclass
@@ -42,13 +45,19 @@ class Ctx:
     d: Optional[dict] = None              # the clip dict; the record goes on it
     sess: object = None                   # the live session, for a live moment
     aired: Optional[float] = None         # when a live moment was on stream
-    it: Optional[dict] = None             # the queue item, for render_done/render_failed; the record goes on it
+    it: Optional[dict] = None             # the queue item, for render_done/render_failed/clip_skipped; the record goes on it
     extra: dict = field(default_factory=dict)
 
     @property
     def target(self) -> Optional[dict]:
-        """What the record goes on: the queue item for the render-side events, else the clip."""
-        return self.it if self.it is not None else self.d
+        """What the record goes on: the queue item for the render-side events, else the clip; for session_ended
+        (no clip), the session's extra; for app_started, nothing."""
+        if self.it is not None:
+            return self.it
+        if self.d is not None:
+            return self.d
+        extra = getattr(self.sess, "extra", None)
+        return extra if isinstance(extra, dict) else None
 
 
 @dataclass(frozen=True)
@@ -269,3 +278,20 @@ def render_done(it: dict):
 def render_failed(it: dict, kind: str):
     """A queue item's render failed for good (not a retry), with the error kind classify_render_error gave."""
     emit(Ctx(RENDER_FAILED, pid=it.get("pid") or "", it=it, extra={"kind": kind}))
+
+
+def clip_skipped(pid: str, cid, it: Optional[dict] = None):
+    """You skipped clip cid of project pid in Review; it is one of its queue items (fired once for each), or None
+    when it has none."""
+    emit(Ctx(CLIP_SKIPPED, pid=pid or "", it=it, extra={"cid": cid}))
+
+
+def session_ended(sess):
+    """A live session ended, was stopped or failed (status ended, stopped or error), and its recording thread has
+    finished. LiveSession fires it once per session."""
+    emit(Ctx(SESSION_ENDED, sess=sess))
+
+
+def app_started():
+    """Clip Radar started (server.start, once)."""
+    emit(Ctx(APP_STARTED))

@@ -1413,15 +1413,11 @@ def record_feedback(pid, cid, action: str):
     learning.record(pr.get("streamer", ""), key, d["feat"], action)
     _refresh_live_learning()
     if action == "skip":
-        # Settings › Storage: a clip that rendered on its own (hands-free) and you then skipped
+        # Settings › Storage may delete a hands-free render you then skipped: autopilot_steps.delete_skipped_render
         with queue_lock:
-            mine = [x for x in queue if x.get("pid") == pid and x.get("clip_id") == cid and x.get("auto")]
-        for it in mine:
-            if cleanup.skipped_render(it):
-                with queue_lock:
-                    if it in queue:
-                        queue.remove(it)
-                save_queue_soon(0)
+            mine = [x for x in queue if x.get("pid") == pid and x.get("clip_id") == cid]
+        for it in mine or [None]:
+            autopilot.clip_skipped(pid, cid, it)
 
 
 def _refresh_live_learning():
@@ -2716,7 +2712,8 @@ def start_live_session(src: str, body: dict):
         cookies=body.get("cookies") or "", warmup=float(body.get("warmup", 90)),
         buffer_minutes=float(body.get("buffer_minutes", 15)),
         wait_for_live=bool(body.get("wait_for_live", False)),
-        on_moment=live_on_moment, log=lambda m: print("  [live] " + m, flush=True))
+        on_moment=live_on_moment, on_end=autopilot.session_ended,      # Keep watching: autopilot_steps.keep_watching
+        log=lambda m: print("  [live] " + m, flush=True))
     if body.get("chat_channel"):
         sess.channel = live.parse_channel(body["chat_channel"]) or sess.channel
         if sess.channel and sess.title == "stream (live)":
@@ -2739,27 +2736,7 @@ def start_live_session(src: str, body: dict):
                   "params": dict(body, source=src), "user_stopped": False}
     live_sessions[sid] = sess
     sess.start()
-    if sess.extra["keep_watching"]:
-        threading.Thread(target=_watch_for_next, args=(sess,), daemon=True).start()
     return sess
-
-
-def _watch_for_next(sess):
-    """'Keep watching': when a stream ends on its own, wait for the channel's next stream."""
-    while sess.status not in ("ended", "stopped", "error"):
-        time.sleep(1)
-    if sess.status != "ended" or sess.extra.get("user_stopped") or not sess.extra.get("keep_watching"):
-        return
-    params = dict(sess.extra["params"])
-    params.update(wait_for_live=True, opts=sess.extra.get("opts"),
-                  hands_free=sess.extra.get("auto_render"), frequency=sess.frequency, min_quality=sess.min_quality,
-                  model=sess.extra.get("model"), language=sess.extra.get("language"))
-    try:
-        nxt = start_live_session(params["source"], params)
-        sess.extra["next"] = nxt.id
-        sess.log("Waiting for the next stream.")
-    except Exception as e:
-        sess.log(f"Couldn't keep watching: {e}")
 
 
 def live_view(sess) -> dict:
@@ -2907,7 +2884,7 @@ def start(port: int = PORT):
         _forget_tiktok_api()
         _clean_leftovers()
         load_queue()
-        run_cleanup()
+        autopilot.app_started()          # the start-up cleanup sweep: autopilot_steps.cleanup_start
         apply_perf()
         updater.start_background(log=_say)
         hotkey.start(on_hotkey)

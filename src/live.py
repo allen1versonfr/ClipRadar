@@ -194,7 +194,8 @@ class LiveSession:
     def __init__(self, sid: str, source: str, workroot: str, *, temp_root: str = "", length: float = 0, sensitivity: str = "normal",
                  chat_delay="auto", chat_weight: float = 60, max_height: int = 1080, cookies: str = "",
                  warmup: float = 90, buffer_minutes: float = 15, wait_for_live: bool = False,
-                 events: bool = True, on_moment: Callable = None, log: Callable = None, min_quality: int = 0):
+                 events: bool = True, on_moment: Callable = None, log: Callable = None, min_quality: int = 0,
+                 on_end: Callable = None):
         self.id = sid
         self.source = source.strip()
         import sources
@@ -238,9 +239,14 @@ class LiveSession:
         self.warmup = float(warmup)
         self.buffer_s = max(1.0, float(buffer_minutes)) * 60
         self.on_moment = on_moment or (lambda *a, **k: None)
+        self.on_end = on_end or (lambda *a, **k: None)     # once, when it's over (server: autopilot.session_ended)
         self._log = log or (lambda m: None)
 
+        self._status_lock = threading.Lock()
+        self._finished = False            # the recording thread is done (moments cut, buffer let go)
+        self._end_told = False            # on_end has been called
         self.status = "starting"          # starting | waiting | recording | reconnecting | ended | stopped | error
+                                          # (only _set_status changes it after this)
         self.error = ""
         self.started = _now()
         self.segments: list = []               # {path, start, dur, name}
@@ -399,6 +405,26 @@ class LiveSession:
         return self.chat_state() == "ok"
 
     # ------------------------------------------------------------------ control
+    ENDED = ("ended", "stopped", "error")
+
+    def _set_status(self, s: str):
+        """Every change of status goes through here, so the end is told once (_tell_end)."""
+        self.status = s
+        self._tell_end()
+
+    def _tell_end(self):
+        """Call on_end once: the status is ended, stopped or error and the recording thread has finished, so the
+        last moments are cut and nothing records any more (Keep watching starts the next session from it)."""
+        with self._status_lock:
+            if self._end_told or not self._finished or self.status not in self.ENDED:
+                return
+            self._end_told = True
+        try:
+            self.on_end(self)
+        except Exception:
+            import errorlog
+            errorlog.exc("live:end", channel=self.channel or self.source)
+
     def start(self):
         threading.Thread(target=self._record_loop, daemon=True, name=f"live-rec-{self.id}").start()
         if self.channel:
@@ -569,9 +595,12 @@ class LiveSession:
         except Exception as e:
             import errorlog
             errorlog.exc("live:record", channel=self.channel or self.source)
-            self.status = "error"
             self.error = f"Recording stopped unexpectedly: {str(e)[:200]}"
+            self._set_status("error")
             self.log(self.error)
+        finally:
+            self._finished = True
+            self._tell_end()
 
     def _record_loop_inner(self):
         backoff = 3
@@ -581,27 +610,27 @@ class LiveSession:
                 hls = self._resolve()
             except NotLive as e:
                 if self.segments:
-                    self.status = "ended"
+                    self._set_status("ended")
                     self.log(f"Stream ended. {e}")
                 elif self.wait_for_live and e.kind == "offline":
                     # hands-free: sit and wait for the stream to start
                     if self.status != "waiting":
                         self.log(f"{self.channel or 'The stream'} isn't live yet. Checking every {int(self.WAIT_POLL)}s.")
-                    self.status = "waiting"
+                    self._set_status("waiting")
                     t = _now()
                     if self.stop_flag.wait(self.WAIT_POLL):
                         break
                     self.waited += _now() - t
                     continue
                 else:
-                    self.status = "error"
+                    self._set_status("error")
                     self.error = str(e)
                     self.log(str(e))
                     import errorlog
                     errorlog.record("live:not-live", str(e), channel=self.channel or self.source)
                 break
             except Exception as e:
-                self.status = "reconnecting" if self.segments else "starting"
+                self._set_status("reconnecting" if self.segments else "starting")
                 self.log(f"Couldn't reach the stream ({str(e)[:120]}), retrying in {backoff}s")
                 import errorlog
                 errorlog.record("live:reconnect", f"Couldn't reach the stream, retrying in {backoff}s: {e}",
@@ -610,7 +639,7 @@ class LiveSession:
                     break
                 backoff = min(60, backoff * 2)
                 if not self.segments and _now() - self.started - self.waited > 180:
-                    self.status = "error"
+                    self._set_status("error")
                     self.error = f"Couldn't start recording: {str(e)[:200]}"
                     import errorlog
                     errorlog.record("live:start", self.error, exc=e, channel=self.channel or self.source)
@@ -625,14 +654,14 @@ class LiveSession:
             if self.stop_flag.is_set():
                 break
             if how == "ended":
-                self.status = "ended"
+                self._set_status("ended")
                 self.log("Stream ended.")
                 break
-            self.status = "reconnecting"
+            self._set_status("reconnecting")
             self.log("Lost the stream, reconnecting...")
             self.stop_flag.wait(2)
         if self.status not in ("ended", "error"):
-            self.status = "stopped"
+            self._set_status("stopped")
         self.in_ad = False
         self._ingest_new(final=True)  # pick up the final segment (ffmpeg mode)
         self._safe_detect(final=True)
@@ -686,7 +715,7 @@ class LiveSession:
             piece["f"].close()
             if piece["dur"] > 0.05:
                 self._add_segment(piece["path"], piece["dur"])
-                self.status = "recording"
+                self._set_status("recording")
                 self._safe_detect()
             else:
                 try:
@@ -766,7 +795,7 @@ class LiveSession:
                     piece["dur"] += s["dur"]
                     self._note_media(s["dur"])
                     if self.status != "recording":
-                        self.status = "recording"
+                        self._set_status("recording")
                     if piece["dur"] >= SEG_SECONDS - 0.05:
                         close_piece()
                 if pl["end"]:
@@ -818,7 +847,7 @@ class LiveSession:
         while p.poll() is None and not self.stop_flag.is_set():
             got = self._ingest_new()
             if got:
-                self.status = "recording"
+                self._set_status("recording")
                 self._safe_detect()
             # watchdog: if no new video arrives for a while, the connection is stuck; reconnect
             size = self._newest_size()
