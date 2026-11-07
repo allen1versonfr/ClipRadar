@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+import campaigns
 import checkflow
 import errorlog
 import safety
@@ -64,7 +65,8 @@ class Step:
 @dataclass(frozen=True)
 class Hold:
     """Why a clip may not go further on its own. rule is which check said so; why is shown and recorded."""
-    rule: str          # "content_check" (a high-risk flag, hold on) or "unreviewed" (checkflow.blocks_render)
+    rule: str          # "content_check" (a high-risk flag, hold on), "unreviewed" (checkflow.blocks_render),
+                       # or "campaign" (outside the campaign's length; outward steps only)
     why: str
 
     def __str__(self):
@@ -82,6 +84,7 @@ _steps: list = []
 _lock = threading.Lock()
 EXECUTOR = None                       # created lazily; tests set InlineExecutor()
 shutting_down: Callable[[], bool] = lambda: False     # server points this at SHUTTING_DOWN
+find_clip: Callable[[dict], Optional[dict]] = lambda it: None   # a queue item's clip, when its project is loaded
 
 
 def _executor():
@@ -114,8 +117,9 @@ def reset():
 
 # ---------------------------------------------------------------- the gate
 
-def gate(d: dict) -> Optional[Hold]:
-    """Why this clip may not go further on its own (shown and recorded), or None."""
+def gate(d: dict, camp: Optional[dict] = None) -> Optional[Hold]:
+    """Why this clip may not go further on its own (shown and recorded), or None. With camp (an outward step:
+    the clip would leave the PC), the campaign's length rule applies too."""
     cfg = safety.load_config()
     sf = d.get("safety") or {}
     if cfg.get("enabled", True) and cfg.get("hold", True) and sf.get("level") == "high":
@@ -126,7 +130,51 @@ def gate(d: dict) -> Optional[Hold]:
     why = checkflow.blocks_render(d, cfg)
     if why:
         return Hold("unreviewed", why)
+    if camp and "start" in d and "end" in d:
+        why = campaigns.length_warning(camp, float(d["end"]) - float(d["start"]))
+        if why:
+            return Hold("campaign", why)
     return None
+
+
+def _open_only(sf: dict, still_open: Callable[[dict], bool]) -> dict:
+    """The content check's result with only the flags nobody has decided on yet, its level from those."""
+    flags = [f for f in sf.get("flags", []) if still_open(f)]
+    level = safety.LEVELS[max([f.get("severity", 0) for f in flags], default=0)]
+    return dict(sf, flags=flags, level=level, status="needs_review" if flags else (sf.get("status") or "clean"))
+
+
+def _fixed(f: dict, it: dict) -> bool:
+    """A spoken flag inside a fix you applied in Review (muted or bleeped in the render)."""
+    if f.get("source") != "speech":
+        return False
+    a, b = it["start"] + f.get("start", 0), it["start"] + f.get("end", 0)
+    return any(fa - 0.05 <= a and b <= fb + 0.05 for fa, fb, _kind in it.get("fix_spans") or [])
+
+
+def item_subject(it: dict) -> dict:
+    """What the gate looks at for a rendered queue item: the clip as it was rendered.
+
+    Its length is always the item's (what was rendered). Its flags are the clip's in Review when its project is
+    loaded, minus the ones you accepted, dismissed or fixed there; after a restart (the project not loaded), or
+    for a clip never checked in Review, they're the item's own: the check the render ran (it["safety"]), minus
+    the flags you left alone (it["keep_fps"]) and those inside a fix you applied (it["fix_spans"])."""
+    d = find_clip(it)
+    sub = {"start": float(it.get("start") or 0), "end": float(it.get("end") or 0), "title": it.get("title", "")}
+    if d is not None and isinstance(d.get("safety"), dict):
+        sub["check"] = d.get("check")                 # excluded from export
+        sub["safety"] = _open_only(d["safety"], lambda f: f.get("status", "open") == "open")
+    elif isinstance(it.get("safety"), dict):
+        keep = set(it.get("keep_fps") or [])
+        sub["safety"] = _open_only(dict(it["safety"], status=""), lambda f: (
+            checkflow.fingerprint(f, {"start": sub["start"]}) not in keep and not _fixed(f, it)))
+    return sub
+
+
+def gate_item(it: dict) -> Optional[Hold]:
+    """The gate for an outward step after a render: may this rendered clip leave the PC on its own?"""
+    camp = campaigns.get((it.get("campaign") or {}).get("id", ""))
+    return gate(item_subject(it), camp)
 
 
 # ---------------------------------------------------------------- the record
@@ -154,7 +202,7 @@ def _run(step: Step, ctx: Ctx):
     t0 = time.time()
     try:
         if step.outward:
-            hold = gate(ctx.d or {})
+            hold = gate_item(ctx.it) if ctx.it is not None else gate(ctx.d or {})
             if hold:
                 record(ctx.target, ctx.event, step.name, "held", hold.why)
                 return

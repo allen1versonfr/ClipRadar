@@ -320,6 +320,13 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 return self._err("bad range")
             return self._json(S.strip_data(pr, a, b))
+        m = re.fullmatch(r"/api/autopilot/(\w+)/(\w+)", p)
+        if m:
+            # what Clip Radar did with this clip on its own: titled, held, rendered, sent (autopilot.py)
+            rec = S.autopilot_record(m.group(1), int(m.group(2))) if m.group(2).isdigit() else None
+            if rec is None:
+                return self._err("That clip isn't open any more.", 404)
+            return self._json(rec)
         m = re.fullmatch(r"/api/project/(\w+)", p)
         if m:
             if m.group(1) not in S.projects:

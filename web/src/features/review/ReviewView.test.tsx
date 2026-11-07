@@ -22,6 +22,7 @@ beforeEach(() => {
     if (path === '/api/queue/add') { queue.push({ id: 'q' + queue.length, status: 'queued', pid: body!.pid, clip_id: body!.clip.id }); answer = queue.at(-1) }
     if (path === '/api/safety') answer = { enabled: true, export_flagged: 'ask' }
     if (path === '/api/titles') answer = { pick: 'a', hashtags: true }
+    if (/^\/api\/autopilot\//.test(path)) answer = []
     return new Response(JSON.stringify(answer), { status: 200 })
   }))
   HTMLMediaElement.prototype.play = vi.fn(async () => {})
@@ -212,6 +213,37 @@ describe('Review', () => {
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(posted('/api/live/s1/stop')).toEqual([{}]))
     expect(screen.queryByTestId('rv-detect-open')).toBeNull()
+  })
+
+  it('a live moment says what hands-free did with it; a clip that is not live asks nothing', async () => {
+    const base = fetch as unknown as (p: string, i?: RequestInit) => Promise<Response>
+    const asked: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      if (/^\/api\/autopilot\//.test(path)) {
+        asked.push(path)
+        return new Response(JSON.stringify([
+          { t: 1762390001, event: 'clip_titled', step: 'hands_free_render', outcome: 'held', why: 'Held for review: Your blocked word (pineapple)', ms: 2 },
+          { t: 1762390000, event: 'moment_found', step: 'title_moment', outcome: 'ran', ms: 0 },
+          { t: 1762390001, event: 'clip_titled', step: 'latency_title', outcome: 'ran', ms: 0 }]))
+      }
+      if (path.startsWith('/api/live/s1')) {
+        return new Response(JSON.stringify({ id: 's1', channel: 'somechannel', status: 'recording', recorded: 300, curve: [1, 2, 3],
+          chat_connected: true, chat_state: 'ok', clips: [{ id: 1, pid: 'm1', start: 5, end: 20, abs_start: 60, title: 'Moment 1',
+            vod: '/vod/m1', listened: true, held: 'Held for review: Your blocked word (pineapple)' }] }))
+      }
+      return base(path, init)
+    }))
+    render(<ToastProvider><ConfirmProvider><ReviewView pid="s1" live /></ConfirmProvider></ToastProvider>)
+    const box = await screen.findByTestId('what-happened')
+    expect(asked[0]).toBe('/api/autopilot/m1/1')
+    expect(within(box).getAllByRole('listitem').map(l => l.textContent!.slice((l.querySelector('.muted')?.textContent?.length ?? 0) + 1))).toEqual([
+      'Sent to be captioned and titled', 'Not rendered on its own: Held for review: Your blocked word (pineapple)'])
+    cleanup()
+    asked.length = 0
+    renderReview()
+    await screen.findAllByTestId('rv-row')
+    expect(screen.queryByTestId('what-happened')).toBeNull()
+    expect(asked).toEqual([])
   })
 
   it('a video that is not open any more says how to get it back', async () => {

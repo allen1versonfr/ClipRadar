@@ -18,6 +18,8 @@ and the saved files read (docs/plans/issue-50-automation-core.md, section 2.4):
   9. skipping a hands-free render deletes its file only when Storage says so, and never one you rendered yourself
  10. Keep watching: a stream ending by itself starts the next session with the same settings; stopping it doesn't
  11. shutting down mid-render: no Discord, no cleanup
+ 12. (changed in 4.46.0, issue 50 phase 4) a clip the content check holds, rendered by you: not sent to
+     Discord on its own; its record says why
 
 Background threads (the titling job, the Discord send, the cleanup sweep) run inline here, so the order
 is the order the code starts them in.
@@ -455,6 +457,25 @@ check("11: no sound, no Discord, no cleanup, no latency", names() == ["render"],
 check("11: the clip waits in the queue for next time", it.get("status") == "queued" and it in server.queue, it.get("status"))
 check("11: the try is marked interrupted", [a.get("outcome") for a in it.get("history", [])] == ["interrupted"], it.get("history"))
 check("11: nothing sent", not SENT and "discord" not in it)
+
+# 12. a held clip isn't sent to Discord on its own --------------------------------------------------
+# Issue 50, phase 4 (Clip Radar 4.46.0) changed this on purpose: before it, Discord sent every render of a
+# campaign set to send by itself, flagged or not. Now the send passes autopilot.gate() first
+# (docs/plans/issue-50-automation-core.md, section 4.3).
+reset()
+sess = FakeSession(hands_free=False)
+mid, d = moment(sess, words=RISKY)
+check("12: the flag is high risk and nothing renders on its own", (d.get("safety") or {}).get("level") == "high"
+      and items_for(mid) == [], d.get("safety"))
+it = server.queue_add(mid, dict(d, rank=1), {})             # you render it yourself, from Review
+EVENTS.clear()
+run_worker()
+check("12: rendered", it.get("status") == "done", it.get("status"))
+check("12: not sent to Discord; the rest still runs, in order",
+      not SENT and "discord" not in it and names(["sound", "discord", "cleanup"]) == ["sound", "cleanup"], (SENT, EVENTS))
+held = [e for e in it.get("auto_log", []) if e["step"] == "discord"]
+check("12: the item's record says it was held, and why", [(e["outcome"], e.get("why")) for e in held]
+      == [("held", "Held for review: Your blocked word (pineapple)")], it.get("auto_log"))
 
 server.queue.clear()
 server.flush_saves()

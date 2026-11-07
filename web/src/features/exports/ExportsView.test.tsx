@@ -11,7 +11,10 @@ afterEach(() => {
 
 const items = [
   { id: 'd1', status: 'done', stage: 'done', title: 'Chat lost it', duration: 31, name: 'Chat lost it.mp4', url: '/export/d1',
-    history: [{ n: 1, started: 1, ended: 2, outcome: 'done', encoder: 'libx264' }] },
+    history: [{ n: 1, started: 1, ended: 2, outcome: 'done', encoder: 'libx264' }],
+    auto_log: [{ t: 1762390005, event: 'render_done', step: 'discord', outcome: 'held', why: 'Held for review: Hate slur (xx)', ms: 1 },
+      { t: 1762390004, event: 'render_done', step: 'ready_sound', outcome: 'ran', ms: 0 },
+      { t: 1762390000, event: 'clip_titled', step: 'hands_free_render', outcome: 'ran', ms: 2 }] },
   { id: 'e1', status: 'error', stage: 'error', title: 'Crop at the edge', duration: 12, error_kind: 'layout', retryable: false,
     error: "The clip's layout couldn't be built from this video.", detail: '[Parsed_crop_0] Failed to configure input pad',
     history: [{ n: 1, started: 1, ended: 2, outcome: 'error', kind: 'layout', stage: 'rendering', encoder: 'libx264', exit: 234 }] },
@@ -40,6 +43,20 @@ describe('Exports', () => {
     expect(within(rows[0]!).getByRole('progressbar').getAttribute('aria-valuenow')).toBeNull()
     expect(within(rows[1]!).getByTestId('export-status').textContent).toBe('Failed')
     expect(within(rows[2]!).getByTestId('export-status').textContent).toBe('Ready')
+  })
+
+  it("says what Clip Radar did with a clip on its own, and nothing when it did nothing", async () => {
+    vi.stubGlobal('fetch', server([]))
+    render(<ToastProvider><ExportsView /></ToastProvider>)
+    fireEvent.click((await screen.findAllByTestId('export-row'))[2]!)
+    const box = within(screen.getByTestId('export-detail')).getByTestId('what-happened')
+    expect(within(box).getByRole('heading', { name: 'What happened' })).toBeTruthy()
+    const lines = within(box).getAllByRole('listitem')
+    expect(lines.map(l => l.textContent!.slice((l.querySelector('.muted')?.textContent?.length ?? 0) + 1))).toEqual(['Queued to render on its own (hands-free)',
+      'Not sent to Discord on its own: Held for review: Hate slur (xx)'])
+    expect(lines[1]!.className).toBe('warn')
+    fireEvent.click(screen.getAllByTestId('export-row')[1]!)
+    expect(within(screen.getByTestId('export-detail')).queryByTestId('what-happened')).toBeNull()
   })
 
   it('explains a failure with every attempt, and retries it', async () => {

@@ -29,6 +29,13 @@ export const Attempt = z.looseObject({
 })
 export type Attempt = z.infer<typeof Attempt>
 
+/** One thing Clip Radar did with a clip on its own (src/autopilot.py's record): titled, held back, sent, failed. */
+export const AutoEntry = z.looseObject({
+  t: z.number(), event: z.string().default(''), step: z.string(),
+  outcome: z.string(), why: z.string().optional(), ms: z.number().default(0),
+})
+export type AutoEntry = z.infer<typeof AutoEntry>
+
 export const QueueItem = z.looseObject({
   id: z.string(),
   status: z.enum(['queued', 'rendering', 'done', 'error', 'cancelled']),
@@ -66,6 +73,7 @@ export const QueueItem = z.looseObject({
   discord: z.looseObject({ at: z.number().default(0), error: z.string().nullish(), attached: z.boolean().optional(),
     post_url: z.string().nullish(), note: z.string().nullish() }).nullish(),
   post_url: z.string().default(''),
+  auto_log: z.array(AutoEntry).optional(),
 })
 export type QueueItem = z.infer<typeof QueueItem>
 /** Exports › TikTok: whether Clip Radar can drive a browser, and Press Post for me. */
@@ -506,6 +514,7 @@ export const Clip = z.looseObject({
   safety: z.looseObject({ enabled: z.boolean().optional(), status: z.string().optional(), level: z.string().optional(),
     flags: z.array(Flag).default([]), open: z.number().default(0) }).optional(),
   check: z.looseObject({ excluded: z.boolean().default(false), fixes: z.array(z.unknown()).default([]) }).optional(),
+  auto_log: z.array(AutoEntry).optional(),
 })
 export type Clip = z.infer<typeof Clip>
 

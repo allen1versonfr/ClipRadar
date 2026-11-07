@@ -34,6 +34,7 @@
 | GET | `/api/perf` |
 | GET | `/api/timings` |
 | GET | `/api/strip/{id}` |
+| GET | `/api/autopilot/{id}/{id}` |
 | GET | `/api/project/{id}` |
 | GET | `/api/clips/{id}` |
 | GET | `/api/storage` |
