@@ -10,8 +10,10 @@ just to get newer tools. Can also be run directly:  python tools_setup.py
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import shutil
 import ssl
 import sys
@@ -28,9 +30,22 @@ Log = Callable[[str], None]
 Progress = Callable[[float], None]
 Check = Callable[[], None]
 
-FFMPEG_ZIP = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-FFMPEG_ZIP_MIRROR = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
-                     "ffmpeg-master-latest-win64-gpl.zip")
+# FFmpeg is pinned: one release, checked against its SHA-256. A floating "latest" once swapped a
+# 100 MB release build for a 162 MB build of FFmpeg's development branch with nobody noticing.
+# The main download is BtbN's shared build of FFmpeg 9.0.2: ffmpeg.exe and ffprobe.exe are small
+# and share one set of DLLs (about 180 MB for both) instead of two static programs that each hold
+# everything (about 200 MB). BtbN keeps the last build of each month for two years, so this is one.
+# The mirror is gyan.dev's static "essentials" build of the same release, from its GitHub releases,
+# which are kept. Either way, the files land together in the tools folder (see _install_ffmpeg).
+FFMPEG_ZIP = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/"
+              "ffmpeg-n9.0.2-39-g7adfbe40dc-win64-gpl-shared-9.0.zip")
+FFMPEG_SHA256 = "1d9823c35c7a7e2f54d1438cf61030d6efabe3278de01c191309d1e828bb74df"
+FFMPEG_ZIP_MIRROR = ("https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/"
+                     "ffmpeg-9.0.2-essentials_build.zip")
+FFMPEG_MIRROR_SHA256 = "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
+# FFmpeg's own libraries, as a shared build names them (avcodec-63.dll, swscale-10.dll, ...)
+FFMPEG_DLL = re.compile(r"^(avcodec|avdevice|avfilter|avformat|avutil|postproc|swresample|swscale)-\d+\.dll$",
+                        re.IGNORECASE)
 TDL_API = "https://api.github.com/repos/lay295/TwitchDownloader/releases/latest"
 YTDLP_EXE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 UA = {"User-Agent": "ClipRadar/1.0 (+https://github.com)"}
@@ -94,6 +109,21 @@ def download(url: str, dest: str, progress: Progress = _noop, check: Check = _no
     return dest
 
 
+def sha256_of(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def verify(path: str, sha256: str) -> None:
+    got = sha256_of(path)
+    if got != sha256.lower():
+        raise RuntimeError(f"The download didn't match its checksum (got {got[:16]}..., "
+                           f"expected {sha256[:16]}...).")
+
+
 def extract_named(zip_path: str, names: list, out_dir: str) -> list:
     """Pull specific files (by base name) out of a zip, wherever they sit inside it."""
     os.makedirs(out_dir, exist_ok=True)
@@ -128,19 +158,60 @@ def status() -> dict:
     }
 
 
+def _install_ffmpeg(zip_path: str, out: str) -> list:
+    """ffmpeg.exe, ffprobe.exe and, from a shared build, FFmpeg's DLLs into `out`, in an order that
+    never leaves a broken pair: everything is unpacked to a folder beside `out` first, then the DLLs
+    move in, then the two programs (a static ffmpeg.exe ignores DLLs next to it, and a shared one only
+    arrives once its DLLs are there), and only then are FFmpeg DLLs the new programs don't use removed:
+    another version's, or all of them after a static build. Returns the file names installed."""
+    os.makedirs(out, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as z:
+        members = {}
+        for info in z.infolist():
+            base = os.path.basename(info.filename)
+            if info.is_dir() or not base:
+                continue
+            if base.lower() in ("ffmpeg.exe", "ffprobe.exe") or FFMPEG_DLL.match(base):
+                members.setdefault(base.lower(), (base, info))
+        missing = [n for n in ("ffmpeg.exe", "ffprobe.exe") if n not in members]
+        if missing:
+            raise RuntimeError(f"The archive didn't contain {', '.join(missing)}.")
+        stage = tempfile.mkdtemp(prefix=".ffmpeg-", dir=out)
+        try:
+            for base, info in members.values():
+                with z.open(info) as src, open(os.path.join(stage, base), "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+            names = [b for b, _ in members.values()]
+            dlls = [b for b in names if FFMPEG_DLL.match(b)]
+            for base in dlls + [b for b in names if b not in dlls]:
+                os.replace(os.path.join(stage, base), os.path.join(out, base))
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+    keep = {d.lower() for d in dlls}
+    for f in os.listdir(out):
+        if FFMPEG_DLL.match(f) and f.lower() not in keep:
+            try:
+                os.remove(os.path.join(out, f))
+            except OSError:
+                pass                     # in use: harmless, the new programs don't load it
+    return names
+
+
 def get_ffmpeg(log: Log = _noop, progress: Progress = _noop, check: Check = _noop):
     out = str(paths.TOOLS_WRITE)
     with tempfile.TemporaryDirectory() as td:
         z = os.path.join(td, "ffmpeg.zip")
         try:
-            log("Downloading ffmpeg (about 100 MB)...")
+            log("Downloading ffmpeg 9.0.2 (about 85 MB)...")
             download(FFMPEG_ZIP, z, progress, check)
+            verify(z, FFMPEG_SHA256)
         except Exception as e:
             if "Cancelled" in str(e):
                 raise
             log(f"Main ffmpeg source failed ({str(e)[:80]}), trying a mirror...")
             download(FFMPEG_ZIP_MIRROR, z, progress, check)
-        extract_named(z, ["ffmpeg.exe", "ffprobe.exe"], out)
+            verify(z, FFMPEG_MIRROR_SHA256)
+        _install_ffmpeg(z, out)
     log("ffmpeg ready.")
 
 
