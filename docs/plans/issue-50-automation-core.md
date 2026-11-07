@@ -323,4 +323,4 @@ section 7.
 - **Phase 3 (#75):** `discord` stayed inline and not outward until phase 4; a step that raises after a render no longer marks the item failed, and shutdown skips the steps.
 - **Phase 4 (#76, 4.46.0):** required caption text isn't gated (`apply_post` always adds it); the Discord switch moved into the step's `enabled()`; the API returns 404 when neither clip nor item exists; `test_campaigns` updated for the intended change.
 - **Phase 5 (#77):** `session_ended` comes through a `LiveSession` `on_end` callback once the recording thread finishes; pin case 10 calls `autopilot.session_ended` instead of the removed `_watch_for_next` (expectations unchanged).
-- **Phase 6 (#PR6):** `start_listening`'s `on_done` removed; grep found no other leftovers. README lists the two modules; `docs/api-routes.md` was already current.
+- **Phase 6 (#78):** `start_listening`'s `on_done` removed; grep found no other leftovers. README lists the two modules; `docs/api-routes.md` was already current.
