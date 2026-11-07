@@ -95,7 +95,7 @@ check("there are clips to review", n >= 3, n)
 
 # titles keep "arriving" the whole time, as while Whisper works on a real PC: the page keeps asking
 # /api/clips for them, so its answers meet your edits (the race behind 4.21.0's first CI failure)
-def _listening_forever(pid, order, model, lang, on_done=None):
+def _listening_forever(pid, order, model, lang):
     job = server.new_job("listen")
     server.projects[pid]["listen_job"] = job["id"]
     return job
