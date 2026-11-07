@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { api } from '../../api/client'
 import { Campaigns, Ok, Queue, QueueCleared, type QueueItem } from '../../api/schemas'
 import { handoffCell } from './postStatus'
+import { WhatHappened } from '../autopilot/WhatHappened'
 import { SubmitPanel, TikTokPanel, useCopy } from './Posting'
 import { usePoll } from '../../hooks/usePoll'
 import { useNow } from '../../hooks/useNow'
@@ -235,6 +236,7 @@ function Detail({ q, campaigns, onChanged, onRetry, onRemove, onShow }: {
           {more && <pre className="details" data-testid="export-details">{details}</pre>}
         </div>
       )}
+      <WhatHappened entries={q.auto_log} />
       <SubmitPanel q={q} campaigns={campaigns} onChanged={onChanged} />
     </>
   )

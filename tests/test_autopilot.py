@@ -13,6 +13,10 @@ The autopilot core on its own (issue 50): no server, no live session.
  10. render_done / render_failed: recorded on the queue item, in order; a failing step doesn't stop the next
      and doesn't raise into the render loop; shutting down skips them; the after-render steps are registered
      in queue_worker's old order
+ 11. the gate for a rendered clip (4.46.0): the campaign's length; the clip in Review when its project is loaded
+     (flags you decided on don't hold it), the item's own check after a restart (keep_fps, fix_spans)
+ 12. with the server: the Discord step is gated (held by the content check, held by the campaign's length,
+     sent when clean, never gated when you send it by hand) and GET /api/autopilot/<pid>/<cid>
 
   python tests/test_autopilot.py
 """
@@ -250,11 +254,185 @@ autopilot_steps.register()
 check("10: the after-render steps, in queue_worker's old order",
       [s.name for s in autopilot.steps(RENDER_DONE)] == ["ready_sound", "discord", "cleanup_vods", "latency_render"],
       [s.name for s in autopilot.steps(RENDER_DONE)])
-check("10: none outward or background yet (Discord sends on its own thread, as before)",
-      not any(s.outward or s.background for s in autopilot.steps(RENDER_DONE)))
+check("10: only Discord is outward (4.46.0); none background (Discord sends on its own thread, as before)",
+      [s.name for s in autopilot.steps(RENDER_DONE) if s.outward] == ["discord"]
+      and not any(s.background for s in autopilot.steps(RENDER_DONE)))
 check("10: no steps on render_failed yet", autopilot.steps(RENDER_FAILED) == [])
 
+# 11. the gate for a rendered clip --------------------------------------------------------------------------
+import campaigns  # noqa: E402
+import checkflow  # noqa: E402
+
+safety.save_config({"enabled": True, "hold": True, "export_flagged": "ask"})
+HOOK = "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz_ABCDEFG-123"
+campaigns.save({"id": "c1", "name": "Kai clipping", "min_len": 15, "max_len": 40,
+                "discord": {"webhook": HOOK, "auto": True, "file": False}})
+camp = campaigns.get("c1")
+h = autopilot.gate({"start": 0, "end": 10}, camp)
+check("11: shorter than the campaign wants: held, with the campaign's warning",
+      h is not None and h.rule == "campaign" and "at least 15 s" in h.why, h)
+h = autopilot.gate({"start": 0, "end": 50}, camp)
+check("11: longer: held", h is not None and h.rule == "campaign" and "at most 40 s" in h.why, h)
+check("11: inside it: goes", autopilot.gate({"start": 0, "end": 30}, camp) is None)
+check("11: no campaign given (hands-free rendering): length doesn't hold it", autopilot.gate({"start": 0, "end": 10}) is None)
+h = autopilot.gate(dict(risky, end=50), camp)
+check("11: the content check comes first", h is not None and h.rule == "content_check", h)
+
+LOADED: dict = {}
+autopilot.find_clip = lambda it: LOADED.get(it.get("clip_id"))
+SPEECH = {"severity": 3, "label": "Hate slur", "text": "xx", "source": "speech", "cat": "slur", "term": "xx",
+          "start": 4.0, "end": 4.5}
+
+
+def item(**kw):
+    return dict({"id": "i", "pid": "p", "clip_id": 1, "start": 100.0, "end": 130.0, "title": "t",
+                 "campaign": {"id": "c1", "name": "Kai clipping"}}, **kw)
+
+
+LOADED[1] = {"id": 1, "start": 100.0, "end": 130.0, "safety": {"level": "high", "status": "needs_review",
+                                                                "flags": [dict(SLUR, status="open")]}}
+h = autopilot.gate_item(item())
+check("11: loaded: an open high-risk flag in Review holds it", h is not None and h.rule == "content_check", h)
+LOADED[1]["safety"] = {"level": "high", "status": "reviewed", "flags": [dict(SLUR, status="accepted")]}
+check("11: loaded: a flag you accepted doesn't", autopilot.gate_item(item()) is None, autopilot.gate_item(item()))
+check("11: the item's length counts (what was rendered), not the clip's",
+      (autopilot.gate_item(item(end=145.0)) or autopilot.Hold("", "")).rule == "campaign")
+check("11: a campaign that's gone: no length rule", autopilot.gate_item(item(end=145.0, campaign={"id": "gone"})) is None)
+LOADED[1] = {"id": 1, "start": 100.0, "end": 130.0}
+check("11: loaded but never checked, the render's check is clean: goes",
+      autopilot.gate_item(item(safety={"level": "clean", "flags": []})) is None)
+h = autopilot.gate_item(item(safety={"level": "high", "flags": [SPEECH]}))
+check("11: loaded but never checked: the render's check holds it", h is not None and h.rule == "content_check", h)
+
+LOADED.clear()                                     # after a restart: the project isn't loaded
+h = autopilot.gate_item(item(safety={"level": "high", "flags": [SPEECH]}))
+check("11: not loaded: the render's check holds it", h is not None and h.why == "Held for review: Hate slur (xx)", h)
+fp = checkflow.fingerprint(SPEECH, {"start": 100.0})
+check("11: not loaded: a flag you left alone in Review (keep_fps) doesn't",
+      autopilot.gate_item(item(safety={"level": "high", "flags": [SPEECH]}, keep_fps=[fp])) is None)
+check("11: not loaded: nor one inside a fix you applied (fix_spans)",
+      autopilot.gate_item(item(safety={"level": "high", "flags": [SPEECH]}, fix_spans=[[103.9, 104.6, "bleep"]])) is None)
+check("11: not loaded: a fix elsewhere doesn't cover it",
+      autopilot.gate_item(item(safety={"level": "high", "flags": [SPEECH]}, fix_spans=[[110.0, 111.0, "mute"]])) is not None)
+check("11: not loaded, no check on it: only the length", autopilot.gate_item(item()) is None
+      and autopilot.gate_item(item(end=105.0)).rule == "campaign")
+safety.save_config({"enabled": True, "hold": False, "export_flagged": "block"})
+h = autopilot.gate_item(item(safety={"level": "low", "flags": [dict(SPEECH, severity=1)]}))
+check("11: not loaded, unreviewed flags block renders: held", h is not None and h.rule == "unreviewed", h)
+safety.save_config({"enabled": True, "hold": True, "export_flagged": "ask"})
+
 check("still no server import", "server" not in sys.modules)
+
+# 12. with the server: the Discord step and the API -----------------------------------------------------------
+import http.client  # noqa: E402
+import json  # noqa: E402
+
+import discordhook  # noqa: E402
+import server  # noqa: E402
+
+autopilot.reset()
+autopilot_steps.register()
+check("12: the server points the gate at its projects", autopilot.find_clip is autopilot_steps.find_clip)
+SENT: list = []
+discordhook.send = lambda hook, text, path="", *a, **k: (SENT.append(text), {"attached": False, "note": ""})[1]
+server.play_sound = lambda *a, **k: None
+
+
+class InlineThread:
+    def __init__(self, target=None, daemon=None, **k):
+        self.target = target
+
+    def start(self):
+        self.target()
+
+
+class _Threading:
+    def __getattr__(self, k):
+        return getattr(server.__dict__["_real_threading"], k)
+
+
+server._real_threading = server.threading
+inline = _Threading()
+inline.Thread = InlineThread
+server.threading = inline
+srv = None
+try:
+    pid = "ap" + os.urandom(3).hex()
+    clean = {"id": 1, "start": 100.0, "end": 130.0, "title": "Clean one", "safety": {"level": "clean", "status": "clean", "flags": []}}
+    flagged = {"id": 2, "start": 200.0, "end": 230.0, "title": "Flagged one", "auto_log": [
+        {"t": 1.0, "event": "clip_titled", "step": "hands_free_render", "outcome": "ran", "ms": 0}],
+        "safety": {"level": "high", "status": "needs_review", "flags": [dict(SLUR, status="open")]}}
+    server.projects[pid] = {"clips": [clean, flagged], "gems": []}
+
+    def rendered(cid, start, end, **kw):
+        it = dict({"id": f"q{cid}{int(end)}", "pid": pid, "clip_id": cid, "start": start, "end": end, "title": f"clip {cid}",
+                   "status": "done", "campaign": {"id": "c1", "name": "Kai clipping"}}, **kw)
+        server.queue.append(it)
+        autopilot.render_done(it)
+        return it
+
+    def discord_log(it):
+        return [(e["outcome"], e.get("why", "")) for e in it.get("auto_log", []) if e["step"] == "discord"]
+
+    it = rendered(2, 200.0, 230.0)
+    check("12: held by the content check: not sent", SENT == [] and "discord" not in it, SENT)
+    check("12: its record says held, and why", discord_log(it) == [("held", "Held for review: Hate slur (xx)")], it.get("auto_log"))
+    it_long = rendered(1, 100.0, 160.0)
+    check("12: outside the campaign's length: not sent", SENT == [] and "discord" not in it_long, SENT)
+    check("12: its record says why", len(discord_log(it_long)) == 1 and discord_log(it_long)[0][0] == "held"
+          and "at most 40 s" in discord_log(it_long)[0][1], it_long.get("auto_log"))
+    it_ok = rendered(1, 100.0, 130.0)
+    check("12: clean and inside the length: sent", len(SENT) == 1 and isinstance(it_ok.get("discord"), dict)
+          and not it_ok["discord"].get("error"), (SENT, it_ok.get("discord")))
+    check("12: recorded as ran", discord_log(it_ok) == [("ran", "")], it_ok.get("auto_log"))
+    server.send_to_discord(it)
+    check("12: sent by hand (Exports' Discord button): never gated", len(SENT) == 2 and isinstance(it.get("discord"), dict))
+    campaigns.save(dict(campaigns.get("c1"), discord={"webhook": HOOK, "auto": False, "file": False}))
+    it_off = rendered(1, 100.0, 125.0)
+    check("12: campaign not set to send by itself: skipped, not held", discord_log(it_off) == [("skipped", "")]
+          and len(SENT) == 2, it_off.get("auto_log"))
+    check("12: the queue's answer carries the record", server.queue_public(it).get("auto_log") == it["auto_log"])
+
+    # the API
+    rec = server.autopilot_record(pid, 2)
+    check("12: the clip's record and its item's, merged by time", [e["step"] for e in rec][0] == "hands_free_render"
+          and [e["t"] for e in rec] == sorted(e["t"] for e in rec) and ("discord", "held") in [(e["step"], e["outcome"]) for e in rec],
+          rec)
+    check("12: each entry has t, event, step, outcome, ms (why when there is one)",
+          all({"t", "event", "step", "outcome", "ms"} <= set(e) for e in rec)
+          and all(e.get("why") for e in rec if e["outcome"] == "held"), rec)
+    del server.projects[pid]
+    rec = server.autopilot_record(pid, 2)
+    check("12: project not loaded (after a restart): the item's record still", rec is not None and len(rec) == len(it["auto_log"]), rec)
+    check("12: no such clip: None", server.autopilot_record(pid, 9) is None and server.autopilot_record("nope", 1) is None)
+    server.projects[pid] = {"clips": [clean, flagged], "gems": []}
+    server.threading = server._real_threading          # the HTTP server runs on its own thread
+    PORT = 7993
+    srv, _url = server.start(PORT)
+
+    def get(path):
+        c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=20)
+        c.request("GET", path, headers={"Host": f"127.0.0.1:{PORT}"})
+        r = c.getresponse()
+        body = json.loads(r.read() or b"null")
+        c.close()
+        return r.status, body
+
+    code, body = get(f"/api/autopilot/{pid}/2")
+    check("12: GET /api/autopilot/<pid>/<cid>: a list, merged by time", code == 200 and isinstance(body, list)
+          and body == server.autopilot_record(pid, 2), (code, body))
+    code, body = get(f"/api/autopilot/{pid}/x")
+    check("12: a bad clip id: 404 with an error", code == 404 and "error" in body, (code, body))
+    code, body = get("/api/queue")
+    check("12: /api/queue carries each item's record", code == 200 and any(
+        x.get("id") == it["id"] and x.get("auto_log") == it["auto_log"] for x in body.get("items", [])), code)
+finally:
+    server.threading = server._real_threading
+    server.queue.clear()
+    server.SHUTTING_DOWN[0] = True
+    if srv:
+        srv.shutdown()
+
 autopilot.reset()
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

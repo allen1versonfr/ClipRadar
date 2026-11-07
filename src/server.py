@@ -1316,6 +1316,24 @@ def _find_clip(pr: dict, cid) -> Optional[dict]:
     return None
 
 
+def autopilot_record(pid: str, cid) -> Optional[list]:
+    """What automation did with one clip (/api/autopilot/<pid>/<cid>): the clip's record and its queue items',
+    merged by time, oldest first. A project that isn't loaded (after a restart) still has its queue items'.
+    None: no such clip, loaded or queued."""
+    pr = projects.get(pid)
+    d = _find_clip(pr, cid) if pr else None
+    out = list((d or {}).get("auto_log") or [])
+    with queue_lock:
+        its = [it for it in queue if it.get("pid") == pid and it.get("clip_id") == cid]
+    if d is None and not its:
+        return None
+    for it in its:
+        out += it.get("auto_log") or []
+    out = [e for e in out if isinstance(e, dict)]
+    out.sort(key=lambda e: e.get("t") or 0)
+    return out
+
+
 def _media_end(pr: dict) -> Optional[float]:
     """Where a clip may end at the latest: the analysis's length, or the file's when that is shorter.
     A live moment's analysis can run up to ~1 s past its MP4, and a cut ending there stopped the

@@ -5,6 +5,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.46.0] - 2026-11-07
+
+Hands-free never sends a clip the content check held back to your campaign's Discord on its own, and each clip says what Clip Radar did with it.
+
+### Changed
+- **A clip the content check holds back isn't sent to Discord on its own any more.** A campaign set to send each clip as it renders sent every render, flagged or not. Now a clip with a high-risk flag you haven't decided on (with Settings › Content check › "Hands-free: hold back clips with serious flags" on), or with flags you haven't reviewed (when unreviewed flags block renders), waits for you. So does a clip shorter or longer than its campaign allows. Exports says why under "What happened". Flags you accepted, dismissed or fixed in Review don't hold it. The Discord button in Exports sends it as before, and is never held back.
+
+### Added
+- **What happened.** Under a live moment in Review, and for a clip in Exports, a short list of what Clip Radar did with it on its own, newest last: sent to be captioned and titled, queued to render, sent to Discord. Anything it held back or that failed says why, for example "Not sent to Discord on its own: Held for review: Hate slur". Clips nothing happened to show no list. The same record is at `GET /api/autopilot/<project>/<clip>` for bug reports.
+
+### Tests
+- `tests/test_autopilot.py`: the gate for a rendered clip (the campaign's length, flags you decided on in Review, a clip whose project isn't open after a restart), the Discord step held by the content check, held by the campaign's length, sent when clean and never held when you send it by hand, and the new API.
+- `tests/test_autopilot_pin.py`: a new case 12 for the one behaviour this release changes on purpose: a held clip you render yourself isn't sent to Discord on its own. Cases 1 to 11 are unchanged.
+- `tests/test_campaigns.py`: a clip shorter than the campaign wants renders but isn't sent on its own (sending it from Exports still works); one the right length is sent with the video.
+- `web/`: the "What happened" lines, in Exports and under a live moment in Review.
+
 ## [4.45.1] - 2026-11-05
 
 Opening a video with a big chat is a few seconds quicker, and reopening it too.

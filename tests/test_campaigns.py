@@ -210,11 +210,22 @@ check("and a warning when it's shorter than the campaign wants", "at least 20 s"
 done = wait_status(it["id"], ("done",))
 check("it renders with the campaign's caption rules",
       done and "@kaicenat · Code KAI" in done.get("post", "") and "#ad" in done["post"], done and done.get("post"))
+# 4.46.0 (issue 50, phase 4): a clip outside the campaign's length isn't sent on its own; you send it from Exports
+end, held = time.time() + 5, []
+while not held and time.time() < end:          # the record is written just after the item says done
+    done = wait_status(it["id"], ("done",))
+    held = [e for e in (done or {}).get("auto_log", []) if e["step"] == "discord"]
+    time.sleep(0.05)
+check("but isn't sent to the campaign's Discord on its own: it's shorter than the campaign wants",
+      len(discordhook.SENT) == sent0 and [e["outcome"] for e in held] == ["held"] and "at least 20 s" in held[0].get("why", ""),
+      (discordhook.SENT[sent0:], done.get("auto_log")))
+ok_it = server.queue_add("p1", {"start": 0.0, "end": 25.0, "title": "Right length", "post": "lol"}, {})
+wait_status(ok_it["id"], ("done",))
 end = time.time() + 5
 while len(discordhook.SENT) == sent0 and time.time() < end:
     time.sleep(0.1)
-check("and goes to the campaign's Discord as soon as it renders, with the video", len(discordhook.SENT) == sent0 + 1
-      and discordhook.SENT[-1][2] == "Too short.mp4", discordhook.SENT[sent0:])
+check("one the right length goes to the campaign's Discord as soon as it renders, with the video", len(discordhook.SENT) == sent0 + 1
+      and discordhook.SENT[-1][2] == "Right length.mp4", discordhook.SENT[sent0:])
 r = api("/api/queue/post_url", {"item": it["id"], "url": "not a link"})
 check("a post link must be a link", r.get("status") == 400, r)
 r = api("/api/discord/send", {"item": it["id"], "post_url": "https://www.tiktok.com/@me/video/1"})

@@ -75,11 +75,26 @@ def ready_sound(ctx: Ctx):
     server.play_sound("ready", ctx.it)
 
 
+def discord_on(ctx: Ctx) -> bool:
+    """The clip's campaign is set to send each clip as it renders, and has a webhook."""
+    import campaigns
+    camp = campaigns.get((ctx.it.get("campaign") or {}).get("id", ""))
+    return bool(camp and camp["discord"]["auto"] and camp["discord"]["webhook"])
+
+
 def discord(ctx: Ctx):
-    """A campaign set to send each clip as it renders: auto_discord checks the switch and the webhook, and
-    sends on its own thread, so a slow upload never holds up the next render."""
+    """Send the clip to its campaign's Discord. Outward: it has passed the gate (a clip the content check holds,
+    or outside the campaign's length, waits for you to send it from Exports). auto_discord sends on its own
+    thread, so a slow upload never holds up the next render. Sending by hand (/api/discord/send) isn't gated."""
     import server
     server.auto_discord(ctx.it)
+
+
+def find_clip(it: dict):
+    """A queue item's clip in Review, when its project is loaded (not after a restart)."""
+    import server
+    pr = server.projects.get(it.get("pid") or "")
+    return server._find_clip(pr, it.get("clip_id")) if pr else None
 
 
 def cleanup_vods(ctx: Ctx):
@@ -107,7 +122,7 @@ STEPS = (
          run=hands_free_render, concerns=_live),
     # after a render, in the order queue_worker ran them; each checks its own switch, as before
     Step("ready_sound", RENDER_DONE, enabled=lambda ctx: True, run=ready_sound),
-    Step("discord", RENDER_DONE, enabled=lambda ctx: True, run=discord),      # outward: gated in phase 4
+    Step("discord", RENDER_DONE, enabled=discord_on, run=discord, outward=True),
     Step("cleanup_vods", RENDER_DONE, enabled=lambda ctx: True, run=cleanup_vods),
     Step("latency_render", RENDER_DONE, enabled=lambda ctx: True, run=latency_render),
 )
@@ -115,5 +130,6 @@ STEPS = (
 
 def register():
     """Register every step, in order. Safe to call more than once."""
+    autopilot.find_clip = find_clip
     for s in STEPS:
         autopilot.register(s)

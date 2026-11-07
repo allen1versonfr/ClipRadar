@@ -456,6 +456,12 @@ p.notice { margin: 0; }
 .cc-prop { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px dashed var(--line2); border-radius: var(--r); }
 .cc-prop p { margin: 0; }
 .cc-log ul { margin: 6px 0 0; padding-left: 18px; }
+/* What happened: what Clip Radar did with a clip on its own (Review's live moments, Exports) */
+.happened { display: flex; flex-direction: column; gap: 4px; }
+.happened h3 { margin: 0; font-size: 14px; }
+.happened ul { margin: 0; padding-left: 18px; color: var(--tx1); font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.happened li.warn { color: var(--warn); }
+.happened li.err { color: var(--danger); }
 .danger-text { color: var(--danger); }
 /* Review: the whole stream (overview, header facts, deep scan, detection settings, title A/B) */
 .rv-facts-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }

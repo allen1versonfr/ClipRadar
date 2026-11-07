@@ -23,6 +23,7 @@ import { Timeline, type TimelineHandle } from './Timeline'
 import { Overview } from './Overview'
 import { filterFor, type Span } from './streamMap'
 import { LiveHead } from './LiveHead'
+import { ClipHappened } from '../autopilot/WhatHappened'
 import { setReviewTodo } from '../../shell'
 import { DeepBox, type Detect, DetectDialog, HeadFacts, HeadTools, TitleChoices } from './StreamTools'
 
@@ -1038,6 +1039,8 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                 {c.reason && <p className="muted small">{c.reason}</p>}
                 {kept && q?.status === 'error' && <p className="notice err" role="alert"><b>Render failed.</b>&nbsp;{q.error}</p>}
                 {c.held && !kept && <p className="notice"><b>{c.held}.</b>&nbsp;Hands-free didn't render this one. Watch it, then keep or skip it.</p>}
+                {isLive && <ClipHappened pid={c.pid} cid={c.id}
+                                         version={`${c.listened}|${c.held}|${c.auto_log?.length ?? 0}|${q?.status ?? ''}|${q?.discord?.at ?? ''}`} />}
                 <label className="fld">Title
                   <span className="row">
                     <input className="input grow" value={c.title} disabled={kept} maxLength={120} data-testid="rv-title-input" spellCheck
