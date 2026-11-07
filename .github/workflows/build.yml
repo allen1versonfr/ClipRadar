@@ -108,6 +108,7 @@ jobs:
           python tests/test_rename.py
           python tests/test_versions.py
           python tests/test_release_assets.py
+          python tests/test_tools_setup.py
           python tests/test_startup.py
           python tests/test_memory.py
           python tests/test_deepscan.py

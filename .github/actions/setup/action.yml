@@ -69,3 +69,13 @@ runs:
         foreach ($t in "ffmpeg.exe","ffprobe.exe","TwitchDownloaderCLI.exe","yt-dlp.exe") {
           if (-not (Test-Path "tools\$t")) { Write-Host "::error title=FAIL tool download::$t missing"; exit 1 }
         }
+        # FFmpeg is pinned (src/tools_setup.py): the shared build, ffmpeg.exe and ffprobe.exe next to one
+        # set of DLLs. Only the static mirror comes without them, which costs about 20 MB: say so.
+        $dlls = @(Get-ChildItem tools -Filter "av*.dll")
+        if ($dlls.Count -eq 0) { Write-Host "::warning title=ffmpeg::the shared build didn't download; this build has the static mirror (about 20 MB bigger)" }
+        $v = & tools\ffmpeg.exe -hide_banner -version; $code = $LASTEXITCODE
+        Write-Host "ffmpeg: $(@($v)[0])"
+        if ($code -ne 0) { Write-Host "::error title=FAIL ffmpeg::tools\ffmpeg.exe doesn't run"; exit 1 }
+        $v = & tools\ffprobe.exe -hide_banner -version; $code = $LASTEXITCODE
+        Write-Host "ffprobe: $(@($v)[0])"
+        if ($code -ne 0) { Write-Host "::error title=FAIL ffprobe::tools\ffprobe.exe doesn't run"; exit 1 }
