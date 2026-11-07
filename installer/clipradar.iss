@@ -63,6 +63,15 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [InstallDelete]
 ; clear the previous version's libraries so an upgrade doesn't mix old and new files
 Type: filesandordirs; Name: "{app}\_internal"
+; FFmpeg's DLLs: the new ones are installed, and an older version's (or none, after a static build) never linger
+Type: files; Name: "{app}\tools\avcodec-*.dll"
+Type: files; Name: "{app}\tools\avdevice-*.dll"
+Type: files; Name: "{app}\tools\avfilter-*.dll"
+Type: files; Name: "{app}\tools\avformat-*.dll"
+Type: files; Name: "{app}\tools\avutil-*.dll"
+Type: files; Name: "{app}\tools\postproc-*.dll"
+Type: files; Name: "{app}\tools\swresample-*.dll"
+Type: files; Name: "{app}\tools\swscale-*.dll"
 ; upgrading from VodClipper: its program folder and shortcuts (your clips and settings are elsewhere and are kept)
 Type: filesandordirs; Name: "{localappdata}\Programs\VodClipper"
 Type: files; Name: "{autoprograms}\VodClipper.lnk"

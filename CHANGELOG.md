@@ -5,6 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- **A smaller download.** The installer is back to about INSTALLER_MB MB (4.46.0's was 238 MB) and Clip Radar takes about UNPACKED_MB MB on disk (was 626 MB). 4.46.0 picked up a test build of FFmpeg by accident, with two programs of 162 MB each. Clip Radar now always ships the same FFmpeg release, 9.0.2, checked against a fingerprint, in the build where ffmpeg and ffprobe share one set of libraries. Settings › Downloads and tools gets the same build, and replaces the old FFmpeg files cleanly.
+
+### Tests
+- `tests/test_tools_setup.py`: the FFmpeg download is pinned and checked, falls back to the mirror when it doesn't match, and an update from the old build, to a newer one or back to the mirror's never leaves a mix of files.
+
 ## [4.46.0] - 2026-11-07
 
 Hands-free never sends a clip the content check held back to your campaign's Discord on its own, and each clip says what Clip Radar did with it.
