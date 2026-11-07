@@ -3,7 +3,8 @@ What Clip Radar does on its own, in one place (issue 50).
 
 A few named events, fired from the one place each thing happens; the steps that listen to them, in the
 order they were registered; one gate that says why a clip may not go further on its own; and a short
-record on each clip of what automation did with it (d["auto_log"]).
+record on each clip of what automation did with it (d["auto_log"]; for the render-side events, on the
+queue item: it["auto_log"]).
 
 The steps themselves are in autopilot_steps.py. This module imports nothing from server, so there's no
 import cycle: the steps import server inside their functions.
@@ -27,7 +28,9 @@ MAX_LOG = 30                      # entries kept per clip; the oldest go first
 
 MOMENT_FOUND = "moment_found"
 CLIP_TITLED = "clip_titled"
-EVENTS = (MOMENT_FOUND, CLIP_TITLED)
+RENDER_DONE = "render_done"
+RENDER_FAILED = "render_failed"
+EVENTS = (MOMENT_FOUND, CLIP_TITLED, RENDER_DONE, RENDER_FAILED)
 
 
 @dataclass
@@ -38,7 +41,13 @@ class Ctx:
     d: Optional[dict] = None              # the clip dict; the record goes on it
     sess: object = None                   # the live session, for a live moment
     aired: Optional[float] = None         # when a live moment was on stream
+    it: Optional[dict] = None             # the queue item, for render_done/render_failed; the record goes on it
     extra: dict = field(default_factory=dict)
+
+    @property
+    def target(self) -> Optional[dict]:
+        """What the record goes on: the queue item for the render-side events, else the clip."""
+        return self.it if self.it is not None else self.d
 
 
 @dataclass(frozen=True)
@@ -147,18 +156,18 @@ def _run(step: Step, ctx: Ctx):
         if step.outward:
             hold = gate(ctx.d or {})
             if hold:
-                record(ctx.d, ctx.event, step.name, "held", hold.why)
+                record(ctx.target, ctx.event, step.name, "held", hold.why)
                 return
         outcome = step.run(ctx) or "ran"
         why = ""
         if isinstance(outcome, tuple):
             outcome, why = outcome
-        record(ctx.d, ctx.event, step.name, outcome, why, (time.time() - t0) * 1000)
+        record(ctx.target, ctx.event, step.name, outcome, why, (time.time() - t0) * 1000)
     except Exception as e:
         # nothing an automation step does may break the titling job or the render loop
-        record(ctx.d, ctx.event, step.name, "failed", f"{type(e).__name__}: {e}", (time.time() - t0) * 1000)
+        record(ctx.target, ctx.event, step.name, "failed", f"{type(e).__name__}: {e}", (time.time() - t0) * 1000)
         errorlog.record(f"autopilot:{step.name}", str(e) or type(e).__name__, exc=e,
-                        clip=(ctx.d or {}).get("title", ""), step=step.name)
+                        clip=(ctx.target or {}).get("title", ""), step=step.name)
 
 
 def emit(ctx: Ctx):
@@ -169,20 +178,20 @@ def emit(ctx: Ctx):
             if step.concerns and not step.concerns(ctx):
                 continue
             if shutting_down():
-                record(ctx.d, ctx.event, step.name, "skipped", "shutting down")
+                record(ctx.target, ctx.event, step.name, "skipped", "shutting down")
                 continue
             if not step.enabled(ctx):
-                record(ctx.d, ctx.event, step.name, "skipped")
+                record(ctx.target, ctx.event, step.name, "skipped")
                 continue
         except Exception as e:
-            record(ctx.d, ctx.event, step.name, "failed", f"{type(e).__name__}: {e}")
+            record(ctx.target, ctx.event, step.name, "failed", f"{type(e).__name__}: {e}")
             errorlog.record(f"autopilot:{step.name}", str(e) or type(e).__name__, exc=e, step=step.name)
             continue
         if step.background:
             try:
                 _executor().submit(_run, step, ctx)
             except RuntimeError:          # the executor is shut down: the app is closing
-                record(ctx.d, ctx.event, step.name, "skipped", "shutting down")
+                record(ctx.target, ctx.event, step.name, "skipped", "shutting down")
         else:
             _run(step, ctx)
 
@@ -202,3 +211,13 @@ def clip_titled(pid: str, d: dict):
     """A clip has its words and its first title (every titling, live or not)."""
     sess, aired = _moments.pop(pid, (None, None))
     emit(Ctx(CLIP_TITLED, pid=pid, d=d, sess=sess, aired=aired))
+
+
+def render_done(it: dict):
+    """A queue item finished rendering: its file is ready."""
+    emit(Ctx(RENDER_DONE, pid=it.get("pid") or "", it=it))
+
+
+def render_failed(it: dict, kind: str):
+    """A queue item's render failed for good (not a retry), with the error kind classify_render_error gave."""
+    emit(Ctx(RENDER_FAILED, pid=it.get("pid") or "", it=it, extra={"kind": kind}))

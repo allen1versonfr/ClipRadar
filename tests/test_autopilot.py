@@ -10,6 +10,9 @@ The autopilot core on its own (issue 50): no server, no live session.
   7. the gate: a high-risk flag with hold on, unreviewed flags that block renders, or nothing
   8. an outward step passes the gate first
   9. clip_titled gets the live session and air time moment_found was given, once
+ 10. render_done / render_failed: recorded on the queue item, in order; a failing step doesn't stop the next
+     and doesn't raise into the render loop; shutting down skips them; the after-render steps are registered
+     in queue_worker's old order
 
   python tests/test_autopilot.py
 """
@@ -28,7 +31,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "src"))
 import autopilot  # noqa: E402
 import errorlog  # noqa: E402
 import safety  # noqa: E402
-from autopilot import CLIP_TITLED, MOMENT_FOUND, Ctx, Step  # noqa: E402
+from autopilot import CLIP_TITLED, MOMENT_FOUND, RENDER_DONE, RENDER_FAILED, Ctx, Step  # noqa: E402
 
 failures = []
 
@@ -196,6 +199,60 @@ SEEN.clear()
 autopilot.moment_found(sess, "m2", {}, 123.0)
 autopilot.clip_titled("m2", {})
 check("9: with its air time", SEEN == [(MOMENT_FOUND, sess, 123.0), (CLIP_TITLED, sess, 123.0)], SEEN)
+
+# 10. render_done / render_failed: the record goes on the queue item ------------------------------------
+GOT: list = []
+fresh(step("r1", on=RENDER_DONE), step("rbad", on=RENDER_DONE, fail=True), step("rbg", on=RENDER_DONE, background=True),
+      step("r3", on=RENDER_DONE), step("f1", on=RENDER_FAILED),
+      Step("fk", RENDER_FAILED, enabled=lambda ctx: True, run=lambda ctx: GOT.append((ctx.pid, ctx.it, ctx.extra.get("kind")))))
+it = {"id": "q1", "pid": "p1", "title": "Queued clip"}
+try:
+    autopilot.render_done(it)
+    raised = None
+except Exception as e:      # noqa: BLE001
+    raised = e
+check("10: a failing step doesn't raise into the render loop", raised is None, raised)
+check("10: render_done: only its steps, in order, the failing one doesn't stop the next",
+      RAN == ["r1", "rbad", "rbg", "r3"], RAN)
+check("10: recorded on the queue item", outcomes(it) == [("r1", "ran"), ("rbad", "failed"), ("rbg", "ran"), ("r3", "ran")]
+      and all(e["event"] == RENDER_DONE for e in it["auto_log"]), it.get("auto_log"))
+check("10: the failure is in the error log with the item's title", any(
+    x.get("where") == "autopilot:rbad" and (x.get("context") or {}).get("clip") == "Queued clip"
+    for x in errorlog.recent()), errorlog.recent()[-1:])
+RAN.clear()
+it2 = {"id": "q2", "pid": "p2"}
+autopilot.render_failed(it2, "stalled")
+check("10: render_failed: only its steps, with the item and the kind", RAN == ["f1"] and GOT == [("p2", it2, "stalled")], (RAN, GOT))
+check("10: render_failed recorded on the item", outcomes(it2) == [("f1", "ran"), ("fk", "ran")]
+      and all(e["event"] == RENDER_FAILED for e in it2["auto_log"]), it2.get("auto_log"))
+d = {"title": "clip"}
+RAN.clear()
+autopilot.emit(Ctx(RENDER_DONE, d=d, it=it2))
+check("10: with both a clip and an item, the item gets the record", "auto_log" not in d and len(it2["auto_log"]) == 6, d)
+
+RAN.clear()
+autopilot.shutting_down = lambda: True
+try:
+    it3 = {"id": "q3"}
+    autopilot.render_done(it3)
+    autopilot.render_failed(it3, "ffmpeg")
+finally:
+    autopilot.shutting_down = lambda: False
+check("10: shutting down: nothing runs after a render", RAN == [] and GOT == [("p2", it2, "stalled")], RAN)
+check("10: each recorded on the item as skipped, shutting down",
+      outcomes(it3) == [("r1", "skipped"), ("rbad", "skipped"), ("rbg", "skipped"), ("r3", "skipped"),
+                        ("f1", "skipped"), ("fk", "skipped")]
+      and all(e.get("why") == "shutting down" for e in it3["auto_log"]), it3.get("auto_log"))
+
+import autopilot_steps  # noqa: E402
+autopilot.reset()
+autopilot_steps.register()
+check("10: the after-render steps, in queue_worker's old order",
+      [s.name for s in autopilot.steps(RENDER_DONE)] == ["ready_sound", "discord", "cleanup_vods", "latency_render"],
+      [s.name for s in autopilot.steps(RENDER_DONE)])
+check("10: none outward or background yet (Discord sends on its own thread, as before)",
+      not any(s.outward or s.background for s in autopilot.steps(RENDER_DONE)))
+check("10: no steps on render_failed yet", autopilot.steps(RENDER_FAILED) == [])
 
 check("still no server import", "server" not in sys.modules)
 autopilot.reset()
