@@ -61,17 +61,11 @@ rem ---------- ffmpeg ----------
 if not exist tools mkdir tools
 if exist "tools\ffmpeg.exe" if exist "tools\ffprobe.exe" ( echo   [4/5] ffmpeg found. & goto :tdl )
 where ffmpeg >nul 2>&1 && where ffprobe >nul 2>&1 && ( echo   [4/5] ffmpeg found. & goto :tdl )
-echo   [4/5] Downloading ffmpeg (about 100 MB)...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;" ^
-  "$z=Join-Path $env:TEMP 'vc-ffmpeg.zip'; $d=Join-Path $env:TEMP 'vc-ffmpeg';" ^
-  "Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $z -UseBasicParsing;" ^
-  "if (Test-Path $d) { Remove-Item $d -Recurse -Force }; Expand-Archive $z $d -Force;" ^
-  "Get-ChildItem $d -Recurse -Include ffmpeg.exe,ffprobe.exe | Copy-Item -Destination 'tools' -Force;" ^
-  "Remove-Item $z,$d -Recurse -Force"
+echo   [4/5] Downloading ffmpeg 9.0.2 (about 85 MB)...
+rem the same pinned, checksum-checked build the app ships (src\tools_setup.py)
+"%VPY%" src\tools_setup.py --dest tools ffmpeg
 if not exist "tools\ffmpeg.exe" (
-  echo   ffmpeg download failed. Download "ffmpeg-release-essentials.zip" from https://www.gyan.dev/ffmpeg/builds/
-  echo   and copy ffmpeg.exe and ffprobe.exe from its bin folder into the tools folder here.
+  echo   ffmpeg download failed. Open Clip Radar and use Settings ^> Downloads and tools to try again.
 )
 
 rem ---------- TwitchDownloaderCLI (chat replay) ----------
