@@ -2491,8 +2491,7 @@ def queue_worker(idx: int = 0):
                 _attempt_end(it, "done", diag=it.pop("_diag", None))
                 print(f"  Rendered {it.get('name') or 'the clip'} in {time.time() - t0:.0f} s.", flush=True)
                 save_queue_soon(0)
-                play_sound("ready", it)
-                auto_discord(it)
+                autopilot.render_done(it)      # sound, Discord, cleanup, latency: autopilot_steps
             except engine.Cancelled:
                 with queue_lock:
                     _attempt_end(it, "interrupted" if SHUTTING_DOWN[0] else "cancelled", diag=it.pop("_diag", None))
@@ -2528,12 +2527,8 @@ def queue_worker(idx: int = 0):
                 if not isinstance(e, (RuntimeError, OSError, engine.RenderInputError)):
                     traceback.print_exc()
                 save_queue_soon(0)
+                autopilot.render_failed(it, kind)
                 continue
-            try:
-                _after_render(it)
-            except Exception:
-                errorlog.exc("after-render", clip=it.get("title", ""))
-            _live_rendered(it)
 
 
 # --------------------------------------------------------------------------

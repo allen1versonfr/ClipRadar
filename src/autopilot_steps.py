@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 
 import autopilot
-from autopilot import CLIP_TITLED, MOMENT_FOUND, Ctx, Step
+from autopilot import CLIP_TITLED, MOMENT_FOUND, RENDER_DONE, Ctx, Step
 
 
 def _live(ctx: Ctx) -> bool:
@@ -67,12 +67,49 @@ def hands_free_render(ctx: Ctx):
     return "ran"
 
 
+# ---------------------------------------------------------------- render_done
+
+def ready_sound(ctx: Ctx):
+    """The 'ready' sound (play_sound checks Settings › Exports › sounds itself)."""
+    import server
+    server.play_sound("ready", ctx.it)
+
+
+def discord(ctx: Ctx):
+    """A campaign set to send each clip as it renders: auto_discord checks the switch and the webhook, and
+    sends on its own thread, so a slow upload never holds up the next render."""
+    import server
+    server.auto_discord(ctx.it)
+
+
+def cleanup_vods(ctx: Ctx):
+    """A finished VOD may now be cleaned up (Settings › Storage, off by default)."""
+    import errorlog
+    import server
+    try:
+        server._after_render(ctx.it)
+    except Exception as e:
+        errorlog.exc("after-render", clip=ctx.it.get("title", ""))      # as queue_worker logged it
+        return "failed", f"{type(e).__name__}: {e}"
+
+
+def latency_render(ctx: Ctx):
+    """Hands-free: how long rendering took, and the whole way from the moment on stream to the file."""
+    import server
+    server._live_rendered(ctx.it)
+
+
 STEPS = (
     Step("title_moment", MOMENT_FOUND, enabled=lambda ctx: True, run=title_moment, concerns=_live),
     # the title's latency first: a hands-free item carries it (it["lat"]), and a held clip still has it
     Step("latency_title", CLIP_TITLED, enabled=lambda ctx: True, run=latency_title, concerns=_live),
     Step("hands_free_render", CLIP_TITLED, enabled=lambda ctx: bool(ctx.sess.extra.get("auto_render")),
          run=hands_free_render, concerns=_live),
+    # after a render, in the order queue_worker ran them; each checks its own switch, as before
+    Step("ready_sound", RENDER_DONE, enabled=lambda ctx: True, run=ready_sound),
+    Step("discord", RENDER_DONE, enabled=lambda ctx: True, run=discord),      # outward: gated in phase 4
+    Step("cleanup_vods", RENDER_DONE, enabled=lambda ctx: True, run=cleanup_vods),
+    Step("latency_render", RENDER_DONE, enabled=lambda ctx: True, run=latency_render),
 )
 
 
