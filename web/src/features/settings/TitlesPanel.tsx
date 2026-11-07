@@ -36,7 +36,7 @@ export function TitlesPanel({ onHashtags }: { onHashtags: () => void }) {
         <input type="checkbox" checked={t?.chat_titles ?? true} disabled={!t} onChange={e => void save({ chat_titles: e.target.checked })} />
         <span>Titles from what chat said</span>
       </label>
-      <p className="fine">Only when at least three different chatters typed the same phrase. One viewer spamming, emote walls, F's, links, numbers and usernames never count. Shown as <b>Chat: "…"</b> so it's clear who said it. A strong line said on stream still comes first.</p>
+      <p className="fine">Only when at least three different chatters typed the same phrase. One viewer spamming, emote walls, F's, links, numbers and usernames never count. Shown as <b>Chat: "…"</b> so it's clear who said it. On a Twitch VOD, the titles viewers gave the clips they made of the moment come before chat's phrase. A strong line said on stream still comes first.</p>
       <label className="chk">
         <input type="checkbox" checked={t?.hashtags ?? true} disabled={!t} onChange={e => void save({ hashtags: e.target.checked })} />
         <span>Add hashtags to post captions</span>

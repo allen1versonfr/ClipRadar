@@ -5,6 +5,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.47.0] - 2026-11-07
+
+On a Twitch VOD, a clip can now be titled with what viewers called the clips they made of the same moment.
+
+### Added
+- **Viewers' clip titles as title ideas.** Since 4.45 Clip Radar reads the clips viewers made from a Twitch VOD, but only used them for ranking. Their titles were written by people who watched the moment ("TKO", "scripted??", "AURA"), so now they're title ideas too. A viewer's clip counts when at least half of it is inside your clip, and the most viewed one is tried first. Titles that are only the streamer's name, the stream's own title (what Twitch fills in when nobody named the clip) or under 3 characters are skipped. It comes after a strong line said on stream and before chat's phrase, is tidied like every other title (no shouting, swearing masked, your content check's masking), and isn't given to two clips of the same stream. It follows Settings › Titles and captions › "Titles from what chat said", so switching that off turns these off too. **T** in Review still cycles through the other titles.
+
+### Tests
+- `tests/test_twitchclips.py`: which viewer clips count (at least half inside the clip), most viewed first, and the titles left out.
+- `tests/test_titles.py`: a viewer's title beats the templates and chat's phrase, loses to a strong line said on stream, is tidied and masked, and isn't reused across clips.
+- `tests/test_chattitles.py`: a clip of a Twitch VOD gets the viewer's title, the next clip of the same moment gets chat's phrase, and switching chat titles off turns it off.
+- `tests/test_llm_prompts.py` (new): the prompt and answer checks for the local-AI title test (`scripts/eval_titles.py`, issue #49 phase 0). Nothing in the app uses them yet.
+
 ## [4.46.0] - 2026-11-07
 
 Hands-free never sends a clip the content check held back to your campaign's Discord on its own, and each clip says what Clip Radar did with it.
