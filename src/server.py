@@ -54,6 +54,7 @@ import campaigns
 import chatsignal
 import chattitles
 import ytextra
+import twitchclips
 import cleanup
 import checkflow
 import detect
@@ -560,6 +561,25 @@ def _streamer_name(pr: dict) -> str:
     return pr.get("streamer_display") or pr.get("streamer") or ""
 
 
+def _viewer_titles(pr: dict, start: float, end: float) -> list:
+    """4.47: the titles viewers gave their clips of this stretch of a Twitch VOD (twitchclips.titles_near).
+    The saved list is read once per change of the file, not once per clip."""
+    wd = pr.get("workdir")
+    if not wd:
+        return []
+    path = os.path.join(wd, twitchclips.FILE)
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return []
+    cache = pr.get("_vclip_titles")
+    if not cache or cache[0] != mt:
+        cache = (mt, twitchclips.load(wd))
+        pr["_vclip_titles"] = cache
+    meta = engine._meta(wd)
+    return twitchclips.titles_near(cache[1], start, end, _streamer_name(pr), meta.get("title") or pr.get("title", ""))
+
+
 def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     rel = [{"start": w["start"] - d["start"], "end": w["end"] - d["start"], "word": w["word"]}
            for w in words_abs if d["start"] - 0.2 <= w["start"] <= d["end"]]
@@ -567,13 +587,15 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     ct = _chat_title(pr, d["start"], d["end"]) if tp["chat_titles"] else ""
     if not ct and tp["chat_titles"] and pr.get("yt"):
         ct = ytextra.comment_title(pr["yt"], d["start"], d["end"], _streamer_name(pr))   # a YouTube video's comments
+    vt = _viewer_titles(pr, d["start"], d["end"]) if tp["chat_titles"] else []
     meta = engine._meta(pr["workdir"]) if pr.get("workdir") else {}
     # who said what (each chatter counts once for the mood and the topic), and the game at the clip (4.36)
     info = titles.generate(rel, _chat_near(pr, d["start"], d["end"]),
                            peak_rel=d.get("peak", d["start"]) - d["start"], used=used,
                            streamer=_streamer_name(pr), with_tags=tp["hashtags"], pick=tp["pick"], chat_title=ct,
                            platform=_origin(pr)["platform"] if pr.get("workdir") else "twitch",
-                           game=engine.game_at(meta, float(d.get("peak", d["start"]))), category=meta.get("category", ""))
+                           game=engine.game_at(meta, float(d.get("peak", d["start"]))), category=meta.get("category", ""),
+                           viewer_titles=vt)
     cfg = safety.load_config()
     if not d.get("user_title") and not d.get("userTitle"):
         d["title"] = safety.mask_text(info["title"], cfg)

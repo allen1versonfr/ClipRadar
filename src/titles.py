@@ -652,7 +652,7 @@ def compose(description: str, tags: list, with_tags: bool = True) -> str:
 def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
              used: Optional[set] = None, streamer: str = "", with_tags: bool = True,
              pick: str = "a", game: str = "", chat_title: str = "", platform: str = "twitch",
-             category: str = "") -> dict:
+             category: str = "", viewer_titles: Optional[list] = None) -> dict:
     """
     words      transcript words with times relative to the clip start: [{start,end,word}]
     chat_msgs  chat messages from the moments right after the clip: texts, or (seconds, text, user) tuples
@@ -665,6 +665,8 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
     chat_title a title from a phrase many chatters typed (chattitles.find), or ''
     platform   where the video came from (sources.PLATFORMS key), for the tags and description
     game       the game being played at the clip ('' when unknown), category YouTube's ("Gaming"...)
+    viewer_titles  titles viewers gave their own clips of this moment, most viewed first
+               (twitchclips.titles_near, 4.47)
     """
     used = used or set()
     name = _name(streamer)
@@ -691,9 +693,18 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
         templates += CLIP_REQ            # chat asking for a clip says little about the clip: after the mood's
     templates += NEUTRAL
 
+    # 4.47: what viewers called the clips they made of this moment. The first that reads well and another clip
+    # of this stream hasn't got already: people who watched it named it, so it beats chat's phrase and templates
+    viewer_title = ""
+    for v in viewer_titles or []:
+        v = _mask(polish(v))
+        if len(v) >= 3 and not garbled(v) and v.lower() not in used:
+            viewer_title = v
+            break
+
     seen, ordered = set(), []
     # what chat agreed on names the moment better than a template; a strong line said on stream still comes first
-    lead = good_quotes[:1] + ([chat_title] if chat_title else []) + good_quotes[1:2]
+    lead = good_quotes[:1] + ([viewer_title] if viewer_title else []) + ([chat_title] if chat_title else []) + good_quotes[1:2]
     for t in lead + templates:
         t = polish(t)
         if t and t.lower() not in seen:
@@ -746,5 +757,6 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
         "emoji": emoji,
         "quote": quote,
         "chat_title": chat_title if chat_title and chat_title in alts else "",
+        "viewer_title": viewer_title if viewer_title in alts else "",
         "topic": t_word,
     }
