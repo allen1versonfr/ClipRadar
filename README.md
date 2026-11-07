@@ -142,6 +142,8 @@ src/
   server.py       local HTTP API the UI talks to, render queue
   engine.py       download, analysis, clip picking, rendering, captions
   live.py         live recording (own HLS reader that skips ads), chat reader, moment detection
+  autopilot.py    what runs on its own: events, steps, the shared hold gate, each clip's record of what happened
+  autopilot_steps.py  the steps: hands-free titling and render, Discord, cleanup, Keep watching
   chatsignal.py   chat cleaning: chatters not messages, bots, notices, raids, copypasta
   audio_events.py laughter / scream / cheering detector (ONNX, built by scripts/export_audio_model.py)
   gems.py         Deep scan: scores every transcribed line, finds quiet gems

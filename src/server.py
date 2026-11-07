@@ -1210,7 +1210,7 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
         return [w for w in tx["words"] if a <= w["start"] < b]
 
 
-def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
+def start_listening(pid: str, order: list, model: str, lang: str):
     """Background job: transcribe each suggested clip and give it a proper title."""
     pr = projects[pid]
     old = jobs.get(pr.get("listen_job", ""))
@@ -1297,11 +1297,6 @@ def start_listening(pid: str, order: list, model: str, lang: str, on_done=None):
                 timer.done()
         if not pr.get("live"):
             _save_transcripts(pr)
-        if on_done:
-            try:
-                on_done(pid)
-            except Exception:
-                errorlog.exc("titles")
         return {"ok": True}
     run_job(job, go)
     return job

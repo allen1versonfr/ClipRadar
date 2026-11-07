@@ -1,7 +1,8 @@
 # Plan: one core for the automated features (issue #50)
 
-Status: plan, not started. Written against Clip Radar 4.45.1 (`main` at the README screenshots merge).
-Line numbers are from that version and will drift; the function names are what to search for.
+Status: done (phases 1–6 merged; behaviour change shipped in 4.46.0). Written against Clip Radar 4.45.1
+(`main` at the README screenshots merge). Line numbers are from that version and will drift; the function
+names are what to search for. See [What was built](#what-was-built) at the end for where the work differed.
 
 Read [`README.md`](README.md) in this folder first for how this plan and the one for #49 fit together.
 
@@ -314,3 +315,12 @@ Move `clip_skipped`, `session_ended` (removing `_watch_for_next`'s polling threa
 before `hands_free_render`, so a hands-free clip renders with the polished title. Its outcome (polished,
 kept, timed out) lands in the same record. See [`issue-49-local-llm.md`](issue-49-local-llm.md),
 section 7.
+
+## What was built
+
+- **Phase 1 (#73):** as planned, 11 cases. Keep watching was pinned by calling `_watch_for_next` directly; the start-up cleanup wasn't pinned.
+- **Phase 2 (#74):** steps register on `server` import, not in `server.start`; `latency_title` runs before `hands_free_render`; `moment_found` takes `aired`; `gate()` returns `Hold(rule, why)`; `Step` gained `concerns(ctx)`.
+- **Phase 3 (#75):** `discord` stayed inline and not outward until phase 4; a step that raises after a render no longer marks the item failed, and shutdown skips the steps.
+- **Phase 4 (#76, 4.46.0):** required caption text isn't gated (`apply_post` always adds it); the Discord switch moved into the step's `enabled()`; the API returns 404 when neither clip nor item exists; `test_campaigns` updated for the intended change.
+- **Phase 5 (#77):** `session_ended` comes through a `LiveSession` `on_end` callback once the recording thread finishes; pin case 10 calls `autopilot.session_ended` instead of the removed `_watch_for_next` (expectations unchanged).
+- **Phase 6 (#PR6):** `start_listening`'s `on_done` removed; grep found no other leftovers. README lists the two modules; `docs/api-routes.md` was already current.
