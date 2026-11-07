@@ -132,5 +132,24 @@ check("the reason says who clipped it", "clipped by 3 viewers, 2.9k views" in wh
 sub = an.part(290, 340)
 check("a part of the analysis keeps it (live moments, re-ranking)", sub.vclips is not None and len(sub.vclips) == 50)
 
+# ---------------------------------------------------------------- 4.47: their titles as title ideas
+vd = {"clips": [
+    {"start": 100, "end": 130, "views": 40, "title": "ninja"},           # all inside
+    {"start": 110, "end": 150, "views": 900, "title": "TKO"},           # 20 of 40 s inside: exactly half counts
+    {"start": 115, "end": 160, "views": 5000, "title": "too far"},      # 15 of 45 s inside: not enough
+    {"start": 60, "end": 102, "views": 7000, "title": "before"},        # 2 s inside
+    {"start": 101, "end": 125, "views": 300, "title": "jasontheween"},  # only the streamer's name
+    {"start": 102, "end": 126, "views": 301, "title": "NMS BOXING 5"},  # the stream's title
+    {"start": 103, "end": 127, "views": 302, "title": "ok"},            # too short
+    {"start": 104, "end": 128, "views": 50, "title": "tko"},            # the same title again
+    {"start": 105, "end": 129, "views": 20, "title": "  AURA  "},
+]}
+near = twitchclips.titles_near(vd, 100, 130, "JasonTheWeen", "nms boxing 5")
+check("viewer clips at least half inside the clip, most viewed first", near == ["TKO", "ninja", "AURA"], near)
+check("no clips nearby: none", twitchclips.titles_near(vd, 400, 430) == [] and twitchclips.titles_near({}, 0, 30) == [])
+check("streamer and stream title unknown: those titles count", "jasontheween" in twitchclips.titles_near(vd, 100, 130))
+check("a viewer clip much longer than the clip doesn't count",
+      twitchclips.titles_near({"clips": [{"start": 0, "end": 90, "views": 1, "title": "long one"}]}, 30, 60) == [])
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

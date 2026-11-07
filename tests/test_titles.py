@@ -207,6 +207,34 @@ check("five at most, the platform's tag kept", len(full) == 5 and full[-1] == "#
       full)
 check("no #twitchclips on every clip any more", "#twitchclips" not in titles.hashtags("funny", "Kai"))
 
+# ---------------------------------------------------------------- 4.47: what viewers called their clips
+vt = ["JASON EATS SHIT", "TKO"]
+quiet_words = W("okay okay", 1)
+gv = titles.generate(quiet_words, laugh, 1.0, set(), streamer="Jason", viewer_titles=["TKO", "ninja"])
+check("a viewer's clip title beats the templates", gv["title_a"] == "TKO" and gv["viewer_title"] == "TKO", gv["title_a"])
+check("and is kept as an option", "TKO" in gv["titles"], gv["titles"])
+gq = titles.generate(words, laugh, 4.0, set(), streamer="Jason", viewer_titles=["TKO"])
+check("a strong line said on stream still beats it", gq["title_a"].lower().startswith("no way he actually did that")
+      and "TKO" in gq["titles"], (gq["title_a"], gq["titles"]))
+gc = titles.generate(quiet_words, laugh, 1.0, set(), viewer_titles=["TKO"], chat_title='Chat: "REF"')
+check("and it comes before chat's phrase", gc["title_a"] == "TKO" and 'Chat: "REF"' in gc["titles"], gc["titles"])
+gm = titles.generate(quiet_words, laugh, 1.0, set(), viewer_titles=vt)
+check("a viewer's title is tidied and its swearing masked", gm["title_a"] == "Jason eats s***", gm["title_a"])
+import safety  # noqa: E402
+cfg = dict(safety.DEFAULTS, censor="bleep", custom=["springfield"])
+masked = safety.mask_text(titles.generate(quiet_words, laugh, 1.0, set(), viewer_titles=["springfield arc"])["title_a"], cfg)
+check("and the content check's masking applies to it as to any title", masked == "S********** arc", masked)
+used_v: set = set()
+firsts = []
+for k in range(2):
+    g = titles.generate(quiet_words, laugh, 1.0 + k, used_v, viewer_titles=["TKO", "ninja"])
+    used_v.update(x.lower() for x in (g["title"], g["title_a"], g["description"]) if x)
+    firsts.append(g["title_a"])
+check("the same viewer title isn't given to two clips", firsts == ["TKO", "Ninja"], firsts)
+g3 = titles.generate(quiet_words, laugh, 3.0, used_v, viewer_titles=["TKO", "ninja"])
+check("all of them taken: back to the usual titles", g3["title_a"] not in ("TKO", "Ninja") and not g3["viewer_title"], g3["title_a"])
+check("no viewer titles: as before", titles.generate(words, laugh, 4.0, set(), streamer="JasonTheWeen")["title_a"] == r["title_a"])
+
 import engine  # noqa: E402
 import json  # noqa: E402
 import tempfile  # noqa: E402

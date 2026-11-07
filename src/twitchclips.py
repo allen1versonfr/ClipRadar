@@ -191,3 +191,33 @@ def reason(an, i: int) -> str:
     if views > 0:
         return f"clipped by {who}, {views} views"
     return f"clipped by {who}"
+
+
+def _plain(s: str) -> str:
+    return "".join(ch for ch in (s or "").lower() if ch.isalnum())
+
+
+def titles_near(d: dict, start: float, end: float, streamer: str = "", stream_title: str = "") -> list:
+    """The titles viewers gave their clips of this stretch (4.47), most viewed first: title ideas written by
+    people who watched the moment ("TKO", "scripted??"). A viewer clip counts when at least half of it is
+    inside start..end. Left out: titles under 3 characters, only the streamer's name, or the stream's own
+    title (Twitch fills that in when the viewer doesn't name the clip), and the same title twice."""
+    skip = {_plain(streamer), _plain(stream_title)} - {""}
+    found = []
+    for c in (d or {}).get("clips") or []:
+        try:
+            a, b = float(c["start"]), float(c["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if b <= a or min(b, end) - max(a, start) < 0.5 * (b - a):
+            continue
+        t = " ".join(str(c.get("title") or "").split())
+        if len(t) < 3 or _plain(t) in skip or not _plain(t):
+            continue
+        found.append((-int(c.get("views") or 0), a, t))
+    out, seen = [], set()
+    for _, _, t in sorted(found):
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    return out

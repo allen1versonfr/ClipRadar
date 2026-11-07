@@ -108,6 +108,28 @@ d3 = {"start": 95.0, "end": 115.0, "peak": 100.0}
 server._title_clip(broken, d3, [], set())
 check("odd chat data still gives a normal title", bool(d3["title"]) and not d3["title"].startswith("Chat:"), d3.get("title"))
 
+# 4.47: on a Twitch VOD, what viewers called the clips they made of the moment comes before chat's phrase
+import tempfile  # noqa: E402
+import persist  # noqa: E402
+import twitchclips  # noqa: E402
+vwd = tempfile.mkdtemp(prefix="ct_vclips_")
+persist.write_json(os.path.join(vwd, twitchclips.FILE), {"vod": "1", "fetched": 0, "clips": [
+    {"start": 96, "end": 112, "views": 80, "title": "DOG CAMEO"}, {"start": 97, "end": 113, "views": 5, "title": "t"}]})
+vpr = dict(pr, workdir=vwd)
+vused: set = set()
+dv = {"start": 95.0, "end": 115.0, "peak": 100.0}
+server._title_clip(vpr, dv, [], vused)
+check("a viewer's clip title is the clip's title", dv["title"] == "Dog cameo" and 'Chat: "The dog walked in"' in dv["titles"],
+      (dv.get("title"), dv.get("titles")))
+dv2 = {"start": 95.0, "end": 115.0, "peak": 100.0}
+server._title_clip(vpr, dv2, [], vused)
+check("the next clip of the same moment gets chat's phrase instead", dv2["title"] == 'Chat: "The dog walked in"', dv2.get("title"))
+server.set_title_prefs({"chat_titles": False})
+dv3 = {"start": 95.0, "end": 115.0, "peak": 100.0}
+server._title_clip(vpr, dv3, [], set())
+check("titles from chat switched off: viewers' clip titles aren't used either", dv3["title"] != "Dog cameo", dv3.get("title"))
+server.set_title_prefs({"chat_titles": True})
+
 # titles look only at the stretch of chat around the clip (it used to filter all of a stream's chat for every
 # clip); the messages found must be exactly the ones the whole-chat filter finds
 import random  # noqa: E402

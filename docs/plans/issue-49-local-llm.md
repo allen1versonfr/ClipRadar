@@ -1,6 +1,7 @@
 # Plan: an optional local LLM for titles, quiet gems and content-check context (issue #49)
 
-Status: plan, not started. Written against Clip Radar 4.45.1. Line numbers are from that version and will
+Status: phase 1 shipped in 4.47.0. Phase 0's script and prompt are ready but haven't been run against a real
+model yet (see "Phase 0 results" at the end). Written against Clip Radar 4.45.1. Line numbers are from that version and will
 drift; the function names are what to search for.
 
 Read [`README.md`](README.md) in this folder first. This plan builds on the automation core from #50
@@ -382,3 +383,68 @@ off for live sessions there.
 | Licences | Apache-2.0/MIT model; licence file shipped in docs |
 | llama.cpp flag or API changes | Pinned release; flags checked against it; stand-in server tests the client side |
 | Privacy | Nothing leaves the PC; prompts never logged; no usernames in prompts |
+
+## Phase 0 results
+
+**Not measured yet. No model has been run, so there is no verdict on phases 2–5.** What exists and what's
+needed:
+
+### What's built (with 4.47.0)
+
+- `src/llm_prompts.py`: the prompt (5.3, `PROMPT_VERSION = 1`), the schema (5.2), the inputs (5.1: numbered
+  candidates, a 600-character transcript excerpt centred on the peak, the 15 most-agreed chat phrases with
+  @mentions, links and chatters' names taken out) and every check in 5.4 (`check()` returns `used` or
+  `rejected:<rule>`, with rules `shape`, `empty`, `too_long`, `caps`, `link`, `mention`, `hashtag`, `emoji`,
+  `invented`, `garbled`, `used`, `flagged`). Unit-tested in `tests/test_llm_prompts.py` (CI), no model.
+- A maximal prompt (12 candidates of 55 characters, a full transcript excerpt, 15 long chat phrases) is
+  2,835 characters, about **709 tokens** by the 4-characters-a-token estimate. Real clips are smaller (the
+  smoke test's largest was ~120 tokens for the user part). Count real tokens with `usage.prompt_tokens`,
+  which `results.json` records.
+- `scripts/eval_titles.py`: titles every clip of a folder of saved projects the way the app does
+  (`server._title_clip`, so with viewers' clip titles), asks each `llama-server` given by `--url`, applies
+  the checks, and writes `rate.html` (blind A/B, saves each rater's answers as JSON), `key.json` and
+  `results.json` (outcome, rejection rule, milliseconds, prompt tokens per clip and model). `--score
+  key.json rater1.json rater2.json` gives each model's win rate, rejection rate and the ship rule's verdict.
+  Pairs where the model's title is the built-in one are counted as "same" and not shown to raters.
+- Checked end to end only against a stand-in server written for the purpose (not committed), on a project
+  built from the real viewer clips of VOD 2910903624 and made-up words and chat: the script ran, viewer
+  titles reached the candidates ("TKO", "Tbvnks wylin"), invented names were rejected, the page and the
+  score worked. Those answers were canned, so they say nothing about title quality.
+
+### Why it wasn't run here (7 Nov 2026, a cloud session)
+
+- llama.cpp: GitHub's release API and release pages were refused by the session's network policy (403).
+  Cloning the source worked, but building and running it was refused by the session's permission rules.
+- Models: Hugging Face was reachable. `Qwen/Qwen3-1.7B-GGUF` (Apache-2.0, revision
+  `90862c4b9d2787eaed51d12237eafdfe7c5f6077`) only has `Qwen3-1.7B-Q8_0.gguf` (~1.8 GB), not a Q4_K_M.
+  `Qwen/Qwen3-4B-Instruct-2507-GGUF` doesn't exist under Qwen's account (the API answered 401).
+- Inputs: Twitch's clip list for VOD 2910903624 (jasontheween, NMS BOXING 5) was readable: 14 viewer clips,
+  from "ninja" (62k views) and "AURA" (27.5k) to "TKO", "tko" and "?". Of their titles, only "?" fails
+  `titles_near`'s filters (under 3 characters). The video itself (`usher.ttvnw.net`) was refused, so there was no audio and no
+  transcript to build real projects from. The machine had 4 cores and no GPU, so even with a model its
+  timings wouldn't have matched either target PC in section 8.
+
+### To run it on a PC
+
+1. Open at least 5 VODs of different kinds in Clip Radar 4.47+ (gaming, Just Chatting, IRL or an event, a
+   YouTube video, and NMS BOXING 5), with 60 clips or more between them, and let it listen to the clips
+   (Review), so each clip has its words. Close Clip Radar. The projects are under `%APPDATA%\ClipRadar\work`
+   (or wherever Settings › Storage points).
+2. Download llama.cpp's latest Windows release from https://github.com/ggml-org/llama.cpp/releases
+   (`llama-bNNNN-bin-win-cpu-x64.zip`, or `-vulkan-x64` / `-cuda-12.x-x64` for the GPU run). Note the tag.
+3. Download two models from Hugging Face: a small one (`Qwen/Qwen3-1.7B-GGUF`, `Qwen3-1.7B-Q8_0.gguf`, or a
+   Q4_K_M quantisation from a well-known publisher) and a ~4B instruct one (for example a Q4_K_M of
+   `Qwen/Qwen3-4B-Instruct-2507`). Check each licence (Apache-2.0 or MIT).
+4. Start one server per model:
+   `llama-server -m Qwen3-1.7B-Q8_0.gguf --port 8081 -c 4096 --jinja` and the same with the 4B on 8082.
+   Add `-ngl 99` for the GPU run. `--jinja` (the default in recent releases) makes the server honour
+   `chat_template_kwargs`, which turns Qwen3's thinking off.
+5. `python scripts/eval_titles.py "%APPDATA%\ClipRadar\work" --url small=http://127.0.0.1:8081 --url
+   std=http://127.0.0.1:8082 --out eval_out`. If the server rejects `response_format` with `json_schema`,
+   note the release tag and the error here; older releases want `{"type": "json_object", "schema": ...}`.
+6. Two people rate `eval_out/rate.html` separately and save their answers. Then
+   `python scripts/eval_titles.py --score eval_out/key.json ratings_a.json ratings_b.json`.
+7. Write here: the llama.cpp tag, each model's file and revision, the PC (CPU, GPU, RAM), the median and
+   90th-percentile milliseconds per title (first request after loading separately), the rejection rate and
+   its rules, and each model's win rate. Phases 2–5 go ahead only if a model wins at least 60% of the
+   non-"same" comparisons and has at most 25% rejected.

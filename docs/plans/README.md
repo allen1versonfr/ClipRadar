@@ -7,7 +7,7 @@ tests, and the risks.
 | Plan | Issue | Status |
 |---|---|---|
 | [One core for the automated features](issue-50-automation-core.md) | #50 | Planned |
-| [Optional local LLM: titles, quiet gems, content-check context](issue-49-local-llm.md) | #49 | Planned |
+| [Optional local LLM: titles, quiet gems, content-check context](issue-49-local-llm.md) | #49 | Phase 1 in 4.47.0; phase 0 script ready, not run yet |
 
 ## Order
 
