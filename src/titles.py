@@ -199,6 +199,11 @@ again still even ever never always very much more most too also only well right 
 come came go went say said tell told look looks looking guys chat bro dude man thing things stuff something
 anything nothing everything way time today real quick literally actually honestly basically every
 """.split())
+# titles-v2: everyday words that, capitalised in the middle of a run of speech, start a new sentence
+SENTENCE_WORDS = (PLAIN | STRONG | FILLER | CLAUSE_START | LEAD_FILLER | DANGLING_START | {
+    "cut", "kiss", "look", "stop", "come", "give", "put", "wait", "watch", "please", "sorry", "thank", "thanks",
+    "hey", "hi", "yo", "yep", "nope", "damn", "holy", "god", "jesus", "nice", "bro", "dude", "man", "guys"}) - {
+    "i", "i'm", "i'd", "i'll", "i've", "god"}
 # "...and goes are you famous": the words before a quote, dropped from a title made of it
 QUOTATIVE = re.compile(r"^(?:(?:he|she|they|i|you|and|then)\s+)*(?:goes|says|was like|were like|is like|be like)\s+",
                        re.I)
@@ -221,6 +226,19 @@ def _mask(text: str) -> str:
     return PROFANITY.sub(m, text)
 
 
+def _new_sentence(prev: str, txt: str) -> bool:
+    """titles-v2: Whisper often leaves out a full stop but starts the next sentence with a capital ("Kiss your lips
+    No!", "Jynxzi, Jynxzi Oh my god"). A capitalised everyday word after a word with no punctuation starts a new
+    sentence; names ("call coach Tariq") and "I" don't."""
+    if not prev or prev[-1:] in ",;:-" or not txt[:1].isupper() or len(txt) < 2:
+        return False
+    bare = _bare(txt)
+    txt = txt.rstrip(".,!?;:")
+    if len(txt) < 2 or not txt[1:].replace("'", "").isalpha() or not txt[1:].islower() or bare.startswith("i'") or bare == "i":
+        return False
+    return bare in SENTENCE_WORDS
+
+
 def _phrases(words: list) -> list:
     """Split a transcript into phrases at sentence ends and pauses."""
     out, cur = [], []
@@ -228,7 +246,7 @@ def _phrases(words: list) -> list:
         txt = _clean_word(w["word"])
         if not txt:
             continue
-        if cur and w["start"] - cur[-1]["end"] > 0.7:
+        if cur and (w["start"] - cur[-1]["end"] > 0.7 or _new_sentence(cur[-1]["word"], txt)):
             out.append(cur)
             cur = []
         cur.append({**w, "word": txt})
@@ -350,6 +368,13 @@ def _score_phrase(ph: list, text: str, peak_rel: float) -> float:
         s -= 1.5
     if ph[-1].get("_cut_end") and toks and (toks[-1] in DANGLING_END or toks[-1] in LEADS_INTO):
         s -= 1.5
+    # titles-v2: the same stopping mid-thought where Whisper ended the line ("Tell them after this game after",
+    # "Feeling like wait till"), and a line that's mostly one word said over and over ("Bar Bar Bar Go bar",
+    # "On roof, on roof", "Oh Baking soda baking soda take baking")
+    if toks and toks[-1] in TRAIL_PREP:
+        s -= 1.0
+    if len(toks) >= 3 and (len(set(toks)) < 0.75 * len(toks) or max(toks.count(t) for t in toks) >= 3):
+        s -= 1.5 + max(1.0, 4 * (0.75 - len(set(toks)) / len(toks)))
     return s
 
 
@@ -370,6 +395,17 @@ def garbled(text: str) -> bool:
     symbols = sum(1 for c in text if not (c.isalnum() or c.isspace() or c in ".,!?'\"-…*"))
     return symbols >= 2
 
+
+TRAIL_PREP = {"after", "till", "until", "before", "about", "from", "into", "onto", "like", "the", "a", "an", "to", "of",
+              "and", "but", "or", "so", "my", "your", "our", "in", "on", "at", "for", "with", "as", "if", "when",
+              "because", "than", "you're", "we're", "they're", "it's", "i'm", "he's", "she's", "that's", "there's", "let's"}
+
+
+QUOTE_OK = 2.5          # a line said on stream good enough to be a title at all
+QUOTE_STRONG = 6.0      # titles-v2: ...and good enough to beat a viewer's clip title or chat's phrase
+QUOTE_FAIR = 5.5        # ...or one word chat kept typing
+SHOUT_PREFIX = "Chat kept saying "
+CAPTION_QUOTE = 4.0     # a line said that's good enough to lead a post caption
 
 KIND_VIBE = {"laugh": "funny", "hype": "hype", "shock": "shock", "fail": "fail", "confused": "confused",
              "cringe": "cringe"}
@@ -492,6 +528,22 @@ def topic(chat_msgs: list, streamer: str = "", exclude=()) -> str:
     return best
 
 
+# titles-v2: words that only react ("lol", "GGS", "OMFG", "yup"): a viewer's clip title made of them says nothing
+REACTION_ONLY = {"lol", "lmao", "lmfao", "rofl", "gg", "ggs", "ggwp", "omg", "omfg", "wtf", "damn", "yup", "yep",
+                 "nope", "yes", "no", "wow", "bruh", "bro", "huh", "what", "w", "l", "ww", "ll", "nice", "clip",
+                 "clipped", "this", "that", "it", "insane", "crazy", "wild", "sheesh", "oh", "my", "god", "ok",
+                 "okay", "alright", "dead", "im", "i'm", "lmaooo", "haha", "xd", "pog", "poggers", "moment", "funny",
+                 "lul", "kekw", "omegalul", "ayo", "ayoo", "yo", "the", "a", "so", "real", "fr", "true", "same"}
+
+
+def says_nothing(text: str) -> bool:
+    """A title made only of reactions, emoji and punctuation ("Yup", "LMFAOOOOO", "GGs……", "LOL Ayooo😂🤣", "?")."""
+    eng = _engine()
+    ws = [re.sub(r"([a-z])\1{2,}", r"\1", w) for w in re.findall(r"[a-z][a-z']*", (text or "").lower())]
+    return not any(w not in REACTION_ONLY and not eng.LAUGH_TEXT.match(w) and w not in eng.HYPE and w not in eng.REACT
+                   and not eng.reaction_kind(w) for w in ws)
+
+
 def _pick(pool: list, used: set, seed: int) -> list:
     """The pool, those not used yet first, starting at a place set by seed so clips of one mood don't all get
     the same one (used holds titles and captions already given to this stream's clips)."""
@@ -508,6 +560,9 @@ TRAIL_FILLER = {"like", "so", "and", "but", "um", "uh", "the", "a", "to", "of", 
 def polish(text: str) -> str:
     """Tidy a title: sentence case for shouting, no stammered repeats, no trailing filler, one '!'."""
     t = re.sub(r"\s+", " ", (text or "").strip())
+    # titles-v2: Whisper's spacing ("y 'all", "1 ,000")
+    t = re.sub(r"(\w) '(all|re|s|ll|ve|d|m|t)\b", r"\1'\2", t)
+    t = re.sub(r"(\d) ,(\d{3})\b", r"\1,\2", t)
     letters = [c for c in t if c.isalpha()]
     if len(letters) > 4 and sum(c.isupper() for c in letters) > 0.6 * len(letters):
         t = t.lower()                                          # SHOUTING -> normal case
@@ -644,6 +699,58 @@ def describe(vibe: Optional[str], quote: str, streamer: str = "", emoji: str = "
     return f"{text} {emoji}".strip()
 
 
+# titles-v2: a question at the end of a caption, for comments. Only asks; never says what happened
+QUESTIONS = {
+    "funny": ["Who laughed first?", "Did you laugh too?", "Who needs to see this?", "Rate this from 1 to 10"],
+    "hype": ["Were you watching live?", "Rate this from 1 to 10", "Who was there for this?"],
+    "shock": ["Did you see that coming?", "What would you have done?", "Did you expect that?"],
+    "fail": ["What would you have done?", "How would you have handled it?"],
+    "confused": ["Can someone explain?", "What did we just watch?", "Does this make sense to anyone?"],
+    "cringe": ["How would you have reacted?", "Would you have said something?"],
+    "wholesome": ["Who else needed this today?", "Tag someone who needs this"],
+    None: ["What do you think?", "Thoughts?"],
+}
+
+
+NUMBER_WORDS = {"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "zero"}
+
+
+def _has_specific(text: str) -> bool:
+    """A line with a word that says something ("spider", "nether"), not only "Oh my god" or "Three, two, one"."""
+    return any(len(t) >= 3 and t not in PLAIN and t not in STRONG and t not in FILLER and t not in NUMBER_WORDS
+               and t not in TRAIL_PREP for t in (_bare(w) for w in text.split()))
+
+
+def caption(vibe: Optional[str], lines: list, streamer: str = "", emoji: str = "👀", platform: str = "twitch",
+            used: Optional[set] = None, seed: int = 0) -> str:
+    """titles-v2: a post caption that says something specific the title doesn't: the first of lines (another line
+    said on stream, a viewer's clip title, chat's phrase), else a line about how chat took it; then a question
+    for comments and whose stream. Nothing in it is given twice in a stream where it can be helped."""
+    used = used or set()
+    name = _name(streamer)
+    where = PLATFORM_NAMES.get(platform, "Twitch")
+    lead = ""
+    for kind, text in lines:
+        cand = f'"{text}"' if kind == "quote" else text
+        if text and not any(cand.lower() in u or text.lower() in u for u in used):
+            lead = cand
+            break
+    credit = f" ({name} on {where})" if name else ""
+    if not lead:
+        if vibe not in VIBES:
+            return describe(vibe, "", streamer, emoji, platform, used, seed)
+        pool = _pick(VIBES[vibe]["hooks"], set(), seed)
+        times = {h: sum(1 for u in used if u.startswith(h.lower())) for h in pool}
+        lead = min(pool, key=lambda h: times[h])
+    return f"{lead} {emoji}{_ask(vibe, used, seed)}{credit}".strip()
+
+
+def _ask(vibe: Optional[str], used: set, seed: int) -> str:
+    pool = _pick(QUESTIONS.get(vibe if vibe in QUESTIONS else None), set(), seed)
+    times = {q: sum(1 for u in used if q.lower() in u) for q in pool}
+    return " " + min(pool, key=lambda q: times[q])
+
+
 def compose(description: str, tags: list, with_tags: bool = True) -> str:
     """The post text: the description, then the hashtags when they're switched on."""
     return f"{description}\n\n{' '.join(tags)}" if with_tags and tags else description
@@ -683,7 +790,9 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
             continue
         quotes.append((_score_phrase(ph, text, peak_rel), _mask(text)))
     quotes.sort(key=lambda q: -q[0])
-    good_quotes = [q for s, q in quotes if s >= 2.5]
+    good_quotes = [q for s, q in quotes if s >= QUOTE_OK]
+    strong = bool(quotes) and quotes[0][0] >= QUOTE_STRONG
+    fair = bool(quotes) and quotes[0][0] >= QUOTE_FAIR
 
     templates = []
     if vibe and t_word:
@@ -698,13 +807,24 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
     viewer_title = ""
     for v in viewer_titles or []:
         v = _mask(polish(v))
-        if len(v) >= 3 and not garbled(v) and v.lower() not in used:
+        if len(v) >= 3 and not garbled(v) and not says_nothing(v) and v.lower() not in used:
             viewer_title = v
             break
 
     seen, ordered = set(), []
-    # what chat agreed on names the moment better than a template; a strong line said on stream still comes first
-    lead = good_quotes[:1] + ([viewer_title] if viewer_title else []) + ([chat_title] if chat_title else []) + good_quotes[1:2]
+    # titles-v2: specific beats generic. A strong line said on stream comes first; then what viewers called their
+    # clips and what chat agreed on, which name the moment; then a line that's only fair ("Sarah slowing down the
+    # pace a little bit" used to beat "KAI GOT SMACKED"); then the templates
+    # one word chat kept typing (chattitles' shout) is less than a phrase: a good line said on stream beats it
+    shout = chat_title.startswith(SHOUT_PREFIX)
+    specific = ([viewer_title] if viewer_title else []) + ([chat_title] if chat_title and not shout else [])
+    after = [chat_title] if chat_title and shout else []
+    if strong:
+        lead = good_quotes[:1] + specific + after + good_quotes[1:2]
+    elif fair:
+        lead = specific + good_quotes[:1] + after + good_quotes[1:2]
+    else:
+        lead = specific + after + good_quotes[:2]
     for t in lead + templates:
         t = polish(t)
         if t and t.lower() not in seen:
@@ -740,10 +860,25 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
     tags = hashtags(vibe, name, game, platform, t_word, category, seed)
     # the description says something the title on the video doesn't: the reaction when the title is the quote, or
     # (no reaction to go on) the next best line said. It repeated the title in quotes before 4.41.
-    said = quote
-    if quote and quote == title_a:
-        said = "" if vibe else next((q for q in good_quotes[1:] if q.lower() not in title_a.lower()), "")
-    desc = describe(vibe, said, name, emoji, platform, used | {title_a.lower(), title_b.lower()}, seed)
+    # titles-v2: the caption leads with something specific the title on the video doesn't say: a line said on stream,
+    # what viewers called their clip, or chat's phrase (before, a mood line whenever the title was the quote)
+    shown = " ".join((title_a, title_b)).lower()
+    shown_words = {_bare(w) for w in shown.split()} - PLAIN - FILLER - STRONG
+
+    def new_to(text: str) -> bool:             # not the title again in other words ("How tf you make crack?")
+        ws = {_bare(w) for w in text.split()} - PLAIN - FILLER - STRONG
+        return text.lower() not in shown and (not ws or len(ws & shown_words) < 0.5 * len(ws))
+    # A line said only makes the caption when it's a good one: a weak second line ("Not panic let's", "Two one two")
+    # says less than chat's phrase
+    said = [(sc, q) for sc, q in quotes if new_to(q) and len(q.split()) >= 3 and _has_specific(q)]
+    lines = [("quote", q) for sc, q in said[:1] if sc >= QUOTE_FAIR]
+    lines += [("viewer", viewer_title)] if viewer_title and new_to(viewer_title) else []
+    lines += [("chat", chat_title)] if chat_title and new_to(polish(chat_title)) else []
+    lines += [("quote", q) for sc, q in said[:2] if CAPTION_QUOTE <= sc < QUOTE_FAIR]
+    if not vibe:
+        # no reaction to go on: the next best line said, as before (4.41)
+        lines += [("quote", q) for q in good_quotes if q.lower() not in shown][:1]
+    desc = caption(vibe, lines, name, emoji, platform, used | {title_a.lower(), title_b.lower()}, seed)
     return {
         "title": title,
         "title_a": title_a,

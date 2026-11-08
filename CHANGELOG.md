@@ -5,6 +5,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.48.0] - 2026-11-08
+
+Titles and post captions say what happened in the clip more often: what viewers called it, what chat kept typing, and a caption with a line from the clip and a question, instead of a mood line that fits any stream.
+
+### Changed
+- **Specific beats generic.** A line said on stream used to be the title whenever there was one, however flat ("She burned a lot of energy"). Now only a strong line comes first. After it come what viewers called their clips of the moment and what chat agreed on, then a line that's only fair, then the templates. On a real boxing stream, "Did y 'all see that?" is now "TKO", and on Kai Cenat's Japan stream "Three, two, one Cut it!" is now "Kai got smacked".
+- **Viewers' clip titles that only react are skipped.** "Yup", "LMFAOOOOO", "GGs……" and "OMFG" said nothing about the clip and still won when nobody spoke. "TKO", "ninja" and "theres a villager" are still used.
+- **Chat's phrase is found on big streams.** It needed 12% of everyone who chatted, and on a big stream most of them only type LOL, so it was almost never used. It now counts against the chatters who typed something. On HasanAbi's stream, "Oh Baking soda baking soda take baking" became "How tf you make crack?" (a viewer's title), and the caption now leads with Chat: "Baking soda".
+- **One word chat kept typing can be the title**, when chat agreed on no phrase and nobody said a good line: Chat kept saying "Mexico", Chat kept saying "Pollo". It needs at least 6 chatters and a tenth of those talking, and is shown the way chat typed it most (Chat: "Call it", not "call"). Everyday reactions ("yes", "perfect", "GG"), names, swearing and emotes never count.
+- **Chat typing the stream's name back isn't a title.** On NMS BOXING 5 the title was Chat: "Nmsboxing", the channel's emote and the event's name. The stream's title and game, hashtags, a word repeated on its own, Twitch's own emotes (Jebaited, PogChamp) and channels' sub emotes ("caseohHamster") are left out now.
+- **Post captions say something specific.** 81 of 84 captions on the test streams were mood lines ("Chat could not stop laughing at this one · jasontheween's stream 😂"). A caption now leads with something the title doesn't say: a good line said on stream, a viewer's clip title or chat's phrase. Then it asks a question for comments ("Who laughed first?", "Did you see that coming?") and says whose stream it is, with the hashtags at the end as before. For example "This one never gets old · KaiCenat's stream 😂" is now '"Jesus make this s*** out of me bro!" 😂 Rate this from 1 to 10 (KaiCenat on Twitch)', and "The whole chat lost it · caseoh_'s stream 😂" is now 'Chat: "Pig dawg" 😂 Did you laugh too? (caseoh_ on Twitch)'. With nothing specific it's still a line about chat, with the question. The question only asks; it never says what happened. A caption doesn't repeat the title in other words, or a line another clip of the stream already used.
+- **Two sentences run together aren't a title.** Whisper often leaves out a full stop but starts the next sentence with a capital, and titles took both halves: "Kiss your lips No!", "He's already fluent in Korean Holy f***" (now "Oh my god, he's already fluent in Korean"). A line said over and over ("Bar Bar Bar Go bar"), or one that stops on "after" or "the", scores lower. Whisper's spacing is tidied: "Did y 'all see that?", "1 ,000 yen".
+
+Blind test, two raters, 84 clips from 7 public Twitch VODs: the new titles won 63% of the comparisons that weren't the same (47 to 28), the new captions 85% (143 to 25). Details in `docs/plans/titles-v2.md`.
+
+### Tests
+- `tests/test_titles.py`: where Whisper's sentences split, the spacing, lines that stop mid-thought or repeat a word, viewer titles that only react, what beats what (a strong line, a viewer's title, chat's phrase, a fair line, one word chat kept typing, the templates), and captions: what they lead with, the question, whose stream, hashtags last, no repeats across clips, masking, and TikTok's length.
+- `tests/test_chattitles.py`: the event's name, hashtags, a repeated word, sub emotes and Twitch's emotes are never a title; one word many chatters typed is, shown as typed; everyday reactions, names and a few people aren't; the share counts chatters who said something; and through the app, the VOD's title and game are left out.
+- `scripts/eval_titles.py --baseline REF`: rates a git ref's built-in titles and captions against this checkout's, blind, titles and captions apart. `scripts/title_corpus.py` builds test projects from public Twitch VODs. Neither ships.
+
 ## [4.47.1] - 2026-11-08
 
 Review's preview shows punch-in and a title moved off the face as the clip plays, the way the export has them.

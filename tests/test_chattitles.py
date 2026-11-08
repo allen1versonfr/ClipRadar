@@ -130,6 +130,52 @@ server._title_clip(vpr, dv3, [], set())
 check("titles from chat switched off: viewers' clip titles aren't used either", dv3["title"] != "Dog cameo", dv3.get("title"))
 server.set_title_prefs({"chat_titles": True})
 
+
+# ---------------------------------------------------------------- titles-v2 (4.48)
+lols = [("LOL", f"lol{i}") for i in range(60)]
+r = chattitles.find([("NMSBoxing NMSBoxing", f"e{i}") for i in range(12)] + [("nms boxing", f"n{i}") for i in range(8)]
+                    + lols, EMOTES, "jasontheween", avoid=("🟡NMS BOXING 5🟡", "NMS Boxing"))
+check("v2: the stream's own event name typed back isn't a title", r["title"] == "", r)
+r = chattitles.find([("#nmsboxing W", f"h{i}") for i in range(12)] + lols, EMOTES)
+check("v2: hashtags are dropped", "nmsboxing" not in r["title"].lower(), r)
+r = chattitles.find([("hype hype", f"r{i}") for i in range(12)] + lols, EMOTES)
+check("v2: one word repeated isn't a phrase", 'hype hype' not in r["title"].lower(), r)
+r = chattitles.find([("caseohHamster caseohHamster caseohHamster", f"c{i}") for i in range(20)] + lols, EMOTES, "caseoh_")
+check("v2: a channel's sub emote isn't a word", r["title"] == "", r)
+r = chattitles.find([("Jebaited", f"j{i}") for i in range(20)] + lols, EMOTES)
+check("v2: nor are Twitch's own emotes", r["title"] == "", r)
+diana = [("DIANA", f"d{i}") for i in range(9)] + [("W DIANA", f"w{i}") for i in range(3)] + \
+    [("go Diana", f"g{i}") for i in range(2)] + [("Diana", f"x{i}") for i in range(2)]
+r = chattitles.find(diana + lols, EMOTES)
+check("v2: one word many chatters typed names the moment", r["title"] == 'Chat kept saying "Diana"' and r["people"] == 16, r)
+r = chattitles.find([("CALL IT", f"c{i}") for i in range(10)] + [("call it ref", f"k{i}") for i in range(2)] + lols, EMOTES)
+check("v2: shown as chat typed it", r["title"] == 'Chat: "Call it"', r)
+for word in ("yes", "perfect", "gg", "true", "huh"):
+    r = chattitles.find([(word.upper(), f"s{i}") for i in range(20)] + lols, EMOTES)
+    check(f"v2: an everyday reaction isn't a shout: {word!r}", r["title"] == "", r)
+r = chattitles.find([("jason", f"s{i}") for i in range(20)] + lols, EMOTES, "jasontheween")
+check("v2: nor the streamer's name", r["title"] == "", r)
+r = chattitles.find([("pollo", f"s{i}") for i in range(20)] + [("hi", "pollo")] + lols, EMOTES)
+check("v2: nor a chatter's name", r["title"] == "", r)
+r = chattitles.find([("DIANA", f"d{i}") for i in range(4)] + lols, EMOTES)
+check("v2: a few people aren't a shout", r["title"] == "", r)
+others = ["what a day", "i love this streamer", "first time here", "where is the dog", "how old is he", "nice shirt",
+          "what game is this", "send the clip", "hello from spain", "the music is loud"]
+big = [("baking soda", f"b{i}") for i in range(8)] + [(t, f"q{i}") for i, t in enumerate(others)] + lols
+r = chattitles.find(big, EMOTES)
+check("v2: the share counts chatters who said something, not everyone who typed LOL",
+      r["title"] == 'Chat: "Baking soda"', r)
+
+# through the app: the VOD's title and game are passed, so chat typing the event back isn't the title
+ewd = tempfile.mkdtemp(prefix="ct_event_")
+persist.write_json(os.path.join(ewd, "meta.json"), {"title": "NMS BOXING 5", "game": "NMS Boxing"})
+echat = [(100.0 + i * 0.1, "NMSBoxing NMSBoxing", f"e{i}", "") for i in range(20)] + \
+    [(101.0 + i * 0.1, "LOL", f"l{i}", "") for i in range(40)]
+epr = dict(pr, chat=echat, workdir=ewd)
+de = {"start": 95.0, "end": 115.0, "peak": 100.0}
+server._title_clip(epr, de, [], set())
+check("v2: through the app, the event's name isn't chat's phrase", "nmsboxing" not in de["title"].lower(), de["title"])
+
 # titles look only at the stretch of chat around the clip (it used to filter all of a stream's chat for every
 # clip); the messages found must be exactly the ones the whole-chat filter finds
 import random  # noqa: E402

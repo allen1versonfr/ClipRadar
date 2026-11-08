@@ -7,7 +7,8 @@ tests, and the risks.
 | Plan | Issue | Status |
 |---|---|---|
 | [One core for the automated features](issue-50-automation-core.md) | #50 | Done |
-| [Optional local LLM: titles, quiet gems, content-check context](issue-49-local-llm.md) | #49 | Phase 1 in 4.47.0; phase 0 script ready, not run yet |
+| [Optional local LLM: titles, quiet gems, content-check context](issue-49-local-llm.md) | #49 | Closed: the model won 38–40% against the built-in titles |
+| [Titles v2: better built-in titles and post captions, no model](titles-v2.md) | — | Done in 4.48.0 (titles 63%, captions 85% in a blind test) |
 
 ## Order
 
