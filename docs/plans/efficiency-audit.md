@@ -66,7 +66,10 @@ records the median. A first run that has to download models doesn't count.
    and requests.
 
 All of this goes in `scripts/audit_speed.py`, so the whole audit can be rerun after each fix and in the
-future, with the same inputs.
+future, with the same inputs. Done: the script covers instruments 1 to 4. On the owner's PC, a Claude Code session
+in this repository runs the whole of phase 1 with the `speed-audit` skill (`.claude/skills/speed-audit/SKILL.md`):
+set up, find inputs among the existing projects, run, collect the real `Timing` lines from `clipradar.log`, write
+`docs/audits/efficiency-audit-<date>.md`, open a PR.
 
 ## 3. What gets audited, and the suspects already found
 
