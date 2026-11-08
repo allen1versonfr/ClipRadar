@@ -235,6 +235,87 @@ g3 = titles.generate(quiet_words, laugh, 3.0, used_v, viewer_titles=["TKO", "nin
 check("all of them taken: back to the usual titles", g3["title_a"] not in ("TKO", "Ninja") and not g3["viewer_title"], g3["title_a"])
 check("no viewer titles: as before", titles.generate(words, laugh, 4.0, set(), streamer="JasonTheWeen")["title_a"] == r["title_a"])
 
+
+# ---------------------------------------------------------------- titles-v2 (4.48): specific beats generic
+def score_of(text, peak=1.0):
+    ph = titles._phrases(W(text))[0]
+    return titles._score_phrase(ph, titles.polish(titles._phrase_text(ph)), peak)
+
+
+split = [titles._phrase_text(p) for p in titles._phrases(W("Kiss your lips No! Why are you never going to sleep"))]
+check("v2: a capitalised everyday word starts a new sentence", split[:2] == ["Kiss your lips", "No!"], split)
+split = [titles._phrase_text(p) for p in titles._phrases(W("Jynxzi, Jynxzi Oh my god"))]
+check("v2: ...after a name too", split == ["Jynxzi, Jynxzi", "Oh my god"], split)
+keep = [titles._phrase_text(p) for p in titles._phrases(W("and call coach Tariq for this himself"))]
+check("v2: a name in the middle of a sentence doesn't split it", len(keep) == 1, keep)
+keep = [titles._phrase_text(p) for p in titles._phrases(W("I think I can do it"))]
+check("v2: nor does 'I'", len(keep) == 1, keep)
+check("v2: Whisper's spacing is tidied", titles.polish("Did y 'all see that?") == "Did y'all see that?"
+      and titles.polish("It was 1 ,000 yen") == "It was 1,000 yen", (titles.polish("Did y 'all see that?"),))
+check("v2: a line that stops on 'after' scores less than the whole thought",
+      score_of("Tell them after this game after") < score_of("Tell them after this game"))
+check("v2: a word said over and over scores less", score_of("Bar Bar Bar Go bar") < score_of("Go to the bar now")
+      and score_of("On roof, on roof") < score_of("He is on the roof"))
+for junk in ["Yup", "LMFAOOOOO", "GGs……", "?", "LOL Ayooo😂🤣", "OMFG", "lol", "INSANE"]:
+    check(f"v2: a viewer title that only reacts says nothing: {junk!r}", titles.says_nothing(junk))
+for fine in ["TKO", "ninja", "Kai got smacked", "theres a villager", "scripted??"]:
+    check(f"v2: a viewer title that names something: {fine!r}", not titles.says_nothing(fine))
+gy = titles.generate(quiet_words, laugh, 1.0, set(), viewer_titles=["LMFAOOOOO", "GGS", "Yup"])
+check("v2: viewer titles that only react aren't used", gy["title_a"] not in ("Lmfaoooooo", "LMFAOOOOO", "GGS", "Yup")
+      and not gy["viewer_title"], gy["title_a"])
+fair = W("Sarah slowing down the pace a little bit")
+gf = titles.generate(fair, laugh, 1.0, set(), viewer_titles=["KAI GOT SMACKED"])
+check("v2: a viewer's title beats a line that's only fair", gf["title_a"] == "Kai got smacked", gf["title_a"])
+check("v2: and the line said is still an option", any("Sarah" in t for t in gf["titles"]), gf["titles"])
+gs = titles.generate(fair, laugh, 1.0, set(), chat_title='Chat: "Pig dawg"')
+check("v2: chat's phrase beats a line that's only fair", gs["title_a"] == 'Chat: "Pig dawg"', gs["title_a"])
+good = W("Why are you trying to give me five")
+check("v2: (a good line, for the next checks)", titles.QUOTE_FAIR <= score_of("Why are you trying to give me five", 1.0)
+      < titles.QUOTE_STRONG, score_of("Why are you trying to give me five", 1.0))
+gl = titles.generate(good, laugh, 1.0, set(), chat_title='Chat kept saying "Leave"')
+check("v2: one word chat kept typing loses to a good line said", gl["title_a"].startswith("Why are you"), gl["title_a"])
+gw = titles.generate(W("okay okay"), laugh, 1.0, set(), chat_title='Chat kept saying "Diana"')
+check("v2: ...and beats the templates", gw["title_a"] == 'Chat kept saying "Diana"', gw["title_a"])
+
+# post captions: something specific the title doesn't say, then a question, then whose stream; tags last
+gc = titles.generate(words, laugh, 4.0, set(), streamer="Jason", viewer_titles=["TKO"])
+check("v2: the caption leads with what the title doesn't say", gc["title_a"].lower().startswith("no way")
+      and gc["description"].startswith("TKO"), gc["description"])
+check("v2: then asks something, then says whose stream", gc["description"].endswith("(Jason on Twitch)")
+      and "?" in gc["description"] or "1 to 10" in gc["description"], gc["description"])
+check("v2: the hashtags stay at the end", gc["post"].endswith(" ".join(gc["hashtags"])) and "\n\n#" in gc["post"], gc["post"])
+two = W("Wait, there's a spider on my desk! My cat just knocked the lamp over!", 1)
+g2 = titles.generate(two, laugh, 2.0, set(), streamer="Jason")
+check("v2: a second good line said can lead the caption",
+      g2["description"].startswith('"') and g2["description"].split('"')[1].lower() not in g2["title_a"].lower(),
+      (g2["title_a"], g2["description"]))
+gp = titles.generate(W("How the hell do you make crack?", 1), laugh, 2.0, set(), streamer="Hasan",
+                     viewer_titles=["how tf you make crack?"])
+check("v2: the caption doesn't say the title again in other words",
+      "crack" not in gp["description"].lower() or "crack" not in gp["title_a"].lower(), (gp["title_a"], gp["description"]))
+gn = titles.generate([], laugh, 2.0, set(), streamer="Jason")
+hooks = [h for h in titles.VIBES["funny"]["hooks"]]
+check("v2: nothing specific: a line about chat, a question, whose stream",
+      any(gn["description"].startswith(h) for h in hooks) and gn["description"].endswith("(Jason on Twitch)")
+      and any(q in gn["description"] for q in titles.QUESTIONS["funny"]), gn["description"])
+qs = [q for v in titles.QUESTIONS.values() for q in v]
+check("v2: the questions only ask, they never say what happened",
+      not [q for q in qs if claims.search(q)] and all(q.endswith("?") or q.startswith("Rate") or q.startswith("Tag")
+                                                     for q in qs), qs)
+used, leads = set(), []
+for k in range(3):
+    g = titles.generate(quiet_words, laugh, 1.0 + k, used, streamer="Jason", chat_title='Chat kept saying "Diana"')
+    used.update(x.lower() for x in (g["title"], g["title_a"], g["title_b"] if g["title_b_named"] else "", g["description"]) if x)
+    leads.append(g["description"])
+check("v2: what one clip's title or caption said isn't another clip's caption",
+      sum("Diana" in d for d in leads) <= 1, leads)
+import studio_auto  # noqa: E402
+cap = titles.generate(words, laugh, 4.0, set(), streamer="Jason", viewer_titles=["TKO"])["post"]
+check("v2: the caption fits TikTok's limit as it is", studio_auto.fit_caption(cap) == cap, cap)
+masked = titles.generate(W("okay okay"), laugh, 1.0, set(), viewer_titles=["what the fuck", "JASON EATS SHIT"])
+check("v2: a viewer's title in the caption is masked like the title", "shit" not in masked["description"].lower()
+      and "fuck" not in masked["description"].lower(), masked["description"])
+
 import engine  # noqa: E402
 import json  # noqa: E402
 import tempfile  # noqa: E402

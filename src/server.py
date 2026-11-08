@@ -529,7 +529,10 @@ def _chat_title(pr: dict, start: float, end: float) -> str:
     msgs = [(m[1], m[2] if len(m) > 2 else "") for m in _chat_near(pr, start, end)]
     es = getattr(pr.get("analysis"), "_emotes", None)
     names = set(getattr(es, "lower", None) or {}) if es else set()
-    return chattitles.find(msgs, names | set(engine.HYPE), _streamer_name(pr))["title"]
+    # titles-v2: the stream's title and game typed back ("NMSBoxing") aren't about the moment
+    meta = engine._meta(pr["workdir"]) if pr.get("workdir") else {}
+    avoid = (meta.get("title") or pr.get("title", ""), engine.game_at(meta, start), _streamer_name(pr))
+    return chattitles.find(msgs, names | set(engine.HYPE), _streamer_name(pr), avoid)["title"]
 
 
 TITLE_PREFS = str(paths.DATA_DIR / "titles.json")
