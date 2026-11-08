@@ -323,7 +323,7 @@ export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, 
         <Seg label="Punch-in" value={String(opts.punch || 'off')} onChange={v => set({ punch: v })}
              options={[['off', 'Off'], ['subtle', 'Subtle'], ['strong', 'Strong']]} />
         <span className="hint" data-testid="rv-punch-note">
-          {lay === 'split' ? 'Pushes in on the facecam' : 'Pushes in on the picture'} on the clip's biggest moments (up to 4), then eases back out. Shows in the exact preview and the export.
+          {lay === 'split' ? 'Pushes in on the facecam' : 'Pushes in on the picture'} on the clip's biggest moments (up to 4), then eases back out. Shows in the preview as it plays, and in the export.
         </span>
       </div>
       <div className="fld">Saved framings

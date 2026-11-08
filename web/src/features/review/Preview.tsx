@@ -3,15 +3,18 @@ import type { Clip, Mark, Safety } from '../../api/schemas'
 import type { RenderOpts } from '../../prefs'
 import { type Box, captionAt, chunksFor, dragPlace, drawCaption, drawGuides, drawLayout, drawMarks, drawSelection,
   drawTitle, type Hits, layoutOf, outSize } from './draw'
+import { punchFocus, punchZoom } from './punch'
 
 export interface Track { path: Array<[number, number]>; face_y?: number | null | undefined; face_h?: number | null | undefined }
+/** What the render adds for this clip (/api/preview/extras): punch-in beats (seconds into the clip) and the followed face. */
+export interface Extras { punch_at: number[]; face_y?: number | null | undefined; face_h?: number | null | undefined; followed: boolean }
 
 /** The clip as it will render (9:16, 1:1 or 16:9): the layout, title, captions and watermark on the
  *  playing video. Drag the title, the captions or a watermark layer to move it; click to play or pause. */
-export function Preview({ clip, video, thumb, opts, marks, safety, replace, track, guides, onOpts, onMark, onToggle, children, probe }: {
+export function Preview({ clip, video, thumb, opts, marks, safety, replace, track, extras = null, guides, onOpts, onMark, onToggle, children, probe }: {
   clip: Clip; video: () => HTMLVideoElement | null; thumb: string; opts: RenderOpts; marks: Mark[]
   safety: Pick<Safety, 'enabled' | 'censor' | 'censor_categories'> | undefined; replace: Record<string, string>
-  track: Track | null; guides: boolean
+  track: Track | null; extras?: Extras | null; guides: boolean
   onOpts: (patch: Partial<RenderOpts>, save: boolean) => void
   onMark: (i: number, patch: Partial<Mark>, save: boolean) => void
   onToggle: () => void
@@ -26,8 +29,8 @@ export function Preview({ clip, video, thumb, opts, marks, safety, replace, trac
   const drag = useRef<{ what: string; ox: number; oy: number; sx: number; sy: number; moved: boolean; snapX: boolean }>(undefined)
   const hover = useRef<string | null>(null)
   const inside = useRef(false)
-  const p = useRef({ clip, opts, marks, safety, replace, track, guides })
-  p.current = { clip, opts, marks, safety, replace, track, guides }
+  const p = useRef({ clip, opts, marks, safety, replace, track, extras, guides })
+  p.current = { clip, opts, marks, safety, replace, track, extras, guides }
   if (probe) probe.current = { hits: () => hits.current, width: () => cv.current?.width ?? 0 }
   const [ow, oh] = outSize(opts)
   const scale = 960 / Math.max(ow, oh), W = Math.round(ow * scale / 2) * 2, H = Math.round(oh * scale / 2) * 2
@@ -38,7 +41,7 @@ export function Preview({ clip, video, thumb, opts, marks, safety, replace, trac
       raf = requestAnimationFrame(draw)
       const el = cv.current, g = el?.getContext('2d')
       if (!el || !g) return
-      const { clip: c, opts: o, marks: ms, safety: sf, replace: rp, track: tr, guides: gd } = p.current
+      const { clip: c, opts: o, marks: ms, safety: sf, replace: rp, track: tr, extras: ex, guides: gd } = p.current
       const Wd = el.width, Ht = el.height, v = video(), img = frame.current
       g.fillStyle = '#000'; g.fillRect(0, 0, Wd, Ht)
       hits.current = {}
@@ -55,9 +58,15 @@ export function Preview({ clip, video, thumb, opts, marks, safety, replace, trac
         for (let i = 1; i < pa.length; i++) if (at < pa[i]![0]) { const [t0, a] = pa[i - 1]!, [t1, b] = pa[i]!; follow = a + (b - a) * (at - t0) / (t1 - t0); break }
       }
       const face = follow != null && tr?.face_y != null ? { y: tr.face_y, h: tr.face_h ?? 0 } : null
-      const capY = drawLayout(g, src, sw, sh, Wd, Ht, o, follow, face)
+      // Layout › Punch-in: the render's zoom right now, on its beats
+      const lay = layoutOf(o), tracking = o.track !== 'off'
+      const zoom = punchZoom(o.punch, ex?.punch_at, t - c.start)
+      const focus = punchFocus(lay, tracking ? (ex ? ex.face_y : tr?.face_y) : null, outSize(o)[1])
+      const capY = drawLayout(g, src, sw, sh, Wd, Ht, o, follow, face, zoom, focus)
       if (drag.current || gd) drawGuides(g, Wd, Ht, !!drag.current?.snapX)
-      if (c.title.trim()) hits.current.title = drawTitle(g, c.title, Wd, Ht, o)
+      // a title that hasn't been moved keeps off the face the crop follows (engine.title_top)
+      const titleFace = follow == null ? null : ex ? (ex.followed ? ex : null) : tr
+      if (c.title.trim()) hits.current.title = drawTitle(g, c.title, Wd, Ht, o, titleFace, capY)
       if (o.captions) {
         const cap = captionAt(c, t, o, rp, sf)
         if (cap) hits.current.cap = drawCaption(g, cap, capY, Wd, Ht, t, o)

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import mimetypes
 import os
 import re
@@ -1079,6 +1080,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"path": [], "reason": "Follow face works with the Whole frame layout." if engine.effective_layout(ro) != "full"
                                    else "Face finding isn't available in this copy.", "confidence": 0})
             return self._json(fr)
+
+        if p == "/api/preview/extras":
+            # Review's live preview: the punch-in beats and the followed face for one clip (S.preview_extras)
+            pr = S.projects.get(body.get("pid"))
+            if not pr:
+                return self._err("This session expired. Press Find clips again.", 404)
+            try:
+                a, b = float(body["start"]), float(body["end"])
+            except (KeyError, TypeError, ValueError):
+                return self._err("Bad clip.")
+            if not (math.isfinite(a) and math.isfinite(b)) or b <= a:
+                return self._err("Bad clip.")
+            return self._json(S.preview_extras(str(body.get("pid")), pr, a, b, dict(body.get("opts") or {})))
 
         if p == "/api/export":
             prefs = exports.save(body)

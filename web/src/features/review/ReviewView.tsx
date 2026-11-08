@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, FramingSuggest, Job, JobStarted, LiveView, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath } from '../../api/schemas'
+import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, FramingSuggest, Job, JobStarted, LiveView, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath, PreviewExtras } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
@@ -11,9 +11,9 @@ import { CHECK_LABEL, checkStatus, type Filter, fmt, gate, isGem, keepBody, keyO
 import { bounds, clamp, fmtA, frameStep, type History, push, snapOf, type Snap } from './edit'
 import { Player, type PlayerHandle } from './Player'
 import { layoutOf } from './draw'
-import { Preview, type Track } from './Preview'
+import { type Extras, Preview, type Track } from './Preview'
 import type { Hits } from './draw'
-import { framingQuery, LayoutPanel, savePresets, TextPanel } from './StylePanels'
+import { FRAME_KEYS, framingQuery, LayoutPanel, savePresets, TextPanel } from './StylePanels'
 import { addLine, editLine, resetLines } from './captions'
 import { CaptionsPanel } from './CaptionsPanel'
 import { SpellHint } from '../spelling/SpellHint'
@@ -36,6 +36,11 @@ const trackNote = (t: (Track & { reason?: string; coverage?: number }) | null | 
 /** What the face-following path depends on (the original page's trackKey). */
 const trackKey = (c: Clip, o: RenderOpts) => [c.pid, c.start.toFixed(2), c.end.toFixed(2), o.track_target,
   o.track_target === 'point' ? `${Number(o.game_x).toFixed(2)},${Number(o.focus_y ?? 0.4).toFixed(2)}` : '', o.aspect, o.game_zoom].join('|')
+/** What punch-in's beats and the followed face depend on: the clip and the Layout tab (/api/preview/extras). */
+const frameOf = (o: RenderOpts) => Object.fromEntries(FRAME_KEYS.filter(k => k in o).map(k => [k, o[k]]))
+const extrasKey = (c: Clip, o: RenderOpts) => JSON.stringify([c.pid, c.start.toFixed(2), c.end.toFixed(2), frameOf(o)])
+/** Only asked for when the preview can use it: punch-in on, or a Whole frame clip that may follow a face. */
+const wantsExtras = (o: RenderOpts) => (o.punch && o.punch !== 'off') || (layoutOf(o) === 'full' && o.track !== 'off')
 
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const save = (c: Clip) => { api(Ok, '/api/clip_state', snapshot(c)).catch(() => {}) }
@@ -146,6 +151,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
     setDragMarks(undefined)
   }
   const [tracks, setTracks] = useState<Record<string, Track | null>>({})
+  const [extras, setExtras] = useState<Record<string, Extras | null>>({})
   const clipsRef = useRef(clips)
   clipsRef.current = clips
   const saveT = useRef(new Map<string, ReturnType<typeof setTimeout>>())      // typing: saved after a pause, per clip
@@ -305,6 +311,18 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
     }, 500)
     return () => clearTimeout(t)
   }, [tk]) // the key holds everything that changes the path
+
+  // punch-in's beats and the face the render follows, once per clip and framing (the preview draws them every frame)
+  const xk = trackFor && wantsExtras(opts) ? extrasKey(trackFor, opts) : ''
+  useEffect(() => {
+    if (!trackFor || !xk || xk in extras) return
+    const t = setTimeout(() => {
+      setExtras(m => ({ ...m, [xk]: null }))
+      api(PreviewExtras, '/api/preview/extras', { pid: trackFor.pid, start: trackFor.start, end: trackFor.end, opts: frameOf(opts) })
+        .then(r => setExtras(m => ({ ...m, [xk]: r }))).catch(() => setExtras(m => { const n = { ...m }; delete n[xk]; return n }))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [xk]) // the key holds everything the answer depends on
 
   useEffect(() => {                                  // the Captions tab follows the line being said
     if (tab !== 'captions' && free == null) return
@@ -904,6 +922,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
               <Player ref={player} src={c.vod || meta.vod} pid={c.pid} clipKey={keyOf(c)} start={c.start} end={c.end}>
                 <Preview clip={shown ?? c} video={getVideo} thumb={c.thumb} opts={opts} marks={marks} safety={safety} replace={replace}
                          track={tracks[trackKey(c, opts)] ?? null} guides={guides}
+                         extras={wantsExtras(opts) ? extras[extrasKey(c, opts)] ?? null : null}
                          onOpts={(patch, persist) => setOpts(patch, persist)}
                          onMark={(i, patch, persist) => {
                            const ms = (dragMarks ?? wmServer?.marks ?? []).map((m, j) => (j === i ? { ...m, ...patch } : m))

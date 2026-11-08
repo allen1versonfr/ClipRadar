@@ -591,6 +591,12 @@ export const TrackPath = z.looseObject({
   reason: z.string().default(''), coverage: z.number().default(0),
 })
 
+/** Review's live preview (/api/preview/extras): punch-in beats, seconds into the clip, and the face the render follows. */
+export const PreviewExtras = z.looseObject({
+  punch: z.string().default('off'), punch_at: z.array(z.number()).default([]),
+  face_y: z.number().nullish(), face_h: z.number().nullish(), followed: z.boolean().default(false),
+})
+
 /** Layout › Auto-frame (/api/framing/<project>): the layout that fits, or why there's nothing to suggest. */
 export const FramingSuggest = z.looseObject({
   layout: z.string().default(''), cam: z.array(z.number()).length(4).optional(), track: z.string().optional(),

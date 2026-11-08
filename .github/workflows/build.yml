@@ -126,6 +126,7 @@ jobs:
           python tests/test_autopilot_pin.py
           python tests/test_autopilot.py
           python tests/test_title_place.py
+          python tests/test_preview_extras.py
           python tests/test_cleanup.py
           python tests/test_quality.py
           python tests/test_campaigns.py
