@@ -1,7 +1,8 @@
 # Plan: an optional local LLM for titles, quiet gems and content-check context (issue #49)
 
-Status: phase 1 shipped in 4.47.0. Phase 0's script and prompt are ready but haven't been run against a real
-model yet (see "Phase 0 results" at the end). Written against Clip Radar 4.45.1. Line numbers are from that version and will
+Status: phase 1 shipped in 4.47.0. Phase 0 ran on 8 Nov 2026 and **failed the ship rule**: neither model's
+titles beat the built-in ones (38% and 40% wins against a 60% bar), so phases 2–5 don't go ahead as planned (see
+"Phase 0 results" at the end). Written against Clip Radar 4.45.1. Line numbers are from that version and will
 drift; the function names are what to search for.
 
 Read [`README.md`](README.md) in this folder first. This plan builds on the automation core from #50
@@ -386,8 +387,82 @@ off for live sessions there.
 
 ## Phase 0 results
 
-**Not measured yet. No model has been run, so there is no verdict on phases 2–5.** What exists and what's
-needed:
+**Verdict: don't build phases 2–5.** Neither model wins 60% of the non-"same" comparisons (small 38%,
+standard 40%). Both stay under the 25% rejection limit, so the problem is title quality, not reliability.
+
+### Run of 8 Nov 2026
+
+**Setup**
+
+- PC: AMD Ryzen 5 5600X (6 cores, 12 threads), 15.9 GB RAM, AMD Radeon RX 7600 XT with 16 GB VRAM
+  (driver 32.0.32015.7029). This is the "6–8 GB GPU" target in section 8 (with more VRAM). The 8-core
+  CPU-only target wasn't measured.
+- llama.cpp **b12194** (commit `e9a2a44fe`), `llama-b12194-bin-win-vulkan-x64.zip`, SHA-256
+  `1ee4a0776d0edce325ea499e2fcaa3651d031f2970c772c42cbf8f0bfa9fca1a`. Run with `-c 4096 --jinja -ngl 99`.
+  - GitHub's "latest" release is now `v0.9.0`, which has release notes but no binaries. The Windows zips
+    ship only with the `bNNNN` builds, which are now marked pre-release. Phase 2 has to pin a `bNNNN` tag
+    and can't use `releases/latest`.
+  - `response_format` with `{"type": "json_schema", ...}` was accepted. `eval_titles.py` needed no change.
+- Models (both Apache-2.0):
+
+  | | Repo | File | Revision | SHA-256 |
+  |---|---|---|---|---|
+  | small | `Qwen/Qwen3-1.7B-GGUF` | `Qwen3-1.7B-Q8_0.gguf` (1.75 GB) | `90862c4b9d2787eaed51d12237eafdfe7c5f6077` | `061b54da…6590cb1a` |
+  | standard | `unsloth/Qwen3-4B-Instruct-2507-GGUF` | `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` (2.38 GB) | `a06e946bb6b655725eafa393f4a9745d460374c9` | `3605803b…4c67e597` |
+
+- Inputs: 26 saved projects with 584 clips (470 with words). They cover Twitch IRL (Japan, Korea), Just
+  Chatting, QSMP/League, a Fortnite stream, YouTube videos and VOD uploads, and single X clips.
+  - NMS BOXING 5 wasn't among them.
+  - Most VOD projects no longer had `chat.json`, so most prompts had no chat phrases.
+  - Live recordings (`live_*`) have no `project.json` and were skipped.
+- Prompt size: median 333 tokens and largest 663 (`usage.prompt_tokens`), within the ~700 budget.
+
+**Time per title** (Vulkan, all layers on the GPU)
+
+| | First request after loading | Median after that | 90th percentile after that | Slowest |
+|---|---|---|---|---|
+| small | 893 ms | 478 ms | 579 ms | 1,834 ms |
+| standard | 1,319 ms | 752 ms | 961 ms | 7,512 ms |
+
+Both are well within the 2 s GPU budget in section 8. The standard model had one 7.5 s outlier, which would
+have hit the 6 s live timeout.
+
+**Rejections** (section 5.4, out of 584 clips each)
+
+| | Rejected | `used` | `garbled` | `flagged` |
+|---|---|---|---|---|
+| small | 113 (19.3%) | 109 | 4 | 0 |
+| standard | 99 (17.0%) | 94 | 4 | 1 |
+
+- Almost every rejection is `used`: the model picked a candidate that the built-in titler had already given
+  to another clip of the same stream. There were no `invented`, `caps`, `link`, `mention`, `hashtag`,
+  `emoji` or `too_long` rejections.
+- Most accepted answers were the built-in title itself: 441 for small and 426 for standard, out of 584. The
+  script counts those as "same" without showing them. About 75% of the time, the model adds nothing.
+
+**Blind ratings** (89 pairs: 30 small, 59 standard)
+
+| | Wins | Losses | Same | Win rate (non-"same") | Ship rule |
+|---|---|---|---|---|---|
+| small | 14 | 23 | 23 | **37.8%** | no |
+| standard | 37 | 55 | 26 | **40.2%** | no |
+
+- **The two raters weren't people.** They were two separate Claude subagents, run by the owner's choice
+  instead of two human raters. Each one saw only what `rate.html` shows (the transcript excerpt, chat and
+  the two titles in random order) and never saw `key.json`, `results.json` or the run log. They agreed on
+  83 of 89 pairs.
+- Both raters preferred the built-in title more often than the model's, for both models. So the result isn't
+  close: a human re-rating would have to reverse it, not just tip it over 60%.
+
+**What this means**
+
+- As specified (pick and edit from `titles.py`'s candidates), a local model mostly returns the candidate
+  the app would have used anyway. When it changes something, raters prefer the change less than half the
+  time. That isn't worth a 1.8–2.4 GB download plus a runtime to maintain.
+- Phase 1 (viewers' clip titles) stays. It has already moved the baseline up.
+- If this is ever revisited, the inputs are the likely limit, more than the model: most of these projects
+  had no chat. A rerun on projects that keep their `chat.json`, with human raters, would be the fair second
+  try before any product work.
 
 ### What's built (with 4.47.0)
 
