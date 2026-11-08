@@ -318,6 +318,17 @@ try:
     check("a file cut short is refused", False)
 except server.BrokenOutput:
     check("a file cut short is refused, and deleted", not os.path.exists(probe))
+# a render cut short keeps its +faststart header and the right length: 4.48's check decoded the last 1.5 s and passed it
+cut = os.path.join(TMP, "cut_out.mp4")
+subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", SRC, "-t", "4", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+                "-movflags", "+faststart+negative_cts_offsets", cut], check=True)
+with open(cut, "r+b") as f:
+    f.truncate(int(os.path.getsize(cut) * 0.95))
+try:
+    server._check_output(cut, 4.0, want_audio=True)
+    check("a render cut short with its header intact is refused", False)
+except server.BrokenOutput as e:
+    check("a render cut short with its header intact is refused", "end doesn't play" in str(e) and not os.path.exists(cut), str(e))
 mute = os.path.join(TMP, "mute_out.mp4")
 subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", SRC, "-t", "4", "-an", "-c", "copy", mute], check=True)
 try:
@@ -328,8 +339,10 @@ except server.BrokenOutput as e:
 good = os.path.join(TMP, "good_out.mp4")
 subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", SRC, "-t", "4", "-c", "copy", good], check=True)
 try:
-    server._check_output(good, 4.0, want_audio=True)
+    peak = server._check_output(good, 4.0, want_audio=True)
     check("a good file passes", os.path.exists(good))
+    check("and its sound peak comes from the same read", peak is not None and abs(peak - engine.audio_peak(good)) < 0.2,
+          (peak, engine.audio_peak(good)))
 except server.BrokenOutput as e:
     check("a good file passes", False, str(e))
 

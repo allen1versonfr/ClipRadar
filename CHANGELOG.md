@@ -5,6 +5,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.48.1] - 2026-11-08
+
+Each clip waits less after it's encoded, and a render cut short can't be counted as done any more. From the speed audit in `docs/audits/speed-audit-2026-11-08.md`.
+
+### Fixed
+- **A render cut short could count as a finished clip.** Renders are written with their index at the front, so a file cut short by a crash or a full disk still showed the right length, and FFmpeg read its end without failing (it only printed errors). The check now reads the whole file and stops at the first error.
+
+### Changed
+- **The first frame is checked once per render.** Every render checked the finished file for a black first frame twice, 3 FFmpeg runs each time, while the clip waited. It's now checked once, and again only after a render done over.
+- **The end-of-file and sound checks are one pass.** They were two FFmpeg runs, one of them decoding up to 8 seconds of 1080×1920 video. Now one run copies the video's packets and measures the sound: about a fifth of the CPU (0.15 s against 0.72 s on a 30 s clip, development container). With the change above, the FFmpeg runs a clip waits for after encoding go from 9 to 5.
+- **Thumbnails take the nearest keyframe** instead of decoding up to the exact frame: a third less CPU each. A frame a second or two earlier looks the same in the clip list. The frame picker still shows the exact frame.
+
+### Tests
+- `tests/test_black_cover.py`: the first frame is looked at once on a GPU and a CPU render, and a GPU decoder that blacks the first frame is caught and decoded again on the CPU, on the same encoder.
+- `tests/test_render_lifecycle.py`: a render cut short with its header intact is refused, and the sound's peak comes from the same read.
+
 ## [4.48.0] - 2026-11-08
 
 Titles and post captions say what happened in the clip more often: what viewers called it, what chat kept typing, and a caption with a line from the clip and a question, instead of a mood line that fits any stream.

@@ -61,7 +61,7 @@ more for face finding because it was the project's first render. In order:
 | 8 to 10 | Black first frame check (3 launches) | `render_clip`, first `if` | yes | 3 × 1.8 s |
 | 11 to 13 | **The same check again** | `render_clip`, second `if` | yes | 3 × 1.8 s |
 | 14 | ffprobe of the output | `server` output check | yes | 0.8 s |
-| 15 | End-of-file check: decode the last 1.5 s | `server.py:1826` | yes | **7.9 s** |
+| 15 | End-of-file check: decode the last 1.5 s | `server.py:1826` | yes | 7.9 s in one noisy run; see F2 |
 | 16 | Volume check (`volumedetect`) | `server._check_sound` → `audio_peak` | yes | 1.2 s |
 
 After the encode finished, the clip waited **9.1 s of wall time** here for steps 8 to 16, one after another.
@@ -98,9 +98,16 @@ GPU-decoding branch (`hwdec`) has no test and needs one with the fix.
 
 **F2. The end-of-file check decodes up to 8 seconds of 1080×1920 video.** `-sseof -1.5` seeks to the keyframe
 before the last 1.5 s and decodes from there. The render doesn't set a keyframe interval, so x264 uses its default
-of 250 frames: 8.3 s at 30 FPS. That made it **the most expensive check, 7.9 s of CPU**, more than the other
-checks put together. What the check is for, a file cut short by a crash or a full disk, shows up when reading
-the packets, without decoding them.
+of 250 frames: 8.3 s at 30 FPS. One run measured 7.9 s of CPU for it. Measured again on a real 30 s render, it
+and the volume check together took 0.72 s, so that first figure was this machine's noise. It's still the costlier
+check. What the check is for, a file cut short by a crash or a full disk, shows up when reading the packets,
+without decoding them.
+
+**And it didn't work.** The app writes renders with `+faststart`, so a file cut short keeps its index and its
+length. FFmpeg then reads the end with errors but exits 0, and the check looked only at the exit code. Cut to
+50%, 90%, 98% and 99.5% of its size, such a file passed every time. The existing test cut a file without
+`+faststart`, which ffprobe already refuses, so it never showed. `-xerror` makes FFmpeg exit with an error
+(183 here) on all four.
 **Options**, to be measured against `tests/test_render_lifecycle.py`'s truncated-file cases:
 - read only the packets: `-sseof -1.5 -i out -map 0:v:0 -c copy -f null -`;
 - or decode keyframes only: `-skip_frame nokey`.
@@ -159,6 +166,17 @@ Ranked by time saved per clip on the critical path, then by risk.
 
 Fixes 1 to 3 take a default render from **15 launches to 11**, and the launches after the encode, which the clip
 waits for, **from 9 to 4 or 5**. Fixes 1, 2, 4 and 6 don't change any output.
+
+### Done in 4.48.1
+
+- **1:** `black_start` runs once per file written. `tests/test_black_cover.py` counts the calls (it fails on 4.48.0)
+  and now covers the GPU-decoding branch.
+- **2 and 3:** `engine.read_through` does both checks in one FFmpeg run, `-xerror`, with the video copied and the
+  sound through volumedetect. `_check_output` returns the peak to `_check_sound`. That's 0.15 s of CPU against
+  0.72 s for the two old runs, and it refuses truncated `+faststart` files (new case in
+  `tests/test_render_lifecycle.py`, which fails on 4.48.0). Launches after the encode: 9 to 5.
+- **4:** `make_thumb(exact=False)` for clip thumbnails. `/api/frame`, the frame picker, stays exact.
+- **5 and 6** are left: 5 needs measuring on the owner's PC, 6 costs once per project.
 
 ## 5. Not covered here (needs the owner's PC)
 
