@@ -5,6 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.47.1] - 2026-11-08
+
+Review's preview shows punch-in and a title moved off the face as the clip plays, the way the export has them.
+
+### Fixed
+- **Punch-in didn't show in Review's preview.** Since 4.45 the push toward the streamer was only in the exact preview and the export, so you couldn't see it while trying Subtle or Strong. The preview now pushes in on the same moments, with the same curve and the same amount: on Cam + game the facecam, on Whole frame and Cam only the picture, toward the face, and on Blur fit and Square blur the whole frame. The moments are worked out once per clip, so scrubbing stays smooth.
+- **The preview showed a title on the streamer's face** where the export had moved it off. In a Whole frame clip that follows the face, a title you haven't moved now sits above or below the face in the preview too, by the same rule. Drag it and it stays where you put it, as before.
+
+### Tests
+- `tests/test_preview_extras.py` (new, in CI): what the preview is told about a clip (`POST /api/preview/extras`): the beats are the render's, none with Punch-in off, the face the render follows or none, and asking again works nothing out again.
+- `web/`: the preview's zoom checked against the render's at known times, the title against the render's placement in each case (both worked out in Python), and which part of each layout pushes in.
+
 ## [4.47.0] - 2026-11-07
 
 On a Twitch VOD, a clip can now be titled with what viewers called the clips they made of the same moment, and the download is smaller again.
@@ -58,7 +70,7 @@ The clips viewers made from a Twitch VOD now help rank it, an optional punch-in 
 - **A warning when a video is only on offer in low resolution.** YouTube sometimes offers only 360p to a client it doesn't trust, and the whole video downloaded before the blur showed. The link check now says so up front, with what to do. The download goes on, since some videos really are 360p.
 
 ### Changed
-- **A title you haven't moved keeps off the streamer's face** in Whole frame clips that follow the face. When the face sits under the title, the title goes above the face if there's room under TikTok's top buttons, or below it if that stays clear of the captions. A title you dragged stays where you put it. The Review preview still shows the title where it starts.
+- **A title you haven't moved keeps off the streamer's face** in Whole frame clips that follow the face. When the face sits under the title, the title goes above the face if there's room under TikTok's top buttons, or below it if that stays clear of the captions. A title you dragged stays where you put it. The Review preview still shows the title where it starts (fixed in 4.47.1).
 
 ### Fixed
 - **A Twitch VOD stopped while it was being put together was reused broken.** yt-dlp joins a Twitch download in place: the pieces become `vod.mp4` first, then FFmpeg rewrites it into a real MP4, which takes about 6 minutes on a 9-hour VOD. Pausing, cancelling, a stall, closing Clip Radar or a crash during that left the unjoined file, and every later open said "VOD already downloaded, reusing it". The preview wouldn't play it, seeking was off, and clips could come out blank. It's joined now when it's opened again, and the half-written copy is removed.

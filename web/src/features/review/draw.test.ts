@@ -83,6 +83,50 @@ describe('several facecams', () => {
   })
 })
 
+describe('punch-in on the layout (engine.punch_filter)', () => {
+  // a context that records what's cut to (clip) and how far it's pushed in (scale), and where each draw lands
+  const rec = () => {
+    const log: string[] = []
+    const g = {
+      save: () => log.push('save'), restore: () => log.push('restore'), beginPath: () => {}, clip: () => log.push('clip'),
+      rect: (...a: number[]) => log.push(`rect ${a.map(Math.round).join(',')}`), scale: (z: number) => log.push(`scale ${z}`),
+      translate: (x: number, y: number) => log.push(`translate ${Math.round(x)},${Math.round(y)}`),
+      drawImage: (...a: unknown[]) => log.push(`draw ${(a.slice(5) as number[]).map(Math.round).join(',')}`), fillRect: () => {},
+    } as unknown as CanvasRenderingContext2D
+    return { g, log }
+  }
+  const src = {} as CanvasImageSource
+  it('no push: drawn as before', () => {
+    const { g, log } = rec()
+    drawLayout(g, src, 1920, 1080, 540, 960, o({ layout: 'full' }), null, null, 1, 0.4)
+    expect(log).toEqual(['draw 0,0,540,960'])
+  })
+  it('Cam + game: only the facecam strip, centred, at 0.4 down', () => {
+    const { g, log } = rec()
+    drawLayout(g, src, 1920, 1080, 540, 960, o(), null, null, 1.14, 0.4)
+    const th = 317, z = 1.14
+    expect(log.slice(0, 6)).toEqual(['save', 'rect 0,0,540,317', 'clip',
+      `translate ${Math.round(-(540 - 540 / z) / 2 * z)},${Math.round(-(th - th / z) * 0.4 * z)}`, 'scale 1.14', 'draw 0,0,540,317'])
+    expect(log[6]).toBe('restore')
+    expect(log[7]).toBe('draw 0,317,540,643')            // the game: not pushed in
+  })
+  it('Whole frame: the picture, toward the face height', () => {
+    const { g, log } = rec()
+    drawLayout(g, src, 1920, 1080, 540, 960, o({ layout: 'full' }), 0.5, { y: 0.3, h: 0.1 }, 1.08, 0.3)
+    expect(log).toEqual(['save', 'rect 0,0,540,960', 'clip', `translate ${Math.round(-(540 - 540 / 1.08) / 2 * 1.08)},${Math.round(-(960 - 960 / 1.08) * 0.3 * 1.08)}`,
+      'scale 1.08', 'draw 0,0,540,960', 'restore'])
+  })
+  it('Blur fit and Square blur: the whole finished frame', () => {
+    for (const layout of ['blur', 'square']) {
+      const { g, log } = rec()
+      drawLayout(g, src, 1920, 1080, 540, 960, o({ layout }), null, null, 1.14, 0.5)
+      expect(log.slice(0, 3)).toEqual(['save', 'rect 0,0,540,960', 'clip'])
+      expect(log.at(-1)).toBe('restore')
+      expect(log.filter(x => x === 'save')).toHaveLength(1)
+    }
+  })
+})
+
 describe('Text › Auto size, as the render sizes it (engine.fit_text)', () => {
   const longTitle = "I can't believe chat made me do this at three in the morning on a Tuesday with no sleep at all, again"
   it('picks the same sizes as the render (test_captions_anim.py checks these numbers too)', () => {

@@ -22,10 +22,21 @@ export type Hits = Record<string, Box | null>
 
 const bg = typeof document !== 'undefined' ? document.createElement('canvas') : null
 
-/** The picture in the chosen layout; returns where captions sit by default (y in canvas px). */
+/** Layout › Punch-in on the box (x, y, w, h) of the canvas: what's drawn next is pushed in zoom times, centred
+ *  across and at focus (0..1) down, cut to the box (engine.punch_filter's zoompan). The caller restores g. */
+function pushIn(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, zoom: number, focus: number) {
+  g.save()
+  g.beginPath(); g.rect(x, y, w, h); g.clip()
+  const rx = x + (w - w / zoom) / 2, ry = y + (h - h / zoom) * focus
+  g.translate(x - rx * zoom, y - ry * zoom); g.scale(zoom, zoom)
+}
+
+/** The picture in the chosen layout; returns where captions sit by default (y in canvas px).
+ *  zoom, focus: Layout › Punch-in right now (punch.ts), pushing in on what the render pushes in on: the facecam
+ *  strip on Cam + game, the picture on Whole frame and Cam only, the finished frame on Blur fit and Square blur. */
 export function drawLayout(g: CanvasRenderingContext2D, src: CanvasImageSource, sw: number, sh: number, Wd: number, Ht: number,
-  o: RenderOpts, follow: number | null, face: { y: number; h: number } | null): number {
-  const z = Math.max(1, Number(o.game_zoom) || 1), lay = layoutOf(o), oh = outSize(o)[1]
+  o: RenderOpts, follow: number | null, face: { y: number; h: number } | null, zoom = 1, focus = 0.4): number {
+  const z = Math.max(1, Number(o.game_zoom) || 1), lay = layoutOf(o), oh = outSize(o)[1], push = zoom > 1.0001
   const gameCrop = (ow: number, ohh: number): [number, number, number, number] => {
     const a = ow / ohh, cw = Math.min(sw, sh * a) / z, ch = cw / a
     const fx = follow ?? Number(o.game_x)
@@ -41,28 +52,43 @@ export function drawLayout(g: CanvasRenderingContext2D, src: CanvasImageSource, 
   if (lay === 'cam') {
     // several facecams: one above the other
     const ch = Ht / rects.length
+    if (push) pushIn(g, 0, 0, Wd, Ht, zoom, focus)
     rects.forEach((c, i) => camCell(c, 0, i * ch, Wd, ch))
+    if (push) g.restore()
     return rects.length > 1 ? ch : Ht * 0.78
   }
   if (lay === 'split') {
     const th = Math.round(Ht * clamp(Number(o.cam_height), 0.2, 0.5))
     // several facecams: side by side above the gameplay
     const cw = Wd / rects.length
+    if (push) pushIn(g, 0, 0, Wd, th, zoom, focus)          // on the streamer, not the game
     rects.forEach((c, i) => camCell(c, i * cw, 0, cw, th))
+    if (push) g.restore()
     const [gx, gy, gw, gh] = gameCrop(Wd, Ht - th)
     g.drawImage(src, gx, gy, gw, gh, 0, th, Wd, Ht - th)
     return th
   }
   if (lay === 'full') {
     const [gx, gy, gw, gh] = gameCrop(Wd, Ht)
+    if (push) pushIn(g, 0, 0, Wd, Ht, zoom, focus)
     g.drawImage(src, gx, gy, gw, gh, 0, 0, Wd, Ht)
+    if (push) g.restore()
     if (follow != null && face) {           // captions move off the face, like the render
       const top = (face.y - face.h * 0.7) * Ht, bot = (face.y + face.h * 0.9) * Ht, d = Ht * 0.7, m = Ht * 140 / oh
       if (top - m <= d && d <= bot + m) { const below = bot + Ht * 230 / oh; return below <= Ht * 0.86 ? below : Math.max(Ht * 260 / oh, top - Ht * 230 / oh) }
     }
     return Ht * 0.7
   }
-  // a blurred, darkened copy of the picture filling the frame (Blur fit and Square blur)
+  // a blurred, darkened copy of the picture filling the frame (Blur fit and Square blur); punch-in pushes in on all of it
+  if (push) pushIn(g, 0, 0, Wd, Ht, zoom, focus)
+  const capY = drawFitted(g, src, sw, sh, Wd, Ht, o, lay, z, oh, gameCrop)
+  if (push) g.restore()
+  return capY
+}
+
+/** Blur fit and Square blur: the picture on a blurred copy of itself; returns where captions sit. */
+function drawFitted(g: CanvasRenderingContext2D, src: CanvasImageSource, sw: number, sh: number, Wd: number, Ht: number,
+  o: RenderOpts, lay: string, z: number, oh: number, gameCrop: (ow: number, ohh: number) => [number, number, number, number]): number {
   if (bg) {
     const b = bg.getContext('2d'), bw = Math.min(sw, sh * Wd / Ht), bh = bw * Ht / Wd
     bg.width = 36; bg.height = Math.max(8, Math.round(36 * Ht / Wd))
@@ -132,12 +158,56 @@ export function captionSize(texts: string[], o: RenderOpts, maxW1080: number): n
   return o.caption_fit === false ? fs : Math.min(fs, fitText(texts.join(' '), Math.floor(fs), maxW1080, String(o.caption_font), 1, 2))
 }
 
-export function drawTitle(g: CanvasRenderingContext2D, text: string, Wd: number, Ht: number, o: RenderOpts): Box {
+// ---- a title that hasn't been moved keeps off a followed face (engine.title_top, 4.47.1 in the preview)
+
+/** RenderOpts.title_y of a title that was never dragged (engine.TITLE_DEFAULT_Y). */
+export const TITLE_DEFAULT_Y = 0.05
+/** TikTok's own buttons sit above this share of the frame (engine.TITLE_TOP). */
+export const TITLE_TOP = 0.03
+export interface Face { face_y?: number | null | undefined; face_h?: number | null | undefined }
+
+/** Where the title's top goes, in the export's pixels (H tall): ty, unless the title is still where it starts
+ *  and would cover the face of a clip that follows the streamer. It then sits above the face if there's room
+ *  under the platform's top buttons, else below it if that stays clear of the captions (captionY, the
+ *  layout's caption line), else where it was. fs, wrap and pad as build_ass works them out. */
+export function titleTop(title: string, o: Pick<RenderOpts, 'title_y' | 'title_font'>, H: number, fs: number, wrap: number,
+  pad: number, ty: number, face: Face | null | undefined, captionY: number): number {
+  if (!face || Math.abs(Number(o.title_y) - TITLE_DEFAULT_Y) > 1e-6) return ty
+  const fy = Number(face.face_y), fh = Number(face.face_h)
+  if (face.face_y == null || face.face_h == null || !(fy > 0 && fy < 1 && fh > 0 && fh < 1)) return ty
+  const font = String(o.title_font) in FONT_GLYPH ? String(o.title_font) : 'classic'
+  const lines = Math.max(1, Math.min(3, Math.ceil(textWidth(title.trim(), fs, font) / Math.max(1, wrap))))
+  const tall = Math.trunc(lines * fs * 1.15 + 2 * pad)
+  const top = (fy - fh * 0.9) * H, bot = (fy + fh * 0.6) * H       // the face, with hair above and chin below
+  if (ty + tall <= top || ty >= bot) return ty                       // clear of it already
+  const above = Math.trunc(top - 24 - tall)
+  if (above >= TITLE_TOP * H) return above
+  const below = Math.trunc(bot + 24)
+  if (below + tall <= captionY - 150) return below
+  return ty
+}
+
+/** The title's top in canvas px (the box's top for a boxed title): where Text › Title puts it, moved off a followed
+ *  face like the render (titleTop). face: the face the crop follows, or null; capY: the layout's caption line (px). */
+export function titleTopPx(text: string, Wd: number, Ht: number, o: RenderOpts, face: Face | null, capY: number,
+  fs1080 = titleSize(text, o)): number {
+  const top = clamp(Number(o.title_y), 0, 0.92) * Ht
+  if (!face) return top
+  const [W, H] = outSize(o), fs = Math.floor(fs1080), pad = Math.max(8, Math.floor(fs / 4))
+  const boxed = o.title_style !== 'outline' && o.title_style !== 'yellow'
+  const tx = Math.floor(clamp(Number(o.title_x), 0.3, 0.7) * W), th = Math.min(tx, W - tx) - 90
+  const ty = Math.floor(clamp(Number(o.title_y), 0, 0.92) * H) + (boxed ? pad : 0)
+  const moved = titleTop(text, o, H, fs, 2 * th, pad, ty, face, capY * H / Ht)
+  return moved === ty ? top : (moved - (boxed ? pad : 0)) * Ht / H
+}
+
+export function drawTitle(g: CanvasRenderingContext2D, text: string, Wd: number, Ht: number, o: RenderOpts,
+  face: Face | null = null, capY = 0): Box {
   const k = Wd / outSize(o)[0], st = o.title_style
   const fs1080 = titleSize(text, o), fs = fs1080 * k
   const pad = Math.max(8, Math.floor(fs1080 / 4)) * k
   g.font = fontCss(o.title_font, fs); g.textAlign = 'center'; g.textBaseline = 'top'
-  const x = clamp(Number(o.title_x), 0.3, 0.7) * Wd, top = clamp(Number(o.title_y), 0, 0.92) * Ht
+  const x = clamp(Number(o.title_x), 0.3, 0.7) * Wd, top = titleTopPx(text, Wd, Ht, o, face, capY, fs1080)
   const wrapW = 2 * (Math.min(x, Wd - x) - 90 * k), lines: string[] = []
   let line = ''
   for (const w of text.trim().split(/\s+/)) {

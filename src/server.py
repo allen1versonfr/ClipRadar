@@ -1610,6 +1610,40 @@ def _framing_for(pr: dict, start: float, end: float, ro, log=None) -> Optional[d
         return None
 
 
+PREVIEW_KEYS = ("layout", "cam", "cams", "cam_height", "game_zoom", "game_x", "track", "track_target", "focus_y",
+                "aspect", "punch")           # what the punch beats and the followed face depend on (Layout tab)
+_preview_cache: dict = {}
+_preview_lock = threading.Lock()
+PREVIEW_CACHE_MAX = 256
+
+
+def preview_extras(pid: str, pr: dict, start: float, end: float, opts: dict) -> dict:
+    """What Review's live preview needs to draw a clip the way it renders (4.47.1): the punch-in beats, in
+    seconds into the clip (engine.punch_beats, [] when Punch-in is off), and the face the render follows
+    (_framing_for: face_y and face_h as shares of the frame's height, None without one). followed: the crop
+    follows the face, which is when a title that hasn't been moved keeps off it (engine.title_top).
+    Kept per clip and framing, so scrubbing or replaying asks nothing again."""
+    o = {k: opts[k] for k in PREVIEW_KEYS if k in (opts or {})}
+    key = json.dumps([pid, round(start, 2), round(end, 2), id(pr.get("analysis")), o], sort_keys=True, default=str)
+    with _preview_lock:
+        hit = _preview_cache.get(key)
+    if hit is not None:
+        return hit
+    ro = _ropts(o)
+    beats = engine.punch_beats(pr.get("analysis"), start, end) if ro.punch in engine.PUNCH_ZOOM else []
+    fr = _framing_for(pr, start, end, ro) if end - start >= 1 else None
+    face_y = face_h = None
+    if fr and fr.get("face_y") is not None and fr.get("face_h") is not None:
+        face_y, face_h = round(float(fr["face_y"]), 4), round(float(fr["face_h"]), 4)
+    out = {"punch": ro.punch, "punch_at": [round(float(t), 2) for t in beats], "face_y": face_y, "face_h": face_h,
+           "followed": bool(fr and fr.get("path")) and face_y is not None}
+    with _preview_lock:
+        if len(_preview_cache) >= PREVIEW_CACHE_MAX:
+            _preview_cache.pop(next(iter(_preview_cache)))
+        _preview_cache[key] = out
+    return out
+
+
 def queue_public(it: dict) -> dict:
     d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path", "words", "sig", "_diag")}
     d["duration"] = round(it["end"] - it["start"], 2)

@@ -88,6 +88,7 @@
 | POST | `/api/cleanup` |
 | POST | `/api/hashtags` |
 | POST | `/api/framing/track` |
+| POST | `/api/preview/extras` |
 | POST | `/api/export` |
 | POST | `/api/streamer` |
 | POST | `/api/clip_state` |
