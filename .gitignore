@@ -11,3 +11,5 @@ src/models/*.onnx
 src/web/
 web/node_modules/
 web/dist/
+audit_runs/
+audit_speed_*/

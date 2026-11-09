@@ -66,10 +66,17 @@ records the median. A first run that has to download models doesn't count.
    and requests.
 
 All of this goes in `scripts/audit_speed.py`, so the whole audit can be rerun after each fix and in the
-future, with the same inputs. Done: the script covers instruments 1 to 4. On the owner's PC, a Claude Code session
-in this repository runs the whole of phase 1 with the `speed-audit` skill (`.claude/skills/speed-audit/SKILL.md`):
-set up, find inputs among the existing projects, run, collect the real `Timing` lines from `clipradar.log`, write
-`docs/audits/efficiency-audit-<date>.md`, open a PR.
+future, with the same inputs. Done: the script covers instruments 1 to 4.
+
+**Running it on the owner's PC** takes one step: double-click `scripts\speed_audit.bat`, or ask a Claude Code
+session in this repository to "run the speed audit" (the `speed-audit` skill, `.claude/skills/speed-audit/SKILL.md`).
+The `.bat` sets up Python and the packages, then `audit_speed.py --auto` does the rest:
+- FFmpeg and the laughter detector, copied from the installed app or downloaded;
+- picking inputs A to C from the existing Clip Radar projects;
+- three runs each with Whisper `small`, and one with `large-v3`;
+- the real `Timing` lines from `clipradar.log`, written to `audit_runs/<date>/`.
+
+The skill then writes `docs/audits/efficiency-audit-<date>.md` and opens a PR.
 
 ## 3. What gets audited, and the suspects already found
 
