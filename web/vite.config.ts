@@ -17,5 +17,8 @@ export default defineConfig({
       '/wmimg': toApp, '/ui': toApp, '/legacy': toApp,
     },
   },
-  test: { environment: 'jsdom', setupFiles: ['src/test-setup.ts'] },
+  // vmThreads: jsdom is built once per worker, not once per test file (34 times, 40% of a Windows CI run).
+  // Those per-file builds at the start of the run starved the first tests of CPU; one went past Vitest's 5 s
+  // timeout with nothing to wait on. Each file still gets its own fresh context.
+  test: { environment: 'jsdom', setupFiles: ['src/test-setup.ts'], pool: 'vmThreads' },
 })
