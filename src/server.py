@@ -27,7 +27,6 @@ import mimetypes
 import os
 import re
 import shutil
-import subprocess
 import threading
 import time
 import traceback
@@ -653,7 +652,7 @@ def clip_dicts(pid: str, clips: list, kind: str = "hype", progress=None) -> list
         path = os.path.join(tdir, name)
         if not os.path.exists(path):
             try:
-                engine.make_thumb(pr["video"], t, path)
+                engine.make_thumb(pr["video"], t, path, exact=False)
             except Exception:
                 pass
     # each FFmpeg spends most of its time opening the video (a long VOD's index), not decoding, so a few
@@ -783,7 +782,7 @@ def _revive(pid: str, d: dict) -> dict:
         try:                     # thumbnails go with Delete VODs; make them again
             os.makedirs(os.path.join(pr["workdir"], "thumbs"), exist_ok=True)
             engine.make_thumb(pr["video"], d["start"] + (d["end"] - d["start"]) * 0.6,
-                              os.path.join(pr["workdir"], "thumbs", m.group(1)))
+                              os.path.join(pr["workdir"], "thumbs", m.group(1)), exact=False)
         except Exception:
             pass
     d.setdefault("kind", "hype")
@@ -1803,10 +1802,11 @@ def _check_space(outdir: str, seconds: float):
                           f"about {int(need // 1_000_000)} MB needed)")
 
 
-def _check_output(path: str, expect: float, want_audio: bool = False):
+def _check_output(path: str, expect: float, want_audio: bool = False) -> Optional[float]:
     """A finished render must be a real video of the right length, with sound when the source has
-    it, that decodes to its last frame, before it counts as done. A broken one is deleted, never
-    shown as a finished clip."""
+    it, that reads to its end, before it counts as done. A broken one is deleted, never
+    shown as a finished clip. Returns the sound's peak in dB when want_audio (None if it couldn't be
+    measured), read in the same pass, for _check_sound."""
     why = ""
     try:
         size = os.path.getsize(path)
@@ -1820,18 +1820,12 @@ def _check_output(path: str, expect: float, want_audio: bool = False):
     elif want_audio and not info["has_audio"]:
         why = " (no sound)"
     else:
-        # the end of the file must decode: a render cut short by a crash or a full disk often
+        # the file must read to its end: a render cut short by a crash or a full disk often
         # still has a readable header and the right length
-        try:
-            p = subprocess.run([engine.ffmpeg(), "-v", "error", "-nostdin", "-sseof", "-1.5", "-i", path,
-                                "-map", "0:v:0", "-f", "null", "-"], capture_output=True, text=True, timeout=60,
-                               encoding="utf-8", errors="replace", creationflags=engine.CREATE_NO_WINDOW)
-            if p.returncode != 0:
-                why = " (its end doesn't play)"
-        except subprocess.TimeoutExpired:
-            why = " (its end doesn't play)"
-        if not why:
-            return
+        plays, peak = engine.read_through(path, audio=bool(want_audio and info["has_audio"]))
+        if plays:
+            return peak
+        why = " (its end doesn't play)"
     try:
         os.remove(path)
     except OSError:
@@ -2022,8 +2016,8 @@ def _render_item(it: dict):
             with open(path, "r+b") as f:
                 f.truncate(500)
         try:
-            _check_output(path, expect, want_audio=bool(pr["info"].get("has_audio")))
-            _check_sound(it, pr, path)
+            peak = _check_output(path, expect, want_audio=bool(pr["info"].get("has_audio")))
+            _check_sound(it, pr, path, peak)
             _check_picture(it, pr, picture)
             break
         except BrokenOutput as e:
@@ -2151,11 +2145,16 @@ def perf_view() -> dict:
             "priority": exports.load()["priority"]}
 
 
-def _check_sound(it: dict, pr: dict, path: str):
-    """A clip from a video with sound must come out with sound; one that's nearly silent gets a warning."""
+_UNMEASURED = object()
+
+
+def _check_sound(it: dict, pr: dict, path: str, peak=_UNMEASURED):
+    """A clip from a video with sound must come out with sound; one that's nearly silent gets a warning.
+    peak: what _check_output measured (dB or None), so the file isn't read again."""
     if not pr["info"].get("has_audio"):
         return
-    peak = engine.audio_peak(path)
+    if peak is _UNMEASURED:
+        peak = engine.audio_peak(path)
     if peak is None:
         try:
             os.remove(path)

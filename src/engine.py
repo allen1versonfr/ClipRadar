@@ -2932,9 +2932,12 @@ def _reason(an: Analysis, i: int, chat: Optional[list], chat_t: list, delay: flo
     return text[0].upper() + text[1:]
 
 
-def make_thumb(video: str, t: float, out: str, width: int = 480) -> str:
+def make_thumb(video: str, t: float, out: str, width: int = 480, exact: bool = True) -> str:
+    """exact=False takes the keyframe at or before t instead of decoding up to t: a third less CPU (measured,
+    docs/audits/speed-audit-2026-11-08.md), for a clip's thumbnail, where a frame a second or two earlier looks the same."""
     tmp = out + ".tmp.jpg"
-    run([ffmpeg(), "-v", "error", "-y", "-nostdin", "-ss", f"{max(0, t):.2f}", "-i", video,
+    seek = [] if exact else ["-noaccurate_seek", "-skip_frame", "nokey"]
+    run([ffmpeg(), "-v", "error", "-y", "-nostdin", *seek, "-ss", f"{max(0, t):.2f}", "-i", video,
          "-frames:v", "1", "-vf", f"scale={width}:-2", "-q:v", "4", tmp], timeout=60)
     os.replace(tmp, out)
     return out
@@ -4252,6 +4255,26 @@ def audio_peak(path: str) -> Optional[float]:
         return None
 
 
+def read_through(path: str, audio: bool) -> tuple:
+    """Read a finished render to its end in one pass: every video packet (copied, not decoded) and, with audio,
+    the whole sound through volumedetect. Returns (plays, peak dB or None). plays is False when FFmpeg hits an error
+    on the way: a render cut short by a crash or a full disk keeps its +faststart header and the right length, and
+    FFmpeg exits 0 there unless -xerror makes it stop. Before 4.49 this was two launches (decoding the last 1.5 s,
+    which missed that, then audio_peak), about five times the CPU (docs/audits/speed-audit-2026-11-08.md)."""
+    cmd = [ffmpeg(), "-v", "info", "-xerror", "-nostdin", "-i", path, "-map", "0:v:0", "-c", "copy", "-f", "null", "-"]
+    if audio:
+        cmd += ["-map", "0:a:0", "-af", "volumedetect", "-f", "null", "-"]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=120, encoding="utf-8", errors="replace",
+                           stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)   # ffmpeg echoes the file name in UTF-8
+    except (OSError, subprocess.TimeoutExpired):
+        return False, None
+    if p.returncode != 0:
+        return False, None
+    m = re.search(r"max_volume:\s*(-?[\d.]+|-inf) dB", p.stderr)
+    return True, (-200.0 if m and m.group(1) == "-inf" else float(m.group(1)) if m else None)
+
+
 def _crop_failed(err: str) -> bool:
     """FFmpeg couldn't set up a crop of the source (it doesn't fit the frames that arrived, or its
     expression was refused)."""
@@ -4628,14 +4651,18 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                 diag.update(kept)               # the attempt shows the first failure, not the fallback's
                 raise RuntimeError(f"ffmpeg render failed: the layout ({chosen}) couldn't be built, and {used} failed "
                                    f"too.\n{first['reason']}\n\n{used}:\n{_ffmpeg_reason(err)}")
-        if code == 0 and black_start(tmp_path, length) and hwdec:
+        # Looked at once per file written: before 4.49 this ran twice on every render (black_start was called
+        # before the hwdec test, then again on the same file), 3 FFmpeg launches each time, while the clip waited
+        black = code == 0 and black_start(tmp_path, length)
+        if black and hwdec:
             # first without decoding on the GPU (a decoder that drops the first frame), same encoder
             log("The first frame came out black; decoding on the CPU instead.")
             hwdec = False
             diag.update(hw_decode=False, fallback=(diag.get("fallback", "") + "; " if diag.get("fallback") else "")
                         + "GPU decoding gave a black first frame, decoded on the CPU")
             code, err = encode(enc_args, hwdec)
-        if code == 0 and black_start(tmp_path, length):
+            black = code == 0 and black_start(tmp_path, length)
+        if black:
             # TikTok takes the frame at 0:00 as the cover: a black one there is a black cover
             used = diag.get("encoder", enc_name)
             if used not in CPU_ENCODERS and cont != "webm":
@@ -4646,8 +4673,9 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                 diag.update(encoder=cpu_name, fallback=(diag.get("fallback", "") + "; " if diag.get("fallback") else "")
                             + f"{used} made a black first frame, used the CPU")
                 code, err = encode(enc_args, hwdec)
-            diag["black_start"] = code == 0 and black_start(tmp_path, length)
-            if diag["black_start"]:
+                black = code == 0 and black_start(tmp_path, length)
+            diag["black_start"] = black
+            if black:
                 warn("This clip's first frame came out black, so TikTok may show a black cover. Pick a cover "
                      "when you upload, and tell us: Exports › the clip › details has what's needed to fix it.")
         if code != 0:

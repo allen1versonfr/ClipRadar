@@ -59,9 +59,11 @@ class StandInGpu(REAL_POPEN):
     """FFmpeg as asked, except a render 'on the GPU' (the made-up encoder name) is done with x264
     and, when black_first is set, comes out with its first frame black, like the bad GPU renders."""
     black_first = True
+    only_hwdec = False      # black only when decoded "on the GPU" (-hwaccel): a decoder that drops the first frame
 
     def __init__(self, cmd, *a, **kw):
         self._fake = isinstance(cmd, list) and FAKE in cmd
+        self._blacks = self._fake and (not StandInGpu.only_hwdec or "-hwaccel" in cmd)
         if self._fake:
             cmd = ["libx264" if c == FAKE else c for c in cmd]
             self._out = os.path.join(kw.get("cwd") or ".", cmd[-1])
@@ -69,7 +71,7 @@ class StandInGpu(REAL_POPEN):
 
     def wait(self, timeout=None):
         rc = super().wait(timeout)
-        if self._fake and rc == 0 and StandInGpu.black_first and not getattr(self, "_blacked", False):
+        if self._blacks and rc == 0 and StandInGpu.black_first and not getattr(self, "_blacked", False):
             self._blacked = True
             fixed = self._out + ".black.mp4"
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", self._out, "-vf", "fade=t=in:s=0:n=1",
@@ -92,6 +94,16 @@ def render(name, src, o, length=4.0):
     return out, diag, logs
 
 
+REAL_BLACK_START = engine.black_start
+looked = [0]
+
+
+def counted_black_start(*a, **kw):
+    looked[0] += 1
+    return REAL_BLACK_START(*a, **kw)
+
+
+engine.black_start = counted_black_start
 subprocess.Popen = StandInGpu
 try:
     # 1. the GPU encoder blacks the first frame: caught, rendered again on the CPU
@@ -111,10 +123,29 @@ try:
 
     # 2. a GPU encoder that does its job is left alone
     StandInGpu.black_first = False
+    looked[0] = 0
     out, diag, logs = render("gpu_ok.mp4", SRC, gpu())
+    check("its first frame is looked at once (4.48 did it twice: 3 FFmpeg launches wasted per clip)", looked[0] == 1,
+          looked[0])
     check("a good GPU render stays on the GPU", diag.get("encoder") == FAKE and not diag.get("fallback")
           and not any("black" in m for m in logs), (diag, logs))
     check("with a picture at 0:00", (engine._frame_luma(out) or 0) > 40)
+
+    # 2b. a GPU decoder that drops the first frame: decoded again on the CPU, still encoded on the GPU
+    StandInGpu.black_first, StandInGpu.only_hwdec = True, True
+    looked[0] = 0
+    out, diag, logs = render("hwdec_black.mp4", SRC, gpu())
+    check("a black first frame from GPU decoding is decoded again on the CPU", diag.get("hw_decode") is False
+          and "GPU decoding gave a black first frame" in diag.get("fallback", ""), diag)
+    check("on the same GPU encoder", diag.get("encoder") == FAKE and "used the CPU" not in diag.get("fallback", ""), diag)
+    check("and the clip isn't black", not REAL_BLACK_START(out, 4.0) and not diag.get("black_start"), diag)
+    check("looked at once per file written (twice here)", looked[0] == 2, looked[0])
+    StandInGpu.only_hwdec = False
+
+    # 2c. a render on the CPU is looked at once too
+    looked[0] = 0
+    render("cpu.mp4", SRC, engine.RenderOpts(layout="split", captions=False, hw_encode=False))
+    check("a CPU render's first frame is looked at once", looked[0] == 1, looked[0])
 
     # 3. a clip that really opens on black is not "fixed"
     StandInGpu.black_first = True
@@ -123,6 +154,7 @@ try:
           and not any("black first frame" in m for m in logs), (diag, logs))
 finally:
     subprocess.Popen = REAL_POPEN
+    engine.black_start = REAL_BLACK_START
 
 # 4. the check itself, on files made directly
 plain = os.path.join(TMP, "plain.mp4")
