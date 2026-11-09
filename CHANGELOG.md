@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.49.1] - 2026-11-09
+
+Nothing changes in how Clip Radar works: the app is the same as 4.49.0. This release carries the efficiency audit's write-up and a fix for a web test that could time out on a busy build machine.
+
+### Added
+- **The efficiency audit run on a real PC** (`docs/audits/efficiency-audit-2026-11-08.md`, PR #86): a week of real use measured against the plan's budgets, the findings worst first, and a ranked fix list. 4.49.0 already shipped the fixes from it that don't change the finished clips.
+
+### Tests
+- **The web tests build their test browser (jsdom) once per worker instead of once per test file** (`web/vite.config.ts`, PR #88). On Windows build machines those 34 builds took 40% of the run and starved the first tests of CPU. One test went past its 5-second limit with nothing to wait on. The tests also run faster: 7.0 s instead of 10.1 s on Linux.
+
 ## [4.49.0] - 2026-11-09
 
 Kept clips finish sooner, and opening a downloaded video as a file no longer takes over another project's folder. These are the fixes from both speed audits that change nothing in the finished clips: the speed audit (`docs/audits/speed-audit-2026-11-08.md`) and the efficiency audit run on a real PC (PR #86). The audit script itself is fixed too.
