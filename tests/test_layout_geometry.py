@@ -393,7 +393,7 @@ engine.video_encoder = lambda o: ("h264_test", real_ve(engine.RenderOpts(hw_enco
 engine._encoder_cache["hw"] = "h264_test"
 out, diag, warned, err = render(LAND, 1.0, 2.0, layout="full")
 subprocess.Popen, engine.video_encoder, engine.crop_filter = real_popen, real_ve, real_cf
-renders = [c for c in calls if "-filter_complex" in c]
+renders = [c for c in calls if "-filter_complex" in c and "-progress" in c]      # renders, not the checks after
 check("a graph that can't be built isn't retried on the CPU (it would fail the same way)", not err and len(renders) == 2
       and "used the CPU" not in diag.get("fallback", "") and engine._encoder_cache.get("hw") == "h264_test",
       (len(renders), diag.get("fallback"), engine._encoder_cache.get("hw")))
