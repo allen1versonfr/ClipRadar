@@ -1728,6 +1728,7 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
             return dup                         # already queued: no second sound either
         queue.append(it)
     queue_wake.set()
+    _prehear_wake.set()
     save_queue_soon()
     if sound:
         play_sound("queued", it)
@@ -1746,16 +1747,21 @@ def _render_project(it: dict) -> dict:
     video = it.get("video") or ""
     if not video or not os.path.exists(video):
         raise RuntimeError("The VOD for this clip was deleted.")
-    pr = _render_projects.get(it["pid"])
-    if not pr or pr["video"] != video:
-        info = engine.probe(video)
-        pr = {"video": video, "workdir": it.get("workdir") or os.path.dirname(video),
-              "title": it.get("source_title", ""), "info": info, "duration": info["duration"],
-              "tx_lock": threading.Lock(), "live": it.get("live", "")}
-        if not pr["live"]:
-            _load_transcripts(pr)
-        _render_projects[it["pid"]] = pr
+    # one copy per project: a clip's captions heard ahead and a render of the same project must share its transcript
+    with _render_projects_lock:
+        pr = _render_projects.get(it["pid"])
+        if not pr or pr["video"] != video:
+            info = engine.probe(video)
+            pr = {"video": video, "workdir": it.get("workdir") or os.path.dirname(video),
+                  "title": it.get("source_title", ""), "info": info, "duration": info["duration"],
+                  "tx_lock": threading.Lock(), "live": it.get("live", "")}
+            if not pr["live"]:
+                _load_transcripts(pr)
+            _render_projects[it["pid"]] = pr
     return pr
+
+
+_render_projects_lock = threading.Lock()
 
 
 def queue_busy() -> bool:
@@ -1837,6 +1843,83 @@ class BrokenOutput(RuntimeError):
     pass
 
 
+# ---- captions heard ahead: the next kept clip's words while this one encodes ------------------------------------
+# A render used to hear its captions itself, then encode: the CPU sat idle while the GPU encoded, and the GPU while the
+# CPU listened. On the owner's PC that hearing was 79% of render time (efficiency audit 2026-11-08, F1, 188 min a week)
+# and clips waited behind it (F4, 56 min). Now, while one clip renders, the clips queued after it are heard in order,
+# one at a time, through the same ensure_words, so the render finds them done. The words are the same; only when
+# they're heard changes. A clip with nothing ahead of it isn't touched: its render starts at once and hears it as before.
+_prehear: dict = {}                 # queue item id -> Event: set once its captions are heard (or hearing gave up)
+_prehear_wake = threading.Event()
+_prehear_started = [False]
+
+
+def _needs_captions(it: dict, pr: dict, ro) -> bool:
+    """The render will hear this clip (the same test as _render_inputs)."""
+    cfg = safety.load_config()
+    censoring = cfg.get("enabled", True) and cfg.get("censor", "off") != "off"
+    return (it.get("words") is None and bool(ro.captions or censoring) and bool(pr["info"].get("has_audio"))
+            and engine.whisper_available())
+
+
+def _prehear_one() -> bool:
+    """Hear the next queued clip that waits behind a render. False when there's nothing to do."""
+    with queue_lock:
+        for k in [k for k in _prehear if not any(x["id"] == k for x in queue)]:
+            _prehear.pop(k).set()                       # gone from the queue: nobody waits for it
+        if not any(x["status"] == "rendering" for x in queue):
+            return False
+        it = next((x for x in queue if x["status"] == "queued" and x["id"] not in _prehear and not x.get("cancel")), None)
+        if it is None:
+            return False
+        ev = _prehear[it["id"]] = threading.Event()
+    try:
+        pr = _render_project(it)
+        ro = _ropts(it["opts"], it.get("export") or {})
+        if not _needs_captions(it, pr, ro):
+            return True
+
+        def check():
+            if it.get("cancel") or SHUTTING_DOWN[0] or not any(x is it for x in queue):
+                raise engine.Cancelled()
+        timer = timing.Timer("captions ahead", it.get("title") or "")
+        ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check, timer=timer)
+        timer.done()
+    except engine.Cancelled:
+        pass
+    except Exception as e:                              # the render hears it again itself, and reports what failed
+        print(f"  Couldn't hear the captions of \"{it.get('title') or 'a clip'}\" ahead: {str(e)[:140]}", flush=True)
+    finally:
+        ev.set()
+    return True
+
+
+def _prehear_loop():
+    while not SHUTTING_DOWN[0]:
+        _prehear_wake.wait(2.0)
+        _prehear_wake.clear()
+        while not SHUTTING_DOWN[0] and _prehear_one():
+            pass
+
+
+def start_prehear():
+    if not _prehear_started[0]:
+        _prehear_started[0] = True
+        threading.Thread(target=_prehear_loop, name="captions-ahead", daemon=True).start()
+
+
+def _wait_prehear(it: dict, check, timer: Optional[timing.Timer]):
+    """A clip whose captions are being heard ahead waits for that instead of hearing them a second time."""
+    ev = _prehear.get(it["id"])
+    if ev is None or ev.is_set():
+        return
+    t0 = time.time()
+    while not ev.wait(0.5):
+        check()
+    if timer:
+        timer.add("waiting for captions heard ahead", time.time() - t0)
+
+
 def _render_inputs(it: dict, pr: dict, ro, check, timer: Optional[timing.Timer] = None) -> tuple:
     """Captions, title and censoring for a render of it['start']..it['end'] (a clip, or a few seconds
     of one for the exact preview). Returns (words, title, post, spans, mode)."""
@@ -1850,6 +1933,7 @@ def _render_inputs(it: dict, pr: dict, ro, check, timer: Optional[timing.Timer] 
     elif (ro.captions or censoring) and pr["info"]["has_audio"] and engine.whisper_available():
         set_stage(it, "preparing", "Listening for captions")
         try:
+            _wait_prehear(it, check, timer)
             abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check, timer=timer)
         except engine.Cancelled:
             raise
@@ -2473,6 +2557,7 @@ def apply_perf(prefs: Optional[dict] = None):
     else:
         engine.RENDER_PRIORITY[0] = 0
         engine.RENDER_THREADS[:] = []
+    start_prehear()
     while len(_workers) < MAX_WORKERS[0]:
         i = len(_workers)
         _workers.append(threading.Thread(target=queue_worker, args=(i,), daemon=True))
@@ -2541,6 +2626,7 @@ def queue_worker(idx: int = 0):
                     it["status"] = "rendering"
                     it["progress"] = 0.0
                     _attempt_start(it)
+            _prehear_wake.set()                       # the clips behind this one can be heard now
             if not it:
                 break
             if SHUTTING_DOWN[0]:

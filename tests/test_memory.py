@@ -25,15 +25,17 @@ os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 loaded = []
+threads = []
 
 
 class FakeModel:
     """Stands in for faster_whisper.WhisperModel (no download, no GPU)."""
-    def __init__(self, size, device="cpu", compute_type="int8"):
+    def __init__(self, size, device="cpu", compute_type="int8", cpu_threads=0):
         if device == "cuda":
             raise RuntimeError("no GPU here")
         self.size = size
         loaded.append(size)
+        threads.append(cpu_threads)
 
     def transcribe(self, audio, **kw):
         time.sleep(float(getattr(audio, "hold", 0) or 0))
@@ -64,6 +66,13 @@ engine.transcribe(quiet, "tiny", "en", log)
 check("a model is loaded on first use", list(engine._whisper_cache) == ["tiny"])
 engine.transcribe(quiet, "tiny", "en", log)
 check("and reused", loaded == ["tiny"], loaded)
+check("on the CPU with one thread per physical core, not faster-whisper's 4", threads == [engine.whisper_cpu_threads()]
+      and engine.whisper_cpu_threads() >= 4, threads)
+_real_count = engine.os.cpu_count
+for logical, want in ((12, 6), (16, 8), (8, 4), (6, 6), (4, 4), (2, 4), (None, 4)):
+    engine.os.cpu_count = lambda n=logical: n
+    check(f"{logical} logical processors: {want} threads", engine.whisper_cpu_threads() == want, engine.whisper_cpu_threads())
+engine.os.cpu_count = _real_count
 engine.transcribe(quiet, "base", "en", log)
 check("two sizes side by side stay loaded", list(engine._whisper_cache) == ["tiny", "base"], list(engine._whisper_cache))
 for _ in range(3):

@@ -5,6 +5,44 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.49.0] - 2026-11-09
+
+Kept clips finish sooner, and opening a downloaded video as a file no longer takes over another project's folder. These are the fixes from both speed audits that change nothing in the finished clips: the speed audit (`docs/audits/speed-audit-2026-11-08.md`) and the efficiency audit run on a real PC (PR #86). The audit script itself is fixed too.
+
+### Changed
+- **Captions are heard ahead.** A render used to stop, listen for its captions, then encode, so the graphics card waited while Whisper listened, and the clips behind it waited for both. Over a week of real use, that listening was 79% of render time, and clips spent 56 minutes waiting in the queue. Now, while one clip renders, the clips queued behind it have their captions heard, in order, so their renders go straight to encoding. The words are the same; only when they're heard changes. A clip with nothing ahead of it renders at once, as before.
+- **Whisper on the CPU uses every core.** faster-whisper uses 4 threads unless told otherwise, so a 6-core CPU heard captions on two thirds of it. It now uses one thread per physical core. It isn't measured yet on a 6-core PC; the next speed audit will show it.
+- **Fewer FFmpeg runs per render.**
+  - The moment of each scene cut, when a clip follows a face, is found in one FFmpeg run instead of one per cut, one after another. On a cut-heavy clip that was 9 runs and nearly half of finding the face. Same cut times.
+  - The black first frame check is one run instead of three. Same frames.
+
+### Fixed
+- **Opening a downloaded video as a file used another project's folder.** Every Clip Radar download is called `vod.mp4`, and a video opened as a file got a project folder named after the file, so they all shared one `vod` folder, and opening one replaced the other project's details. A file called `vod` now gets a folder named after its own folder, and a folder that belongs to another video gets a short suffix. The same file opened again finds its own project.
+
+### Not in this update
+These need a quality check or a measurement on a real PC first:
+- **Titles with greedy decoding or a smaller model.** Titles on the card took 329 minutes in the audited week. A blind test (`scripts/eval_titles.py`) decides it.
+- **Captions from the card's words**, instead of hearing them again on the CPU. That changes captions, so it's the owner's call after a comparison.
+- **Twitch downloads kept as MPEG-TS**, without the 9-minute rewrite to MP4. Seeking in a TS has to be measured first.
+- **Loudness without single-pass `loudnorm`.** The result has to stay at −14 LUFS.
+- **Opening a long video from a hard drive.** It's disk-bound: about 35 of 57 s was waiting for the drive. There's no code fix; an SSD would help.
+
+### Speed audit script
+`scripts/audit_speed.py`'s own problems, found on the owner's PC (efficiency audit §6):
+- **No more hangs.** It no longer replaces `subprocess.Popen`, which hung the app in 3 of 4 runs. An audit hook notes each launch, and a watcher outside the app times it. Each run also has a deadline.
+- **Only settings are copied.** Before, a run wrote its projects into the real projects folder and loaded the real render queue. Where things go, the queue, cleanup and the hotkey are never copied now.
+- **Whisper on the graphics card works in a run**, as it does in real use (`whisper-vulkan` and `cuda` are linked too).
+- **GPU load is sampled with `Get-Counter`**, so processes started later are counted. Before, it always read 0.
+- **py-spy writes its profile** (`profile.txt`, collapsed stacks) for the first run of each input.
+- **A relative `--out` works.**
+- **The summary names projects that have chat but whose video was removed**, and the cleanup setting that removed them.
+
+### Tests
+- `tests/test_captions_ahead.py` (new, in CI): the clips behind a render are heard in order; a clip with nothing ahead, captions fixed by hand, or captions off isn't heard; a render waits for its clip's hearing instead of hearing it twice; cancelling and removing work.
+- `tests/test_memory.py`: Whisper's CPU threads, per number of logical processors.
+- `tests/test_framing.py`: three cut times from one FFmpeg run, the same as one run each.
+- `tests/test_sources.py`: a project folder for a video file, including a downloaded `vod.mp4` next to another project's `vod` folder; neither project's details change.
+
 ## [4.48.1] - 2026-11-08
 
 Each clip waits less after it's encoded, and a render cut short can't be counted as done any more. From the speed audit in `docs/audits/speed-audit-2026-11-08.md`.

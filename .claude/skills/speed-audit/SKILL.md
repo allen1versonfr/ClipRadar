@@ -79,8 +79,9 @@ In `audit_runs\<date>\`:
 - **Each run folder:**
   - `launches.csv`: every FFmpeg and Whisper run, with its step, seconds and the stretch of video it read;
   - `samples.csv`: CPU and memory once a second;
-  - `gpu.csv`;
-  - `open_flame.svg`: py-spy's profile of opening the video;
+  - `gpu.csv`: the graphics card's 3D, compute, decode and encode load and its memory, once a second;
+  - `profile.txt`: py-spy's collapsed stacks for the first run of each input, one stack per line with its sample
+    count, so you can sort and grep where the Python side spent its time;
   - `app.log`.
 
 ## 4. Write it up
@@ -98,7 +99,7 @@ tables, numbers with units, what was measured and what wasn't). It must have:
      it has live moments).
 3. **Where the time goes per step**, from the reports and the app's own timings.
 4. **Findings, worst first.** Each finding needs:
-   - the evidence: numbers, `launches.csv`, the flame graph;
+   - the evidence: numbers, `launches.csv`, `profile.txt`;
    - the code responsible, as `file:line` (read the code; don't guess);
    - the fix, and how sure you are of it.
 
