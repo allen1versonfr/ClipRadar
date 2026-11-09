@@ -111,6 +111,7 @@ jobs:
           python tests/test_tools_setup.py
           python tests/test_startup.py
           python tests/test_memory.py
+          python tests/test_captions_ahead.py
           python tests/test_deepscan.py
           python tests/test_media_end.py
           python tests/test_retry.py

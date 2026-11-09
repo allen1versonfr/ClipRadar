@@ -19,16 +19,19 @@ For each input, in a fresh Python process (cold, like opening the app):
   4. idle: the app left alone for --idle seconds afterwards
 
 What it records:
-  - every FFmpeg, ffprobe and whisper.cpp launch (subprocess.Popen is wrapped inside the child): its step, how long it
-    ran, which file and which seconds of it it read
+  - every FFmpeg, ffprobe and whisper.cpp launch (a Python audit hook inside the app notes it; a watcher outside times
+    it): its step, how long it ran, which file and which seconds of it it read
   - the app's own Timing lines (GET /api/timings)
   - CPU and memory of the app and everything it started, once a second (needs psutil: pip install psutil)
-  - on Windows, the graphics card's 3D, video decode and video encode load (typeperf)
-  - --pyspy: a flame graph of the open step (needs py-spy: pip install py-spy)
+  - on Windows, the graphics card's 3D, compute, video decode and video encode load and its memory (Get-Counter)
+  - --pyspy: where the app's Python spent its time over the first run of each input, as collapsed stacks in profile.txt
+    (needs py-spy: pip install py-spy)
 
-Your settings are used (Settings › Export format, content check, campaigns: the JSON files in Clip Radar's data folder,
-copied), and your Whisper models and GPU support files (linked, not copied, so nothing downloads again). Your projects and
-library aren't touched: the run's projects and clips go to a throwaway folder that's deleted at the end (--keep keeps it).
+Your settings are used (SETTINGS_FILES below: export format, content check, campaigns, titles and so on, copied), and
+your Whisper models, tools and GPU support (linked, not copied, so nothing downloads again and Whisper runs on the card as
+it does for you). Where things go, the render queue and cleanup are never copied: your projects and library aren't
+touched, and the run's projects and clips go to a throwaway folder that's deleted at the end (--keep keeps it). Each run
+has a deadline (--deadline).
 
 Output: --out (default audit_speed_<date>/): report.md (the tables), results.json (everything), launches.csv,
 samples.csv. report.md is what to read, or to hand to Claude.
@@ -72,44 +75,33 @@ def phase(name):
     PHASE[0] = name
     say("PHASE", name=name)
 
-REAL = subprocess.Popen
 WATCH = ("ffmpeg", "ffprobe", "whisper")
 
-class Logged(REAL):
-    def __init__(self, cmd, *a, **kw):
-        self._rec = None
-        exe = os.path.basename(str(cmd[0] if isinstance(cmd, (list, tuple)) else cmd).split()[0]).lower()
-        if any(w in exe for w in WATCH):
-            args = [str(x) for x in cmd] if isinstance(cmd, (list, tuple)) else str(cmd).split()
-            def opt(name, src=args):
-                return src[src.index(name) + 1] if name in src[:-1] else ""
-            ins = [args[i + 1] for i, x in enumerate(args[:-1]) if x == "-i"]
-            first_in = args.index("-i") if "-i" in args else len(args)
-            pre = args[:first_in]
-            self._rec = {"phase": PHASE[0], "tool": exe.replace(".exe", ""), "start": time.time(),
-                         "thread": threading.current_thread().name,
-                         "ss": opt("-ss", pre), "t": opt("-t", pre), "sseof": opt("-sseof", pre),
-                         "inputs": ins, "args": " ".join(args[1:])[:600]}
-        super().__init__(cmd, *a, **kw)
+# Every launch is noted by an audit hook: it only observes (Python calls it from Popen.__init__ with the arguments).
+# 4.48's version replaced subprocess.Popen with a subclass, and the app hung in 3 of 4 runs on the owner's PC
+# (efficiency audit 2026-11-08, §6). How long each launch ran is measured from outside, by the parent.
+def _hook(event, args):
+    if event != "subprocess.Popen":
+        return
+    try:
+        cmd = args[1]
+        argv = [str(x) for x in cmd] if isinstance(cmd, (list, tuple)) else str(cmd).split()
+        exe = os.path.basename(str(args[0] or argv[0])).lower()
+        if not any(w in exe for w in WATCH):
+            return
+        def opt(name, src):
+            return src[src.index(name) + 1] if name in src[:-1] else ""
+        ins = [argv[i + 1] for i, x in enumerate(argv[:-1]) if x == "-i"]
+        pre = argv[:argv.index("-i")] if "-i" in argv else argv
+        rec = {"phase": PHASE[0], "tool": exe.replace(".exe", ""), "start": time.time(),
+               "thread": threading.current_thread().name, "ss": opt("-ss", pre), "t": opt("-t", pre),
+               "sseof": opt("-sseof", pre), "inputs": ins, "args": " ".join(argv[1:])[:600]}
+        with _lock:
+            LOG.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
 
-    def _done(self):
-        r = self._rec
-        if r is not None and self.returncode is not None and "end" not in r:
-            r["end"], r["rc"] = time.time(), self.returncode
-            with _lock:
-                LOG.write(json.dumps(r) + "\n")
-
-    def wait(self, timeout=None):
-        rc = super().wait(timeout)
-        self._done()
-        return rc
-
-    def poll(self):
-        rc = super().poll()
-        self._done()
-        return rc
-
-subprocess.Popen = Logged
+sys.addaudithook(_hook)
 
 def call(path, body=None, timeout=120):
     req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode(),
@@ -224,17 +216,88 @@ def link_dir(src: Path, dst: Path) -> str:
         return ""
 
 
+# Settings only. 4.48's script copied every JSON file, so a run used the owner's locations.json (its projects went into
+# the real projects folder) and loaded the owner's queue.json (efficiency audit 2026-11-08, §6). Never copied: where
+# things go (locations), the render queue, cleanup (it deletes files), the hotkey, the updater's state.
+SETTINGS_FILES = ("campaigns.json", "export.json", "framing.json", "gpu.json", "hashtags.json", "learning.json",
+                  "perf.json", "safety.json", "studio.json", "titles.json")
+# Linked, not copied: Whisper's models, the tools, whisper.cpp for the graphics card, and NVIDIA's CUDA files.
+# Without whisper-vulkan, titles ran on the CPU as they never do for the owner, and finding F1 didn't show.
+LINKED_DIRS = ("models", "tools", "whisper-vulkan", "cuda")
+
+
 def fresh_data(tmp: Path) -> dict:
     """A data folder with your settings and your models and GPU support, but none of your projects."""
     real, data = real_data_dir(), tmp / "data"
     data.mkdir(parents=True)
     copied = []
-    if real.is_dir():
-        for f in real.glob("*.json"):
-            shutil.copy2(f, data / f.name)
-            copied.append(f.name)
-    linked = {name: link_dir(real / name, data / name) for name in ("models", "tools")}
+    for name in SETTINGS_FILES:
+        if (real / name).is_file():
+            shutil.copy2(real / name, data / name)
+            copied.append(name)
+    linked = {name: link_dir(real / name, data / name) for name in LINKED_DIRS if (real / name).is_dir()}
     return {"real": str(real), "data": str(data), "settings": copied, "linked": linked}
+
+
+class ProcWatcher(threading.Thread):
+    """When each FFmpeg, ffprobe and whisper.cpp process under the app started and ended, watched from outside, ten
+    times a second. The app process itself is left alone."""
+
+    def __init__(self, pid: int):
+        super().__init__(daemon=True)
+        import psutil
+        self.psutil, self.proc = psutil, psutil.Process(pid)
+        self.seen: dict = {}
+        self.stop = threading.Event()
+
+    def run(self):
+        ps = self.psutil
+        while not self.stop.is_set():
+            now = time.time()
+            try:
+                kids = self.proc.children(recursive=True)
+            except ps.Error:
+                break
+            alive = set()
+            for k in kids:
+                try:
+                    name = k.name().lower()
+                    if not any(w in name for w in ("ffmpeg", "ffprobe", "whisper")):
+                        continue
+                    key = (k.pid, k.create_time())
+                    alive.add(key)
+                    if key not in self.seen:
+                        self.seen[key] = {"tool": name.replace(".exe", ""), "start": key[1], "end": None,
+                                          "cmd": " ".join(k.cmdline())[:600]}
+                except ps.Error:
+                    pass
+            for key, rec in self.seen.items():
+                if rec["end"] is None and key not in alive:
+                    rec["end"] = now
+            self.stop.wait(0.1)
+        for rec in self.seen.values():
+            rec["end"] = rec["end"] or time.time()
+
+
+def match_durations(launches: list, procs: list):
+    """Give each launch the hook noted its end time from the watcher (same tool, started within a second and a half,
+    same first input). A launch too short for the watcher to see keeps end == start and timed False."""
+    free = sorted(procs, key=lambda r: r["start"])
+    for r in launches:
+        first = r["inputs"][0] if r["inputs"] else ""
+        best = None
+        for q in free:
+            if q.get("used") or q["tool"] != r["tool"] or abs(q["start"] - r["start"]) > 1.5:
+                continue
+            if first and first not in q["cmd"] and os.path.basename(first) not in q["cmd"]:
+                continue
+            best = q
+            break
+        if best:
+            best["used"] = True
+            r["end"], r["timed"] = best["end"], True
+        else:
+            r["end"], r["timed"] = r["start"], False
 
 
 class Sampler(threading.Thread):
@@ -272,51 +335,58 @@ class Sampler(threading.Thread):
             self.stop.wait(1.0)
 
 
-def start_gpu_log(path: Path):
-    """Windows only: the card's engines' load, once a second, as CSV (typeperf ships with Windows)."""
-    if not IS_WIN:
-        return None
-    counters = [r"\GPU Engine(*engtype_3D)\Utilization Percentage",
-                r"\GPU Engine(*engtype_VideoDecode)\Utilization Percentage",
-                r"\GPU Engine(*engtype_VideoEncode)\Utilization Percentage",
-                r"\GPU Engine(*engtype_Compute*)\Utilization Percentage",
-                r"\GPU Adapter Memory(*)\Dedicated Usage"]
-    try:
-        return subprocess.Popen(["typeperf", *counters, "-si", "1", "-f", "CSV", "-o", str(path), "-y"],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError:
-        return None
+GPU_PS = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+$inv = [Globalization.CultureInfo]::InvariantCulture
+while ($true) {
+  $c = (Get-Counter -Counter '\GPU Engine(*)\Utilization Percentage', '\GPU Adapter Memory(*)\Dedicated Usage').CounterSamples
+  $e = @{ '3d' = 0.0; 'videodecode' = 0.0; 'videoencode' = 0.0; 'compute' = 0.0 }
+  $v = 0.0
+  foreach ($s in $c) {
+    if ($s.Path -like '*dedicated usage') { $v += $s.CookedValue }
+    elseif ($s.InstanceName -match 'engtype_([a-z0-9]+)') {
+      $k = $Matches[1].ToLower()
+      if ($k -like 'compute*') { $k = 'compute' }
+      if ($e.ContainsKey($k)) { $e[$k] += $s.CookedValue }
+    }
+  }
+  $t = [DateTimeOffset]::Now.ToUnixTimeMilliseconds() / 1000.0
+  [string]::Format($inv, 'GPU {0},{1},{2},{3},{4},{5}', $t, $e['3d'], $e['videodecode'], $e['videoencode'], $e['compute'], $v / 1MB)
+  [Console]::Out.Flush()
+}
+"""
 
 
-def read_gpu_log(path: Path) -> list:
-    """typeperf's CSV, one row per second: the sum of each engine type across processes, and dedicated memory."""
-    if not path.is_file():
-        return []
-    from datetime import datetime
-    rows = []
-    with open(path, encoding="utf-8", errors="replace") as f:
-        r = csv.reader(f)
-        head = next(r, [])
-        kinds = []
-        for h in head[1:]:
-            hl = h.lower()
-            kinds.append("vram_mb" if "dedicated usage" in hl else "decode" if "videodecode" in hl else
-                         "encode" if "videoencode" in hl else "compute" if "compute" in hl else "3d" if "3d" in hl else "")
-        for line in r:
-            try:
-                t = datetime.strptime(line[0], "%m/%d/%Y %H:%M:%S.%f").timestamp()
-            except (ValueError, IndexError):
+class GpuSampler(threading.Thread):
+    """Windows only: the graphics card's engines (3D, video decode, video encode, compute) summed over every process,
+    and its dedicated memory, about once a second. Get-Counter looks the processes up again on every sample; 4.48's
+    typeperf did that once at the start, so FFmpeg started later was never counted and the load always read 0."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.rows: list = []
+        self.p = None
+
+    def run(self):
+        if not IS_WIN:
+            return
+        try:
+            self.p = subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", GPU_PS],
+                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        except OSError:
+            return
+        for line in self.p.stdout:
+            if not line.startswith("GPU "):
                 continue
-            row = {"t": t, "3d": 0.0, "decode": 0.0, "encode": 0.0, "compute": 0.0, "vram_mb": 0.0}
-            for k, v in zip(kinds, line[1:]):
-                if not k:
-                    continue
-                try:
-                    row[k] += float(v) / 1048576 if k == "vram_mb" else float(v)
-                except ValueError:
-                    pass
-            rows.append(row)
-    return rows
+            try:
+                t, d3, dec, enc, comp, vram = (float(x) for x in line[4:].strip().split(","))
+            except ValueError:
+                continue
+            self.rows.append({"t": t, "3d": d3, "decode": dec, "encode": enc, "compute": comp, "vram_mb": vram})
+
+    def close(self):
+        if self.p and self.p.poll() is None:
+            self.p.kill()
 
 
 def phase_at(phases: list, t: float) -> str:
@@ -327,47 +397,77 @@ def phase_at(phases: list, t: float) -> str:
     return name
 
 
-def run_one(src: Path, inp: dict, a, run_dir: Path, port: int) -> dict:
+def kill_tree(pid: int):
+    try:
+        import psutil
+        root = psutil.Process(pid)
+        for k in root.children(recursive=True) + [root]:
+            try:
+                k.kill()
+            except psutil.Error:
+                pass
+    except Exception:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
+def run_one(src: Path, inp: dict, a, run_dir: Path, port: int, profile: bool = False) -> dict:
     tmp = Path(tempfile.mkdtemp(prefix="clipradar_audit_"))
     data = fresh_data(tmp)
     work = tmp / "work"
     work.mkdir()
     launch_log = run_dir / "launches.jsonl"
+    launch_log.unlink(missing_ok=True)
     env = dict(os.environ, CLIPRADAR_DATA=data["data"], CLIPRADAR_WORK=str(work), CLIPRADAR_NO_BROWSER="1",
-               PYTHONUNBUFFERED="1")
+               PYTHONUNBUFFERED="1", CLIPRADAR_UPDATE_API="http://127.0.0.1:9/none")
     if (Path(data["real"]) / "models").is_dir() and not data["linked"].get("models"):
         env["HF_HOME"] = str(Path(data["real"]) / "models")          # couldn't link: point at it instead
     cfg = {"port": port, "input": inp["input"], "chat": inp.get("chat") or "", "count": a.count, "model": a.model,
            "titles": not a.no_titles, "renders": a.clips, "hw": not a.cpu, "idle": a.idle, "launch_log": str(launch_log)}
+    cmd = [sys.executable, "-c", CHILD, str(src), json.dumps(cfg)]
+    if profile and pyspy_exe():
+        # py-spy starts the app and writes its profile when the app exits (4.48 stopped it mid-run, before it wrote).
+        # Collapsed stacks, one line each: readable, and greppable for where the time went.
+        cmd = [pyspy_exe(), "record", "--format", "raw", "--rate", "50", "--nonblocking", "-o", str(run_dir / "profile.txt"),
+               "--", *cmd]
+    minutes = (inp.get("seconds") or probe_seconds(Path(inp["input"]))) / 60
+    deadline = a.deadline * 60 if a.deadline else (30 + minutes) * 60
     phases: list = []
-    p = subprocess.Popen([sys.executable, "-c", CHILD, str(src), json.dumps(cfg)], env=env, cwd=str(tmp),
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
-    sampler = gpu = spy = None
+    p = subprocess.Popen(cmd, env=env, cwd=str(tmp), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                         encoding="utf-8", errors="replace")
+    app_pid = [p.pid]
+    timed_out = threading.Event()
+
+    def too_long():
+        timed_out.set()
+        kill_tree(p.pid)
+    timer = threading.Timer(deadline, too_long)
+    timer.daemon = True
+    timer.start()
+    sampler = watcher = None
+    gpu = GpuSampler()
+    gpu.start()
     result, log_lines = {}, []
-    gpu_csv = run_dir / "gpu.csv"
     try:
         for line in p.stdout:
             log_lines.append(line.rstrip())
             kind, _, rest = line.partition(" ")
             if kind == "READY":
                 info = json.loads(rest)
+                app_pid[0] = info["pid"]
                 try:
                     sampler = Sampler(info["pid"], lambda: phases[-1][1] if phases else "start")
                     sampler.start()
+                    watcher = ProcWatcher(info["pid"])
+                    watcher.start()
                 except ImportError:
-                    print("  (psutil isn't installed: no CPU or memory samples. pip install psutil)", flush=True)
-                gpu = start_gpu_log(gpu_csv)
+                    print("  (psutil isn't installed: no CPU or memory samples, no launch times. pip install psutil)", flush=True)
             elif kind == "PHASE":
                 ph = json.loads(rest)
                 phases.append((ph["t"], ph["name"]))
                 print(f"  {ph['name']}...", flush=True)
-                if ph["name"] == "open" and a.pyspy and pyspy_exe():
-                    spy = subprocess.Popen([pyspy_exe(), "record", "--pid", str(info["pid"]), "--native", "--rate", "50",
-                                            "-o", str(run_dir / "open_flame.svg")],
-                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                elif spy and ph["name"] != "open":
-                    spy.terminate()
-                    spy = None
             elif kind == "STEP":
                 st = json.loads(rest)
                 print(f"    {st['step']}", flush=True)
@@ -375,24 +475,33 @@ def run_one(src: Path, inp: dict, a, run_dir: Path, port: int) -> dict:
                 result = json.loads(rest)
         p.wait()
     finally:
-        if sampler:
-            sampler.stop.set()
-        if gpu and gpu.poll() is None:
-            gpu.terminate()
-            gpu.wait()
-        if spy and spy.poll() is None:
-            spy.terminate()
+        timer.cancel()
+        if p.poll() is None:
+            kill_tree(p.pid)
+        for t in (sampler, watcher):
+            if t:
+                t.stop.set()
+                t.join(5)
+        gpu.close()
         if not a.keep:
             shutil.rmtree(tmp, ignore_errors=True)
+    if timed_out.is_set():
+        result.setdefault("stopped", f"deadline: still running after {deadline / 60:.0f} minutes, stopped "
+                                     f"(last step: {phases[-1][1] if phases else 'start'})")
     (run_dir / "app.log").write_text("\n".join(log_lines), encoding="utf-8")
     launches = []
     if launch_log.is_file():
         with open(launch_log, encoding="utf-8") as f:
             launches = [json.loads(x) for x in f if x.strip()]
-    time.sleep(1.5)                                               # typeperf flushes its file when it stops
-    gpu_rows = read_gpu_log(gpu_csv)
+    match_durations(launches, list(watcher.seen.values()) if watcher else [])
+    gpu_rows = gpu.rows
     for g in gpu_rows:
         g["phase"] = phase_at(phases, g["t"])
+    if gpu_rows:
+        with open(run_dir / "gpu.csv", "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=["t", "phase", "3d", "decode", "encode", "compute", "vram_mb"])
+            w.writeheader()
+            w.writerows(gpu_rows)
     return {"input": inp, "data": data, "result": result, "phases": phases, "launches": launches,
             "samples": sampler.rows if sampler else [], "gpu": gpu_rows, "kept": str(tmp) if a.keep else ""}
 
@@ -410,8 +519,9 @@ def summarize(run: dict) -> dict:
     src = os.path.normcase(os.path.abspath(run["input"]["input"]))
     by_phase: dict = {}
     for r in launches:
-        d = by_phase.setdefault(r["phase"], {"launches": 0, "seconds": 0.0, "source_reads": 0, "tools": {}})
+        d = by_phase.setdefault(r["phase"], {"launches": 0, "seconds": 0.0, "source_reads": 0, "tools": {}, "untimed": 0})
         d["launches"] += 1
+        d["untimed"] += not r.get("timed", True)
         d["seconds"] += r["end"] - r["start"]
         d["tools"][r["tool"]] = d["tools"].get(r["tool"], 0) + 1
         d["source_reads"] += any(os.path.normcase(os.path.abspath(i)) == src for i in r["inputs"])
@@ -502,7 +612,8 @@ def report(runs: list, a) -> str:
                 continue
             tools = ", ".join(f"{k} {v}" for k, v in b["tools"].items())
             gpu = " / ".join(_f(b.get(k), 0) for k in ("gpu_3d", "gpu_compute", "gpu_dec", "gpu_enc")) if b.get("gpu_3d") is not None else "n/a"
-            out.append(f"| {ph} | {b['launches']} | {b['source_reads']} | {tools} | {b['seconds']:.1f} s | "
+            untimed = f" ({b['untimed']} too short to time)" if b.get("untimed") else ""
+            out.append(f"| {ph} | {b['launches']} | {b['source_reads']} | {tools} | {b['seconds']:.1f} s{untimed} | "
                        f"{_f(b.get('cpu_avg'))}% / {_f(b.get('cpu_max'))}% | {_f(b.get('rss_max'), 0)} MB | {gpu} | "
                        f"{_f(b.get('vram_max'), 0) + ' MB' if b.get('vram_max') is not None else 'n/a'} |")
         out += ["", "### Slowest launches (run 1)", "", "| Step | Tool | Seconds | Arguments |", "|---|---|---|---|"]
@@ -634,6 +745,7 @@ def find_projects(log) -> list:
     roots = [Path(r) for r in dict.fromkeys(r for r in roots if r) if Path(r).is_dir()]
     dl_root = Path(loc["downloads"]) if loc.get("downloads") else None
     found, seen = [], set()
+    gone = find_projects.gone = []
     exts = (".mp4", ".mkv", ".webm", ".mov", ".ts", ".m4v", ".flv")
     for root in roots:
         for pdir in root.iterdir():
@@ -653,7 +765,12 @@ def find_projects(log) -> list:
                                   and (d / f).stat().st_size > 1_000_000), None)
                 if video:
                     break
-            if not video or os.path.normcase(str(video)) in seen:
+            if not video:
+                if (pdir / "chat.json").is_file():
+                    gone.append({"folder": str(pdir), "title": str(meta.get("title") or pdir.name)[:80],
+                                 "platform": str(meta.get("platform") or "")})
+                continue
+            if os.path.normcase(str(video)) in seen:
                 continue
             seen.add(os.path.normcase(str(video)))
             chat = pdir / "chat.json"
@@ -781,12 +898,12 @@ def run_matrix(inputs: list, a, out: Path) -> list:
             run_dir = out / f"{Path(inp['input']).parent.name[:30]}_{Path(inp['input']).stem[:20]}_run{k + 1}"
             run_dir.mkdir(parents=True, exist_ok=True)
             print(f"{inp['input']}, run {k + 1} of {a.runs} (Whisper {a.model})", flush=True)
-            r = run_one(Path(a.src).resolve(), inp, a, run_dir, 7990 + len(runs))
+            r = run_one(Path(a.src).resolve(), inp, a, run_dir, 7990 + len(runs), profile=a.pyspy and k == 0)
             with open(run_dir / "launches.csv", "w", newline="", encoding="utf-8") as f:
                 w = csv.writer(f)
-                w.writerow(["phase", "tool", "seconds", "rc", "ss", "t", "sseof", "inputs", "thread", "args"])
+                w.writerow(["phase", "tool", "seconds", "timed", "ss", "t", "sseof", "inputs", "thread", "args"])
                 for x in r["launches"]:
-                    w.writerow([x["phase"], x["tool"], round(x["end"] - x["start"], 3), x.get("rc"), x["ss"], x["t"],
+                    w.writerow([x["phase"], x["tool"], round(x["end"] - x["start"], 3), x.get("timed"), x["ss"], x["t"],
                                 x["sseof"], ";".join(x["inputs"]), x["thread"], x["args"]])
             with open(run_dir / "samples.csv", "w", newline="", encoding="utf-8") as f:
                 w = csv.DictWriter(f, fieldnames=["t", "phase", "cpu_pct_of_pc", "rss_mb", "children", "pc_cpu_pct"])
@@ -802,7 +919,7 @@ def run_matrix(inputs: list, a, out: Path) -> list:
 def auto(a):
     """Everything, unattended. Results in audit_runs/<date>/: SUMMARY.md first."""
     repo = HERE.parent
-    out = Path(a.out or repo / "audit_runs" / time.strftime("%Y%m%d_%H%M"))
+    out = Path(a.out or repo / "audit_runs" / time.strftime("%Y%m%d_%H%M")).resolve()
     out.mkdir(parents=True, exist_ok=True)
     os.environ["PATH"] = str(repo / "tools") + os.pathsep + os.environ.get("PATH", "")   # FFmpeg for the test stream
     notes = []
@@ -818,6 +935,15 @@ def auto(a):
         raise SystemExit("No FFmpeg: nothing can be measured. Install Clip Radar or run scripts\\install.bat, then try again.")
     log("2. Finding videos to measure")
     projects = find_projects(log)
+    gone = getattr(find_projects, "gone", [])
+    if gone:
+        try:
+            cl = json.load(open(real_data_dir() / "cleanup.json", encoding="utf-8"))
+        except (OSError, ValueError):
+            cl = {}
+        why = (f" Settings › Storage removes videos after {cl.get('vod_days')} days." if cl.get("vods") else "")
+        log(f"  {len(gone)} project(s) have chat but their video is gone, so they can't be measured:{why} "
+            + "; ".join(f"{g['title']} ({g['platform'] or 'unknown'})" for g in gone[:12]))
     inputs = pick_inputs(projects)
     if a.input:
         inputs = [{"video": os.path.abspath(v), "chat": os.path.abspath(a.chat[i]) if i < len(a.chat) and a.chat[i] else "",
@@ -861,7 +987,7 @@ def auto(a):
                "- `real_timings.md`: the Timing lines from clipradar.log (real use, live moments included)",
                "- `setup.json`: machine, tools, every project found, what was busy",
                "- each run folder: `app.log`, `launches.csv` (every FFmpeg/Whisper run), `samples.csv` (CPU and memory each second),"
-               " `gpu.csv` (Windows), `open_flame.svg` (py-spy)"]
+               " `gpu.csv` (Windows), `profile.txt` (py-spy's collapsed stacks, first run of each input)"]
     (out / "SUMMARY.md").write_text("\n".join(summary) + "\n", encoding="utf-8")
     print(f"\nDone. Start with {out / 'SUMMARY.md'}", flush=True)
     return out
@@ -887,6 +1013,8 @@ def main():
     ap.add_argument("--src", default=str(SRC), help="the src folder to measure (default this checkout's)")
     ap.add_argument("--out", default="", help="results folder (default audit_speed_<date>, or audit_runs/<date> with --auto)")
     ap.add_argument("--keep", action="store_true", help="keep the throwaway data and clips")
+    ap.add_argument("--deadline", type=float, default=0,
+                    help="minutes before a run is stopped (default 30 plus the video's length in minutes)")
     a = ap.parse_args()
     try:
         import psutil  # noqa: F401
@@ -908,7 +1036,8 @@ def main():
         if chat and not os.path.isfile(chat):
             raise SystemExit(f"Not a file: {chat}")
         inputs.append({"input": os.path.abspath(path), "chat": os.path.abspath(chat) if chat else ""})
-    out = Path(a.out or f"audit_speed_{time.strftime('%Y%m%d_%H%M')}")
+    # absolute: the app runs from its own throwaway folder (4.48 broke on a relative --out)
+    out = Path(a.out or f"audit_speed_{time.strftime('%Y%m%d_%H%M')}").resolve()
     run_matrix(inputs, a, out)
     print(f"\nDone: {out / 'report.md'}", flush=True)
 

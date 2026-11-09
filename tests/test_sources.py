@@ -151,5 +151,32 @@ check("the same stream twice is caught", server._same_source("twitch.tv/abc", "h
       and server._same_source("https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=3")
       and not server._same_source("twitch.tv/abc", "twitch.tv/abd"))
 
+# a video file's project folder (4.49, efficiency audit F7): every download is vod.mp4, and opening one as a file
+# used to land in one shared "vod" folder and replace another project's meta.json
+_root = tempfile.mkdtemp(prefix="vc_root_")
+_dl = os.path.join(_root, "yt_ANoZ")
+os.makedirs(_dl)
+with open(os.path.join(_dl, "meta.json"), "w", encoding="utf-8") as _f:
+    json.dump({"title": "A YouTube video", "source": "https://youtu.be/ANoZ"}, _f)
+_v = os.path.join(_dl, "vod.mp4")
+with open(_v, "wb") as _f:
+    _f.write(b"\0" * 2048)
+_old = os.path.join(_root, "vod")
+os.makedirs(_old)
+with open(os.path.join(_old, "meta.json"), "w", encoding="utf-8") as _f:
+    json.dump({"title": "Someone else's VOD", "source": "https://www.twitch.tv/videos/1"}, _f)
+check("a file is its own project, named after it", engine.local_workdir(_root, os.path.join(_root, "x", "My Stream.mp4"))
+      == os.path.join(_root, "My_Stream"))
+_w = engine.local_workdir(_root, _v)
+check("a downloaded vod.mp4 opened as a file doesn't land in the shared 'vod' folder", os.path.basename(_w) != "vod", _w)
+check("or in the project it came from, which belongs to its link", _w.startswith(os.path.join(_root, "yt_ANoZ_")), _w)
+_src = engine.acquire(_v, _root, log=lambda m: None)
+check("opening it leaves both other projects' meta.json alone",
+      json.load(open(os.path.join(_old, "meta.json"), encoding="utf-8"))["title"] == "Someone else's VOD"
+      and json.load(open(os.path.join(_dl, "meta.json"), encoding="utf-8"))["source"] == "https://youtu.be/ANoZ",
+      _src.workdir)
+check("and opening the same file again finds its project", engine.local_workdir(_root, _v) == _src.workdir == _w,
+      (engine.local_workdir(_root, _v), _src.workdir))
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

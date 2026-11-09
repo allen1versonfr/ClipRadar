@@ -152,7 +152,7 @@ loaded = []
 
 
 class FakeModel:
-    def __init__(self, size, device, compute_type):
+    def __init__(self, size, device, compute_type, cpu_threads=0):
         loaded.append((device, compute_type))
         self.device = device
         if (device, compute_type) in FakeModel.fails:

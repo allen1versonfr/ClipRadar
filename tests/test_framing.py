@@ -326,5 +326,34 @@ saved = exports.clean({"frame_presets": [{"name": "Cam right", "opts": {"layout"
 check("saved framings keep only framing settings", saved["frame_presets"][0] == {"name": "Cam right", "opts": {
     "layout": "split", "cam": [0.8, 0.0, 0.2, 0.35], "track": "off"}} and saved["frame_presets"][1]["opts"] == {}, saved["frame_presets"])
 
+# 4.49: every scene cut's exact moment in one FFmpeg run, the same as one run per cut
+_cv = os.path.join(tempfile.mkdtemp(prefix="vc_cuts_"), "cuts.mp4")
+subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=3",
+                "-f", "lavfi", "-i", "color=c=red:s=640x360:r=30:d=2.37", "-f", "lavfi", "-i", "mandelbrot=s=640x360:r=30",
+                "-f", "lavfi", "-i", "color=c=blue:s=640x360:r=30:d=2.1", "-filter_complex",
+                "[2:v]trim=duration=2.53,setpts=PTS-STARTPTS[m];[0:v][1:v][m][3:v]concat=n=4:v=1[v]", "-map", "[v]",
+                "-c:v", "libx264", "-preset", "ultrafast", "-g", "60", "-pix_fmt", "yuv420p", _cv], check=True)
+_th = []
+for _fr in framing.stream_frames(_cv, 0.5, 9.5):
+    _th += framing.thumbs(_fr)
+_idx = framing.find_cuts(_th)
+_one = [framing.cut_time(_cv, 0.5, i) for i in _idx]
+_launches = []
+_real_run = framing.subprocess.run
+
+
+def _counting_run(cmd, *a, **kw):
+    _launches.append(cmd)
+    return _real_run(cmd, *a, **kw)
+
+
+framing.subprocess.run = _counting_run
+_many = framing.cut_times(_cv, 0.5, _idx)
+framing.subprocess.run = _real_run
+check("three cuts found", len(_idx) == 3, _idx)
+check("their moments in one FFmpeg run", len(_launches) == 1, len(_launches))
+check("the same moments as one run per cut", _many == _one, (_many, _one))
+check("within a frame or two of the real cuts", all(abs(t - want) < 0.1 for t, want in zip(_many, (2.5, 4.87, 7.4))), _many)
+
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

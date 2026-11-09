@@ -294,19 +294,16 @@ def find_cuts(th: list) -> list:
     return cuts[:MAX_CUTS]
 
 
-def cut_time(video: str, start: float, i: int, fps: float = SAMPLE_FPS) -> float:
-    """When the cut found between looks i-1 and i really happens (seconds from start), to a frame or so: the
-    crop jumps there, not up to a quarter second early or late."""
-    a, b = start + (i - 1) / fps, start + i / fps
-    w, h = 64, 36
-    cmd = [engine.ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, a):.3f}", "-t", f"{b - a + 1 / CUT_FPS:.3f}",
-           "-i", video, "-an", "-vf", f"fps={CUT_FPS},scale={w}:{h}:flags=bilinear", "-pix_fmt", "rgb24",
-           "-f", "rawvideo", "-"]
-    try:
-        raw = subprocess.run(cmd, capture_output=True, timeout=30, stdin=subprocess.DEVNULL,
-                             creationflags=engine.CREATE_NO_WINDOW).stdout
-    except Exception:
-        raw = b""
+CUT_W, CUT_H = 64, 36
+
+
+def _cut_window(start: float, i: int, fps: float) -> tuple:
+    return start + (i - 1) / fps, start + i / fps
+
+
+def _cut_from(raw: bytes, start: float, i: int, fps: float) -> float:
+    a, b = _cut_window(start, i, fps)
+    w, h = CUT_W, CUT_H
     k = len(raw) // (w * h * 3)
     if k < 2:
         return (i - 0.5) / fps
@@ -314,6 +311,63 @@ def cut_time(video: str, start: float, i: int, fps: float = SAMPLE_FPS) -> float
     d = np.abs(np.diff(f, axis=0)).mean(axis=(1, 2, 3))
     # the new shot's first frame is read at most a step after the cut: its middle is closest
     return round(min(b, max(a, a + (int(np.argmax(d)) + 1.5) / CUT_FPS)) - start, 3)
+
+
+def _cut_input(video: str, start: float, i: int, fps: float) -> list:
+    a, b = _cut_window(start, i, fps)
+    return ["-ss", f"{max(0.0, a):.3f}", "-t", f"{b - a + 1 / CUT_FPS:.3f}", "-i", video]
+
+
+CUT_VF = f"fps={CUT_FPS},scale={CUT_W}:{CUT_H}:flags=bilinear"
+
+
+def cut_time(video: str, start: float, i: int, fps: float = SAMPLE_FPS) -> float:
+    """When the cut found between looks i-1 and i really happens (seconds from start), to a frame or so: the
+    crop jumps there, not up to a quarter second early or late."""
+    cmd = [engine.ffmpeg(), "-v", "error", "-nostdin", *_cut_input(video, start, i, fps), "-an", "-vf", CUT_VF,
+           "-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
+    try:
+        raw = subprocess.run(cmd, capture_output=True, timeout=30, stdin=subprocess.DEVNULL,
+                             creationflags=engine.CREATE_NO_WINDOW).stdout
+    except Exception:
+        raw = b""
+    return _cut_from(raw, start, i, fps)
+
+
+def cut_times(video: str, start: float, idx: list, fps: float = SAMPLE_FPS) -> list:
+    """cut_time for several cuts in one FFmpeg run: each cut's window is its own input, seeked the same way, and written
+    to its own file, so every window gets the same frames as cut_time's. Before 4.49 this was one run per cut, one
+    after another: 9 launches and 1.9 s of a 4.2 s face step on a cut-heavy clip (efficiency audit 2026-11-08, F5)."""
+    if len(idx) < 2:
+        return [cut_time(video, start, i, fps) for i in idx]
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="vc_cuts_")
+    try:
+        cmd = [engine.ffmpeg(), "-v", "error", "-nostdin"]
+        for i in idx:
+            cmd += _cut_input(video, start, i, fps)
+        outs = [os.path.join(tmp, f"{n}.rgb") for n in range(len(idx))]
+        for n, out in enumerate(outs):
+            cmd += ["-map", f"{n}:v:0", "-an", "-vf", CUT_VF, "-pix_fmt", "rgb24", "-f", "rawvideo", out]
+        try:
+            ok = subprocess.run(cmd, capture_output=True, timeout=30 + 5 * len(idx), stdin=subprocess.DEVNULL,
+                                creationflags=engine.CREATE_NO_WINDOW).returncode == 0
+        except Exception:
+            ok = False
+        if not ok:
+            return [cut_time(video, start, i, fps) for i in idx]         # one at a time, as before
+        res = []
+        for i, out in zip(idx, outs):
+            try:
+                with open(out, "rb") as f:
+                    raw = f.read()
+            except OSError:
+                raw = b""
+            res.append(_cut_from(raw, start, i, fps))
+        return res
+    finally:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _steady(x: np.ndarray, fps: float) -> np.ndarray:
@@ -533,7 +587,7 @@ def track(video: str, start: float, end: float, info: dict, o, cache_dir: str = 
     for frames in stream_frames(video, start, end):
         dets += detect(frames, KEEP_SCORE)
         th += thumbs(frames)
-    cuts = [cut_time(video, start, i) for i in find_cuts(th)]
+    cuts = cut_times(video, start, find_cuts(th))
     seen = lambda ds: sum(1 for d in ds if any(f[4] >= MIN_SCORE for f in d)) / max(1, len(ds))  # noqa: E731
     looks = "first look"
     if dets and seen(dets) < FINE_BELOW:

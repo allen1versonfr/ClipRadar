@@ -440,6 +440,21 @@ class Source:
     sound: Optional[Callable] = None
 
 
+def local_workdir(workroot: str, video: str) -> str:
+    """The project folder for a video file on disk. Named after the file, except a file called vod.* (every Clip Radar
+    download is), which is named after its folder. A folder that already belongs to another video gets a short suffix
+    from this file's path: before 4.49 every vod.mp4 opened as a file shared one folder, and opening one replaced the
+    other project's meta.json (efficiency audit 2026-11-08, F7). The same file opened again finds its own project."""
+    p = Path(video)
+    name = p.parent.name if p.stem.lower() == "vod" and p.parent.name else p.stem
+    workdir = os.path.join(workroot, _slug(name))
+    owner = str(_meta(workdir).get("source") or "")
+    if owner and os.path.normcase(os.path.abspath(owner)) != os.path.normcase(os.path.abspath(video)):
+        import hashlib
+        workdir += "_" + hashlib.sha1(os.path.normcase(os.path.abspath(video)).encode("utf-8")).hexdigest()[:6]
+    return workdir
+
+
 def _meta(workdir: str) -> dict:
     try:
         return json.load(open(os.path.join(workdir, "meta.json"), encoding="utf-8"))
@@ -464,7 +479,7 @@ def acquire(source: str, workroot: str, chat_file: str = "", max_height: int = 1
         if os.path.splitext(video)[1].lower() not in VIDEO_EXTS:
             log("That file type isn't a usual video format, trying anyway.")
         title = Path(video).stem
-        workdir = os.path.join(workroot, _slug(title))
+        workdir = local_workdir(workroot, video)
         os.makedirs(workdir, exist_ok=True)
         log(f"Using local file: {video}")
         info: dict = {}
@@ -3348,6 +3363,14 @@ WHISPER_IDLE = 600                  # seconds unused before models are let go (e
 WHISPER_KEEP = 2                    # models kept loaded at most
 
 
+def whisper_cpu_threads() -> int:
+    """Threads for faster-whisper on the CPU: one per physical core. Its default is 4, so a 6-core Ryzen heard captions
+    on two thirds of its cores (efficiency audit 2026-11-08, F1: the CPU caption pass was 79% of render time). A PC with
+    8 or more logical processors is taken to have two per core (SMT); hyper-threads don't speed up its int8 matrix work."""
+    n = os.cpu_count() or 4
+    return max(4, n // 2 if n >= 8 else n)
+
+
 def release_whisper(idle: float = 0.0) -> bool:
     """Let go of the loaded Whisper model if it hasn't been used for `idle` seconds.
     Returns True when one was released. The next transcription loads it again (a few seconds)."""
@@ -3417,7 +3440,8 @@ def _load_whisper(model_size: str, log: Log):
         try:
             log(f"Loading Whisper '{model_size}' on {'GPU' if device == 'cuda' else 'CPU'} "
                 f"(the first time downloads the model)...")
-            model = WhisperModel(model_size, device=device, compute_type=ctype)
+            model = WhisperModel(model_size, device=device, compute_type=ctype,
+                                 cpu_threads=whisper_cpu_threads() if device == "cpu" else 0)
             # tiny dry run so missing CUDA libraries fail here, not mid-render
             list(model.transcribe(silence, beam_size=1, language="en", without_timestamps=True)[0])
             _whisper_cache[model_size] = model
@@ -4319,15 +4343,56 @@ def _frame_luma(path: str, at: float = 0.0, ignore_editlist: bool = False) -> Op
     return sum(p.stdout[:1024]) / 1024
 
 
+def _start_lumas(path: str, at: float, editlist: bool) -> Optional[tuple]:
+    """(frame at `at`, first frame, first frame with the edit list ignored or None) in one FFmpeg run, the same frames
+    _frame_luma reads in three. None if that run fails."""
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="vc_luma_")
+    try:
+        outs = [os.path.join(tmp, f"{n}.gray") for n in range(3 if editlist else 2)]
+        cmd = [ffmpeg(), "-v", "error", "-nostdin", "-i", path]
+        if editlist:
+            cmd += ["-ignore_editlist", "1", "-i", path]
+        graph = (f"[0:v]split=2[r][f];[r]trim=start={at:.3f},scale=32:32,format=gray[o0];"
+                 "[f]scale=32:32,format=gray[o1]" + (";[1:v]scale=32:32,format=gray[o2]" if editlist else ""))
+        cmd += ["-filter_complex", graph]
+        for n, out in enumerate(outs):
+            cmd += ["-map", f"[o{n}]", "-frames:v", "1", "-f", "rawvideo", out]
+        try:
+            if subprocess.run(cmd, capture_output=True, timeout=30, stdin=subprocess.DEVNULL,
+                              creationflags=CREATE_NO_WINDOW).returncode != 0:
+                return None
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        vals = []
+        for out in outs:
+            try:
+                with open(out, "rb") as f:
+                    raw = f.read()
+            except OSError:
+                raw = b""
+            vals.append(sum(raw[:1024]) / 1024 if len(raw) >= 1024 else None)
+        return vals[0], vals[1], (vals[2] if editlist else None)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def black_start(path: str, length: float) -> bool:
     """The clip opens on a black frame although the picture right after it isn't black: what TikTok
-    shows as a black cover. Checked both as players read the file and with its edit list ignored."""
-    ref = _frame_luma(path, min(0.4, max(0.1, length / 4)))
+    shows as a black cover. Checked both as players read the file and with its edit list ignored.
+    One FFmpeg run since 4.49 (three before: efficiency audit 2026-11-08, F5); the three runs are the fallback."""
+    at = min(0.4, max(0.1, length / 4))
+    editlist = path.lower().endswith((".mp4", ".mov", ".m4v"))
+    got = _start_lumas(path, at, editlist)
+    if got is None:
+        ref = _frame_luma(path, at)
+        if ref is None or ref < 40:
+            return False
+        firsts = [_frame_luma(path)] + ([_frame_luma(path, ignore_editlist=True)] if editlist else [])
+    else:
+        ref, firsts = got[0], [got[1]] + ([got[2]] if editlist else [])
     if ref is None or ref < 40:
         return False                    # the clip really starts dark (or can't be read): nothing to fix
-    firsts = [_frame_luma(path)]
-    if path.lower().endswith((".mp4", ".mov", ".m4v")):
-        firsts.append(_frame_luma(path, ignore_editlist=True))
     first = min((f for f in firsts if f is not None), default=None)
     return first is not None and first < 24 and ref - first > 25
 
