@@ -6,7 +6,9 @@ rich text caption box that starts with the file's name; a Post button that's off
 Modes (4.36): "leave" asks "Leave site?" once a video is in; "fails" says the upload failed; "short" keeps only
 the first 120 characters of a caption (TikTok's limit, smaller); "es" is the page in Spanish, without the
 Post button's data-e2e. "emoji" (4.40) draws the caption's emoji as pictures and puts invisible characters
-around its hashtags, so the box's text isn't exactly what was typed.
+around its hashtags, so the box's text isn't exactly what was typed. "suggest" picks a hashtag suggestion when
+the box is left with the caret right after a hashtag; "lines" drops line breaks from typed text (pasting keeps
+them); "nopaste" also ignores pasting, so only typing line by line works.
 
     srv = fake_studio.start()          # srv.url, srv.posted (what was posted), srv.shutdown()
 """
@@ -52,6 +54,29 @@ if (MODE === 'emoji') {     // a rich editor: emoji drawn as pictures, hashtags 
       .replace(/#\\w+/g, m => '\\u200b' + m + '\\u200b').replace(/\\n/g, '<br>');
   }, 50));
 }
+if (MODE === 'suggest') {  // TikTok's hashtag list: open while the caret is right after "#word"; leaving the box picks
+  const cap = document.getElementById('cap');      // its top suggestion. Escape doesn't close it.
+  cap.addEventListener('blur', () => {
+    const t = cap.innerText;
+    if (/#\\w+$/.test(t)) cap.innerText = t + 'viral';
+  });
+}
+if (MODE === 'lines' || MODE === 'nopaste') {   // a rich editor that drops line breaks in typed text (pasting keeps them)
+  const cap = document.getElementById('cap');
+  cap.addEventListener('beforeinput', e => {
+    if ((e.inputType === 'insertText' || e.inputType === 'insertCompositionText') && e.data && e.data.includes('\\n')) {
+      e.preventDefault();
+      document.execCommand('insertText', false, e.data.replace(/\\n/g, ''));
+    }
+  });
+}
+document.getElementById('cap').addEventListener('paste', e => {   // as Draft.js does: the pasted text, line breaks kept
+  if (MODE === 'nopaste') return;
+  const t = e.clipboardData && e.clipboardData.getData('text/plain');
+  if (!t) return;
+  e.preventDefault();
+  t.split('\\n').forEach((ln, i) => { if (i) document.execCommand('insertParagraph'); if (ln) document.execCommand('insertText', false, ln); });
+});
 let ignoredFile = false, ignoredTyping = false;
 document.getElementById('cap').addEventListener('input', () => {
   if (FLAKY && !ignoredTyping) { ignoredTyping = true; setTimeout(() => { document.getElementById('cap').innerText = file.name; }, 100); }

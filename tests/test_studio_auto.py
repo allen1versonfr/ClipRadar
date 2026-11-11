@@ -298,6 +298,23 @@ try:
     except studio_auto.StudioError as e:
         check("a caption TikTok's editor redraws: posted", False, (e.step, str(e)))
     srv.shutdown()
+    # 15. TikTok's editor keeps the caption from going in as written (the upload stopped at "The caption didn't go in
+    # as written"): its hashtag list picks a suggestion for the last hashtag when the box is left, and a rich editor can
+    # drop typed line breaks, gluing the hashtags to the words before them
+    for mode, what in (("suggest", "the hashtag list open at the end"), ("lines", "line breaks dropped from typing"),
+                       ("nopaste", "line breaks dropped and pasting ignored")):
+        srv = fake_studio.start(mode=mode)
+        try:
+            cap = "Wait for it\n\n#gaming #fyp"
+            r = studio_auto.upload(clip, cap, True, srv.url, steps.append)
+            got_cap = srv.posted[0]["caption"] if srv.posted else ""
+            check(f"{what}: posted", r["posted"] and len(srv.posted) == 1, r)
+            check(f"{what}: with the caption as written", studio_auto._caption_words(got_cap) == studio_auto._caption_words(cap)
+                  and "\n" in got_cap, repr(got_cap))
+        except studio_auto.StudioError as e:
+            check(f"{what}: posted", False, (e.step, str(e)))
+        srv.shutdown()
+
     W = studio_auto._caption_words
     check("a different word is still a different caption", W("Wait for it #gaming") != W("Wait for that #gaming"))
     check("so is a missing or changed hashtag", W("Wait #gaming #fyp") != W("Wait #gaming") and W("#fyp") != W("#fypage"))

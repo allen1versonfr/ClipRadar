@@ -374,22 +374,70 @@ def _set_file(page: cdp.Page, path: str, check: Callable) -> None:
     raise StudioError("caption box", "The video went in, but the caption box didn't appear.")
 
 
+def _key(page: cdp.Page, key: str, code: str, vk: int, text: str = "", modifiers: int = 0, commands=None) -> None:
+    down = dict(type="keyDown", key=key, code=code, windowsVirtualKeyCode=vk, modifiers=modifiers)
+    if text:
+        down["text"] = text
+    if commands:
+        down["commands"] = commands
+    page.call("Input.dispatchKeyEvent", **down)
+    page.call("Input.dispatchKeyEvent", type="keyUp", key=key, code=code, windowsVirtualKeyCode=vk, modifiers=modifiers)
+
+
+def _clear_caption(page: cdp.Page) -> None:
+    page.eval(f"(() => {{ const e = {SELECTORS['caption']}; e.focus(); return true }})()")
+    _key(page, "a", "KeyA", 65, modifiers=2, commands=["selectAll"])
+    _key(page, "Backspace", "Backspace", 8)
+
+
+def _ends_on_tag(text: str) -> bool:
+    """Whether the text ends on a #hashtag or @mention: TikTok's suggestion list is open there."""
+    return bool(re.search(r"[#@][^\s#@]+$", text))
+
+
+# The ways the caption is put in, one per try (4.50.1). Trying the same way three times failed the same way three
+# times. Each ends with a space after a closing hashtag or mention, so TikTok's suggestion list closes without
+# picking from it: left open, leaving the box picks its top suggestion ("#fyp" became another tag), and Escape
+# doesn't close TikTok's list.
+def _put_typed(page: cdp.Page, caption: str) -> None:
+    """All at once, as typing (an input method committing the text)."""
+    page.call("Input.insertText", text=caption + (" " if _ends_on_tag(caption) else ""))
+
+
+def _put_pasted(page: cdp.Page, caption: str) -> None:
+    """As a paste: TikTok's editor (Draft.js) puts pasted text in itself, line breaks kept, where typed line breaks
+    can be dropped and glue the hashtags to the words before them."""
+    page.eval("(() => { const e = " + SELECTORS["caption"] + "; const d = new DataTransfer(); "
+              f"d.setData('text/plain', {json.dumps(caption)}); "
+              "e.dispatchEvent(new ClipboardEvent('paste', { clipboardData: d, bubbles: true, cancelable: true })); "
+              "return true })()")
+    if _ends_on_tag(caption):
+        page.call("Input.insertText", text=" ")
+
+
+def _put_lines(page: cdp.Page, caption: str) -> None:
+    """A line at a time, with Enter between lines, as a person types it. A line ending on a hashtag gets its space
+    first, or Enter would pick from the suggestion list."""
+    for i, line in enumerate(caption.split("\n")):
+        if i:
+            _key(page, "Enter", "Enter", 13, text="\r")
+        if line:
+            page.call("Input.insertText", text=line + (" " if _ends_on_tag(line) else ""))
+
+
+PUT_CAPTION = (_put_typed, _put_pasted, _put_lines)
+
+
 def _type_caption(page: cdp.Page, caption: str) -> None:
     """Replace TikTok's caption (it starts with the file name) with ours. TikTok's editor sometimes drops
-    or doubles typed text while it's still setting up, or opens a hashtag list that eats the end, so the
-    result is read back and typed again (three tries) until it's exactly the caption."""
+    or doubles typed text while it's still setting up, picks a hashtag suggestion, or drops line breaks, so the
+    result is read back and put in again, a different way each time (PUT_CAPTION), until it's exactly the caption."""
     want = _caption_words(caption)
-    for _ in range(3):
-        page.eval(f"(() => {{ const e = {SELECTORS['caption']}; e.focus(); return true }})()")
-        page.call("Input.dispatchKeyEvent", type="keyDown", key="a", code="KeyA", modifiers=2,
-                  windowsVirtualKeyCode=65, commands=["selectAll"])
-        page.call("Input.dispatchKeyEvent", type="keyUp", key="a", code="KeyA", modifiers=2, windowsVirtualKeyCode=65)
-        page.call("Input.dispatchKeyEvent", type="keyDown", key="Backspace", code="Backspace", windowsVirtualKeyCode=8)
-        page.call("Input.dispatchKeyEvent", type="keyUp", key="Backspace", code="Backspace", windowsVirtualKeyCode=8)
-        page.call("Input.insertText", text=caption)
-        # Escape closes a hashtag or mention list without picking from it; then leave the box
-        page.call("Input.dispatchKeyEvent", type="keyDown", key="Escape", code="Escape", windowsVirtualKeyCode=27)
-        page.call("Input.dispatchKeyEvent", type="keyUp", key="Escape", code="Escape", windowsVirtualKeyCode=27)
+    for put in PUT_CAPTION:
+        _clear_caption(page)
+        put(page, caption)
+        # Escape closes a hashtag or mention list without picking from it (where it does); then leave the box
+        _key(page, "Escape", "Escape", 27)
         page.eval("document.activeElement && document.activeElement.blur && document.activeElement.blur(), true")
         # the editor settles a moment after typing (and can still change it): right for half a second in a row
         end, since = time.time() + 2.0, None
