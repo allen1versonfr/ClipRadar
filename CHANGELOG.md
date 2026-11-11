@@ -5,6 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+- **A TikTok upload could post a clip with its title three times.** TikTok's caption editor can learn about a select-all a moment late, so Backspace deleted one letter instead of the caption TikTok fills in. The caption then went in after what was there, once per try (from the first user report: the Nov 7 clip). The box is now checked empty before anything is typed: Ctrl+A again with a longer pause, then the box's contents selected directly. If it still can't be emptied, nothing is typed and it says so.
+
+### Tests
+- `tests/fake_studio.py` "laggy": an editor that learns about Ctrl+A late. Before the fix the box ended with the caption three times after TikTok's file name.
+
 ## [4.50.1] - 2026-11-11
 
 Uploading to TikTok no longer stops at "The caption didn't go in as written".

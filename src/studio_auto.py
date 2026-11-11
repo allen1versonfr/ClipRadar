@@ -384,10 +384,36 @@ def _key(page: cdp.Page, key: str, code: str, vk: int, text: str = "", modifiers
     page.call("Input.dispatchKeyEvent", type="keyUp", key=key, code=code, windowsVirtualKeyCode=vk, modifiers=modifiers)
 
 
+def _box_empty(page: cdp.Page, seconds: float) -> bool:
+    end = time.time() + seconds
+    while True:
+        if not _caption_words(_read_caption(page)):
+            return True
+        if time.time() >= end:
+            return False
+        time.sleep(0.05)
+
+
 def _clear_caption(page: cdp.Page) -> None:
-    page.eval(f"(() => {{ const e = {SELECTORS['caption']}; e.focus(); return true }})()")
-    _key(page, "a", "KeyA", 65, modifiers=2, commands=["selectAll"])
+    """Empty the caption box, and make sure it's empty before anything is typed (4.50.2). TikTok's editor can learn
+    about a select-all a moment late, and Backspace then deletes one letter: the caption went in after what was
+    there, once per try, and a clip was posted with its title three times. Ctrl+A with a longer pause each time,
+    then the box's contents selected directly; if it still isn't empty, nothing is typed."""
+    focus = f"(() => {{ const e = {SELECTORS['caption']}; e.focus(); return true }})()"
+    for pause in (0.0, 0.15, 0.5):
+        page.eval(focus)
+        _key(page, "a", "KeyA", 65, modifiers=2, commands=["selectAll"])
+        if pause:
+            time.sleep(pause)                       # let the editor take in the selection
+        _key(page, "Backspace", "Backspace", 8)
+        if _box_empty(page, 0.4):
+            return
+    page.eval(f"(() => {{ const e = {SELECTORS['caption']}; e.focus(); getSelection().selectAllChildren(e); return true }})()")
+    time.sleep(0.5)
     _key(page, "Backspace", "Backspace", 8)
+    if not _box_empty(page, 0.5):
+        raise StudioError("caption", "Couldn't empty TikTok's caption box, so the caption wasn't typed (it would have "
+                                     "gone in after what's there). Clear the box and paste it yourself (it's copied).")
 
 
 def _ends_on_tag(text: str) -> bool:
