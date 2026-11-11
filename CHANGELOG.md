@@ -15,6 +15,7 @@ Uploading to TikTok no longer stops at "The caption didn't go in as written".
   - A rich editor can drop typed line breaks, gluing the hashtags to the words before them (`it#gaming`).
 
   Each try now puts the caption in a different way: typed, then pasted (the editor keeps pasted line breaks), then a line at a time with Enter (`studio_auto.PUT_CAPTION`).
+- **Export VOD: a click on a music stretch made as the screen appeared could be undone.** The ticks were cleared by an effect that could run after the click. They now belong to the scan they were made on, and a new scan still starts them over. Found by the Windows build, where the test for it failed on a busy runner.
 
 ### Tests
 - `tests/test_studio_auto.py`: the stand-in TikTok page (`tests/fake_studio.py`) picks a hashtag suggestion when the box is left, drops typed line breaks, and ignores pasting. All three failed with this message before the fix, and post the caption as written now.

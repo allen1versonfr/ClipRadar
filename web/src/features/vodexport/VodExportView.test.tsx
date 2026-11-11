@@ -66,4 +66,16 @@ describe('Export VOD', () => {
     await waitFor(() => expect(calls.some(([p]) => p === '/api/vodexport/start')).toBe(true))
     expect(calls.find(([p]) => p === '/api/vodexport/start')![1]).toMatchObject({ captions: 'off', words: 'off' })
   })
+
+  it('a new scan starts the ticks over', async () => {
+    let view: object = VIEW
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(view), { status: 200 })))
+    const { rerender } = render(<ToastProvider><VodExportView /></ToastProvider>)
+    fireEvent.click((await screen.findAllByTestId('vodx-span'))[0]!)
+    expect(screen.getByTestId('vodx-music-summary').textContent).toMatch(/1 muted, 1 kept/)
+    view = { ...VIEW, videos: [{ ...VIEW.videos[0], scan: { ...VIEW.videos[0]!.scan, at: 2 } }] }
+    fireEvent(document, new Event('visibilitychange'))
+    rerender(<ToastProvider><VodExportView /></ToastProvider>)
+    await waitFor(() => expect(screen.getByTestId('vodx-music-summary').textContent).toMatch(/All muted/), { timeout: 4000 })
+  })
 })
