@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.50.1] - 2026-11-11
+
+Uploading to TikTok no longer stops at "The caption didn't go in as written".
+
+### Fixed
+- **Uploading to TikTok stopped at "The caption didn't go in as written".** Clip Radar put the caption in the same way three times, and TikTok's editor changed it the same way each time:
+  - Its hashtag list was still open after the last hashtag, and leaving the box picked its top suggestion, so `#fyp` became another tag. Escape doesn't close TikTok's list. The caption now ends with a space after a closing hashtag or mention, which closes the list.
+  - A rich editor can drop typed line breaks, gluing the hashtags to the words before them (`it#gaming`).
+
+  Each try now puts the caption in a different way: typed, then pasted (the editor keeps pasted line breaks), then a line at a time with Enter (`studio_auto.PUT_CAPTION`).
+
+### Tests
+- `tests/test_studio_auto.py`: the stand-in TikTok page (`tests/fake_studio.py`) picks a hashtag suggestion when the box is left, drops typed line breaks, and ignores pasting. All three failed with this message before the fix, and post the caption as written now.
+
 ## [4.50.0] - 2026-11-11
 
 A new screen, Export VOD, saves a whole video as one file with captions, flagged words muted, and a copyright scan that finds the music in it so it can be muted. Scrolling the Review timeline is smooth.
