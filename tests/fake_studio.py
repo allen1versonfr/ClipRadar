@@ -8,7 +8,8 @@ the first 120 characters of a caption (TikTok's limit, smaller); "es" is the pag
 Post button's data-e2e. "emoji" (4.40) draws the caption's emoji as pictures and puts invisible characters
 around its hashtags, so the box's text isn't exactly what was typed. "suggest" picks a hashtag suggestion when
 the box is left with the caret right after a hashtag; "lines" drops line breaks from typed text (pasting keeps
-them); "nopaste" also ignores pasting, so only typing line by line works.
+them); "nopaste" also ignores pasting, so only typing line by line works. "laggy" (4.50.2) learns about a select-all late, so
+Backspace straight after Ctrl+A deletes one letter instead of the caption TikTok started with ("suggest" does too).
 
     srv = fake_studio.start()          # srv.url, srv.posted (what was posted), srv.shutdown()
 """
@@ -77,6 +78,20 @@ document.getElementById('cap').addEventListener('paste', e => {   // as Draft.js
   e.preventDefault();
   t.split('\\n').forEach((ln, i) => { if (i) document.execCommand('insertParagraph'); if (ln) document.execCommand('insertText', false, ln); });
 });
+if (MODE === 'laggy' || MODE === 'suggest') {   // an editor (like Draft.js) that learns about a new selection a moment
+  const cap = document.getElementById('cap');      // late: Backspace right after Ctrl+A deletes one letter, not all
+  let selAt = -1e9;
+  cap.addEventListener('keydown', e => {
+    if (e.key === 'a' && (e.ctrlKey || e.metaKey)) selAt = performance.now();
+    if (e.key === 'Backspace' && performance.now() - selAt < 60) {
+      e.preventDefault();
+      const t = cap.innerText;
+      cap.innerText = t.slice(0, -1);
+      const r = document.createRange(); r.selectNodeContents(cap); r.collapse(false);
+      getSelection().removeAllRanges(); getSelection().addRange(r);
+    }
+  });
+}
 let ignoredFile = false, ignoredTyping = false;
 document.getElementById('cap').addEventListener('input', () => {
   if (FLAKY && !ignoredTyping) { ignoredTyping = true; setTimeout(() => { document.getElementById('cap').innerText = file.name; }, 100); }
