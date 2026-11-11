@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.50.1] - 2026-11-11
+
+Uploading to TikTok no longer stops at "The caption didn't go in as written".
+
 ### Fixed
 - **Uploading to TikTok stopped at "The caption didn't go in as written".** Clip Radar put the caption in the same way three times, and TikTok's editor changed it the same way each time:
   - Its hashtag list was still open after the last hashtag, and leaving the box picked its top suggestion, so `#fyp` became another tag. Escape doesn't close TikTok's list. The caption now ends with a space after a closing hashtag or mention, which closes the list.
