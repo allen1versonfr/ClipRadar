@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { api } from '../../api/client'
 import { JobStarted, Ok, VodExport, type MusicSpan, type VodExportVideo } from '../../api/schemas'
 import { Seg } from '../../components/Seg'
@@ -71,9 +71,16 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   const set = (patch: Partial<Choices>) => setC(cur => { const n = { ...cur, ...patch }; setPref('vodx', n); return n })
   const spans = v.scan?.spans ?? []
   // which music stretches stay as they are; every one is muted until you keep it. A new scan starts over.
-  const [kept, setKept] = useState<Set<number>>(new Set())
+  // the ticks belong to the scan they were made on: a new scan starts over. Kept with it rather than cleared by an
+  // effect, which could run after a click made as the screen appeared and undo it
   const scanAt = v.scan?.at ?? 0
-  useEffect(() => setKept(new Set()), [scanAt])
+  const [keptFor, setKeptFor] = useState<{ at: number; set: Set<number> }>({ at: scanAt, set: new Set() })
+  const kept = keptFor.at === scanAt ? keptFor.set : new Set<number>()
+  const setKept = (f: Set<number> | ((k: Set<number>) => Set<number>)) =>
+    setKeptFor(cur => {
+      const base = cur.at === scanAt ? cur.set : new Set<number>()
+      return { at: scanAt, set: typeof f === 'function' ? f(base) : f }
+    })
   const scanning = v.scan_job?.status === 'running'
   const ex = v.export_job
   const exporting = ex?.status === 'running'
