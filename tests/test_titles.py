@@ -316,6 +316,19 @@ masked = titles.generate(W("okay okay"), laugh, 1.0, set(), viewer_titles=["what
 check("v2: a viewer's title in the caption is masked like the title", "shit" not in masked["description"].lower()
       and "fuck" not in masked["description"].lower(), masked["description"])
 
+# 4.51: an argument or a moment chat takes sides on asks who's right (the first user report: drama clips got the
+# most shares, and "Thoughts?" got next to no comments)
+argue_chat = [(i * 0.5, t, f"u{i}") for i, t in enumerate(["he's wrong", "ratio", "she violated him", "W", "L", "L",
+                                                              "W", "W", "L", "exposed"])]
+ga = titles.generate(W("you're lying, shut up, you're wrong"), argue_chat, 1.0, set(), streamer="Adin")
+check("4.51: an argument asks who's right", ga["conflict"] and any(q in ga["description"] for q in titles.QUESTIONS["conflict"]),
+      ga["description"])
+check("4.51: a laugh isn't an argument", not titles.conflict(laugh, W("that was so funny")))
+check("4.51: chat split between W and L is", titles.conflict([(0, "W", "a"), (0, "W", "b"), (0, "W", "c"), (0, "L", "d"),
+                                                            (0, "L", "e"), (0, "L", "f")], []))
+check("4.51: one chatter typing it ten times isn't", not titles.conflict([(i, "ratio", "same") for i in range(10)], []))
+check("4.51: no more questions without a quick answer", "Thoughts?" not in qs and "What do you think?" not in qs)
+
 import engine  # noqa: E402
 import json  # noqa: E402
 import tempfile  # noqa: E402

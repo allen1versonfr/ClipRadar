@@ -708,8 +708,38 @@ QUESTIONS = {
     "confused": ["Can someone explain?", "What did we just watch?", "Does this make sense to anyone?"],
     "cringe": ["How would you have reacted?", "Would you have said something?"],
     "wholesome": ["Who else needed this today?", "Tag someone who needs this"],
-    None: ["What do you think?", "Thoughts?"],
+    # 4.51: "What do you think?" and "Thoughts?" got next to no answers (first user report: 0.58 comments per 1,000
+    # views). A question with a quick answer gets more
+    None: ["Rate this from 1 to 10", "W or L?", "What would you have done?"],
+    # 4.51: people arguing or taking sides. In the first user report these clips got most of the shares and the
+    # best like rates, and a side to pick is the easiest comment to write
+    "conflict": ["Who's right here?", "Whose side are you on?", "Who won this one?", "Who was wrong here?"],
 }
+
+# 4.51: chat taking sides, and an argument on stream (conflict)
+CONFLICT_CHAT = {"ratio", "ratioed", "cooked", "fried", "violated", "violation", "exposed", "beef", "drama", "diss",
+                 "disrespect", "disrespectful", "snake", "fraud", "lying", "liar", "wrong", "slander", "defend",
+                 "toxic", "sides", "side", "team", "deserved", "owes", "apologize", "fight"}
+CONFLICT_SAID = {"argue", "arguing", "argument", "wrong", "shut", "beef", "disrespect", "disrespectful", "lying",
+                 "liar", "fraud", "snake", "fight", "apologize", "drama", "lie", "lied", "exposed", "blame"}
+
+
+def conflict(chat_msgs: list, words: list) -> bool:
+    """Whether the clip is an argument or a moment people take sides on: enough chatters using words for it, or
+    chat split between W and L, or an argument heard on stream. Each chatter counts once."""
+    sided, w_or_l = set(), {"w": set(), "l": set()}
+    for i, m in enumerate(chat_msgs):
+        text, who = _msg(m)
+        toks = set(_TOKEN.findall(text.lower()))
+        key = who or i
+        if toks & CONFLICT_CHAT:
+            sided.add(key)
+        for k in ("w", "l"):
+            if k in toks:
+                w_or_l[k].add(key)
+    said = sum(1 for w in words if re.sub(r"[^\w']", "", w["word"]).lower() in CONFLICT_SAID)
+    split = min(len(w_or_l["w"]), len(w_or_l["l"])) >= 3
+    return len(sided) + 0.5 * said >= 3 or split
 
 
 NUMBER_WORDS = {"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "zero"}
@@ -722,7 +752,7 @@ def _has_specific(text: str) -> bool:
 
 
 def caption(vibe: Optional[str], lines: list, streamer: str = "", emoji: str = "👀", platform: str = "twitch",
-            used: Optional[set] = None, seed: int = 0) -> str:
+            used: Optional[set] = None, seed: int = 0, ask: Optional[str] = None) -> str:
     """titles-v2: a post caption that says something specific the title doesn't: the first of lines (another line
     said on stream, a viewer's clip title, chat's phrase), else a line about how chat took it; then a question
     for comments and whose stream. Nothing in it is given twice in a stream where it can be helped."""
@@ -738,11 +768,11 @@ def caption(vibe: Optional[str], lines: list, streamer: str = "", emoji: str = "
     credit = f" ({name} on {where})" if name else ""
     if not lead:
         if vibe not in VIBES:
-            return describe(vibe, "", streamer, emoji, platform, used, seed)
+            return describe(vibe, "", streamer, emoji, platform, used, seed) + (_ask(ask, used, seed) if ask else "")
         pool = _pick(VIBES[vibe]["hooks"], set(), seed)
         times = {h: sum(1 for u in used if u.startswith(h.lower())) for h in pool}
         lead = min(pool, key=lambda h: times[h])
-    return f"{lead} {emoji}{_ask(vibe, used, seed)}{credit}".strip()
+    return f"{lead} {emoji}{_ask(ask or vibe, used, seed)}{credit}".strip()
 
 
 def _ask(vibe: Optional[str], used: set, seed: int) -> str:
@@ -878,7 +908,9 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
     if not vibe:
         # no reaction to go on: the next best line said, as before (4.41)
         lines += [("quote", q) for q in good_quotes if q.lower() not in shown][:1]
-    desc = caption(vibe, lines, name, emoji, platform, used | {title_a.lower(), title_b.lower()}, seed)
+    argue = conflict(chat_msgs, words)
+    desc = caption(vibe, lines, name, emoji, platform, used | {title_a.lower(), title_b.lower()}, seed,
+                   ask="conflict" if argue else None)
     return {
         "title": title,
         "title_a": title_a,
@@ -894,4 +926,5 @@ def generate(words: list, chat_msgs: list, peak_rel: Optional[float] = None,
         "chat_title": chat_title if chat_title and chat_title in alts else "",
         "viewer_title": viewer_title if viewer_title in alts else "",
         "topic": t_word,
+        "conflict": argue,
     }
