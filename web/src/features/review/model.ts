@@ -70,7 +70,7 @@ export function snapshot(c: Clip) {
 export function merge(c: Clip, s: Clip, saving = false): Clip {
   const out: Clip = { ...c, listened: s.listened, words: c.wordsEdited ? c.words : s.words, titles: s.titles, vibe: s.vibe, emoji: s.emoji, reason: s.reason, post: s.post,
     held: s.held, description: s.description ?? c.description, hashtags: s.hashtags ?? c.hashtags,
-    safety: s.safety ?? c.safety, check: s.check ?? c.check }
+    safety: s.safety ?? c.safety, check: s.check ?? c.check, series: s.series, series_hint: s.series_hint, people: s.people }
   // an edit of yours still waiting to be saved: the server's copy is older, so it doesn't move the cut or title
   if (saving) return out
   if (!c.userTitle && s.title) out.title = s.title

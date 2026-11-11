@@ -41,6 +41,7 @@ import locations
 import paths
 import persist
 import safety
+import series
 import spelling
 import studio
 import studio_auto
@@ -307,6 +308,8 @@ class Handler(BaseHTTPRequestHandler):
                 res = dict(res, **framing.fit(res, lay, cam, picked=not framing.untouched(lay, cam, flag("layout_auto")),
                                                auto=flag("auto"), aspect=(q.get("aspect") or ["9:16"])[0]))
             return self._json(dict(res, available=True))
+        if p == "/api/series":
+            return self._json(series.view())
         if p == "/api/vodexport":
             return self._json(vodexport.view(S))
         if p == "/api/perf":
@@ -1046,6 +1049,28 @@ class Handler(BaseHTTPRequestHandler):
                 S.save_project_soon(pid, 0.2)
             return self._json({"ok": True, "clip": d if p == "/api/clip_restore" else None})
 
+        if p == "/api/series":
+            # Settings › Series, and renaming or deleting a series
+            if body.get("settings"):
+                series.save_settings(body["settings"])
+            if body.get("id"):
+                if body.get("delete"):
+                    series.delete(body["id"])
+                elif not series.update(body["id"], body):
+                    return self._err("That series is gone.", 404)
+            return self._json(series.view())
+        if p == "/api/series/clip":
+            # Review: a clip into a series (or a new one), or out of it
+            if body.get("pid") not in S.projects:
+                return self._err("This session expired. Press Find clips again.", 404)
+            if body.get("action") not in ("add", "new", "remove"):
+                return self._err("bad action")
+            try:
+                d = S.series_clip(body["pid"], body.get("clip"), body["action"], str(body.get("id") or ""),
+                                  str(body.get("name") or ""))
+            except KeyError as e:
+                return self._err(str(e.args[0]), 404)
+            return self._json({"ok": True, "clip": d, "series": series.view()})
         if p in ("/api/vodexport/scan", "/api/vodexport/start"):
             # Export VOD: the copyright (music) scan, and the whole video exported with muting and captions
             pid = body.get("pid", "")

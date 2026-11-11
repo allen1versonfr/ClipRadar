@@ -48,6 +48,7 @@ import studio
 import titles
 import hotkey
 import safety
+import series
 import updater
 import campaigns
 import chatsignal
@@ -617,12 +618,67 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
     d["emoji"] = info["emoji"]
     if cfg.get("auto", True) or d.get("safety"):
         checkflow.check(d, cfg, pr["info"].get("has_audio", True))
+    _series_hint(pr, d, rel, _chat_near(pr, d["start"], d["end"]))
     # 4.36: the titles and the caption, so the next clips get others (only the title on the video was, and
     # every clip of one mood got the same title B and caption).
     # B only when it's a title with the streamer's name in it: that's its own pool, while an unnamed B is one of
     # title A's and used them up twice as fast (a video without chat or words repeated its titles)
     used.update(t.lower() for t in (d["title"], info["title_a"], info["title_b"] if info["title_b_named"] else "",
                                     info["description"]) if t)
+
+
+def series_key(pr: dict, d: dict) -> str:
+    """A clip's name in series.json: its project folder and its number, the same after a restart."""
+    return f"{os.path.basename(pr.get('workdir') or pr.get('live') or '')}|{d.get('id')}"
+
+
+def _series_hint(pr: dict, d: dict, rel_words: list, chat: list):
+    """Series (4.51): who's in the clip, and the series it looks like part of (a suggestion only, unless Settings ›
+    Series › Add by itself is on and it matches a series you made)."""
+    try:
+        streamer = _streamer_name(pr)
+        names = series.people(rel_words, chat, streamer)
+        d["people"] = names
+        key = series_key(pr, d)
+        series.seen(streamer, names, key)
+        if d.get("series"):
+            d.pop("series_hint", None)
+            return
+        hint = series.suggest(streamer, names, key)
+        if hint and not hint["new"] and series.settings()["auto_add"]:
+            d["series"] = series.add(hint["id"], key, d.get("title", ""))
+            d.pop("series_hint", None)
+        elif hint:
+            d["series_hint"] = hint
+        else:
+            d.pop("series_hint", None)
+    except Exception as e:                  # a suggestion must never stop a clip being titled
+        print(f"  Series: {e}", flush=True)
+
+
+def series_clip(pid: str, cid, action: str, sid: str = "", name: str = "") -> dict:
+    """Review's series control: add a clip to a series (sid), start a new one with it (name), or take it out."""
+    pr = projects[pid]
+    d = _find_clip(pr, cid)
+    if not d:
+        raise KeyError("That clip isn't open any more.")
+    key = series_key(pr, d)
+    if action == "remove":
+        if d.get("series"):
+            series.remove(d["series"]["id"], key)
+        d.pop("series", None)
+    else:
+        if action == "new":
+            sid = series.create(name, _streamer_name(pr), d.get("people") or (d.get("series_hint") or {}).get("people"))["id"]
+        if d.get("series") and d["series"]["id"] != sid:
+            series.remove(d["series"]["id"], key)
+        got = series.add(sid, key, d.get("title", ""))
+        if not got:
+            raise KeyError("That series is gone.")
+        d["series"] = got
+        d.pop("series_hint", None)
+    save_project_soon(pid)
+    return d
 
 
 def rescan_all():
@@ -1711,6 +1767,15 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
         ex["watermark"] = campaigns.watermark_for(camp, ex["watermark"])
         it["campaign"] = {k: camp[k] for k in ("id", "name", "caption", "caption_where", "tags")}
     it["export"] = ex
+    # Series (4.51): the part in the title and caption, and the end card, as Settings › Series says
+    ser = (d or {}).get("series") or None
+    if ser:
+        cur = series.get(ser.get("id", ""))
+        ser = dict(ser, name=cur["name"]) if cur else ser
+        it["title"], it["post"], card = series.apply(it["title"], it["post"], ser)
+        it["series"] = ser
+        if card:
+            it["end_card"] = card
     it["name_fields"] = exports.fields_for(dict(d or {}, title=it["title"]), pr, ex["preset"], number=it["clip_id"])
     it["sig"] = json.dumps([pid, it["clip_id"], round(start_, 2), round(end_, 2), it["title"], it["opts"], ex], sort_keys=True,
                            default=str)
@@ -2025,6 +2090,8 @@ def _render_item(it: dict):
     ex = it.get("export") or {}
     ro = _ropts(it["opts"], ex)
     ro.gain_db = max(-12.0, min(12.0, float(it.get("gain") or 0)))       # Clip tab › Volume
+    if it.get("end_card"):                  # Series › End card: over the last seconds, on top of the watermark
+        ro.wm_marks = engine.marks_of(ro) + [series.end_card_mark(it["end_card"], it["end"] - it["start"])]
     subs = ex.get("subtitles", "burn")
     outdir = locations.clips_dir(pr["workdir"])          # Settings › Storage › Rendered clips
     _validate_render(it, pr, outdir)

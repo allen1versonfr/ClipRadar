@@ -9,6 +9,7 @@ export const SECTIONS: Section[] = [
   { id: 'watermark', title: 'Watermark', group: 'Clips', words: 'logo text image overlay position opacity handle channel name' },
   { id: 'titles', title: 'Titles and captions', group: 'Clips', words: 'title a b streamer name chat post caption hashtags description' },
   { id: 'words', title: 'Caption words', group: 'Clips', words: 'replacements spelling vocabulary names emotes whisper' },
+  { id: 'series', title: 'Series', group: 'Clips', words: 'series part pt storyline follow end card numbering recurring' },
   { id: 'tags', title: 'Hashtags', group: 'Clips', words: 'hashtags tags file name post caption streamer' },
   { id: 'safety', title: 'Content check', group: 'Clips', words: 'flags slurs swearing censor bleep mute safety tiktok rules' },
   { id: 'tiktok', title: 'TikTok', group: 'Posting', words: 'tiktok studio upload post press post browser edge chrome' },

@@ -9,6 +9,7 @@ import { HashtagsPanel } from './HashtagsPanel'
 import { LearningPanel } from './LearningPanel'
 import { StoragePanel } from './StoragePanel'
 import { TitlesPanel } from './TitlesPanel'
+import { SeriesPanel } from './SeriesPanel'
 import { AboutPanel, HotkeyPanel, PerformancePanel, ToolsPanel } from './SystemPanels'
 import { TikTokPanel } from './TikTokPanel'
 import { TwitchPanel } from './TwitchPanel'
@@ -31,6 +32,7 @@ export function SettingsView({ status, refreshStatus, section }: { status: Statu
     watermark: <WatermarkPanel reloadKey={wmKey} onCampaigns={() => setCpKey(k => k + 1)} />,
     titles: <TitlesPanel onHashtags={() => setTagsKey(k => k + 1)} />,
     words: <CaptionWordsPanel />,
+    series: <SeriesPanel />,
     tags: <HashtagsPanel reloadKey={tagsKey} />,
     safety: <ContentCheckPanel />,
     tiktok: <TikTokPanel />,

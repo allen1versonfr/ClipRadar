@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, FramingSuggest, Job, JobStarted, LiveView, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath, PreviewExtras } from '../../api/schemas'
+import { Campaigns, Clip, ClipsUpdate, SeriesView, Compared, DeepStatus, FramingSuggest, Job, JobStarted, LiveView, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath, PreviewExtras } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
@@ -25,6 +25,7 @@ import { filterFor, type Span } from './streamMap'
 import { LiveHead } from './LiveHead'
 import { ClipHappened } from '../autopilot/WhatHappened'
 import { setReviewTodo } from '../../shell'
+import { SeriesBox } from './SeriesBox'
 import { DeepBox, type Detect, DetectDialog, HeadFacts, HeadTools, TitleChoices } from './StreamTools'
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2]
@@ -160,6 +161,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   const titlesPoll = usePoll(useCallback(() => api(TitlePrefs, '/api/titles'), []), 60_000)
   const titles = titlesPoll.data
   const hashtagsOn = titles?.hashtags !== false
+  const seriesPoll = usePoll(useCallback(() => api(SeriesView, '/api/series'), []), 30_000)
   // the render queue: a keep or remove since a request left means its answer is out of date
   const epoch = useRef(0)
   const queue = usePoll(useCallback(async () => ({ e: epoch.current, q: await api(Queue, '/api/queue') }), []), 2000)
@@ -1083,6 +1085,8 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                   </label>
                   <button className="btn sm ghost" onClick={() => navigator.clipboard.writeText(postFor(c, hashtagsOn)).then(() => toast('Post caption copied.'), () => toast(postFor(c, hashtagsOn)))}>Copy post caption</button>
                 </div>
+                <SeriesBox clip={c} kept={kept} view={seriesPoll.data} onError={m => toast(m, 'err')}
+                           onChanged={patch => { update(keyOf(c), x => ({ ...x, ...patch }), 'no'); void seriesPoll.refresh() }} />
 
                 <p className="muted small">Keys: Enter keep · X skip · ↑ ↓ clips · Space play · ← → 2 s · T another title · M mute · I / O start / end here · , . frame · [ ] clip edges · Ctrl+Z undo</p>
               </div>

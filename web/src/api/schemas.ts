@@ -515,6 +515,11 @@ export const Clip = z.looseObject({
     flags: z.array(Flag).default([]), open: z.number().default(0) }).optional(),
   check: z.looseObject({ excluded: z.boolean().default(false), fixes: z.array(z.unknown()).default([]) }).optional(),
   auto_log: z.array(AutoEntry).optional(),
+  // 4.51 series: the one it's in, the one it looks like part of, and who's in it
+  series: z.looseObject({ id: z.string(), name: z.string(), part: z.number() }).nullish(),
+  series_hint: z.looseObject({ id: z.string().default(''), name: z.string(), part: z.number().default(1), new: z.boolean().default(false),
+    people: z.array(z.string()).default([]), why: z.string().default('') }).nullish(),
+  people: z.array(z.string()).default([]),
 })
 export type Clip = z.infer<typeof Clip>
 
@@ -638,3 +643,17 @@ export const VodExport = z.looseObject({
   censor_categories: z.array(z.string()).default([]),
 })
 export type VodExport = z.infer<typeof VodExport>
+
+/** Series (/api/series): the settings and every series, with its next part number. */
+export const SeriesSettings = z.looseObject({
+  suggest: z.boolean().default(true), auto_add: z.boolean().default(false), naming: z.string().default('before'),
+  caption_line: z.boolean().default(true), hashtag: z.boolean().default(true), end_card: z.boolean().default(false),
+  end_card_text: z.string().default('Follow for Pt. {next}'),
+})
+export type SeriesSettings = z.infer<typeof SeriesSettings>
+export const SeriesItem = z.looseObject({ id: z.string(), name: z.string(), streamer: z.string().default(''),
+  people: z.array(z.string()).default([]), count: z.number().default(0), next: z.number().default(1), tag: z.string().default('') })
+export type SeriesItem = z.infer<typeof SeriesItem>
+export const SeriesView = z.looseObject({ settings: SeriesSettings, list: z.array(SeriesItem).default([]) })
+export type SeriesView = z.infer<typeof SeriesView>
+export const SeriesClip = z.looseObject({ ok: z.boolean().optional(), clip: z.looseObject({}), series: SeriesView })

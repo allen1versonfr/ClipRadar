@@ -557,3 +557,10 @@ video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offs
 .vodx-job { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
 .vodx-done { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .vodx-done p { margin: 0; overflow-wrap: anywhere; }
+
+/* Series (Review › Clip, Settings › Series) */
+.series-box { align-items: center; gap: 8px; }
+.series-hint { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 8px; border-radius: var(--r); background: var(--bg3); }
+.series-pick { width: auto; max-width: 260px; }
+.series-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.series-list .input { max-width: 320px; }
