@@ -10,6 +10,30 @@ export interface TimelineHandle { zoom: (f: number) => void; fit: () => void }
 const H = 92
 const LANE = { wave: [16, 42], words: [45, 62], ev: [65, 89] } as const
 const EVENT_COLOURS: Record<string, string> = { laugh: '#4fd1ff', scream: '#ff9f43', cheer: '#c9a7ff' }   // kept apart from the green accent
+const EASE_MS = 70                                       // how quickly the view glides to where the wheel sent it
+
+/** A wheel event's movement in pixels: mice in Firefox report lines (and some, pages), trackpads pixels. */
+export function wheelPixels(e: { deltaX: number; deltaY: number; deltaMode: number }, page: number): { x: number; y: number } {
+  const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? page : 1
+  return { x: e.deltaX * k, y: e.deltaY * k }
+}
+
+/** How much one wheel event zooms: in proportion to how far it turned, so a trackpad pinch (many small
+ *  steps) is as smooth as a mouse notch (one big one) is quick. Over 1 zooms out. */
+export function zoomFactor(dy: number): number {
+  return Math.exp(clamp(dy, -240, 240) * 0.0018)
+}
+
+/** One frame of the glide from `from` toward `to`, dt ms after the last: closes most of the gap in EASE_MS,
+ *  and lands exactly once it's under a hundredth of a pixel's worth. */
+export function glide(from: { a: number; b: number }, to: { a: number; b: number }, dt: number, w: number): { a: number; b: number } {
+  const k = 1 - Math.exp(-Math.max(0, dt) / EASE_MS)
+  const a = from.a + (to.a - from.a) * k, b = from.b + (to.b - from.b) * k
+  const px = (to.b - to.a) / Math.max(1, w)
+  return Math.abs(a - to.a) < px * 0.01 && Math.abs(b - to.b) < px * 0.01 ? { a: to.a, b: to.b } : { a, b }
+}
+
+const reduceMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 /** The editing timeline (the original page's drawEditor): stream time, loudness, the words heard,
  *  laughter / screams / cheers and chat, with the clip framed. Drag an edge to trim (it snaps to words
@@ -21,6 +45,7 @@ export const Timeline = forwardRef<TimelineHandle, {
 }>(function Timeline({ clip, dur, video, locked, onDrag, onDragEnd }, ref) {
   const cv = useRef<HTMLCanvasElement>(null)
   const view = useRef({ a: 0, b: 60, key: '' })
+  const goal = useRef({ a: 0, b: 60 })                   // where the view is gliding to (wheel, zoom, following)
   const data = useRef<Strip & { pid: string }>(undefined)
   const fetching = useRef(false)
   const drag = useRef<{ which: 's' | 'e' | 'seek'; moved: boolean }>(undefined)
@@ -28,10 +53,19 @@ export const Timeline = forwardRef<TimelineHandle, {
   const props = useRef({ clip, dur, locked, onDrag })
   props.current = { clip, dur, locked, onDrag }
 
+  /** the view goes to a..b: gliding there, or at once when asked (Fit, a new clip) or with reduce motion */
+  function go(a: number, b: number, now = false) {
+    goal.current = { a, b }
+    if (now || reduceMotion()) view.current = { ...view.current, a, b }
+    void fetchStrip()
+  }
   async function fetchStrip() {
-    const { clip: c, dur: d } = props.current, { a, b } = view.current, span = b - a, have = data.current
+    // what's shown and where it's going, so the strip is loaded before the view gets there
+    const a = Math.min(view.current.a, goal.current.a), b = Math.max(view.current.b, goal.current.b)
+    const { clip: c, dur: d } = props.current, span = goal.current.b - goal.current.a, have = data.current
     if (fetching.current || (have && have.pid === c.pid && have.a <= a && have.b >= Math.min(b, d - 0.5))) return
-    const fa = Math.max(0, a - span), fb = b + span
+    const margin = Math.max(0, Math.min(span, (3600 - (b - a)) / 2))      // the server sends an hour at most
+    const fa = Math.max(0, a - margin), fb = b + margin
     fetching.current = true
     try { data.current = { ...(await api(Strip, `/api/strip/${c.pid}?a=${fa.toFixed(2)}&b=${fb.toFixed(2)}`)), pid: c.pid } }
     catch { data.current = { pid: c.pid, a: fa, b: fb, hz: 10, wave: [], events: {}, chat: [], start: Math.floor(fa) } }
@@ -42,23 +76,25 @@ export const Timeline = forwardRef<TimelineHandle, {
     const pad = Math.max(2, (c.end - c.start) * 0.15)
     const a = Math.max(0, c.start - pad), b = Math.max(Math.min(d, c.end + pad), Math.min(d, a + 2))
     view.current = { a, b, key: keyOf(c) }
-    void fetchStrip()
+    go(a, b, true)
   }
+  /** zoom by f around time `at` (where the pointer is), which stays under the pointer all through the glide */
   function zoom(f: number, at?: number) {
-    const { a, b } = view.current, span = b - a, d = props.current.dur
+    const { a, b } = view.current, span = b - a, d = props.current.dur, gs = goal.current.b - goal.current.a
     const t = video()?.currentTime ?? (a + b) / 2
     const c = at ?? (t >= a && t <= b ? t : (a + b) / 2)
-    const ns = clamp(span * f, 1.5, Math.min(d, 1800))
+    const ns = clamp(gs * f, 1.5, Math.max(1.5, Math.min(d, 1800)))
     const na = clamp(c - ns * ((c - a) / span), 0, Math.max(0, d - ns))
-    view.current = { ...view.current, a: na, b: na + ns }
-    void fetchStrip()
+    go(na, na + ns)
   }
   useImperativeHandle(ref, () => ({ zoom: f => zoom(f), fit }))
 
   useEffect(() => {                                      // drawn every frame while on screen: the playhead moves
-    let raf = 0
-    const draw = () => {
+    let raf = 0, last = performance.now(), accent = ''
+    const draw = (stamp: number) => {
       raf = requestAnimationFrame(draw)
+      const dt = Math.min(100, stamp - last)
+      last = stamp
       const el = cv.current, g = el?.getContext('2d')
       if (!el || !g) return
       const { clip: c, locked: lk } = props.current
@@ -66,16 +102,23 @@ export const Timeline = forwardRef<TimelineHandle, {
       const dpr = canvasScale(), w = Math.max(100, el.clientWidth)
       if (el.width !== Math.round(w * dpr)) { el.width = Math.round(w * dpr); el.height = Math.round(H * dpr) }
       g.setTransform(dpr, 0, 0, dpr, 0, 0)
+      if (view.current.a !== goal.current.a || view.current.b !== goal.current.b) {
+        view.current = { ...view.current, ...glide(view.current, goal.current, dt, w) }
+      }
+      const have = data.current
+      if (!fetching.current && (!have || have.pid !== c.pid || have.a > view.current.a + 0.5
+          || have.b < Math.min(view.current.b, props.current.dur - 0.5))) void fetchStrip()
+      accent ||= getComputedStyle(el).getPropertyValue('--accent').trim() || '#2fe36f'   // read once, not every frame
       const { a, b } = view.current, span = b - a
       el.dataset.a = a.toFixed(3); el.dataset.b = b.toFixed(3)          // the stretch shown, for tests
       const x = (t: number) => (t - a) / span * w
       const vid = video()
       const now = vid?.currentTime ?? c.start
-      // follow the playhead while playing
-      if (vid && !vid.paused && !drag.current && (now > b - span * 0.02 || now < a)) {
-        const na = clamp(now - span * 0.1, 0, Math.max(0, props.current.dur - span))
-        view.current = { ...view.current, a: na, b: na + span }
-        void fetchStrip()
+      // follow the playhead while playing: the view glides on a page when the playhead nears its end
+      const gl = goal.current, gs = gl.b - gl.a
+      if (vid && !vid.paused && !drag.current && (now > gl.b - gs * 0.02 || now < gl.a)) {
+        const na = clamp(now - gs * 0.1, 0, Math.max(0, props.current.dur - gs))
+        go(na, na + gs, now < a || now > b + span * 0.5)      // a jump far off screen (a seek) isn't glided
       }
       g.fillStyle = '#0e0f11'; g.fillRect(0, 0, w, H)
       const st = rulerStep(span, w)                      // ruler
@@ -123,7 +166,7 @@ export const Timeline = forwardRef<TimelineHandle, {
         }
         g.globalAlpha = 1
         if (d.chat.length) {
-          g.strokeStyle = getComputedStyle(el).getPropertyValue('--accent').trim() || '#2fe36f'; g.lineWidth = 1.2; g.beginPath()
+          g.strokeStyle = accent; g.lineWidth = 1.2; g.beginPath()
           d.chat.forEach((v, i) => { const px = x(d.start + i + 0.5), py = ey1 - 2 - clamp(v, 0, 8) / 8 * (ey1 - ey0 - 4); if (i) g.lineTo(px, py); else g.moveTo(px, py) })
           g.stroke()
         }
@@ -137,7 +180,7 @@ export const Timeline = forwardRef<TimelineHandle, {
         for (const t of orig) { const px = Math.round(x(t)) + 0.5; g.beginPath(); g.moveTo(px, 14); g.lineTo(px, H); g.stroke() }
         g.setLineDash([])
       }
-      const acc = lk ? '#90939c' : getComputedStyle(el).getPropertyValue('--accent').trim() || '#2fe36f'
+      const acc = lk ? '#90939c' : accent
       g.strokeStyle = acc; g.lineWidth = 1.5; g.strokeRect(xs, 13, xe - xs, H - 14)
       for (const [px, which] of [[xs, 's'], [xe, 'e']] as const) {
         const hot = hover.current === which || drag.current?.which === which
@@ -199,12 +242,12 @@ export const Timeline = forwardRef<TimelineHandle, {
     if (dr && dr.which !== 'seek' && dr.moved) onDragEnd(dr.which)
   }
   function wheel(e: WheelEvent) {
-    const { w, t } = pos(e), { a, b } = view.current, span = b - a, d = props.current.dur
-    if (e.ctrlKey || e.metaKey) return zoom(e.deltaY > 0 ? 1.25 : 0.8, t)
-    const dt = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / w * span
-    const na = clamp(a + dt, 0, Math.max(0, d - span))
-    view.current = { ...view.current, a: na, b: na + span }
-    void fetchStrip()
+    const { w, t } = pos(e), d = props.current.dur, mv = wheelPixels(e, w)
+    if (e.ctrlKey || e.metaKey) return zoom(zoomFactor(mv.y), t)
+    // from where the view is going, so quick turns add up instead of each starting from mid-glide
+    const { a, b } = goal.current, span = b - a
+    const na = clamp(a + (Math.abs(mv.x) > Math.abs(mv.y) ? mv.x : mv.y) / w * span, 0, Math.max(0, d - span))
+    go(na, na + span)
   }
   useEffect(() => {                                      // a wheel listener that can stop the page scrolling
     const el = cv.current

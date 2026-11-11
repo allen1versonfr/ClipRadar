@@ -492,7 +492,23 @@ EXPORT FORMAT
   when it's ready (two pings locking on). Ctrl+Alt+C blips when it grabs a
   clip, and a falling tone means it couldn't.
 
-CAMPAIGNS (CLIPPING ORGANISATIONS AND DISCORDS)
+EXPORT VOD (A WHOLE VIDEO)
+  Export VOD saves a whole open video as one wide (16:9) file. Open the
+  video on Home first; it's listed on the left.
+  Copyright scan: Scan for music finds the stretches where music plays (the
+  usual cause of copyright claims and muted VODs) and shows them on a strip
+  and as a list. Ticked stretches are muted in the export; untick one to keep
+  it. It hears that music is playing, not which song, so it's a safety net,
+  not a guarantee. It needs the laughter detector (Settings > Downloads and
+  tools), which also hears music.
+  Flagged words: muted or bleeped, and hidden in the captions, using the
+  categories in Settings > Content check.
+  Captions: burned in, a .srt file next to the video, or both. The whole
+  video is listened to first (stretches already heard for clips are reused);
+  on a long stream that's most of the wait. Needs the speech model.
+  Size and quality, then Export. The file goes in your clips folder, named
+  after the video with "(full VOD)".
+
   Settings > Campaigns keeps each clipping campaign's rules together:
   - the text every post must carry (an @handle, a code, #ad), at the end or
     the start of the post caption, and hashtags it must carry (added on top

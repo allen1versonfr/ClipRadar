@@ -613,3 +613,28 @@ export const Rechecked = z.looseObject({
 })
 /** /api/clip_restore: the clip back, after Remove's Undo. */
 export const Restored = z.looseObject({ clip: Clip.optional() })
+
+/** Export VOD (/api/vodexport): the open videos, each one's copyright (music) scan, and its scan and export jobs. */
+export const MusicSpan = z.looseObject({ start: z.number(), end: z.number(), confidence: z.number().default(0) })
+export type MusicSpan = z.infer<typeof MusicSpan>
+const VodJob = Job.extend({ warning: z.string().default('') }).nullable().optional()
+export const VodExportVideo = z.looseObject({
+  pid: z.string(),
+  title: z.string().default(''),
+  duration: z.number().default(0),
+  exists: z.boolean().default(true),
+  has_audio: z.boolean().default(true),
+  has_yt_words: z.boolean().default(false),
+  scan: z.looseObject({ spans: z.array(MusicSpan).default([]), at: z.number().default(0), how: z.string().default('') }).nullable().optional(),
+  scan_job: VodJob,
+  export_job: VodJob,
+})
+export type VodExportVideo = z.infer<typeof VodExportVideo>
+export const VodExport = z.looseObject({
+  videos: z.array(VodExportVideo).default([]),
+  music_model: z.boolean().default(false),
+  whisper: z.boolean().default(false),
+  censor: z.string().default('off'),
+  censor_categories: z.array(z.string()).default([]),
+})
+export type VodExport = z.infer<typeof VodExport>

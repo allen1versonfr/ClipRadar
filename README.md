@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.49.1" src="https://img.shields.io/badge/version-4.49.1-2fe36f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.50.0" src="https://img.shields.io/badge/version-4.50.0-2fe36f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -50,6 +50,7 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
   - Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> from any window to clip the last 30 seconds.
   - **No ads in your clips.** Ad breaks Twitch stitches into the stream are recognised and left out of the recording. Sign in to Twitch with Turbo (or a sub) and you get the ad-free stream.
 - **Content check and censoring.** Each clip's words, title and post caption are checked for things TikTok takes down: slurs, self-harm, threats, personal info, sexual terms, drugs, swearing, gambling and your own blocked words.
+- **Export VOD.** A whole video saved as one wide file with captions (burned in or a .srt), flagged words muted or bleeped, and a copyright scan that finds the music in it so those stretches can be muted.
   - Flagged words can be hidden in captions, muted or bleeped.
   - Hands-free holds risky clips back for you to look at first.
 - **Review in TikTok format.** Each suggestion plays in a phone-sized preview with its layout, title and word-by-word captions. Keep it with <kbd>Enter</kbd>, skip it with <kbd>X</kbd>, and move between clips with <kbd>↑</kbd> <kbd>↓</kbd>.
@@ -159,6 +160,7 @@ src/
   secret.py       encrypted storage for sign-ins (Windows DPAPI)
   titles.py       auto titles and post captions
   safety.py       content check (TOS scanner) and censoring
+  vodexport.py    Export VOD: a whole video with muting and captions, and the copyright (music) scan
   hotkey.py       Ctrl+Alt+C clip hotkey on Windows
   updater.py      in-app updates from GitHub releases
   errorlog.py     every failure, kept in errors.jsonl for fixing later

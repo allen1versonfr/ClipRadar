@@ -132,6 +132,7 @@ jobs:
           python tests/test_quality.py
           python tests/test_campaigns.py
           python tests/test_captions_anim.py
+          python tests/test_vodexport.py
           python tests/test_sounds.py
           python tests/test_api_contract.py
           python tests/test_file_serving.py
@@ -185,6 +186,7 @@ jobs:
           python tests/test_web_home.py
           python tests/test_web_settings.py
           python tests/test_web_review.py
+          python tests/test_web_vodexport.py
           python tests/test_web_live_moments.py
           python tests/test_web_a11y.py
           python tests/test_studio_auto.py

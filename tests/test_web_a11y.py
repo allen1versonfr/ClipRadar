@@ -196,6 +196,7 @@ with sync_playwright() as pw:
     axe(page, "Review: a confirm dialog")
     page.get_by_test_id("confirm-no").click()
     screen("#exports", "Exports", "[data-testid=export-row]")
+    screen("#vod", "Export VOD", "[data-testid=vodx-video]")
     screen("#settings", "Settings", "h1")
     page.evaluate("document.querySelectorAll('details').forEach(d => d.open = true)")
     axe(page, "Settings, every section open")
@@ -206,7 +207,8 @@ with sync_playwright() as pw:
     tp.add_init_script("if (!localStorage.getItem('vc_opts')) localStorage.setItem('vc_opts', JSON.stringify({captions: false}))")
     coarse = None
     for hash_, where, ready in (("#home", "Home", "[data-testid=find-clips]"), (f"#review/{pid}", "Review", "[data-testid=rv-row]"),
-                                ("#exports", "Exports", "[data-testid=export-row]"), ("#settings", "Settings", "h1")):
+                                ("#exports", "Exports", "[data-testid=export-row]"), ("#vod", "Export VOD", "[data-testid=vodx-video]"),
+                                ("#settings", "Settings", "h1")):
         tp.goto(url + "/next/" + hash_)
         tp.wait_for_selector(ready, timeout=30000)
         tp.wait_for_timeout(500)

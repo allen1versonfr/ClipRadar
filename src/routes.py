@@ -47,6 +47,7 @@ import studio_auto
 import tools_setup
 import twitchauth
 import updater
+import vodexport
 import watermarks
 
 import server as S
@@ -306,6 +307,8 @@ class Handler(BaseHTTPRequestHandler):
                 res = dict(res, **framing.fit(res, lay, cam, picked=not framing.untouched(lay, cam, flag("layout_auto")),
                                                auto=flag("auto"), aspect=(q.get("aspect") or ["9:16"])[0]))
             return self._json(dict(res, available=True))
+        if p == "/api/vodexport":
+            return self._json(vodexport.view(S))
         if p == "/api/perf":
             return self._json(S.perf_view())
         if p == "/api/timings":
@@ -1043,6 +1046,15 @@ class Handler(BaseHTTPRequestHandler):
                 S.save_project_soon(pid, 0.2)
             return self._json({"ok": True, "clip": d if p == "/api/clip_restore" else None})
 
+        if p in ("/api/vodexport/scan", "/api/vodexport/start"):
+            # Export VOD: the copyright (music) scan, and the whole video exported with muting and captions
+            pid = body.get("pid", "")
+            pr = S.projects.get(pid)
+            if not pr or pr.get("live") or "analysis" not in pr:
+                return self._err("That video isn't open any more. Open it again on Home.", 404)
+            if p.endswith("/scan"):
+                return self._json({"job": vodexport.start_scan(S, pid)["id"]})
+            return self._json({"job": vodexport.start_export(S, pid, body)["id"]})
         if p == "/api/preview_render":
             # a few seconds rendered exactly like the export, to check an edit without exporting
             pid = body.get("pid")
