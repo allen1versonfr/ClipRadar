@@ -4405,6 +4405,29 @@ def _ffmpeg_reason(err: str) -> str:
     return "\n".join(why + lines[-10:])
 
 
+SPANS_INLINE = 24      # more muted spans than this go to a commands file (mute_commands), not the command line
+
+
+def mute_commands(spans: list) -> str:
+    """FFmpeg asendcmd commands that silence each (start, end, mode) span, and for "bleep" turn the tone
+    up over it. Overlapping spans are joined first (a bleep wins over a mute), so one span's end can't
+    switch the sound back on inside another."""
+    merged: list = []
+    for a, b, m in sorted((float(a), float(b), m) for a, b, m in spans):
+        if merged and a <= merged[-1][1] + 0.01:
+            pa, pb, pm = merged[-1]
+            merged[-1] = (pa, max(pb, b), "bleep" if "bleep" in (pm, m) else pm)
+        else:
+            merged.append((a, b, m))
+    out = []
+    for a, b, m in merged:
+        cmds = ["[enter] volume@cm volume 0", "[leave] volume@cm volume 1"]
+        if m == "bleep":
+            cmds += ["[enter] volume@bp volume 0.6", "[leave] volume@bp volume 0"]
+        out.append(f"{a:.3f}-{b:.3f} " + ", ".join(cmds) + ";")
+    return "\n".join(out) + "\n"
+
+
 def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o: RenderOpts,
                 title: str = "", log: Log = _noop, progress: Progress = _noop,
                 check: Check = _noop, words: Optional[list] = None,
@@ -4488,7 +4511,20 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         m = sp[2] if len(sp) > 2 else censor_mode
         if m in ("mute", "bleep") and b > a and a < length:
             spans.append((max(0.0, a), min(length, b), m))
-    if spans and info["has_audio"]:
+    cmd_path = os.path.join(work, f"vc_{tag}.cmd")
+    if len(spans) > SPANS_INLINE and info["has_audio"]:
+        # many spans (a whole VOD's muting): written as timed commands to a file the graph reads, since
+        # thousands of between() terms would pass Windows' 32,767-character command line limit
+        with open(cmd_path, "w", encoding="utf-8") as f:
+            f.write(mute_commands(spans))
+        tail = audio_filter(o)
+        if any(m == "bleep" for _, _, m in spans):
+            af = (f";[0:a:0]asendcmd=f=vc_{tag}.cmd,volume@cm=1[am];"
+                  f"sine=frequency=1000:sample_rate=48000:duration={length:.3f},volume@bp=0[bp];"
+                  f"[am][bp]amix=inputs=2:duration=first:normalize=0,{tail}[a]")
+        else:
+            af = f";[0:a:0]asendcmd=f=vc_{tag}.cmd,volume@cm=1,{tail}[a]"
+    elif spans and info["has_audio"]:
         on = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b, _ in spans)
         beeps = [(a, b) for a, b, m in spans if m == "bleep"]
         tail = audio_filter(o)
@@ -4556,10 +4592,11 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         vf = filters(o, fr.get("path") or None)
     except Exception:
         shutil.rmtree(font_dir, ignore_errors=True)
-        try:
-            os.remove(ass_path)
-        except OSError:
-            pass
+        for p_ in (ass_path, cmd_path):
+            try:
+                os.remove(p_)
+            except OSError:
+                pass
         raise
     cont = getattr(o, "container", "mp4") if getattr(o, "container", "mp4") in ("mp4", "mov", "webm") else "mp4"
     if cont == "webm":
@@ -4750,7 +4787,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         if slot:
             _hw_slots.release()
         shutil.rmtree(font_dir, ignore_errors=True)
-        for p in (tmp_path, ass_path):
+        for p in (tmp_path, ass_path, cmd_path):
             try:
                 os.remove(p)
             except OSError:

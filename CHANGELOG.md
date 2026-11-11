@@ -5,6 +5,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- **Export VOD, a new screen for exporting a whole video** (`src/vodexport.py`, `web/src/features/vodexport/`). Any open video is saved as one wide (16:9) file with the muting system and captions:
+  - **Captions**: burned in at the bottom a sentence at a time, saved as a `.srt` file next to the video, or both. The whole video is heard in 10-minute stretches through the same transcript cache as clips, so stretches already heard for clips aren't heard again. A YouTube video with its own captions uses those.
+  - **Flagged words** are muted or bleeped, and hidden in the captions, with the categories chosen in Settings › Content check.
+  - Size (1080p, 720p, 480p) and quality (Fast, Balanced, Best). The stream keeps its own volume; only peaks are limited.
+- **Copyright scan** (on the Export VOD screen): finds the stretches where music plays, the usual cause of copyright claims and muted VODs, shows them on a strip across the video and as a list, and mutes the ones you leave ticked in the export. It uses the sound model that already hears laughter (the music it heard while the video was opened, when it can), and is remembered per video. It hears *that* music is playing, not which song, so it can't tell licensed music from a claimed track: a safety net, not a guarantee.
+
+### Changed
+- **Scrolling the Review timeline is smooth.** The view glides to where the wheel sends it instead of jumping, a trackpad pinch zooms in proportion to the pinch, mice that scroll by lines (Firefox) move as far as others, quick turns add up instead of restarting, following the playhead while it plays glides a page on, and the loudness and events for where the view is going are loaded before it gets there (before, a fast scroll could show an empty strip until the next turn of the wheel). Fit, a new clip and "reduce motion" in Windows still move at once.
+- **Many muted spans are passed to FFmpeg as a commands file** (`engine.mute_commands`) instead of one long expression. A whole VOD's muting would pass Windows' 32,767-character command line limit. Clips with up to 24 muted spans render exactly as before.
+
+### Tests
+- `tests/test_vodexport.py` (new, in CI): music stretches from the sound model's music level, the export's settings, overlapping spans joined, flagged words muted, and with FFmpeg, a whole video exported with 30 muted music stretches and a muted word, checked by its sound, with a subtitle file.
+- `tests/test_web_vodexport.py` (new): the Export VOD screen in a browser against the real server, a stretch kept, the export run and its sound checked, and the screen at 390 px wide.
+- `web`: the Export VOD screen and its wording (`VodExportView.test.tsx`, `spans.test.ts`), and the timeline's wheel, zoom and glide (`timelineScroll.test.ts`).
+
 ## [4.49.1] - 2026-11-09
 
 Nothing changes in how Clip Radar works: the app is the same as 4.49.0. This release carries the efficiency audit's write-up and a fix for a web test that could time out on a busy build machine.

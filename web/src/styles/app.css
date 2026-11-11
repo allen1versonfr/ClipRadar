@@ -18,7 +18,7 @@ h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .brand { font-weight: 700; }
 .top .btn { margin-left: auto; }
 .rail { grid-area: rail; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--bg0); border-right: 1px solid var(--line); }
-.rail a { color: var(--tx1); text-decoration: none; padding: 7px 10px; border-radius: var(--r); }
+.rail a { color: var(--tx1); text-decoration: none; padding: 7px 10px; border-radius: var(--r); white-space: nowrap; }
 .rail a:hover { background: var(--bg3); color: var(--tx0); }
 .rail a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .main { grid-area: main; overflow: auto; min-width: 0; }
@@ -536,3 +536,24 @@ video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offs
 /* read by screen readers, not shown */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .post-panel.tt-top { padding-top: 0; border-top: 0; }
+
+/* Export VOD: the open videos beside the export's settings */
+.vodx-split { display: grid; grid-template-columns: 260px minmax(0, 1fr); align-items: start; }
+@media (max-width: 900px) { .vodx-split { grid-template-columns: 1fr; } }
+.vodx-list { list-style: none; margin: 0; padding: 8px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--line); min-width: 0; }
+@media (max-width: 900px) { .vodx-list { border-right: 0; border-bottom: 1px solid var(--line); } }
+.vodx-vid { width: 100%; display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 8px 10px; border-radius: var(--r); border: 0; background: transparent; color: var(--tx0); cursor: pointer; transition: background-color 120ms; }
+.vodx-vid:hover { background: var(--bg3); }
+.vodx-vid.on { background: var(--accent-soft); }
+.vodx-vid .t1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.vodx-vid .t2 { color: var(--tx2); font-size: 12px; }
+.vodx-body { display: flex; flex-direction: column; gap: 12px; padding: 16px; min-width: 0; max-width: 760px; }
+.vodx-body h2 { font-size: 15px; font-weight: 650; margin: 0; }
+.vodx-strip { position: relative; height: 18px; border-radius: var(--r); background: var(--bg0); border: 1px solid var(--line); overflow: hidden; }
+.vodx-strip i { position: absolute; top: 3px; bottom: 3px; border-radius: 2px; background: var(--warn); min-width: 2px; }
+.vodx-strip i.kept { background: transparent; box-shadow: inset 0 0 0 1px var(--tx2); }
+.vodx-spans { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.vodx-go { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.vodx-job { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
+.vodx-done { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.vodx-done p { margin: 0; overflow-wrap: anywhere; }
