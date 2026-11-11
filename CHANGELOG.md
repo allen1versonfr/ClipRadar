@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.50.0] - 2026-11-11
+
+A new screen, Export VOD, saves a whole video as one file with captions, flagged words muted, and a copyright scan that finds the music in it so it can be muted. Scrolling the Review timeline is smooth.
+
 ### Added
 - **Export VOD, a new screen for exporting a whole video** (`src/vodexport.py`, `web/src/features/vodexport/`). Any open video is saved as one wide (16:9) file with the muting system and captions:
   - **Captions**: burned in at the bottom a sentence at a time, saved as a `.srt` file next to the video, or both. The whole video is heard in 10-minute stretches through the same transcript cache as clips, so stretches already heard for clips aren't heard again. A YouTube video with its own captions uses those.
