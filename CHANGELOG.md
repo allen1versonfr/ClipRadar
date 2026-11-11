@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.50.2] - 2026-11-11
+
+A TikTok upload can no longer post a clip with its title more than once.
+
 ### Fixed
 - **A TikTok upload could post a clip with its title three times.** TikTok's caption editor can learn about a select-all a moment late, so Backspace deleted one letter instead of the caption TikTok fills in. The caption then went in after what was there, once per try (from the first user report: the Nov 7 clip). The box is now checked empty before anything is typed: Ctrl+A again with a longer pause, then the box's contents selected directly. If it still can't be emptied, nothing is typed and it says so.
 
