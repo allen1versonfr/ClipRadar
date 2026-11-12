@@ -32,6 +32,7 @@
 | GET | `/api/locations` |
 | GET | `/api/framing/{id}` |
 | GET | `/api/series` |
+| GET | `/api/results` |
 | GET | `/api/vodexport` |
 | GET | `/api/perf` |
 | GET | `/api/timings` |
@@ -86,6 +87,8 @@
 | POST | `/api/clip_remove` |
 | POST | `/api/clip_restore` |
 | POST | `/api/series` |
+| POST | `/api/results/import` |
+| POST | `/api/results/forget` |
 | POST | `/api/series/clip` |
 | POST | `/api/vodexport/scan` |
 | POST | `/api/vodexport/start` |

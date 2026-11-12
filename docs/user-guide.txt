@@ -492,6 +492,29 @@ EXPORT FORMAT
   when it's ready (two pings locking on). Ctrl+Alt+C blips when it grabs a
   clip, and a falling tone means it couldn't.
 
+SERIES
+  Post clips of one storyline as numbered parts ("Jason × Emily Pt. 6"), so
+  viewers know there's more and follow for it. Optional: a clip is only in a
+  series when you put it there.
+  Review > Clip, under the post caption: when Clip Radar notices someone who
+  keeps coming back in a streamer's clips (names said on stream and typed by
+  chat), it suggests a series, or the next part of one you have. Add as Pt. N
+  puts it in; Not now hides it. The Series menu next to it picks any series
+  or starts a new one.
+  Settings > Series: turn suggestions off, let clips join a matching series by
+  themselves, put the part before or after the title or only in the caption,
+  the series' hashtag, and an end card ("Follow for Pt. 7") over the last
+  2.5 seconds. Rename or delete series there.
+
+TIKTOK RESULTS
+  In TikTok Studio, Analytics > Content > export the data. Settings > TikTok
+  results > Import TikTok export reads it (on this PC) and matches each video
+  to the clip it came from. It shows median views and like, share and comment
+  rates by streamer, by series and for arguments against everything else.
+  Clip ranking learns from it: a clip that did much better than that
+  streamer's usual counts more, one that flopped counts as a skip. A streamer
+  needs 3 matched clips before they're compared.
+
 EXPORT VOD (A WHOLE VIDEO)
   Export VOD saves a whole open video as one wide (16:9) file. Open the
   video on Home first; it's listed on the left.

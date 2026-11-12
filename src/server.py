@@ -615,6 +615,7 @@ def _title_clip(pr: dict, d: dict, words_abs: list, used: set):
         d["post"] = safety.mask_text(titles.compose(info["description"], d["hashtags"], tp["hashtags"]), cfg)
     d["titles"] = [safety.mask_text(t, cfg) for t in info["titles"]]
     d["vibe"] = info["vibe"]
+    d["conflict"] = bool(info.get("conflict"))
     d["emoji"] = info["emoji"]
     if cfg.get("auto", True) or d.get("safety"):
         checkflow.check(d, cfg, pr["info"].get("has_audio", True))
@@ -1776,6 +1777,13 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
         it["series"] = ser
         if card:
             it["end_card"] = card
+    if d:
+        # TikTok results (4.51): what to tell ranking when this clip's views come in, and what to group it by
+        if d.get("feat"):
+            it["learn"] = {"key": f"{pr.get('live') or pr.get('source', '')}|{int(d.get('at', d.get('peak', 0)))}",
+                           "streamer": pr.get("streamer", "")}
+        it["streamer"] = _streamer_name(pr)
+        it["vibe"], it["conflict"] = d.get("vibe", ""), bool(d.get("conflict"))
     it["name_fields"] = exports.fields_for(dict(d or {}, title=it["title"]), pr, ex["preset"], number=it["clip_id"])
     it["sig"] = json.dumps([pid, it["clip_id"], round(start_, 2), round(end_, 2), it["title"], it["opts"], ex], sort_keys=True,
                            default=str)

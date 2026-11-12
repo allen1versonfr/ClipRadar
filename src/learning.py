@@ -96,6 +96,31 @@ def record(streamer: str, key: str, feat: Optional[dict], action: str):
         _save(d)
 
 
+def performance(streamer: str, key: str, ratio: float) -> bool:
+    """How a posted clip did on TikTok (results.py, 4.51): its views over its streamer's median. A hit counts up to
+    three times as much as a plain post; a flop counts as a skip, since people didn't watch it. False when the clip
+    has no decision stored (kept before learning was on, or forgotten)."""
+    found = False
+    with _lock:
+        d = _load()
+        for prof in {_name(streamer), ALL}:
+            p = d["profiles"].get(prof)
+            for s in (p or {}).get("samples", []):
+                if s.get("k") != key:
+                    continue
+                found = True
+                s["perf"] = round(float(ratio), 3)
+                if ratio < 0.4:
+                    s["y"], s["w"] = 0.0, 1.5
+                else:
+                    s["y"], s["w"] = 1.0, float(min(6.0, max(1.0, 2.0 * ratio)))
+                p["updated"] = time.time()
+                p.pop("model", None)
+        if found:
+            _save(d)
+    return found
+
+
 def _fit(samples: list) -> Optional[dict]:
     ys = np.array([s["y"] for s in samples], dtype=np.float64)
     if len(samples) < MIN_DECISIONS or ys.sum() < 2 or (1 - ys).sum() < 2:

@@ -5,6 +5,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+From the first user report (@bigtwitchclipss, Oct 12 – Nov 10): 582K views made 95 followers, drama between streamers got most of the views and shares, and comments were 0.58 per 1,000 views.
+
+### Added
+- **Series** (`src/series.py`, Review › Clip, Settings › Series). Clips of one storyline go out as numbered parts with one name ("Jason × Emily Pt. 6"), so viewers know there's more and have a reason to follow. All optional: nothing is in a series until you put it there.
+  - **Detected for you**: Clip Radar notices who's in a clip (names said on stream that aren't at the start of a sentence, and the same names typed by chat, each chatter once). When a name comes back in two of a streamer's clips, Review suggests a series; a clip with someone from one of your series is suggested as its next part. One click adds it, "Not now" hides it, and Settings › Series › Suggest series turns suggestions off.
+  - **Add by itself** (off by default): a clip with someone from one of your series joins it as the next part. New series are only ever suggested.
+  - **Naming**: the part goes before the title on the video, after it, or only in the caption. The caption can start with the part and carry the series' hashtag (#jasonxemily).
+  - **End card** (off by default): "Follow for Pt. 7" (your own text) in a box over the last 2.5 seconds.
+  - Or pick any series, or start a new one, from the small Series menu under the post caption. Taking a clip out leaves the other parts' numbers alone.
+- **TikTok results** (`src/results.py`, Settings › TikTok results). Import TikTok Studio's Content export (.csv or .xlsx, read on the PC). Each video is matched to the clip it came from (by its TikTok link when it was pasted in Exports, else by its caption and title, rendered before it was posted). The panel shows median views, like, share and comment rates by streamer, by series, and for arguments against everything else, and every video. **Ranking learns from it**: a posted clip already counts as a keep; one that did far better than its streamer's median now counts up to three times as much, and one under 0.4× the median counts as a skip (`learning.performance`). Importing a newer export updates the numbers instead of counting a video twice.
+
+### Changed
+- **Caption questions that get answers.** An argument, or chat taking sides (words like ratio, cooked, violated, exposed from three chatters, or chat split between W and L), asks "Who's right here?", "Whose side are you on?" and the like (`titles.conflict`). "What do you think?" and "Thoughts?" are gone; clips with no mood to go on ask "Rate this from 1 to 10", "W or L?" or "What would you have done?".
+
+### Tests
+- `tests/test_series.py` (new, in CI): who's in a clip, suggestions only after a name comes back and none when off, part numbers, every naming choice, the end card, Review's control and the queue on the server, and Add by itself.
+- `tests/test_results.py` (new, in CI): CSV with a title line, "1.2K" numbers and an Excel file, matching by link and by caption, ranking re-weighted, the groups, re-importing, and an older clip's learning key from its project.
+- `tests/test_titles.py`: an argument asks who's right; a laugh, or one chatter spamming, isn't an argument.
+- `web`: the Review series control (`SeriesBox.test.tsx`) and the results panel (`ResultsPanel.test.tsx`).
+
 ## [4.50.2] - 2026-11-11
 
 A TikTok upload can no longer post a clip with its title more than once.

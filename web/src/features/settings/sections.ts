@@ -13,6 +13,7 @@ export const SECTIONS: Section[] = [
   { id: 'tags', title: 'Hashtags', group: 'Clips', words: 'hashtags tags file name post caption streamer' },
   { id: 'safety', title: 'Content check', group: 'Clips', words: 'flags slurs swearing censor bleep mute safety tiktok rules' },
   { id: 'tiktok', title: 'TikTok', group: 'Posting', words: 'tiktok studio upload post press post browser edge chrome' },
+  { id: 'results', title: 'TikTok results', group: 'Posting', words: 'results views likes shares comments analytics export import tiktok studio performance ranking' },
   { id: 'campaigns', title: 'Campaigns', group: 'Posting', words: 'campaign clipping server discord webhook rules submit' },
   { id: 'learn', title: 'Clip ranking', group: 'Finding clips', words: 'ranking learning picks keeps skips trims forget tuned' },
   { id: 'twitch', title: 'Twitch sign-in', group: 'Finding clips', words: 'twitch sign in login turbo ads token subscriber' },

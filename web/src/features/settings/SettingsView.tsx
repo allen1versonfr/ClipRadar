@@ -10,6 +10,7 @@ import { LearningPanel } from './LearningPanel'
 import { StoragePanel } from './StoragePanel'
 import { TitlesPanel } from './TitlesPanel'
 import { SeriesPanel } from './SeriesPanel'
+import { ResultsPanel } from './ResultsPanel'
 import { AboutPanel, HotkeyPanel, PerformancePanel, ToolsPanel } from './SystemPanels'
 import { TikTokPanel } from './TikTokPanel'
 import { TwitchPanel } from './TwitchPanel'
@@ -36,6 +37,7 @@ export function SettingsView({ status, refreshStatus, section }: { status: Statu
     tags: <HashtagsPanel reloadKey={tagsKey} />,
     safety: <ContentCheckPanel />,
     tiktok: <TikTokPanel />,
+    results: <ResultsPanel />,
     campaigns: <CampaignsPanel reloadKey={cpKey} onChange={() => setWmKey(k => k + 1)} />,
     learn: <LearningPanel />,
     twitch: <TwitchPanel />,

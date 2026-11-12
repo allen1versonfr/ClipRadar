@@ -46,8 +46,8 @@ export function SeriesBox({ clip: c, kept, view, onChanged, onError }: {
     <div className="series-box row wrap" data-testid="rv-series">
       {hint && !hidden && (
         <span className="series-hint" data-testid="rv-series-hint">
-          {hint.new ? <>Start a series: <b>{hint.name}</b>?</> : <>Part of <b>{hint.name}</b>?</>}
-          <span className="muted small"> {hint.why}.</span>
+          <span>{hint.new ? <>Start a series: <b>{hint.name}</b>?</> : <>Part of <b>{hint.name}</b>?</>}
+            <span className="muted small"> {hint.why}.</span></span>
           <button className="btn sm" disabled={busy} data-testid="rv-series-accept"
                   onClick={() => (hint.new ? setNaming(hint.name) : void act('add', hint.id))}>
             {hint.new ? 'Start it' : `Add as Pt. ${hint.part}`}

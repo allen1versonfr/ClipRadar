@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import webbrowser
+import zipfile
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -40,6 +41,7 @@ import learning
 import locations
 import paths
 import persist
+import results
 import safety
 import series
 import spelling
@@ -310,6 +312,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(dict(res, available=True))
         if p == "/api/series":
             return self._json(series.view())
+        if p == "/api/results":
+            return self._json(results.view())
         if p == "/api/vodexport":
             return self._json(vodexport.view(S))
         if p == "/api/perf":
@@ -1059,6 +1063,21 @@ class Handler(BaseHTTPRequestHandler):
                 elif not series.update(body["id"], body):
                     return self._err("That series is gone.", 404)
             return self._json(series.view())
+        if p == "/api/results/import":
+            # Settings › TikTok results: TikTok Studio's Content export, read here (base64 in the body)
+            import base64
+            try:
+                data = base64.b64decode(str(body.get("data") or ""), validate=True)
+            except (ValueError, TypeError):
+                return self._err("That file couldn't be read.")
+            with S.queue_lock:
+                items = [dict(x) for x in S.queue]
+            try:
+                return self._json(results.import_file(data, str(body.get("name") or ""), items))
+            except (ValueError, KeyError, zipfile.BadZipFile) as e:
+                return self._err(str(e) or "That file couldn't be read.")
+        if p == "/api/results/forget":
+            return self._json(results.forget())
         if p == "/api/series/clip":
             # Review: a clip into a series (or a new one), or out of it
             if body.get("pid") not in S.projects:

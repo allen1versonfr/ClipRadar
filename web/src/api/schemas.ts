@@ -657,3 +657,17 @@ export type SeriesItem = z.infer<typeof SeriesItem>
 export const SeriesView = z.looseObject({ settings: SeriesSettings, list: z.array(SeriesItem).default([]) })
 export type SeriesView = z.infer<typeof SeriesView>
 export const SeriesClip = z.looseObject({ ok: z.boolean().optional(), clip: z.looseObject({}), series: SeriesView })
+
+/** TikTok results (/api/results): TikTok Studio's export, matched to clips, grouped. */
+const ResultGroup = z.looseObject({ name: z.string(), videos: z.number(), views: z.number(), median: z.number(),
+  like_rate: z.number().default(0), share_rate: z.number().default(0), comments_per_1k: z.number().default(0) })
+export type ResultGroup = z.infer<typeof ResultGroup>
+export const Results = z.looseObject({
+  imported: z.number().default(0), videos: z.number().default(0), matched: z.number().default(0),
+  total: z.array(ResultGroup).default([]), by_streamer: z.array(ResultGroup).default([]),
+  by_series: z.array(ResultGroup).default([]), by_kind: z.array(ResultGroup).default([]),
+  list: z.array(z.looseObject({ title: z.string(), views: z.number(), likes: z.number().default(0), comments: z.number().default(0),
+    shares: z.number().default(0), clip: z.string().default(''), streamer: z.string().default(''), link: z.string().default('') })).default([]),
+  last: z.looseObject({ videos: z.number(), matched: z.number(), learned: z.number() }).optional(),
+})
+export type Results = z.infer<typeof Results>
