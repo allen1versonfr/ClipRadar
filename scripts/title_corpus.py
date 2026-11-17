@@ -101,6 +101,31 @@ def pick_window(clips: list, length: int, minutes: int) -> tuple:
     return at, at + w
 
 
+def save_chat(vod: str, a: int, b: int, path: str, login: str, game: str = "") -> int:
+    """The chat from a to b seconds (and a little either side) as a chat.json the app reads, times from a.
+    Kept when it's already there; written whole or not at all, so a run that stops can be started again."""
+    if os.path.exists(path):
+        return -1
+    t0 = time.time()
+    nodes = chat(vod, max(0, a - 5), b + 40)
+    comments = [{"content_offset_seconds": n["contentOffsetSeconds"] - a,
+                 "commenter": {"name": ((n.get("commenter") or {}).get("login") or ""),
+                               "display_name": ((n.get("commenter") or {}).get("displayName") or "")},
+                 "message": {"body": "".join(f.get("text") or "" for f in (n.get("message") or {}).get("fragments") or [])}}
+                for n in nodes]
+    tmp = path + ".part"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"streamer": {"name": login}, "video": {"game": game}, "comments": comments}, f)
+    os.replace(tmp, path)
+    print(f"  chat: {len(comments):,} messages in {time.time() - t0:.0f} s", flush=True)
+    return len(comments)
+
+
+def clips_in(clips: list, a: float, b: float) -> list:
+    """The viewers' clips wholly inside a..b, with times from a."""
+    return [dict(c, start=c["start"] - a, end=c["end"] - a) for c in clips if a <= c["start"] and c["end"] <= b]
+
+
 def download_audio(vod: str, a: int, b: int, out: str, ytdlp: str):
     if os.path.exists(out) and os.path.getsize(out) > 10000:
         return
@@ -130,20 +155,9 @@ def build(vod: str, window: tuple, args, model) -> str:
     os.makedirs(wd, exist_ok=True)
     print(f"{vod} {login} · {game} · {v.get('title', '')[:60]} · {a}-{b} s", flush=True)
     cpath = os.path.join(wd, "chat.json")
-    if not os.path.exists(cpath):
-        t0 = time.time()
-        nodes = chat(vod, max(0, a - 5), b + 40)
-        comments = [{"content_offset_seconds": n["contentOffsetSeconds"] - a,
-                     "commenter": {"name": ((n.get("commenter") or {}).get("login") or ""),
-                                   "display_name": ((n.get("commenter") or {}).get("displayName") or "")},
-                     "message": {"body": "".join(f.get("text") or "" for f in (n.get("message") or {}).get("fragments") or [])}}
-                    for n in nodes]
-        with open(cpath, "w", encoding="utf-8") as f:
-            json.dump({"streamer": {"name": login}, "video": {"game": game}, "comments": comments}, f)
-        print(f"  chat: {len(comments):,} messages in {time.time() - t0:.0f} s", flush=True)
-    mine = [dict(c, start=c["start"] - a, end=c["end"] - a) for c in vc["clips"] if a <= c["start"] and c["end"] <= b]
+    save_chat(vod, a, b, cpath, login, game)
     with open(os.path.join(wd, twitchclips.FILE), "w", encoding="utf-8") as f:
-        json.dump({**vc, "clips": mine}, f, indent=1)
+        json.dump({**vc, "clips": clips_in(vc["clips"], a, b)}, f, indent=1)
     audio = os.path.join(wd, "video.mp4")
     download_audio(vod, a, b, audio, args.ytdlp)
     engine._save_meta(wd, title=v.get("title", ""), streamer=login, streamer_display=disp, game=game, platform="twitch",

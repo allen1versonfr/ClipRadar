@@ -195,7 +195,7 @@ else:
     tmp = tempfile.mkdtemp(prefix="rank_test_")
     corpus, out = os.path.join(tmp, "corpus"), os.path.join(tmp, "out")
     synthetic(os.path.join(corpus, "synthetic_1"), ff)
-    run = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "eval_ranking.py"), "score", corpus, "--out", out,
+    run = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "eval_ranking.py"), "score", corpus, "--out", out, "--min-truth", "1",
                           "--ablate"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     check("score runs", run.returncode == 0, run.stdout[-500:] + run.stderr[-1500:])
     rep = json.load(open(os.path.join(out, "report.json"), encoding="utf-8")) if run.returncode == 0 else {}
@@ -234,7 +234,7 @@ else:
     check("control: with the viewers' clips mixed in, the quiet moment comes higher",
           "viewers" in an.parts and hit is not None and hit < (per.get("first_hit") or 99), (sorted(an.parts), hit, per.get("first_hit")))
 
-    run = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "eval_ranking.py"), "score", corpus, "--out", out,
+    run = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "eval_ranking.py"), "score", corpus, "--out", out, "--min-truth", "1",
                           "--baseline", "HEAD"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     check("--baseline HEAD runs", run.returncode == 0, run.stdout[-500:] + run.stderr[-1500:])
     rep = json.load(open(os.path.join(out, "report.json"), encoding="utf-8")) if run.returncode == 0 else {}
