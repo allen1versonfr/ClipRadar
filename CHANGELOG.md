@@ -5,6 +5,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- **A failed TikTok or YouTube Studio upload records what the page looked like.** Before, the error log only had the message, so each fix to the upload was worked out afterwards from what you remembered seeing. Now the failure in `errors.jsonl` (Settings › About › Error log) comes with a fingerprint of the page: which of the parts Clip Radar looks for were there, visible and pressable, TikTok's own marks on the page, the words on up to 40 buttons, the page's address without its query, its language, the window size and Clip Radar's version (`studio_auto.fingerprint`). Nothing personal is in it: your caption, title, description, the file's name and your account's name are blanked, and so is anything that looks like an @handle, hashtag, number or e-mail. Taking it never holds up the hand-off by more than 2 seconds, and if the page won't give one the failure is recorded without it.
+
+### Tests
+- `tests/test_studio_auto.py`: a page without the upload box records a fingerprint saying so; an upload TikTok refuses records the caption box showing and Post not pressable yet, with no word of the caption, the file's name or the account (now in the stand-in page's header, `tests/fake_studio.py`) in the record; a page whose own script breaks the fingerprint (`"throws"`) still has its failure recorded; a page that doesn't answer is given up on after 2 s.
+- `tests/test_youtube_auto.py`: the same for YouTube Studio's page asking to create a channel first.
+- `tests/test_errorlog.py`: a fingerprint is kept as JSON with secrets blanked, and one that can't be written doesn't stop the failure being recorded.
+
 ## [4.52.0] - 2026-11-17
 
 Pick parts of a long stream and edit them into one video of up to 30 minutes in the new Segments screen, and live clipping saves the whole stream as a VOD.
