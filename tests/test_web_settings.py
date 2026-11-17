@@ -145,7 +145,8 @@ with sync_playwright() as pw:
     # Downloads and tools
     page.locator("[data-testid=set-tools]").get_by_label("Download quality").select_option("720")
     rows = page.locator("[data-testid=tool-table] tr").all_inner_texts()
-    check("every tool is listed with whether it's installed", len(rows) == 5 and "FFmpeg" in rows[0], rows)
+    check("every tool is listed with whether it's installed", len(rows) == 6 and "FFmpeg" in rows[0]
+          and "Music remover" in rows[5], rows)
 
     # Twitch: a token Twitch can't use is explained, and nothing is saved
     tw = page.locator("[data-testid=set-twitch]")

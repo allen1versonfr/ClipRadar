@@ -32,6 +32,7 @@
 | GET | `/api/locations` |
 | GET | `/api/framing/{id}` |
 | GET | `/api/vodexport` |
+| GET | `/api/vodexport/words` |
 | GET | `/api/perf` |
 | GET | `/api/timings` |
 | GET | `/api/strip/{id}` |
@@ -84,8 +85,13 @@
 | POST | `/api/check` |
 | POST | `/api/clip_remove` |
 | POST | `/api/clip_restore` |
+| POST | `/api/vodexport/open` |
+| POST | `/api/vodexport/youtube` |
 | POST | `/api/vodexport/scan` |
 | POST | `/api/vodexport/start` |
+| POST | `/api/vodexport/words` |
+| POST | `/api/vodexport/hear` |
+| POST | `/api/vodexport/preview` |
 | POST | `/api/preview_render` |
 | POST | `/api/titles` |
 | POST | `/api/cleanup` |

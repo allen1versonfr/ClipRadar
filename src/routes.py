@@ -48,6 +48,7 @@ import tools_setup
 import twitchauth
 import updater
 import vodexport
+import voicekeep
 import watermarks
 
 import server as S
@@ -219,6 +220,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ytdlp": ts["ytdlp_exe"] or S._has("yt_dlp", load=False),
                 "whisper": S._has("faster_whisper", load=False),
                 "laughter": S._has("onnxruntime", load=False) and audio_events.model_path() is not None,
+                "music_remover": S._has("onnxruntime", load=False) and voicekeep.model_path() is not None,
                 "twitchdownloader": ts["twitchdownloader"],
                 "can_download_tools": ts["can_download"],
                 "workroot": S.WORKROOT,
@@ -309,6 +311,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(dict(res, available=True))
         if p == "/api/vodexport":
             return self._json(vodexport.view(S))
+        if p == "/api/vodexport/words":
+            # the words already heard around the preview's playhead (nothing is listened to here)
+            pr = S.projects.get(q.get("pid", [""])[0])
+            if not vodexport.usable(pr):
+                return self._err("That video isn't open any more.", 404)
+            try:
+                a, b = float(q.get("a", ["0"])[0]), float(q.get("b", ["0"])[0])
+            except ValueError:
+                return self._err("bad range")
+            return self._json(vodexport.heard(pr, q.get("model", ["small"])[0][:40], q.get("lang", [""])[0][:10],
+                                              a, min(b, a + 900)))
         if p == "/api/perf":
             return self._json(S.perf_view())
         if p == "/api/timings":
@@ -480,7 +493,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(S.sources_view())
 
         if p == "/api/setup_tools":
-            want = [w for w in body.get("want", []) if w in ("ffmpeg", "twitchdownloader", "ytdlp", "laughter")]
+            want = [w for w in body.get("want", []) if w in ("ffmpeg", "twitchdownloader", "ytdlp", "laughter", "music_remover")]
             if not want:
                 return self._err("Nothing to download.")
             job = S.new_job("setup")
@@ -488,11 +501,19 @@ class Handler(BaseHTTPRequestHandler):
             def go():
                 log, step = S.job_logger(job), S.job_step(job)
                 step("Downloading tools")
-                tools = [w for w in want if w != "laughter"]
-                res = tools_setup.setup(tools, log=log, progress=S.job_progress(job, 0, 0.8 if "laughter" in want else 1),
+                models = [w for w in want if w in ("laughter", "music_remover")]
+                tools = [w for w in want if w not in models]
+                share = 0.8 if tools and models else 1.0 if tools else 0.0
+                res = tools_setup.setup(tools, log=log, progress=S.job_progress(job, 0, share),
                                         check=S.job_check(job)) if tools else {}
-                if "laughter" in want and not audio_events.available():
-                    audio_events.download(log, progress=S.job_progress(job, 0.8 if tools else 0, 1))
+                step_ = (1 - share) / max(1, len(models))
+                for i, w in enumerate(models):
+                    bar = S.job_progress(job, share + i * step_, share + (i + 1) * step_)
+                    if w == "laughter" and not audio_events.available():
+                        audio_events.download(log, progress=bar)
+                    if w == "music_remover" and not voicekeep.available():
+                        step("Downloading the music remover")
+                        voicekeep.download(log, progress=bar)
                 return res
             S.run_job(job, go)
             return self._json({"job": job["id"]})
@@ -1046,15 +1067,36 @@ class Handler(BaseHTTPRequestHandler):
                 S.save_project_soon(pid, 0.2)
             return self._json({"ok": True, "clip": d if p == "/api/clip_restore" else None})
 
-        if p in ("/api/vodexport/scan", "/api/vodexport/start"):
-            # Export VOD: the copyright (music) scan, and the whole video exported with muting and captions
+        if p == "/api/vodexport/open":
+            # Export VOD: a VOD downloaded before (by its id) or a video file anywhere on this PC (by its path),
+            # made ready to export without scoring it for clips
+            try:
+                return self._json({"pid": vodexport.open_video(S, str(body.get("pid") or ""), str(body.get("path") or ""))})
+            except RuntimeError as e:
+                return self._err(str(e))
+        if p.startswith("/api/vodexport/"):
+            # Export VOD: the copyright (music) scan, the flagged words check, a stretch heard for the preview,
+            # the exact preview, the whole video exported, and the exported file handed to YouTube Studio
+            act = p[len("/api/vodexport/"):]
             pid = body.get("pid", "")
-            pr = S.projects.get(pid)
-            if not pr or pr.get("live") or "analysis" not in pr:
-                return self._err("That video isn't open any more. Open it again on Home.", 404)
-            if p.endswith("/scan"):
+            if not vodexport.usable(S.projects.get(pid)):
+                return self._err("That video isn't open any more. Pick it again in Export VOD.", 404)
+            if act == "youtube":
+                try:
+                    return self._json(vodexport.to_youtube(S, pid, body))
+                except RuntimeError as e:
+                    return self._err(str(e))
+            if act == "scan":
                 return self._json({"job": vodexport.start_scan(S, pid)["id"]})
-            return self._json({"job": vodexport.start_export(S, pid, body)["id"]})
+            if act == "start":
+                return self._json({"job": vodexport.start_export(S, pid, body)["id"]})
+            if act == "words":
+                return self._json({"job": vodexport.start_words(S, pid, body)["id"]})
+            if act == "hear":
+                return self._json({"job": vodexport.start_hear(S, pid, body)["id"]})
+            if act == "preview":
+                return self._json({"job": vodexport.start_preview(S, pid, body)["id"]})
+            return self._err("not found", 404)
         if p == "/api/preview_render":
             # a few seconds rendered exactly like the export, to check an edit without exporting
             pid = body.get("pid")

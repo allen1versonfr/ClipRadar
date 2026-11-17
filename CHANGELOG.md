@@ -5,6 +5,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.51.0] - 2026-11-17
+
+Export VOD takes the music out from under people talking instead of silencing them, opens any VOD on this PC, lists flagged words to tick, has a preview and caption settings, uploads to YouTube Studio, and is much quicker without burned-in captions.
+
+### Added
+- **Remove music, keep voices.** Each music stretch the copyright scan finds can now have its music taken out with the voices left in (`src/voicekeep.py`), be muted whole as before, or be kept. A vocal separation model (MDX-Net "UVR-MDX-NET-Voc_FT" from Ultimate Vocal Remover, MIT licence, credited in `src/models/CREDITS-music-remover.txt`; about 64 MB, hash-checked, Settings › Downloads and tools › Music remover) runs on onnxruntime, only over the stretches you choose; the rest of the sound isn't touched. On a mix of speech and instrumental music it made the music 47 dB quieter with the speech within 0.1 dB of the original, at about twice real time on the CPU. Singing counts as a voice, so a song with vocals keeps its vocals: Mute all is still there for those. Each stretch starts as a suggestion from how sure the scan is and how much of it has someone talking (the scan now also measures that).
+- **VODs from this PC.** Export VOD lists the VODs Clip Radar downloaded before and files opened before, and Choose a video on this PC picks any video file on any drive. A video opened only to export is probed, not searched for clips, so it's ready in a second or two.
+- **Flagged words queue.** Check for flagged words listens to the whole video and lists everything the content check flags, with the words around it (masked) and a time to jump to. Ticked words are muted or bleeped and masked in the captions; the ones in the categories Settings › Content check mutes start ticked. The check is remembered per video and says when the rules changed since.
+- **Preview.** The video plays with the captions drawn on it in the chosen look, and a strip shows the music and the muted words. Exact preview renders ten seconds from the playhead the way the export will.
+- **Caption settings for the VOD**: look (Plain, Boxed, Outlined, Karaoke), position, font, colour, size, words at once and capital letters, kept apart from the clips' style.
+- **YouTube Studio.** Once exported, Upload to YouTube Studio puts the file in and types the title and description in Clip Radar's own browser window, the way TikTok uploads work. Audience, visibility and Publish are never pressed. Open YouTube Studio opens the upload page with the file shown in File Explorer.
+
+### Changed
+- **With captions off, nothing is listened to.** Before, an export with captions off still heard the whole video when word muting was on. Muting now uses the flagged words queue, which you run when you want it.
+- **Much quicker without burned-in captions.** At the Original size with no burned-in captions, the picture is copied as it is and only the sound is made again. A 10-minute 1080p video took 18 s instead of 100 s on the owner's PC (5.4 times quicker); a long stream gains the same way. Size now starts at Original (the video's own size).
+
+### Tests
+- `tests/test_vodexport.py`: how much of a music stretch is speech, the suggestion is always one of the choices, the queue (masked context, a flagged word next to another masked in both lines), the caption style sent, the picture copied only when nothing is drawn on it; with FFmpeg: nothing listened to with captions off, every frame copied, a stretch through the music remover (a stand-in model) with the sound before and after it unchanged, the exact preview, a file opened from another folder and listed again once closed, and YouTube Studio opened with the file shown.
+- `tests/test_youtube_auto.py` (new): the YouTube upload against a stand-in for YouTube Studio's dialog in a real browser: the file, the title (without angle brackets), the description, Publish and the audience question left alone, signing in first, a page without the upload box.
+- `tests/test_web_vodexport.py`: a file opened from another folder, a stretch kept, the flagged word queue, the exact preview played, the ticked word silent in the export, YouTube Studio offered.
+- `web`: the Export VOD screen (`VodExportView.test.tsx`), the music summary and the preview caption (`spans.test.ts`).
+
 ## [4.50.2] - 2026-11-11
 
 A TikTok upload can no longer post a clip with its title more than once.

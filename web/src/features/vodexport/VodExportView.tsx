@@ -1,64 +1,107 @@
-import { useCallback, useState } from 'react'
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { JobStarted, Ok, VodExport, type MusicSpan, type VodExportVideo } from '../../api/schemas'
+import { Job, JobStarted, Ok, Picked, PreviewCopy, VodExport, VodOpened, VodWords, VodYoutube, type MusicSpan, type VodExportVideo, type VodFlag } from '../../api/schemas'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
 import { usePoll } from '../../hooks/usePoll'
 import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
-import { musicSummary, spanLabel } from './spans'
+import { FONTS, fontCss } from '../watermark/geometry'
+import { ACTIONS, captionAt, heardAt, musicSummary, spanLabel, type MusicAction, type Word } from './spans'
 
 const loadView = () => api(VodExport, '/api/vodexport')
+const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 const CAPTIONS: Array<[string, string]> = [['burn', 'Burned in'], ['srt', 'Subtitle file'], ['both', 'Both'], ['off', 'Off']]
 const CAPTIONS_HINT: Record<string, string> = {
-  burn: 'The words are drawn on the video, at the bottom, a sentence at a time.',
+  burn: 'The words are drawn on the video.',
   srt: 'Saved as a .srt file next to the video. YouTube and most players can show it.',
   both: 'Drawn on the video, and saved as a .srt file next to it.',
-  off: 'No captions.',
+  off: 'No captions, and nothing is listened to for them.',
 }
-const CAP_SIZES: Array<[string, string]> = [['50', 'Small'], ['60', 'Medium'], ['75', 'Large']]
-const WORDS: Array<[string, string]> = [['mute', 'Mute'], ['bleep', 'Bleep'], ['off', 'Leave in']]
-const SIZES: Array<[string, string]> = [['1080', '1080p'], ['720', '720p'], ['480', '480p']]
+const WORDS: Array<[string, string]> = [['mute', 'Mute'], ['bleep', 'Bleep']]
+const SIZES: Array<[string, string]> = [['source', 'Original'], ['1080', '1080p'], ['720', '720p'], ['480', '480p']]
 const QUALITY: Array<[string, string]> = [['fast', 'Fast'], ['balanced', 'Balanced'], ['high', 'Best']]
+const CAP_STYLES: Array<[string, string]> = [['clean', 'Plain'], ['box', 'Boxed'], ['pop', 'Outlined'], ['karaoke', 'Karaoke']]
+const CAP_POS: Array<[string, string]> = [['bottom', 'Bottom'], ['middle', 'Middle'], ['top', 'Top']]
+const CAP_COLORS = ['#ffffff', '#ffe600', '#2fe36f', '#4fd1ff', '#ff6b8b']
 
-interface Choices { captions: string; capSize: string; words: string; size: string; quality: string }
-const DEFAULTS: Choices = { captions: 'burn', capSize: '60', words: 'mute', size: '1080', quality: 'balanced' }
+/** How captions look on a wide video (vodexport.VOD_STYLE); kept apart from the clips' style. */
+interface Style { caption_style: string; caption_font: string; caption_color: string; caption_size: number; words_per_line: number; uppercase: boolean; caption_pos: string }
+const STYLE: Style = { caption_style: 'clean', caption_font: 'classic', caption_color: '#ffffff', caption_size: 60, words_per_line: 7, uppercase: false, caption_pos: 'bottom' }
+interface Choices { captions: string; words: string; size: string; quality: string; model: string; language: string }
+const DEFAULTS: Choices = { captions: 'burn', words: 'mute', size: 'source', quality: 'balanced', model: '', language: '' }
 
-/** Export VOD: a whole video saved as one file, with the muting system and captions, and the copyright
- *  scan, which finds the music in it so each stretch can be muted or kept. */
+/** Export VOD: a whole video saved as one file, with its music and flagged words dealt with and captions. */
 export function VodExportView() {
+  const toast = useToast()
   const poll = usePoll(loadView, 2000)
   const vids = poll.data?.videos ?? []
   const [pick, setPick] = useState<string>(() => getPref('vodxVideo', ''))
+  const [opening, setOpening] = useState('')
   const sel = vids.find(v => v.pid === pick) ?? vids[0]
+  const choose = (pid: string) => { setPick(pid); setPref('vodxVideo', pid) }
+
+  async function open(body: { pid?: string; path?: string }, label: string) {
+    setOpening(label)
+    try {
+      const r = await api(VodOpened, '/api/vodexport/open', body)
+      choose(r.pid)
+      await poll.refresh()
+    } catch (e) { toast(err(e), 'err') }
+    setOpening('')
+  }
+  async function browse() {
+    const path = (await api(Picked, '/api/pick_file', { kind: 'video' }).catch(() => undefined))?.path
+    if (path) await open({ path }, 'file')
+  }
 
   return (
     <section className="vodx" aria-labelledby="vodx-title">
       <header className="view-head">
         <h1 id="vodx-title">Export VOD</h1>
-        <span className="muted">A whole video as one file, with muting and captions.</span>
+        <span className="muted">A whole video as one file, with its music and flagged words dealt with, and captions.</span>
       </header>
       {poll.error && <p className="banner err" role="alert">{poll.error}</p>}
       {!poll.data && !poll.error && <p className="muted pad">Loading…</p>}
-      {poll.data && !vids.length && (
-        <p className="empty" data-testid="vodx-empty">No video is open. Open one on <a href="#home">Home</a> and it shows up here.</p>
-      )}
-      {sel && poll.data && (
+      {poll.data && (
         <div className="vodx-split">
-          <ul className="vodx-list" aria-label="Open videos">
-            {vids.map(v => (
-              <li key={v.pid}>
-                <button className={`vodx-vid${v.pid === sel.pid ? ' on' : ''}`} aria-current={v.pid === sel.pid} data-testid="vodx-video"
-                        onClick={() => { setPick(v.pid); setPref('vodxVideo', v.pid) }}>
-                  <span className="t1">{v.title || 'Untitled video'}</span>
-                  <span className="t2 tnum">{fmtTime(v.duration)}{v.export_job?.status === 'running' ? ' · exporting' : ''}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <Editor key={sel.pid} v={sel} view={poll.data} refresh={poll.refresh} />
+          <div className="vodx-side">
+            {vids.length > 0 && (
+              <ul className="vodx-list" aria-label="Videos ready to export">
+                {vids.map(v => (
+                  <li key={v.pid}>
+                    <button className={`vodx-vid${v.pid === sel?.pid ? ' on' : ''}`} aria-current={v.pid === sel?.pid} data-testid="vodx-video" onClick={() => choose(v.pid)}>
+                      <span className="t1">{v.title || 'Untitled video'}</span>
+                      <span className="t2 tnum">{fmtTime(v.duration)}{v.export_job?.status === 'running' ? ' · exporting' : ''}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="vodx-add">
+              <button className="btn" data-testid="vodx-browse" disabled={!!opening} onClick={() => void browse()}>
+                {opening === 'file' ? 'Opening…' : 'Choose a video on this PC…'}
+              </button>
+              {poll.data.library.length > 0 && <>
+                <h2 className="vodx-sub">On this PC</h2>
+                <ul className="vodx-list" aria-label="Videos on this PC" data-testid="vodx-library">
+                  {poll.data.library.map(l => (
+                    <li key={l.pid}>
+                      <button className="vodx-vid" disabled={!!opening} onClick={() => void open({ pid: l.pid }, l.pid)}>
+                        <span className="t1">{opening === l.pid ? 'Opening…' : l.title}</span>
+                        <span className="t2 tnum">{l.duration ? fmtTime(l.duration) + ' · ' : ''}{l.where === 'file' ? 'File' : 'Downloaded by Clip Radar'}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>}
+            </div>
+          </div>
+          {sel ? <Editor key={sel.pid} v={sel} view={poll.data} refresh={poll.refresh} />
+            : <p className="empty" data-testid="vodx-empty">Pick a video on the left: one Clip Radar downloaded, or any video on this PC.
+              Videos you open on <a href="#home">Home</a> show up here too.</p>}
         </div>
       )}
     </section>
@@ -67,131 +110,368 @@ export function VodExportView() {
 
 function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refresh: () => Promise<void> }) {
   const toast = useToast()
+  const base = renderOpts()
   const [c, setC] = useState<Choices>(() => ({ ...DEFAULTS, ...getPref<Partial<Choices>>('vodx', {}) }))
   const set = (patch: Partial<Choices>) => setC(cur => { const n = { ...cur, ...patch }; setPref('vodx', n); return n })
-  const spans = v.scan?.spans ?? []
-  // which music stretches stay as they are; every one is muted until you keep it. A new scan starts over.
-  // the ticks belong to the scan they were made on: a new scan starts over. Kept with it rather than cleared by an
-  // effect, which could run after a click made as the screen appeared and undo it
-  const scanAt = v.scan?.at ?? 0
-  const [keptFor, setKeptFor] = useState<{ at: number; set: Set<number> }>({ at: scanAt, set: new Set() })
-  const kept = keptFor.at === scanAt ? keptFor.set : new Set<number>()
-  const setKept = (f: Set<number> | ((k: Set<number>) => Set<number>)) =>
-    setKeptFor(cur => {
-      const base = cur.at === scanAt ? cur.set : new Set<number>()
-      return { at: scanAt, set: typeof f === 'function' ? f(base) : f }
-    })
-  const scanning = v.scan_job?.status === 'running'
-  const ex = v.export_job
-  const exporting = ex?.status === 'running'
-  const muted = spans.filter((_, i) => !kept.has(i))
-  // captions and word muting need the words heard: Whisper, or the video's own YouTube captions
-  const canHear = v.has_audio && (view.whisper || v.has_yt_words)
-  const words = canHear ? c.words : 'off', captions = canHear ? c.captions : 'off'
-  const noSpeech = !v.has_audio ? <p className="hint">This video has no sound.</p>
-    : <p className="hint">Needs the speech model (Whisper). Get it in <a href="#settings/tools">Settings › Downloads and tools</a>.</p>
+  const [style, setStyle] = useState<Style>(() => ({ ...STYLE, ...getPref<Partial<Style>>('vodx_style', {}) }))
+  const setS = (patch: Partial<Style>) => setStyle(cur => { const n = { ...cur, ...patch }; setPref('vodx_style', n); return n })
+  const model = c.model || String(base.whisper_model || 'small'), language = c.language || String(base.language || '')
 
+  const spans = v.scan?.spans ?? []
+  const canRemove = view.voice_model
+  // what you chose for each music stretch, kept with the scan it was made on: a new scan starts over
+  const scanAt = v.scan?.at ?? 0
+  const [actsFor, setActsFor] = useState<{ at: number; acts: Record<number, MusicAction> }>({ at: scanAt, acts: {} })
+  const chosen = actsFor.at === scanAt ? actsFor.acts : {}
+  const acts: MusicAction[] = spans.map((s, i) => {
+    const a = chosen[i] ?? s.suggest
+    return a === 'voice' && !canRemove ? 'mute' : a
+  })
+  const setAct = (i: number | 'all', a: MusicAction) => setActsFor(cur => {
+    const prev = cur.at === scanAt ? cur.acts : {}
+    return { at: scanAt, acts: i === 'all' ? Object.fromEntries(spans.map((_, k) => [k, a])) : { ...prev, [i]: a } }
+  })
+
+  // the flagged words queue: each one ticked (muted) or not, kept with the check it came from
+  const flags = v.flags?.flags ?? []
+  const flagsAt = v.flags?.at ?? 0
+  const [ticksFor, setTicksFor] = useState<{ at: number; on: Record<string, boolean> }>({ at: flagsAt, on: {} })
+  const ticks = ticksFor.at === flagsAt ? ticksFor.on : {}
+  const isOn = (f: VodFlag) => ticks[f.id] ?? f.on
+  const tick = (ids: string[] | 'all' | 'none', on?: boolean) => setTicksFor(cur => {
+    const prev = cur.at === flagsAt ? cur.on : {}
+    if (ids === 'all' || ids === 'none') return { at: flagsAt, on: Object.fromEntries(flags.map(f => [f.id, ids === 'all'])) }
+    return { at: flagsAt, on: { ...prev, ...Object.fromEntries(ids.map(id => [id, !!on])) } }
+  })
+  const ticked = flags.filter(isOn)
+
+  const canHear = v.has_audio && (view.whisper || v.has_yt_words)
+  const captions = canHear ? c.captions : 'off'
+  const burn = captions === 'burn' || captions === 'both'
+  const exporting = v.export_job?.status === 'running'
+  const fast = v.copyable && !burn && c.size === 'source'
+
+  // the player: where you are, so captions and the exact preview start there
+  const vid = useRef<HTMLVideoElement>(null)
+  const [now, setNow] = useState(0)
+  const seek = useCallback((t: number) => { const el = vid.current; if (el) { el.currentTime = t; setNow(t) } }, [])
+
+  const options = () => ({
+    pid: v.pid, captions, words: c.words, size: c.size, quality: c.quality, whisper_model: model, language,
+    hw_encode: base.hw_encode, style,
+    music: spans.map((s, i) => [s.start, s.end, acts[i]] as const).filter(x => x[2] !== 'keep'),
+    word_spans: ticked.map(f => [Math.max(0, f.start - 0.05), f.end + 0.05]),
+  })
   async function start(path: string, body: object, what: string) {
     try {
-      await api(JobStarted, path, { pid: v.pid, ...body })
-      toast(what)
-    } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), 'err')
-    }
+      await api(JobStarted, path, body)
+      if (what) toast(what)
+    } catch (e) { toast(err(e), 'err') }
     await refresh()
   }
-  const exportNow = () => {
-    const o = renderOpts()
-    void start('/api/vodexport/start', {
-      captions, caption_size: Number(c.capSize), words, size: c.size, quality: c.quality,
-      music: muted.map(s => [s.start, s.end]), whisper_model: o.whisper_model, language: o.language,
-      caption_font: o.caption_font, hw_encode: o.hw_encode,
-    }, 'Exporting the whole video…')
-  }
   const cancel = (job: string) => api(Ok, '/api/cancel', { job }).then(refresh).catch(() => {})
-  const toggle = (i: number) => setKept(k => { const n = new Set(k); if (n.has(i)) n.delete(i); else n.add(i); return n })
+  const toolsLink = <a href="#settings/tools">Settings › Downloads and tools</a>
+  const noSpeech = !v.has_audio ? <p className="hint">This video has no sound.</p>
+    : <p className="hint">Needs the speech model (Whisper). Get it in {toolsLink}.</p>
+  const nVoice = acts.filter(a => a === 'voice').length, nMute = acts.filter(a => a === 'mute').length
 
   return (
     <div className="vodx-body">
       {!v.exists && <p className="banner err" role="alert">This video's file was deleted, so it can't be exported.</p>}
 
+      <PreviewPanel v={v} vid={vid} now={now} setNow={setNow} seek={seek} spans={spans} acts={acts} flags={ticked}
+                    style={style} burn={burn} model={model} language={language} canHear={canHear}
+                    onExact={() => void start('/api/vodexport/preview', { ...options(), at: now }, '')}
+                    onHear={() => void start('/api/vodexport/hear', { pid: v.pid, whisper_model: model, language, at: now }, '')}
+                    cancel={cancel} />
+
       <section className="panel set" aria-labelledby="vodx-cr" data-testid="vodx-copyright">
         <header className="row">
           <h2 id="vodx-cr" className="grow">Copyright scan</h2>
-          {scanning
+          {v.scan_job?.status === 'running'
             ? <button className="btn ghost sm" onClick={() => void cancel(v.scan_job!.id)}>Stop</button>
-            : <button className={`btn${v.scan ? '' : ' primary'}`} data-testid="vodx-scan" disabled={!v.has_audio || !v.exists}
-                      onClick={() => void start('/api/vodexport/scan', {}, 'Looking for music…')}>{v.scan ? 'Scan again' : 'Scan for music'}</button>}
+            : <button className="btn" data-testid="vodx-scan" disabled={!v.has_audio || !v.exists}
+                      onClick={() => void start('/api/vodexport/scan', { pid: v.pid }, 'Looking for music…')}>{v.scan ? 'Scan again' : 'Scan for music'}</button>}
         </header>
-        <p className="muted">Finds the stretches where music plays, the usual cause of copyright claims and muted VODs, so you can mute them in the export.
-          It hears that music is playing, not which song, so treat it as a safety net.</p>
-        {!view.music_model && !v.scan && <p className="hint">Needs the laughter detector (it also hears music). Get it in <a href="#settings/tools">Settings › Downloads and tools</a>.</p>}
-        {!v.has_audio && <p className="hint">This video has no sound.</p>}
-        {scanning && <JobBar job={v.scan_job!} label="Looking for music" />}
+        <p className="muted">Finds where music plays, the usual cause of copyright claims and muted VODs. <b>Remove music</b> takes the
+          music out and keeps people talking over it. <b>Mute all</b> silences the whole stretch. It hears that music is playing, not
+          which song, so treat it as a safety net.</p>
+        {!view.music_model && !v.scan && <p className="hint">Needs the laughter detector (it also hears music). Get it in {toolsLink}.</p>}
+        {!canRemove && spans.length > 0 && <p className="hint" data-testid="vodx-no-remover">Remove music needs the music remover
+          (about {view.voice_model_mb} MB). Get it in {toolsLink}. Until then, music can only be muted.</p>}
+        {v.scan_job?.status === 'running' && <JobBar job={v.scan_job} label="Looking for music" />}
         {v.scan_job?.status === 'error' && <p className="banner err" role="alert">{v.scan_job.error}</p>}
-        {v.scan && !scanning && (
-          spans.length === 0
-            ? <p data-testid="vodx-clean">No music found.</p>
+        {v.scan && v.scan_job?.status !== 'running' && (
+          spans.length === 0 ? <p data-testid="vodx-clean">No music found.</p> : <>
+            <p data-testid="vodx-music-summary">{musicSummary(spans, acts)}</p>
+            <div className="row wrap">
+              <span className="muted small">Set all to</span>
+              {ACTIONS.filter(([a]) => a !== 'voice' || canRemove).map(([a, l]) => (
+                <button key={a} className="btn sm ghost" onClick={() => setAct('all', a)}>{l}</button>
+              ))}
+            </div>
+            <ul className="vodx-spans" aria-label="Music found">
+              {spans.map((s, i) => (
+                <li key={i} className="vodx-span" data-testid="vodx-span">
+                  <button className="link tnum" onClick={() => seek(s.start)} title="Play from here in the preview">{spanLabel(s)}</button>
+                  <small className="muted">{talk(s)}</small>
+                  <Seg label={`Music at ${fmtTime(s.start)}`} value={acts[i]!} options={ACTIONS.filter(([a]) => a !== 'voice' || canRemove)}
+                       onChange={a => setAct(i, a as MusicAction)} />
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
+
+      <section className="panel set" aria-labelledby="vodx-mute" data-testid="vodx-flags">
+        <header className="row">
+          <h2 id="vodx-mute" className="grow">Flagged words</h2>
+          {v.words_job?.status === 'running'
+            ? <button className="btn ghost sm" onClick={() => void cancel(v.words_job!.id)}>Stop</button>
+            : canHear && <button className="btn" data-testid="vodx-check-words" disabled={!v.exists}
+                                 onClick={() => void start('/api/vodexport/words', { pid: v.pid, whisper_model: model, language }, 'Listening for flagged words…')}>
+                {v.flags ? 'Check again' : 'Check for flagged words'}</button>}
+        </header>
+        {!canHear && !(v.flags && v.has_audio) && noSpeech}
+        {/* a check already made can be used without the speech model: only checking again needs it */}
+        {(canHear || (v.flags && v.has_audio)) && <>
+          {!canHear && <p className="hint" data-testid="vodx-flags-no-whisper">Checking again needs the speech model (Whisper). Get it in {toolsLink}.</p>}
+          <p className="muted">Listens to the whole video and lists what the content check flags, using what counts in{' '}
+            <a href="#settings/safety">Settings › Content check</a>. Ticked words are {c.words === 'bleep' ? 'bleeped' : 'silenced'} and
+            hidden in the captions.</p>
+          {v.words_job?.status === 'running' && <JobBar job={v.words_job} label="Listening for flagged words" />}
+          {v.words_job?.status === 'error' && <p className="banner err" role="alert">{v.words_job.error}</p>}
+          {v.flags?.stale && <p className="hint">What counts as a flag changed since this check. Check again to use the new rules.</p>}
+          {v.flags && v.words_job?.status !== 'running' && (flags.length === 0
+            ? <p data-testid="vodx-no-flags">Nothing flagged.</p>
             : <>
-                <MusicStrip spans={spans} kept={kept} duration={v.duration} />
-                <p data-testid="vodx-music-summary">{musicSummary(spans, kept)}</p>
                 <div className="row wrap">
-                  <button className="btn sm" onClick={() => setKept(new Set())}>Mute all</button>
-                  <button className="btn sm ghost" onClick={() => setKept(new Set(spans.map((_, i) => i)))}>Keep all</button>
+                  <span data-testid="vodx-flag-summary">{plural(flags.length, 'flagged word')}, {ticked.length} {c.words === 'bleep' ? 'bleeped' : 'muted'}.</span>
+                  <Seg label="Flagged words" value={c.words} options={WORDS} onChange={words => set({ words })} />
+                  <button className="btn sm ghost" onClick={() => tick('all')}>Tick all</button>
+                  <button className="btn sm ghost" onClick={() => tick('none')}>Untick all</button>
                 </div>
-                <ul className="vodx-spans" aria-label="Music found">
-                  {spans.map((s, i) => (
-                    <li key={i}>
+                <ul className="vodx-flags" aria-label="Flagged words">
+                  {flags.map(f => (
+                    <li key={f.id} className="vodx-flag">
                       <label className="chk">
-                        <input type="checkbox" checked={!kept.has(i)} onChange={() => toggle(i)} data-testid="vodx-span" />
-                        <span><span className="tnum">{spanLabel(s)}</span><small>{Math.round(s.confidence * 100)}% sure it's music</small></span>
+                        <input type="checkbox" checked={isOn(f)} onChange={e => tick([f.id], e.target.checked)} data-testid="vodx-flag" />
+                        <span><span>{f.context || f.text}</span><small>{f.label}</small></span>
                       </label>
+                      <button className="link tnum" onClick={() => seek(Math.max(0, f.start - 2))} title="Play from here in the preview">{fmtTime(f.start)}</button>
                     </li>
                   ))}
                 </ul>
-              </>
-        )}
+              </>)}
+        </>}
       </section>
 
-      <section className="panel set" aria-labelledby="vodx-mute">
-        <h2 id="vodx-mute">Flagged words</h2>
-        {!canHear && noSpeech}
-        {canHear && <Seg label="Flagged words" value={c.words} options={WORDS} onChange={words => set({ words })} />}
-        {canHear && <p className="hint">
-          {c.words === 'off' ? 'Nothing said is changed.' : `What the content check flags is ${c.words === 'bleep' ? 'bleeped' : 'silenced'} and hidden in the captions`}
-          {c.words !== 'off' && (view.censor_categories.length ? `: ${view.censor_categories.join(', ').toLowerCase()}. ` : '. ')}
-          {c.words !== 'off' && <>Choose what counts in <a href="#settings/safety">Settings › Content check</a>.</>}
-        </p>}
-      </section>
-
-      <section className="panel set" aria-labelledby="vodx-cap">
+      <section className="panel set" aria-labelledby="vodx-cap" data-testid="vodx-captions">
         <h2 id="vodx-cap">Captions</h2>
         {!canHear && noSpeech}
-        {canHear && <Seg label="Captions" value={c.captions} options={CAPTIONS} onChange={captions => set({ captions })} />}
-        {canHear && <p className="hint">{CAPTIONS_HINT[c.captions]}</p>}
-        {(captions === 'burn' || captions === 'both') && (
-          <div className="row wrap"><span className="muted">Size</span><Seg label="Caption size" value={c.capSize} options={CAP_SIZES} onChange={capSize => set({ capSize })} /></div>
+        {canHear && <>
+          <Seg label="Captions" value={c.captions} options={CAPTIONS} onChange={captions => set({ captions })} />
+          <p className="hint">{CAPTIONS_HINT[c.captions]}</p>
+        </>}
+        {burn && <CaptionStyle style={style} set={setS} />}
+        {captions !== 'off' && (
+          <div className="row wrap">
+            <label className="fld inline">Accuracy
+              <select className="input" value={model} onChange={e => set({ model: e.target.value })}>
+                <option value="base">Fast</option><option value="small">Balanced</option><option value="medium">Accurate (slow)</option><option value="large-v3">Best (GPU)</option>
+              </select>
+            </label>
+            <label className="fld inline">Language
+              <select className="input" value={language} onChange={e => set({ language: e.target.value })}>
+                {[['', 'Automatic'], ['en', 'English'], ['es', 'Spanish'], ['pt', 'Portuguese'], ['fr', 'French'], ['de', 'German'], ['it', 'Italian'],
+                  ['ar', 'Arabic'], ['tr', 'Turkish'], ['ru', 'Russian'], ['pl', 'Polish'], ['ja', 'Japanese'], ['ko', 'Korean']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+            </label>
+          </div>
         )}
-        {canHear && (captions !== 'off' || words !== 'off') && (
-          <p className="hint">{v.has_yt_words ? "Uses the video's own YouTube captions." : 'The whole video is listened to first. Stretches already heard for clips are reused. On a long stream this is most of the wait.'}</p>
-        )}
+        {captions !== 'off' && <p className="hint">{v.has_yt_words ? "Uses the video's own YouTube captions." : 'The whole video is listened to first. Stretches already heard (for clips or the flagged words check) are reused.'}</p>}
       </section>
 
       <section className="panel set" aria-labelledby="vodx-vid">
         <h2 id="vodx-vid">Video</h2>
         <div className="row wrap"><span className="muted">Size</span><Seg label="Size" value={c.size} options={SIZES} onChange={size => set({ size })} /></div>
-        <div className="row wrap"><span className="muted">Quality</span><Seg label="Quality" value={c.quality} options={QUALITY} onChange={quality => set({ quality })} /></div>
-        <p className="hint">A wide 16:9 video. Saved in your clips folder.</p>
+        {c.size !== 'source' || burn ? <div className="row wrap"><span className="muted">Quality</span><Seg label="Quality" value={c.quality} options={QUALITY} onChange={quality => set({ quality })} /></div> : null}
+        <p className="hint" data-testid="vodx-speed">{fast
+          ? 'The picture is copied as it is and only the sound is made again, so this is quick: a few minutes for a long stream.'
+          : burn ? 'Burned-in captions mean every frame is made again, which takes a while on a long stream. A subtitle file and the Original size skip that.'
+          : !v.copyable ? "This video's picture can't be copied into an .mp4 as it is, so every frame is made again."
+          : 'A new size means every frame is made again. Original skips that.'} Saved in your clips folder.</p>
       </section>
 
       <footer className="vodx-go">
         {exporting
-          ? <><JobBar job={ex!} label="Exporting" /><button className="btn ghost" onClick={() => void cancel(ex!.id)}>Cancel</button></>
-          : <button className="btn primary" data-testid="vodx-export" disabled={!v.exists} onClick={exportNow}>
-              Export {fmtTime(v.duration)}{muted.length ? ` · ${plural(muted.length, 'music stretch', 'music stretches')} muted` : ''}
+          ? <><JobBar job={v.export_job!} label="Exporting" /><button className="btn ghost" onClick={() => void cancel(v.export_job!.id)}>Cancel</button></>
+          : <button className="btn primary" data-testid="vodx-export" disabled={!v.exists}
+                    onClick={() => void start('/api/vodexport/start', options(), 'Exporting the whole video…')}>
+              Export {fmtTime(v.duration)}{[nVoice ? `music removed in ${nVoice}` : '', nMute ? `${nMute} muted` : '', ticked.length ? plural(ticked.length, 'word') + ' muted' : '']
+                .filter(Boolean).map(x => ' · ' + x).join('')}
             </button>}
       </footer>
-      {ex && !exporting && <ExportResult job={ex} />}
+      {v.export_job && !exporting && <ExportResult job={v.export_job} />}
+      {v.exported && !exporting && <YouTubePanel v={v} view={view} refresh={refresh} />}
+    </div>
+  )
+}
+
+/** "people talking over most of it" */
+function talk(s: MusicSpan): string {
+  const p = s.speech
+  return p >= 0.6 ? 'People talking over most of it' : p >= 0.2 ? 'People talking over some of it' : p > 0 ? 'A little talking' : 'No talking heard'
+}
+
+function CaptionStyle({ style, set }: { style: Style; set: (p: Partial<Style>) => void }) {
+  return (
+    <div className="vodx-style" data-testid="vodx-style">
+      <div className="row wrap"><span className="muted">Look</span><Seg label="Caption look" value={style.caption_style} options={CAP_STYLES} onChange={caption_style => set({ caption_style })} /></div>
+      <div className="row wrap"><span className="muted">Where</span><Seg label="Caption position" value={style.caption_pos} options={CAP_POS} onChange={caption_pos => set({ caption_pos })} /></div>
+      <div className="row wrap">
+        <label className="fld inline">Font
+          <select className="input" value={style.caption_font} onChange={e => set({ caption_font: e.target.value })}>
+            {Object.entries(FONTS).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
+          </select>
+        </label>
+        <div className="rv-swatches" role="radiogroup" aria-label="Caption colour">
+          {CAP_COLORS.map(col => (
+            <button key={col} role="radio" aria-checked={style.caption_color.toLowerCase() === col} aria-label={`Caption colour ${col}`}
+                    className={style.caption_color.toLowerCase() === col ? 'on' : ''} style={{ background: col }} onClick={() => set({ caption_color: col })} />
+          ))}
+          <input type="color" aria-label="Custom caption colour" value={style.caption_color} onChange={e => set({ caption_color: e.target.value })} />
+        </div>
+      </div>
+      <label className="fld">Text size <span className="range-row"><input type="range" min={40} max={120} step={5} value={style.caption_size} aria-label="Caption text size"
+             onChange={e => set({ caption_size: Number(e.target.value) })} /><span className="tnum">{style.caption_size}%</span></span></label>
+      <label className="fld">Words at once <span className="range-row"><input type="range" min={2} max={12} value={style.words_per_line} aria-label="Words at once"
+             onChange={e => set({ words_per_line: Number(e.target.value) })} /><span className="tnum">{style.words_per_line}</span></span></label>
+      <label className="chk"><input type="checkbox" checked={style.uppercase} onChange={e => set({ uppercase: e.target.checked })} /><span>Capital letters</span></label>
+    </div>
+  )
+}
+
+/** The video with the captions drawn over it as they'll look, the music and flagged words marked on its timeline,
+ *  and the exact preview: ten seconds from where you are, made the way the export will be. */
+function PreviewPanel({ v, vid, now, setNow, seek, spans, acts, flags, style, burn, model, language, canHear, onExact, onHear, cancel }: {
+  v: VodExportVideo; vid: RefObject<HTMLVideoElement | null>; now: number; setNow: (t: number) => void; seek: (t: number) => void
+  spans: MusicSpan[]; acts: MusicAction[]; flags: VodFlag[]; style: Style; burn: boolean; model: string; language: string; canHear: boolean
+  onExact: () => void; onHear: () => void; cancel: (job: string) => void
+}) {
+  const [playable, setPlayable] = useState<'yes' | 'no' | 'making'>('yes')
+  const [src, setSrc] = useState(`/vod/${v.pid}`)
+  const [heard, setHeard] = useState<{ a: number; b: number; words: Word[]; covered: number[][] }>({ a: -1, b: -1, words: [], covered: [] })
+  const hearing = v.hear_job?.status === 'running'
+  const pj = v.preview_job
+  const exact = pj?.status === 'done' ? (pj.result as { url?: string; start?: number } | null) : null
+  const [showExact, setShowExact] = useState('')
+  useEffect(() => { if (exact?.url) setShowExact(exact.url) }, [exact?.url])
+
+  // the words already heard around the playhead (a minute at a time), fetched again once more has been heard
+  const bucket = Math.floor(now / 60)
+  const hearDone = v.hear_job?.status === 'done' ? v.hear_job.id : ''
+  const wordsDone = v.words_job?.status === 'done' ? v.words_job.id : ''
+  useEffect(() => {
+    if (!burn) return
+    const a = Math.max(0, bucket * 60 - 10), b = bucket * 60 + 70
+    let gone = false
+    api(VodWords, `/api/vodexport/words?pid=${v.pid}&a=${a}&b=${b}&model=${encodeURIComponent(model)}&lang=${encodeURIComponent(language)}`)
+      .then(r => { if (!gone) setHeard({ a, b, words: r.words, covered: r.covered }) }).catch(() => {})
+    return () => { gone = true }
+  }, [v.pid, bucket, burn, model, language, hearDone, wordsDone])
+
+  async function makePlayable() {
+    setPlayable('making')
+    try {
+      const r = await api(PreviewCopy, '/api/preview', { pid: v.pid })
+      if (r.ready) { setSrc(`/vod/${v.pid}?preview=1`); setPlayable('yes'); return }
+      const end = Date.now() + 30 * 60_000
+      while (Date.now() < end) {
+        await new Promise(res => setTimeout(res, 1500))
+        const j = await api(Job, `/api/job/${r.job ?? ''}`)
+        if (j.status === 'done') { setSrc(`/vod/${v.pid}?preview=1&t=${Date.now()}`); setPlayable('yes'); return }
+        if (j.status !== 'running') break
+      }
+    } catch { /* falls through */ }
+    setPlayable('no')
+  }
+
+  const cap = burn ? captionAt(heard.words, now, style.words_per_line) : []
+  const notHeard = burn && canHear && heard.a >= 0 && !heardAt(heard.covered, now)
+  const tryingMusic = spans.findIndex((s, i) => acts[i] !== 'keep' && now >= s.start && now < s.end)
+  const d = Math.max(1, v.duration)
+
+  return (
+    <section className="panel set" aria-labelledby="vodx-pv" data-testid="vodx-preview">
+      <header className="row">
+        <h2 id="vodx-pv" className="grow">Preview</h2>
+        {showExact && <button className="btn sm ghost" onClick={() => setShowExact('')}>Back to the video</button>}
+      </header>
+      <div className="vodx-stage">
+        {showExact
+          ? <video key={showExact} src={showExact} controls autoPlay className="vodx-video" data-testid="vodx-exact" />
+          : <>
+              <video ref={vid} src={src} controls preload="metadata" className="vodx-video" data-testid="vodx-player"
+                     onTimeUpdate={e => setNow(e.currentTarget.currentTime)} onSeeked={e => setNow(e.currentTarget.currentTime)}
+                     onError={() => { if (playable === 'yes' && !src.includes('preview=1')) setPlayable('no') }} />
+              {cap.length > 0 && <CaptionOverlay words={cap} now={now} style={style} />}
+              {playable !== 'yes' && (
+                <div className="vodx-cover">
+                  <p>{playable === 'making' ? 'Making a version the preview can play…' : "The preview can't play this kind of video."}</p>
+                  {playable === 'no' && <button className="btn" onClick={() => void makePlayable()}>Make a version it can play</button>}
+                </div>
+              )}
+            </>}
+      </div>
+      <div className="vodx-strip" role="img" aria-label={`Timeline: ${plural(spans.length, 'music stretch', 'music stretches')}, ${plural(flags.length, 'muted word')}`}
+           onClick={e => { const r = e.currentTarget.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * d); setShowExact('') }}>
+        {spans.map((s, i) => (
+          <i key={i} className={`m ${acts[i]}`} title={spanLabel(s)} style={{ left: `${s.start / d * 100}%`, width: `${Math.max(0.3, (s.end - s.start) / d * 100)}%` }} />
+        ))}
+        {flags.map(f => <i key={f.id} className="w" style={{ left: `${f.start / d * 100}%` }} />)}
+        <b style={{ left: `${Math.min(100, now / d * 100)}%` }} />
+      </div>
+      <p className="hint">
+        {tryingMusic >= 0 ? `Music here: ${acts[tryingMusic] === 'voice' ? 'it will be taken out, voices kept' : 'this stretch will be silent'}. ` : ''}
+        The video plays with its own sound; the captions are drawn as they'll look. <b>Exact preview</b> makes ten seconds from here the way
+        the export will, music removal and muting included.
+      </p>
+      {notHeard && (
+        <p className="hint" data-testid="vodx-not-heard">Nothing has been listened to here yet, so there are no captions to show.{' '}
+          {hearing ? 'Listening…' : <button className="link" onClick={onHear}>Hear the next 30 seconds</button>}</p>
+      )}
+      <div className="row wrap">
+        {pj?.status === 'running'
+          ? <><JobBar job={pj} label="Making the exact preview" /><button className="btn ghost sm" onClick={() => cancel(pj.id)}>Stop</button></>
+          : <button className="btn" data-testid="vodx-exact-btn" disabled={!v.exists} onClick={() => { setShowExact(''); onExact() }}>Exact preview from {fmtTime(now)}</button>}
+      </div>
+      {pj?.status === 'error' && <p className="banner err" role="alert">{pj.error}</p>}
+    </section>
+  )
+}
+
+/** The caption over the player, in the chosen look: the export's sizes scaled to the player (the export's frame is 1080 high). */
+function CaptionOverlay({ words, now, style }: { words: Word[]; now: number; style: Style }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [h, setH] = useState(360)
+  useEffect(() => {
+    const el = box.current?.parentElement
+    if (!el) return
+    const ro = new ResizeObserver(() => setH(el.clientHeight))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const px = 86 * style.caption_size / 100 * (FONTS[style.caption_font]?.scale ?? 1) * h / 1080
+  const text = (w: string) => (style.uppercase ? w.toUpperCase() : w)
+  const hi = style.caption_style === 'karaoke' || style.caption_style === 'pop'
+  return (
+    <div ref={box} className={`vodx-cap ${style.caption_pos} ${style.caption_style}`} data-testid="vodx-caption"
+         style={{ font: fontCss(style.caption_font, px), color: hi ? '#ffffff' : style.caption_color }}>
+      <span>{words.map((w, i) => (
+        <span key={i} style={hi && now >= w.start && now < w.end + 0.15 ? { color: style.caption_color } : undefined}>{text(w.word)}{i < words.length - 1 ? ' ' : ''}</span>
+      ))}</span>
     </div>
   )
 }
@@ -211,33 +491,57 @@ function JobBar({ job, label }: { job: NonNullable<VodExportVideo['export_job']>
 
 function ExportResult({ job }: { job: NonNullable<VodExportVideo['export_job']> }) {
   const toast = useToast()
-  const r = (job.result ?? {}) as { name?: string; folder?: string; srt?: string; muted_words?: number; muted_music?: number }
+  const r = (job.result ?? {}) as { name?: string; folder?: string; srt?: string; muted_words?: number; muted_music?: number; voice_music?: number; copied?: boolean; took?: number }
   const show = useCallback(() => {
-    api(Ok, '/api/open_folder', { folder: r.folder ?? 'clips' }).catch(e => toast(e instanceof Error ? e.message : String(e), 'err'))
+    api(Ok, '/api/open_folder', { folder: r.folder ?? 'clips' }).catch(e => toast(err(e), 'err'))
   }, [r.folder, toast])
   if (job.status === 'error') return <p className="banner err" role="alert" data-testid="vodx-error">Export failed: {job.error}</p>
   if (job.status === 'cancelled') return <p className="muted">Export cancelled.</p>
   if (job.status !== 'done') return null
-  const bits = [r.muted_music ? plural(r.muted_music, 'music stretch', 'music stretches') + ' muted' : '',
+  const bits = [r.voice_music ? `music removed from ${plural(r.voice_music, 'stretch', 'stretches')}` : '',
+    r.muted_music ? plural(r.muted_music, 'music stretch', 'music stretches') + ' muted' : '',
     r.muted_words ? plural(r.muted_words, 'flagged word') + ' muted' : '', r.srt ? `captions in ${r.srt}` : ''].filter(Boolean)
   return (
     <div className="panel vodx-done" data-testid="vodx-done">
       <p><b>Saved {r.name}</b>{bits.length ? ` · ${bits.join(', ')}` : ''}</p>
+      {r.took != null && <p className="hint">Took {fmtTime(r.took)}{r.copied ? ', with the picture copied as it is' : ''}.</p>}
       {job.warning && <p className="hint">{job.warning}</p>}
       <button className="btn" onClick={show}>Show in folder</button>
     </div>
   )
 }
 
-/** Where the music is across the whole video: muted stretches solid, kept ones outlined. */
-function MusicStrip({ spans, kept, duration }: { spans: MusicSpan[]; kept: Set<number>; duration: number }) {
-  const d = Math.max(1, duration)
+/** The exported file to YouTube Studio: Clip Radar's own window puts it in and types the title and description, or
+ *  the upload page opens in your browser with the file shown. Audience, visibility and Publish stay yours. */
+function YouTubePanel({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refresh: () => Promise<void> }) {
+  const toast = useToast()
+  const [title, setTitle] = useState(v.title)
+  const [desc, setDesc] = useState('')
+  const job = v.youtube_job
+  const busy = job?.status === 'running'
+  async function go(auto: boolean) {
+    try {
+      const r = await api(VodYoutube, '/api/vodexport/youtube', { pid: v.pid, title, description: desc, auto })
+      if (r.opened) toast('YouTube Studio is opening. The video is selected in File Explorer.')
+    } catch (e) { toast(err(e), 'err') }
+    await refresh()
+  }
   return (
-    <div className="vodx-strip" role="img" aria-label={`Music across the video: ${musicSummary(spans, kept)}`}>
-      {spans.map((s, i) => (
-        <i key={i} className={kept.has(i) ? 'kept' : ''} title={spanLabel(s)}
-           style={{ left: `${s.start / d * 100}%`, width: `${Math.max(0.3, (s.end - s.start) / d * 100)}%` }} />
-      ))}
-    </div>
+    <section className="panel set" aria-labelledby="vodx-yt" data-testid="vodx-youtube">
+      <h2 id="vodx-yt">YouTube Studio</h2>
+      <label className="fld">Title <input className="input" value={title} maxLength={100} onChange={e => setTitle(e.target.value)} /></label>
+      <label className="fld">Description <textarea className="input" rows={3} value={desc} maxLength={5000} onChange={e => setDesc(e.target.value)} /></label>
+      <div className="row wrap">
+        <button className="btn" data-testid="vodx-yt-upload" disabled={busy || !view.browser} onClick={() => void go(true)}>
+          {busy ? 'Uploading…' : 'Upload to YouTube Studio'}</button>
+        <button className="btn" data-testid="vodx-yt-open" disabled={busy} onClick={() => void go(false)}>Open YouTube Studio</button>
+      </div>
+      {busy && <JobBar job={job} label="YouTube Studio" />}
+      <p className="hint">{view.browser
+        ? "Upload puts the video in and types the title and description in Clip Radar's own browser window. You choose the audience and visibility and press Publish yourself."
+        : 'Upload needs Microsoft Edge or Google Chrome. Open YouTube Studio shows the file to drag in.'}</p>
+      {v.youtube?.state === 'ready' && !busy && <p data-testid="vodx-yt-ready">The video is in YouTube Studio. Finish the details and publish it there.</p>}
+      {job?.status === 'error' && <p className="banner err" role="alert">{job.error}</p>}
+    </section>
   )
 }

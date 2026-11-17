@@ -651,6 +651,118 @@ def _upload_once(path: str, caption: str, press_post: bool, url: str, step: Call
         page.close()
 
 
+# ---------------------------------------------------------------- YouTube Studio (Export VOD)
+
+YT_TITLE_MAX = 100            # YouTube's title limit (characters)
+# How YouTube Studio's upload dialog is recognised. Each is a JavaScript expression run in the page.
+YT = {
+    # the hidden file box behind "Select files"
+    "file": "document.querySelector('ytcp-uploads-file-picker input[type=file]') || document.querySelector('input[type=file]')",
+    # Google asking you to sign in first
+    "login": "location.hostname === 'accounts.google.com' || /ServiceLogin|\\/signin/i.test(location.pathname)",
+    # the details step, once YouTube has the file: the title and description boxes (rich text)
+    "title": ("document.querySelector('#title-textarea #textbox') || document.querySelector('ytcp-video-title [contenteditable=true]')"
+              " || document.querySelector('[contenteditable=true][aria-label*=title i]')"),
+    "description": ("document.querySelector('#description-textarea #textbox')"
+                    " || document.querySelector('ytcp-video-description [contenteditable=true]')"
+                    " || document.querySelector('[contenteditable=true][aria-label*=viewers i]')"),
+}
+
+
+def youtube_title(text: str) -> str:
+    """A title YouTube takes: one line, no angle brackets (YouTube refuses them), at most 100 characters."""
+    t = re.sub(r"\s+", " ", (text or "").replace("<", "").replace(">", "")).strip()
+    return t[:YT_TITLE_MAX].rstrip()
+
+
+def _yt_tab(port: int, url: str) -> tuple:
+    """(a tab for YouTube's upload page, whether it was just opened on it). The tab already on YouTube Studio
+    (or on `url`) is used again; the TikTok tab is left alone."""
+    for t in cdp.targets(port):
+        u = t.get("url", "")
+        if t.get("type") == "page" and t.get("webSocketDebuggerUrl") and (
+                u.startswith("https://studio.youtube.com") or u.startswith(re.sub(r"[?#].*$", "", url))):
+            return cdp.Page(t["webSocketDebuggerUrl"], t.get("id", "")), False
+    t = cdp.new_tab(port, url)
+    return cdp.Page(t["webSocketDebuggerUrl"], t.get("id", "")), True
+
+
+def _yt_put(page: cdp.Page, box: str, text: str) -> bool:
+    """Replace what's in one of YouTube's rich text boxes with text. True when the box then says it."""
+    want = _caption_words(text)
+    for _ in range(2):
+        ok = page.eval(f"(() => {{ const e = {box}; if (!e) return false; e.focus(); const r = document.createRange(); "
+                       "r.selectNodeContents(e); const s = getSelection(); s.removeAllRanges(); s.addRange(r); return true })()",
+                       timeout=10)
+        if not ok:
+            return False
+        page.call("Input.insertText", text=text)
+        time.sleep(0.3)
+        if _caption_words(page.eval(f"(({box}) || {{}}).innerText || ''", timeout=10) or "") == want:
+            return True
+    return False
+
+
+def upload_youtube(path: str, title: str, description: str, url: str, step: Callable[[str], None],
+                   check: Callable[[], None] = lambda: None) -> dict:
+    """Drive YouTube Studio's upload dialog in Clip Radar's own browser window: the video put in, the title and
+    description typed. It stops there. Audience, visibility and Publish are choices only you can make, so they
+    are never pressed. Returns {"ready": True, "title": typed?, "description": typed?}; raises StudioError."""
+    if not os.path.isfile(path):
+        raise StudioError("file", "The exported file isn't there any more. Export the video again first.")
+    title = youtube_title(title)
+    if not _one_at_a_time.acquire(blocking=False):
+        step("Waiting for the upload before it to finish")
+        while not _one_at_a_time.acquire(timeout=1.0):
+            check()
+    page = None
+    try:
+        step("Opening YouTube Studio")
+        port = open_browser(url)
+        page, fresh = _yt_tab(port, url)
+        _clear_dialog(page)
+        page.call("Page.enable")
+        if not fresh:
+            _navigate(page, url, check)             # a new upload dialog, not the last video's
+        page.call("Page.bringToFront")
+        first = _first(page, {"file": YT["file"], "login": YT["login"]}, 45, check)
+        if first == "login":
+            step("Sign in to YouTube in the window that opened. Clip Radar carries on when you're in.")
+            if not _wait(page, YT["file"], LOGIN_WAIT, check, every=1.0):
+                raise StudioError("sign-in", "YouTube Studio didn't open after signing in. Sign in in Clip Radar's "
+                                             "browser window, then try again.")
+        elif first != "file":
+            raise StudioError("file box", "YouTube Studio's upload box didn't appear. If YouTube is asking something in "
+                                          "the window (to create a channel, for example), answer it and try again.")
+        step("Putting the video in")
+        page.call("DOM.getDocument", depth=0)          # the DOM agent needs a document before files can be set
+        node = page.call("Runtime.evaluate", expression=YT["file"])["result"]
+        if node.get("subtype") == "null" or "objectId" not in node:
+            raise StudioError("file box", "Couldn't find YouTube Studio's upload box. YouTube may have changed the page.")
+        page.call("DOM.setFileInputFiles", files=[os.path.abspath(path)], objectId=node["objectId"])
+        if not _wait(page, YT["title"], 120, check):
+            raise StudioError("details", "The video went in, but YouTube's title box didn't appear. Finish it in the "
+                                         "YouTube window.")
+        step("Typing the title")
+        time.sleep(0.5)                                # YouTube fills the title with the file's name first
+        typed = bool(title) and _yt_put(page, YT["title"], title)
+        wrote = False
+        if description.strip():
+            step("Typing the description")
+            wrote = _yt_put(page, YT["description"], description.strip())
+        page.call("Page.bringToFront")
+        return {"ready": True, "title": typed, "description": wrote}
+    except (cdp.CDPError, OSError) as e:
+        if str(e).startswith(PAGE_SCRIPT):
+            raise StudioError("details", "YouTube Studio's page didn't respond as expected. YouTube may have changed "
+                                         "the page: finish it in the YouTube window.") from None
+        raise StudioError("browser", f"Lost Clip Radar's browser window ({e}). Try again.") from None
+    finally:
+        if page is not None:
+            page.close()
+        _one_at_a_time.release()
+
+
 def describe() -> dict:
     """For Settings and the Exports panel: whether a browser is there, and the window's state."""
     return {"available": available(), "open": bool(_state["port"] and cdp.alive(_state["port"]))}

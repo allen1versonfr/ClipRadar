@@ -185,12 +185,13 @@ export function HotkeyPanel({ status, refreshStatus }: { status: Status | undefi
   )
 }
 
-const TOOLS: Array<[name: string, key: 'ffmpeg' | 'ytdlp' | 'twitchdownloader' | 'whisper' | 'laughter', what: string, get: string]> = [
+const TOOLS: Array<[name: string, key: 'ffmpeg' | 'ytdlp' | 'twitchdownloader' | 'whisper' | 'laughter' | 'music_remover', what: string, get: string]> = [
   ['FFmpeg', 'ffmpeg', 'Cuts and renders video', 'ffmpeg'],
   ['yt-dlp', 'ytdlp', 'Downloads Twitch VODs and live streams', 'ytdlp'],
   ['TwitchDownloader', 'twitchdownloader', 'Gets chat replay for VODs', 'twitchdownloader'],
   ['Whisper', 'whisper', 'Captions, titles and Deep scan', ''],
   ['Laughter detector', 'laughter', 'Hears laughter, screams and cheering', 'laughter'],
+  ['Music remover', 'music_remover', 'Export VOD: takes music out and keeps voices (UVR-MDX-NET-Voc_FT from Ultimate Vocal Remover, about 64 MB)', 'music_remover'],
 ]
 
 /** Settings › Downloads and tools: download quality, browser cookies, and the tools Clip Radar uses. */

@@ -109,6 +109,7 @@ export const Status = z.looseObject({
   ytdlp: z.boolean().optional(),
   whisper: z.boolean().optional(),
   laughter: z.boolean().optional(),
+  music_remover: z.boolean().optional(),
   twitchdownloader: z.boolean().optional(),
   can_download_tools: z.boolean().optional(),
   live: z.string().default(''),
@@ -614,9 +615,21 @@ export const Rechecked = z.looseObject({
 /** /api/clip_restore: the clip back, after Remove's Undo. */
 export const Restored = z.looseObject({ clip: Clip.optional() })
 
-/** Export VOD (/api/vodexport): the open videos, each one's copyright (music) scan, and its scan and export jobs. */
-export const MusicSpan = z.looseObject({ start: z.number(), end: z.number(), confidence: z.number().default(0) })
+/** Export VOD (/api/vodexport): the videos that can be exported, each one's copyright (music) scan and flagged words,
+ *  the jobs on it, and the videos on this PC that could be opened. */
+export const MusicSpan = z.looseObject({
+  start: z.number(), end: z.number(), confidence: z.number().default(0),
+  /** the part of the stretch where someone is talking, 0..1 */
+  speech: z.number().default(0),
+  /** what it starts as: voice (remove the music, keep voices), mute (silence it all), keep */
+  suggest: z.enum(['voice', 'mute', 'keep']).catch('mute'),
+})
 export type MusicSpan = z.infer<typeof MusicSpan>
+export const VodFlag = z.looseObject({
+  id: z.string(), start: z.number(), end: z.number(), text: z.string().default(''), label: z.string().default(''),
+  cat: z.string().default(''), context: z.string().default(''), on: z.boolean().default(false),
+})
+export type VodFlag = z.infer<typeof VodFlag>
 const VodJob = Job.extend({ warning: z.string().default('') }).nullable().optional()
 export const VodExportVideo = z.looseObject({
   pid: z.string(),
@@ -625,16 +638,41 @@ export const VodExportVideo = z.looseObject({
   exists: z.boolean().default(true),
   has_audio: z.boolean().default(true),
   has_yt_words: z.boolean().default(false),
+  width: z.number().default(0),
+  height: z.number().default(0),
+  copyable: z.boolean().default(false),
+  light: z.boolean().default(false),
   scan: z.looseObject({ spans: z.array(MusicSpan).default([]), at: z.number().default(0), how: z.string().default('') }).nullable().optional(),
   scan_job: VodJob,
+  flags: z.looseObject({ flags: z.array(VodFlag).default([]), at: z.number().default(0), stale: z.boolean().default(false) }).nullable().optional(),
+  words_job: VodJob,
+  hear_job: VodJob,
+  preview_job: VodJob,
   export_job: VodJob,
+  exported: z.boolean().default(false),
+  youtube: z.looseObject({ state: z.string().default(''), error: z.string().default('') }).nullable().optional(),
+  youtube_job: VodJob,
 })
 export type VodExportVideo = z.infer<typeof VodExportVideo>
+export const VodLibraryItem = z.looseObject({
+  pid: z.string(), title: z.string().default(''), duration: z.number().default(0), where: z.string().default('downloaded'),
+})
 export const VodExport = z.looseObject({
   videos: z.array(VodExportVideo).default([]),
+  library: z.array(VodLibraryItem).default([]),
   music_model: z.boolean().default(false),
+  voice_model: z.boolean().default(false),
+  voice_model_mb: z.number().default(64),
   whisper: z.boolean().default(false),
+  browser: z.boolean().default(false),
   censor: z.string().default('off'),
   censor_categories: z.array(z.string()).default([]),
 })
+/** /api/vodexport/words: the words already heard in a stretch, for the preview's captions. */
+export const VodWords = z.looseObject({
+  words: z.array(z.looseObject({ start: z.number(), end: z.number(), word: z.string() })).default([]),
+  covered: z.array(z.array(z.number())).default([]),
+})
+export const VodOpened = z.looseObject({ pid: z.string() })
+export const VodYoutube = z.looseObject({ job: z.string().optional(), opened: z.boolean().optional() })
 export type VodExport = z.infer<typeof VodExport>

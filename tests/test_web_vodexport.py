@@ -1,8 +1,9 @@
 """
-Export VOD in the new UI against the real server, in a real browser, on a generated video: the open video
-is listed, the copyright scan's music stretches are shown and can be kept, the export runs and its file is
-the whole video with the music muted, and the screen fits a narrow window. The scan's result is put in
-directly (the sound model isn't needed); the export is real.
+Export VOD in the new UI against the real server, in a real browser, on generated videos: the open video
+is listed, a file on this PC opened only to export is too, the copyright scan's music stretches are shown and
+each can be kept, the flagged words queue is shown, the exact preview renders and plays, the export runs and its
+file is the whole video with the music muted, and the screen fits a narrow window. The scan's and the flagged words
+check's results are put in directly (the sound model and Whisper aren't needed); the previews and export are real.
 
 Needs FFmpeg, the React build (cd web && npm run build) and Playwright; skipped without them.
 
@@ -62,7 +63,7 @@ if not (server.WEB_DIR / "index.html").is_file():
 
 from browser import launch  # noqa: E402
 
-engine.whisper_available = lambda: False          # captions and word muting aren't what this checks
+engine.whisper_available = lambda: False          # captions aren't what this checks; the flagged words check is put in
 srv, url = server.start(7994)
 
 
@@ -86,8 +87,16 @@ while time.time() < deadline:
     time.sleep(0.5)
 check("the video is analysed", j["status"] == "done", j.get("error"))
 pid = j["result"]["pid"]
-server.projects[pid]["copyright"] = {"spans": [{"start": 5.0, "end": 15.0, "confidence": 0.92},
-                                               {"start": 40.0, "end": 50.0, "confidence": 0.55}], "at": 1.0, "how": "test"}
+server.projects[pid]["copyright"] = {"spans": [{"start": 5.0, "end": 15.0, "confidence": 0.92, "speech": 0.0},
+                                               {"start": 40.0, "end": 50.0, "confidence": 0.55, "speech": 0.0}], "at": 1.0, "how": "test"}
+server.projects[pid]["vod_flags"] = {"flags": [{"id": "x", "start": 20.0, "end": 20.4, "text": "f***", "label": "Swearing",
+                                                "cat": "profanity", "context": "oh f*** no", "on": True}],
+                                     "at": 2.0, "rules": __import__("safety").rules_sig()}
+# a file somewhere else on this PC, opened only to export
+other = os.path.join(tempfile.mkdtemp(prefix="vc_vx_other_"), "Other drive stream.mp4")
+shutil.copy(vod, other)
+opened = call("/api/vodexport/open", {"path": other})["pid"]
+check("a file on this PC opens for export", opened in server.projects and server.projects[opened].get("light"))
 
 with sync_playwright() as p:
     browser = launch(p)
@@ -104,8 +113,22 @@ with sync_playwright() as p:
     check("the nav has Export VOD", page.get_by_test_id("nav-vod").get_attribute("aria-current") == "page")
     summary = page.get_by_test_id("vodx-music-summary").inner_text()
     check("the music found is summed up", summary == "2 music stretches, 0:20 in all. All muted.", summary)
-    page.get_by_test_id("vodx-span").nth(1).uncheck()            # keep the second stretch
+    check("both videos are listed", page.get_by_test_id("vodx-video").count() == 2, page.get_by_test_id("vodx-video").count())
+    page.get_by_test_id("vodx-video").filter(has_text="vod_export_test").click()
+    page.get_by_test_id("vodx-music-summary").wait_for()
+    page.get_by_role("radiogroup", name="Music at 0:40").get_by_role("radio", name="Keep").click()
     check("a stretch can be kept", "1 muted, 1 kept" in page.get_by_test_id("vodx-music-summary").inner_text())
+    check("the flagged words queue is shown, ticked", page.get_by_test_id("vodx-flag").first.is_checked()
+          and "1 flagged word, 1 muted" in page.get_by_test_id("vodx-flag-summary").inner_text())
+    page.get_by_role("button", name="0:05 to 0:15 (0:10)").click()
+    page.get_by_test_id("vodx-exact-btn").click()
+    page.get_by_test_id("vodx-exact").wait_for(timeout=120_000)
+    page.wait_for_function("document.querySelector('[data-testid=vodx-exact]').readyState >= 2", timeout=20_000)
+    dur = page.evaluate("document.querySelector('[data-testid=vodx-exact]').duration")
+    check("the exact preview renders and plays", 9 < dur < 11, dur)
+    page.get_by_role("button", name="Back to the video").click()
+    if SHOTS:
+        page.screenshot(path=os.path.join(SHOTS, "vodx-preview.png"), full_page=True)
     page.get_by_role("radio", name="480p").click()
     page.get_by_role("radio", name="Fast").click()
     if SHOTS:
@@ -125,6 +148,9 @@ with sync_playwright() as p:
         return float(np.sqrt((x ** 2).mean())) if x.size else -1.0
     check("the muted music is silent", rms(8) < 0.005, rms(8))
     check("the kept music plays", rms(44) > 0.05, rms(44))
+    check("the ticked flagged word is silent", rms(20.05, 0.3) < 0.005, rms(20.05, 0.3))
+    page.get_by_test_id("vodx-youtube").wait_for()
+    check("YouTube Studio is offered once it's exported", page.get_by_test_id("vodx-yt-open").is_visible())
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(200)
     wide = page.evaluate("[document.documentElement.scrollWidth, document.querySelector('.main').scrollWidth]")

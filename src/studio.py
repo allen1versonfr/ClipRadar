@@ -64,6 +64,15 @@ def open_studio(browser: str = "") -> bool:
     return True
 
 
+def open_url(url: str) -> bool:
+    """A page in your own browser (YouTube's upload page, for Export VOD)."""
+    if _quiet():
+        opened.append(("url", url))
+        return True
+    threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
+    return True
+
+
 def caption(title: str, post: str) -> str:
     """What to paste into TikTok's caption box: the post text you have, or the title."""
     return (post or "").strip() or (title or "").strip()
