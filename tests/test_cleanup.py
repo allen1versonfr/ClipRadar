@@ -101,18 +101,18 @@ if os.name != "nt" and os.geteuid() != 0:
     os.chmod(j, 0o755)
     check("a file that can't be removed is reported", rep["failed"], rep)
 else:
-    import engine
-    real = engine._remove
-    engine._remove = lambda files: (0, [os.path.basename(x) for x in files])
+    import storage
+    real = storage._remove
+    storage._remove = lambda files: (0, [os.path.basename(x) for x in files])
     j = project("locked", ["skipped"])
     rep = cleanup.sweep([WORK], [], set())
-    engine._remove = real
+    storage._remove = real
     check("a file that can't be removed is reported", rep["failed"] and os.path.exists(os.path.join(j, "vod.mp4")), rep)
-import engine  # noqa: E402
-real_dirs = engine._project_dirs
-engine._project_dirs = lambda root: (_ for _ in ()).throw(OSError("drive unplugged"))
+import storage  # noqa: E402
+real_dirs = storage._project_dirs
+storage._project_dirs = lambda root: (_ for _ in ()).throw(OSError("drive unplugged"))
 rep = cleanup.sweep([WORK], [], set())
-engine._project_dirs = real_dirs
+storage._project_dirs = real_dirs
 check("an unexpected problem stops cleanup with a report, not a crash", any("drive unplugged" in str(x) for x in rep["failed"]), rep)
 
 # ---- temporary files: recent ones stay

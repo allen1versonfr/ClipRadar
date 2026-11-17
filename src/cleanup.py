@@ -82,9 +82,9 @@ def _read(path: str) -> dict:
 
 def vod_verdict(pdir: str, queue_items: list, open_dirs: set, days: int, now: Optional[float] = None) -> str:
     """'' when this project's VOD may go, else why it stays (for the report and the tests)."""
-    import engine
+    import storage
     now = now or time.time()
-    if not engine._has_vod(pdir):
+    if not storage._has_vod(pdir):
         return "no video"
     if _norm(pdir) in open_dirs:
         return "open"
@@ -113,14 +113,14 @@ def vod_verdict(pdir: str, queue_items: list, open_dirs: set, days: int, now: Op
 
 def delete_vod(pdir: str) -> tuple:
     """The downloaded video and analysis of one project. Rendered clips, project.json and thumbnails stay."""
-    import engine
-    files = list(engine._vod_files(pdir))
+    import storage
+    files = list(storage._vod_files(pdir))
     a = os.path.join(pdir, "analysis.npz")
     if os.path.isfile(a):
         files.append(a)
-    clip_dirs = {_norm(os.path.dirname(f)) for f in engine._clip_files(pdir)}
+    clip_dirs = {_norm(os.path.dirname(f)) for f in storage._clip_files(pdir)}
     files = [f for f in files if _norm(os.path.dirname(f)) not in clip_dirs]       # never an exported clip
-    return engine._remove(files)
+    return storage._remove(files)
 
 
 def sweep(roots: list, queue_items: list, open_dirs: set, live_dirs: tuple = (), cfg: Optional[dict] = None,
@@ -135,16 +135,16 @@ def sweep(roots: list, queue_items: list, open_dirs: set, live_dirs: tuple = (),
             rep["freed"] += r.get("freed", 0)
             if r.get("failed"):
                 rep["failed"].append(f"{r['failed']} temporary item(s) in use")
-            import engine
+            import storage
             part = locations.stale_partials([locations.path("downloads")] + list(roots))
-            freed, failed = engine._remove(part)
+            freed, failed = storage._remove(part)
             rep["freed"] += freed
             rep["failed"] += failed
         if cfg["vods"]:
-            import engine
+            import storage
             opened = {_norm(d) for d in open_dirs}
             for root in roots:
-                for pdir in engine._project_dirs(root):
+                for pdir in storage._project_dirs(root):
                     why = vod_verdict(pdir, queue_items, opened, cfg["vod_days"])
                     if why:
                         if why not in ("no video", "not reviewed"):
@@ -174,10 +174,10 @@ def skipped_render(item: dict, cfg: Optional[dict] = None) -> bool:
     path = item.get("path") or ""
     if not path or not os.path.isfile(path):
         return False
-    import engine
+    import storage
     stem = os.path.splitext(path)[0]
     extra = [stem + ext for ext in (".srt", ".txt") if os.path.isfile(stem + ext)]
-    freed, failed = engine._remove([path] + extra)
+    freed, failed = storage._remove([path] + extra)
     if failed:
         last.setdefault("failed", []).extend(failed)
     return not failed

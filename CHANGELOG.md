@@ -5,6 +5,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- **The storage code moved out of engine.py into its own file, with no changes** (`src/storage.py`: `storage_summary`, `delete_vods`, `delete_clips`, `recent_projects` and their helpers). This is the first step of splitting the 4,800-line `engine.py` into smaller files. Nothing works differently. `engine.storage_summary` and the rest still work, and Settings › Storage and automatic cleanup now call `storage` directly.
+
+### Tests
+- `tests/test_engine_split.py` (new): `engine` re-exports every moved name as the same object, `engine.py` no longer defines them and imports the new file at its top level (so the app build finds it). No test, script or module replaces a moved name through `engine`, because a fake put there would no longer reach the code that calls it.
+- `tests/test_cleanup.py`: the two stand-ins for deleting files and listing project folders now replace `storage._remove` and `storage._project_dirs`.
+
 ## [4.52.0] - 2026-11-17
 
 Pick parts of a long stream and edit them into one video of up to 30 minutes in the new Segments screen, and live clipping saves the whole stream as a VOD.
