@@ -191,7 +191,7 @@ const TOOLS: Array<[name: string, key: 'ffmpeg' | 'ytdlp' | 'twitchdownloader' |
   ['TwitchDownloader', 'twitchdownloader', 'Gets chat replay for VODs', 'twitchdownloader'],
   ['Whisper', 'whisper', 'Captions, titles and Deep scan', ''],
   ['Laughter detector', 'laughter', 'Hears laughter, screams and cheering', 'laughter'],
-  ['Music remover', 'music_remover', 'Export VOD: takes music out and keeps voices (about 64 MB)', 'music_remover'],
+  ['Music remover', 'music_remover', 'Export VOD: takes music out and keeps voices (UVR-MDX-NET-Voc_FT from Ultimate Vocal Remover, about 64 MB)', 'music_remover'],
 ]
 
 /** Settings › Downloads and tools: download quality, browser cookies, and the tools Clip Radar uses. */

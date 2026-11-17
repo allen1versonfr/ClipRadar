@@ -510,7 +510,9 @@ EXPORT VOD (A WHOLE VIDEO)
   it's a safety net, not a guarantee. Singing counts as a voice, so a song
   with vocals keeps its vocals with Remove music: use Mute all for those.
   The scan needs the laughter detector; Remove music needs the music remover
-  (about 64 MB). Both are in Settings > Downloads and tools.
+  (about 64 MB). Both are in Settings > Downloads and tools. The music
+  remover is UVR-MDX-NET-Voc_FT from Ultimate Vocal Remover (MIT licence),
+  made by UVR's developers.
   Flagged words: Check for flagged words listens to the whole video and
   lists what the content check flags, with the words around each. Ticked
   ones are muted or bleeped and hidden in the captions. Click a time to

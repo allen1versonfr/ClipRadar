@@ -1,7 +1,8 @@
 """
 Takes the music out of a stretch of sound and keeps the voices (Export VOD's copyright scan).
 
-A vocal separation model (MDX-Net "UVR-MDX-NET-Voc_FT", about 64 MB as ONNX) runs on onnxruntime,
+A vocal separation model (MDX-Net "UVR-MDX-NET-Voc_FT" from Ultimate Vocal Remover, MIT licence, credited in
+src/models/CREDITS-music-remover.txt; about 64 MB as ONNX) runs on onnxruntime,
 which Clip Radar already ships. The model works on a spectrogram: the sound's frequencies over time
 go in, the voice's come out. The transform both ways is done here with numpy.
 

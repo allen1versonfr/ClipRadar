@@ -1,0 +1,13 @@
+Music remover (Export VOD): UVR-MDX-NET-Voc_FT
+
+The model Clip Radar downloads for "Remove music, keep voices" (saved as voice_keep.onnx) is
+UVR-MDX-NET-Voc_FT from Ultimate Vocal Remover (UVR), trained by UVR's core developers.
+
+  Ultimate Vocal Remover GUI   https://github.com/Anjok07/ultimatevocalremovergui
+  Model download (UVR's own)   https://github.com/TRvlvr/model_repo/releases/tag/all_public_uvr_models
+  MDX-Net, the original code   Kuielab & Woosung Choi, https://github.com/kuielab
+
+UVR is MIT-licensed. Its README asks third-party applications that use its models to honour that
+licence by crediting UVR and its developers, which this file does. Clip Radar doesn't change the
+model; it runs it as published and checks the download against its SHA-256 hash
+(534b2070fcc7df514b13ef660dc8cbb328679c2374d04354a5c42bb14ecce111).
