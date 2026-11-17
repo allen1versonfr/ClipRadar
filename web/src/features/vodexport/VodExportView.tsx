@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Job, JobStarted, Ok, Picked, PreviewCopy, VodExport, VodOpened, VodWords, VodYoutube, type MusicSpan, type VodExportVideo, type VodFlag } from '../../api/schemas'
+import { Job, JobStarted, Ok, Picked, PreviewCopy, SegAdded, Segments, VodExport, VodOpened, VodWords, VodYoutube, type MusicSpan, type VodExportVideo, type VodFlag } from '../../api/schemas'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
 import { usePoll } from '../../hooks/usePoll'
@@ -27,11 +27,12 @@ const CAP_STYLES: Array<[string, string]> = [['clean', 'Plain'], ['box', 'Boxed'
 const CAP_POS: Array<[string, string]> = [['bottom', 'Bottom'], ['middle', 'Middle'], ['top', 'Top']]
 const CAP_COLORS = ['#ffffff', '#ffe600', '#2fe36f', '#4fd1ff', '#ff6b8b']
 
-/** How captions look on a wide video (vodexport.VOD_STYLE); kept apart from the clips' style. */
-interface Style { caption_style: string; caption_font: string; caption_color: string; caption_size: number; words_per_line: number; uppercase: boolean; caption_pos: string }
-const STYLE: Style = { caption_style: 'clean', caption_font: 'classic', caption_color: '#ffffff', caption_size: 60, words_per_line: 7, uppercase: false, caption_pos: 'bottom' }
-interface Choices { captions: string; words: string; size: string; quality: string; model: string; language: string }
-const DEFAULTS: Choices = { captions: 'burn', words: 'mute', size: 'source', quality: 'balanced', model: '', language: '' }
+/** How captions look on a wide video (vodexport.VOD_STYLE); kept apart from the clips' style. Segments uses it too. */
+export interface Style { caption_style: string; caption_font: string; caption_color: string; caption_size: number; words_per_line: number; uppercase: boolean; caption_pos: string }
+export const STYLE: Style = { caption_style: 'clean', caption_font: 'classic', caption_color: '#ffffff', caption_size: 60, words_per_line: 7, uppercase: false, caption_pos: 'bottom' }
+export interface Choices { captions: string; words: string; size: string; quality: string; model: string; language: string }
+export const DEFAULTS: Choices = { captions: 'burn', words: 'mute', size: 'source', quality: 'balanced', model: '', language: '' }
+export { CAPTIONS, CAPTIONS_HINT, SIZES, QUALITY }
 
 /** Export VOD: a whole video saved as one file, with its music and flagged words dealt with and captions. */
 export function VodExportView() {
@@ -402,6 +403,8 @@ function PreviewPanel({ v, vid, now, setNow, seek, spans, acts, flags, style, bu
   const notHeard = burn && canHear && heard.a >= 0 && !heardAt(heard.covered, now)
   const tryingMusic = spans.findIndex((s, i) => acts[i] !== 'keep' && now >= s.start && now < s.end)
   const d = Math.max(1, v.duration)
+  // the part picked to send to Segments: where it starts and ends (-1 = not set yet)
+  const [mark, setMark] = useState<{ a: number; b: number }>({ a: -1, b: -1 })
 
   return (
     <section className="panel set" aria-labelledby="vodx-pv" data-testid="vodx-preview">
@@ -431,8 +434,12 @@ function PreviewPanel({ v, vid, now, setNow, seek, spans, acts, flags, style, bu
           <i key={i} className={`m ${acts[i]}`} title={spanLabel(s)} style={{ left: `${s.start / d * 100}%`, width: `${Math.max(0.3, (s.end - s.start) / d * 100)}%` }} />
         ))}
         {flags.map(f => <i key={f.id} className="w" style={{ left: `${f.start / d * 100}%` }} />)}
+        {mark.a >= 0 && mark.b > mark.a && (
+          <i className="pick" data-testid="vodx-pick" style={{ left: `${mark.a / d * 100}%`, width: `${Math.max(0.3, (mark.b - mark.a) / d * 100)}%` }} />
+        )}
         <b style={{ left: `${Math.min(100, now / d * 100)}%` }} />
       </div>
+      <SendToSegments v={v} now={now} seek={seek} mark={mark} setMark={setMark} />
       <p className="hint">
         {tryingMusic >= 0 ? `Music here: ${acts[tryingMusic] === 'voice' ? 'it will be taken out, voices kept' : 'this stretch will be silent'}. ` : ''}
         The video plays with its own sound; the captions are drawn as they'll look. <b>Exact preview</b> makes ten seconds from here the way
@@ -452,8 +459,66 @@ function PreviewPanel({ v, vid, now, setNow, seek, spans, acts, flags, style, bu
   )
 }
 
+/** Pick a part of the video with the player (where it starts, where it ends) and send it to an edit in Segments. */
+function SendToSegments({ v, now, seek, mark, setMark }: {
+  v: VodExportVideo; now: number; seek: (t: number) => void
+  mark: { a: number; b: number }; setMark: (m: { a: number; b: number }) => void
+}) {
+  const toast = useToast()
+  const [edits, setEdits] = useState<Array<{ id: string; name: string }>>([])
+  const [to, setTo] = useState(() => getPref('segTo', ''))
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const loadEdits = useCallback(() => api(Segments, '/api/segments')
+    .then(r => setEdits(r.edits.filter(e => e.pid === v.pid).map(e => ({ id: e.id, name: e.name })))).catch(() => {}), [v.pid])
+  useEffect(() => { void loadEdits() }, [loadEdits])
+  const target = edits.some(e => e.id === to) ? to : (edits[0]?.id ?? '')
+  const { a, b } = mark
+  const ready = a >= 0 && b - a >= 1
+  async function send() {
+    setBusy(true)
+    try {
+      const r = await api(SegAdded, '/api/segments/add', { pid: v.pid, start: a, end: b, name: name.trim(), edit: target === 'new' ? '' : target })
+      setTo(r.id); setPref('segTo', r.id)
+      setMark({ a: -1, b: -1 }); setName('')
+      await loadEdits()
+      toast(`Sent to ${r.name}.`, '', [{ label: 'Open Segments', fn: () => { location.hash = `#segments/${r.id}` } }])
+    } catch (e) { toast(err(e), 'err') }
+    setBusy(false)
+  }
+  return (
+    <div className="vodx-send" data-testid="vodx-send">
+      <div className="row wrap">
+        <button className="btn sm" data-testid="vodx-mark-a" onClick={() => setMark({ a: now, b: b > now ? b : -1 })}>Start here</button>
+        <button className="btn sm" data-testid="vodx-mark-b" disabled={a < 0 || now <= a} onClick={() => setMark({ a, b: now })}>End here</button>
+        <span className="small tnum" data-testid="vodx-mark">
+          {a < 0 ? 'Play to where a part starts, then press Start here.'
+            : b < 0 ? <>From <button className="link tnum" onClick={() => seek(a)}>{fmtTime(a)}</button>. Play to where it ends, then press End here.</>
+            : <><button className="link tnum" onClick={() => seek(a)}>{spanLabel({ start: a, end: b })}</button></>}
+        </span>
+        {a >= 0 && <button className="btn sm ghost" onClick={() => setMark({ a: -1, b: -1 })}>Clear</button>}
+      </div>
+      {ready && (
+        <div className="row wrap">
+          <label className="fld inline">Name
+            <input className="input" value={name} maxLength={80} placeholder="Optional" onChange={e => setName(e.target.value)} />
+          </label>
+          <label className="fld inline">Add to
+            <select className="input" value={target || 'new'} onChange={e => { setTo(e.target.value); setPref('segTo', e.target.value) }}>
+              {edits.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              <option value="new">A new edit</option>
+            </select>
+          </label>
+          <button className="btn primary" data-testid="vodx-send-btn" disabled={busy} onClick={() => void send()}>
+            {busy ? 'Sending…' : 'Send to Segments'}</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** The caption over the player, in the chosen look: the export's sizes scaled to the player (the export's frame is 1080 high). */
-function CaptionOverlay({ words, now, style }: { words: Word[]; now: number; style: Style }) {
+export function CaptionOverlay({ words, now, style }: { words: Word[]; now: number; style: Style }) {
   const box = useRef<HTMLDivElement>(null)
   const [h, setH] = useState(360)
   useEffect(() => {
@@ -476,7 +541,7 @@ function CaptionOverlay({ words, now, style }: { words: Word[]; now: number; sty
   )
 }
 
-function JobBar({ job, label }: { job: NonNullable<VodExportVideo['export_job']>; label: string }) {
+export function JobBar({ job, label }: { job: NonNullable<VodExportVideo['export_job']>; label: string }) {
   const pct = Math.round(job.progress * 100)
   const left = job.eta && job.eta > 5 ? ` · about ${fmtTime(job.eta)} left` : ''
   return (

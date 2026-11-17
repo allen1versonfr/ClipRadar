@@ -1,6 +1,6 @@
 import type { LiveView } from '../../api/schemas'
 import { plural } from '../../format'
-import { LIVE_LABEL, LIVE_ON, liveStatus } from './live'
+import { LIVE_LABEL, LIVE_ON, liveStatus, vodNote } from './live'
 import { fmt } from './model'
 
 /** A live session's header: its state, what's recorded, chat, moments, and the controls (lowest score, how many
@@ -11,6 +11,7 @@ export function LiveHead({ live: L, moments, onSettings, onClip, onStop }: {
 }) {
   const on = ['recording', 'reconnecting'].includes(L.status), active = LIVE_ON.includes(L.status)
   const minQ = [0, 40, 50, 60, 75].includes(L.min_quality) ? L.min_quality : 0
+  const vod = vodNote(L)
   return (
     <div className="rv-live" data-testid="rv-live">
       <div className="rv-live-row">
@@ -41,6 +42,8 @@ export function LiveHead({ live: L, moments, onSettings, onClip, onStop }: {
       <p className="muted small rv-live-status">
         {liveStatus(L).map((b, i) => <span key={i} className={b.tone === 'warn' ? 'warn-tx' : ''} title={b.title}>{b.text}</span>)}
         {L.status === 'error' && L.error && <span className="err-tx">{L.error}</span>}
+        {vod && <span className={vod.tone === 'warn' ? 'warn-tx' : vod.tone === 'err' ? 'err-tx' : ''} title={vod.title}
+                      data-testid="rv-live-vod">{vod.text}{vod.href && <> · <a href={vod.href}>Open in Export VOD</a></>}</span>}
         {!active && moments > 0 && <span>{plural(moments, 'moment')} stay here to review.</span>}
       </p>
     </div>

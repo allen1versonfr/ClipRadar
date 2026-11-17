@@ -2840,9 +2840,25 @@ def _live_delay(v):
         return "auto"
 
 
+LIVE_VOD_CHECK = 3600       # Save the whole stream: room for at least this many seconds before it starts
+
+
+def live_vod_setting(body: dict) -> tuple:
+    """(save the whole stream?, why not): on unless turned off, and only with room for an hour of it on the disk
+    it's saved to. The session keeps checking as it records (live.LiveSession._check_vod_room)."""
+    if not body.get("save_vod", True):
+        return False, ""
+    try:
+        _check_space(locations.path("downloads") or WORKROOT, LIVE_VOD_CHECK)
+    except OSError as e:
+        return False, f"Not saving the full stream: {e.strerror or e}. Moments are still clipped."
+    return True, ""
+
+
 def start_live_session(src: str, body: dict):
     """Create and start a live session. body holds every setting so 'keep watching' can start the next one."""
     sid = uuid.uuid4().hex[:8]
+    save_vod, vod_note = live_vod_setting(body)
     sess = live.LiveSession(
         sid, src, WORKROOT, temp_root=locations.path("temp"), length=float(body.get("length", 0) or 0), events=bool(body.get("events", True)),
         sensitivity=body.get("frequency") or body.get("sensitivity", "normal"),
@@ -2850,7 +2866,7 @@ def start_live_session(src: str, body: dict):
         chat_weight=float(body.get("chat_weight", 60)), max_height=int(body.get("max_height", 1080)),
         cookies=body.get("cookies") or "", warmup=float(body.get("warmup", 90)),
         buffer_minutes=float(body.get("buffer_minutes", 15)),
-        wait_for_live=bool(body.get("wait_for_live", False)),
+        wait_for_live=bool(body.get("wait_for_live", False)), save_vod=save_vod, save_vod_note=vod_note,
         on_moment=live_on_moment, on_end=autopilot.session_ended,      # Keep watching: autopilot_steps.keep_watching
         log=lambda m: print("  [live] " + m, flush=True))
     if body.get("chat_channel"):

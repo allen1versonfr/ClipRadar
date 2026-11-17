@@ -341,7 +341,8 @@ def render_opts(S, o: dict, info: dict) -> engine.RenderOpts:
     ro = S._ropts(dict(o["style"], whisper_model=o["whisper_model"], language=o["language"]))
     return replace(ro, layout="full" if wide else "blur", aspect="16:9", track="off", punch="off",
                    captions=o["captions"] in ("burn", "both"), hw_encode=o["hw_encode"], speed=o["quality"], scale=scale,
-                   loudness=0.0)           # a whole stream keeps its own volume; only peaks are limited
+                   loudness=0.0,           # a whole stream keeps its own volume; only peaks are limited
+                   gain_db=float(o.get("gain_db") or 0))   # a segment made louder or quieter (Segments)
 
 
 def can_copy(o: dict, info: dict) -> bool:
@@ -530,15 +531,23 @@ def copy_video(video: str, out_path: str, info: dict, ro: engine.RenderOpts, spa
     progress(1.0)
 
 
-def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str, whole: bool) -> dict:
+def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str, whole: bool,
+                 part: bool = False, band: tuple = (0.0, 1.0), label: str = "", words: Optional[list] = None) -> dict:
     """Make the video from a to b with everything the screen chose. whole: the real export (the picture is
-    copied when it can be, a subtitle file is written); otherwise the exact preview of a few seconds."""
-    log, step, check = S.job_logger(job), S.job_step(job), S.job_check(job)
+    copied when it can be, a subtitle file is written); otherwise the exact preview of a few seconds.
+    part: one stretch of a Segments export, at full quality but never copied (a copied picture can only
+    start on a keyframe, so the stretches wouldn't meet where they should). band: the share of the job's bar
+    this takes, label: put before each step ("Part 2 of 5: "). words: the captions to use (absolute times)
+    instead of hearing them, for captions edited by hand."""
+    log, check = S.job_logger(job), S.job_check(job)
+    step = (lambda m: S.job_step(job)(label + m)) if label else S.job_step(job)
+    lo, hi = band
+    bar = lambda x, y: S.job_progress(job, lo + x * (hi - lo), lo + y * (hi - lo))      # noqa: E731
     video = pr["video"]
     info = engine.probe(video)
     length = b - a
     ro = render_opts(S, o, info)
-    if not whole:
+    if not whole and not part:
         ro = replace(ro, speed="fast", crf=28, scale=min(ro.scale, SIZES["720"]))
     has_audio = bool(info.get("has_audio"))
     voice = [(x, y) for x, y, m in o["music"] if m == "voice" and y > a and x < b] if has_audio else []
@@ -548,17 +557,18 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
         raise RuntimeError("Removing music needs the music remover. Get it in Settings › Downloads and tools, "
                            "or set those stretches to Mute everything.")
     # the bar: listening (only when captions are on), taking the music out, then the picture
-    need_words = o["captions"] != "off" and has_audio
-    copying = whole and can_copy(o, info)
+    given = words is not None
+    need_words = o["captions"] != "off" and has_audio and not given
+    copying = whole and not part and can_copy(o, info)
     w_hear = 0.45 if need_words else 0.0
     w_voice = (0.6 if copying else 0.25) * (1 - w_hear) if voice else 0.0
-    words: list = []
+    words = [w for w in (words or []) if a <= w["start"] < b] if given and o["captions"] != "off" else []
     if need_words:
         if not engine.whisper_available() and not (pr.get("yt") or {}).get("words"):
             log("Captions skipped: the speech model (Whisper) isn't installed.")
             job["warning"] = "Exported without captions: the speech model (Whisper) isn't installed."
         else:
-            words = hear_all(S, pr, o["whisper_model"], o["language"], a, b, S.job_progress(job, 0, w_hear), check, step)
+            words = hear_all(S, pr, o["whisper_model"], o["language"], a, b, bar(0, w_hear), check, step)
             log(f"Heard {len(words):,} words.")
     words = exports.replace_words(words, exports.load().get("replace")) if words else words
     words = mask_spoken(words, told)
@@ -577,17 +587,18 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             step(f"Taking the music out of {engine.fmt_ts(total)} (voices stay)")
             audio_src = os.path.join(tmpdir, f"voice_{uuid.uuid4().hex[:8]}.flac")
             t0 = time.time()
-            got = voicekeep.keep_voice(video, [rel(x, y) for x, y in voice], audio_src, start=a, length=0.0 if whole else length,
-                                       progress=S.job_progress(job, w_hear, w_hear + w_voice), check=check)
+            got = voicekeep.keep_voice(video, [rel(x, y) for x, y in voice], audio_src, start=a,
+                                       length=0.0 if whole and not part else length,
+                                       progress=bar(w_hear, w_hear + w_voice), check=check)
             log(f"Music removed from {len(voice)} stretch{'es' if len(voice) != 1 else ''} ({engine.fmt_ts(total)}) in "
                 f"{engine.fmt_ts(time.time() - t0)}, {got['blocks']} blocks through the model.")
-        prog = S.job_progress(job, w_hear + w_voice, 1.0)
+        prog = bar(w_hear + w_voice, 1.0)
         if copying:
             step("Copying the picture, making the sound")
             log("The picture is copied as it is (no burned-in captions, the video's own size).")
             copy_video(video, path, info, ro, spans, audio_src, prog, check)
         else:
-            step("Rendering the whole video" if whole else "Rendering the preview")
+            step("Rendering" if part else "Rendering the whole video" if whole else "Rendering the preview")
             burn = [dict(w, start=w["start"] - a, end=w["end"] - a) for w in words] if ro.captions else []
             engine.render_clip(video, a, b, path, ro, title="", log=log, progress=prog, check=check,
                                words=burn, censor=spans, censor_mode="mute", audio_src=audio_src,
@@ -816,3 +827,13 @@ def view(S) -> dict:
             "whisper": engine.whisper_available(), "browser": studio_auto.available(),
             "censor": cfg.get("censor", "off"), "censor_categories": [safety.CATEGORIES[c]["label"] for c in
                                                                       cfg.get("censor_categories", []) if c in safety.CATEGORIES]}
+
+
+def suggested(pr: dict) -> tuple:
+    """What Export VOD starts with for a video, for an export that has no screen of its own (Segments): each
+    music stretch as the copyright scan suggests, and the flagged words in the categories Settings › Content
+    check mutes. ([(start, end, "voice" | "mute")], [(start, end)])"""
+    scan = _scan_view(load_scan(pr))
+    music = [(s["start"], s["end"], s["suggest"]) for s in (scan or {}).get("spans", []) if s["suggest"] != "keep"]
+    flags = (load_flags(pr) or {}).get("flags") or []
+    return music, [(max(0.0, f["start"] - 0.05), f["end"] + 0.05) for f in flags if f.get("on")]

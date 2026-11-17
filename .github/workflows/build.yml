@@ -102,6 +102,7 @@ jobs:
           python tests/test_titles.py
           python tests/test_exports.py
           python tests/test_live.py
+          python tests/test_live_vod.py
           python tests/test_framing.py
           python tests/test_sources.py
           python tests/test_locations.py

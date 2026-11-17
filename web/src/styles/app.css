@@ -588,3 +588,39 @@ video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offs
 .vodx-job { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
 .vodx-done { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .vodx-done p { margin: 0; overflow-wrap: anywhere; }
+
+/* Export VOD › the part picked to send to Segments, marked on the timeline as a plain outline (the green stays for actions) */
+.vodx-strip i.pick { top: 1px; bottom: 1px; box-shadow: inset 0 0 0 2px var(--tx0); background: rgba(233, 234, 237, .12); }
+.vodx-send { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--bg1); border-radius: var(--r); }
+.vodx-send .row { align-items: center; }
+
+/* Segments: the same list + detail structure as Export VOD; the segment list is the screen's one break from it */
+.segv-head { align-items: flex-end; }
+.segv-name { font-size: 15px; font-weight: 650; }
+.segv-head .grow, .segv-lines .grow { min-width: 0; }
+.segv-strip i.sg { background: var(--bg4); box-shadow: inset 0 0 0 1px var(--line2); }
+.segv-strip i.sg.sel { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.segv-strip i.sg.off { background: transparent; }
+.meter i.over { background: var(--danger); }
+.segv-segs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 380px; overflow-y: auto; }
+.segv-seg { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border-radius: var(--r); cursor: grab; transition: background-color 120ms; }
+.segv-seg:hover { background: var(--bg3); }
+.segv-seg.on { background: var(--accent-soft); }
+.segv-seg.dragging { opacity: .5; }
+.segv-seg input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; flex: none; }
+.segv-pick { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; border: 0; background: transparent; color: var(--tx0); padding: 4px; cursor: pointer; }
+.segv-pick .t1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.segv-acts { display: flex; flex: none; }
+.segv-acts .ibtn:disabled { opacity: .35; }
+.segv-ends { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 600px) { .segv-ends { grid-template-columns: 1fr; } }
+.segv-trim { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.segv-trim .row { flex-wrap: wrap; }
+.segv-h3 { font-size: 13px; font-weight: 650; margin: 0; }
+.segv-cuts, .segv-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.segv-cuts li { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.segv-lines { max-height: 300px; overflow-y: auto; }
+.segv-lines li { display: flex; gap: 8px; align-items: center; padding: 2px 4px; border-radius: var(--r); }
+.segv-lines li.on { background: var(--bg3); }
+.segv-lines li > span.grow { overflow-wrap: anywhere; }
+@media (pointer: coarse) { .segv-acts .ibtn, .segv-seg input[type=checkbox] { min-width: 44px; min-height: 44px; } }
