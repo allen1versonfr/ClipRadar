@@ -19,7 +19,11 @@ Live mode: clip a Twitch stream while it's still going.
              rest of Clip Radar treats like a tiny VOD: preview, titles,
              captions and rendering all work on it.
   buffer     only the last few minutes of raw video are kept, so a 10-hour
-             stream doesn't fill the disk.
+             stream doesn't fill the disk. With "Save the whole stream" on, every
+             piece is kept instead and joined into one video when the session
+             ends, in a project folder of its own, so Export VOD lists it like a
+             downloaded VOD (_save_vod). It stops keeping pieces if the disk gets
+             close to full.
 """
 
 from __future__ import annotations
@@ -195,7 +199,7 @@ class LiveSession:
                  chat_delay="auto", chat_weight: float = 60, max_height: int = 1080, cookies: str = "",
                  warmup: float = 90, buffer_minutes: float = 15, wait_for_live: bool = False,
                  events: bool = True, on_moment: Callable = None, log: Callable = None, min_quality: int = 0,
-                 on_end: Callable = None):
+                 on_end: Callable = None, save_vod: bool = False, save_vod_note: str = ""):
         self.id = sid
         self.source = source.strip()
         import sources
@@ -210,6 +214,7 @@ class LiveSession:
         label = self.channel or (re.sub(r"[^\w-]", "", self.origin.get("id") or "")[:24] if self.via_ytdlp else "") or "stream"
         self.title = f"{label} (live)"
         stamp = time.strftime("%Y-%m-%d %H-%M")
+        self.workroot = workroot
         self.dir = os.path.join(workroot, f"live_{label}_{stamp}")
         n = 2
         while os.path.exists(self.dir):           # two sessions in the same minute get their own folders
@@ -238,6 +243,13 @@ class LiveSession:
         self.cookies = cookies
         self.warmup = float(warmup)
         self.buffer_s = max(1.0, float(buffer_minutes)) * 60
+        # the whole stream as one video when it's over: every piece kept, not just the buffer (_save_vod).
+        # state: off | keeping | stopped (disk nearly full: kept up to "upto" seconds) | saving | saved | failed
+        self.save_vod = bool(save_vod)
+        self.vod = {"state": "keeping" if self.save_vod else "off", "upto": None, "path": "", "title": "",
+                    "duration": 0.0, "note": "" if self.save_vod else save_vod_note}
+        self._vod_upto: Optional[int] = None   # pieces kept for it once the disk got full (None: all of them)
+        self._vod_bytes = 0
         self.on_moment = on_moment or (lambda *a, **k: None)
         self.on_end = on_end or (lambda *a, **k: None)     # once, when it's over (server: autopilot.session_ended)
         self._log = log or (lambda m: None)
@@ -371,6 +383,7 @@ class LiveSession:
             "delay_auto": self.delay_auto, "min_quality": self.min_quality,
             "forming": sorted(self.forming.values(), key=lambda f: f["at"]),
             "latency": self.latency_summary(), "latency_last": dict(self.last_lat), "skipped": dict(self.skipped),
+            "save_vod": self.save_vod, "vod": dict(self.vod),
         }
 
     # ------------------------------------------------------------------ latency and chat health
@@ -598,6 +611,8 @@ class LiveSession:
             self.error = f"Recording stopped unexpectedly: {str(e)[:200]}"
             self._set_status("error")
             self.log(self.error)
+            if self.vod["state"] in ("keeping", "stopped"):
+                self._finish_recording()          # what was recorded is still saved as a video
         finally:
             self._finished = True
             self._tell_end()
@@ -665,8 +680,7 @@ class LiveSession:
         self.in_ad = False
         self._ingest_new(final=True)  # pick up the final segment (ffmpeg mode)
         self._safe_detect(final=True)
-        if self.temp_buffer:
-            self.delete_buffer()                 # every moment is cut out by now; the raw buffer was temporary
+        self._finish_recording()
         self.release_memory()
         self.log("Recording stopped.")
 
@@ -812,6 +826,11 @@ class LiveSession:
     def _add_segment(self, path: str, dur: float):
         start = self.segments[-1]["start"] + self.segments[-1]["dur"] if self.segments else 0.0
         self.segments.append({"path": path, "start": start, "dur": dur, "name": os.path.basename(path)})
+        if self._kept(len(self.segments) - 1):
+            try:
+                self._vod_bytes += os.path.getsize(path)
+            except OSError:
+                pass
         t0 = _now()
         self._measure(path, dur)
         self._arrive = (self._arrive + [(start + dur, _now(), _now() - t0)])[-4000:]
@@ -1197,14 +1216,18 @@ class LiveSession:
 
     # ------------------------------------------------------------------ disk
     def _cleanup(self):
-        """Keep only the last few minutes of raw segments (moments are already cut out)."""
+        """Keep only the last few minutes of raw segments (moments are already cut out), and every piece
+        while the whole stream is being saved."""
+        self._check_vod_room()
         n = self.recorded
         keep_from = n - self.buffer_s
         for a, b in self.manual:
             keep_from = min(keep_from, a - 15)
         for p in self.pending:
             keep_from = min(keep_from, p - 75)
-        for g in self.segments:
+        for i, g in enumerate(self.segments):
+            if self._kept(i):
+                continue
             if g["start"] + g["dur"] < keep_from and os.path.exists(g["path"]):
                 try:
                     os.remove(g["path"])
@@ -1218,6 +1241,115 @@ class LiveSession:
                 os.rmdir(os.path.dirname(self.seg_dir))
             except OSError:
                 pass
+
+    # ------------------------------------------------------------------ the whole stream as a video
+    VOD_RESERVE = 2e9        # stop keeping pieces when the disk would get this close to full
+
+    def _kept(self, i: int) -> bool:
+        """Piece i is kept for the saved stream (never trimmed from the buffer)."""
+        return self.save_vod and (self._vod_upto is None or i < self._vod_upto)
+
+    def _vod_root(self) -> str:
+        """Where the saved stream goes: the Downloads location (Settings › Storage), else the projects folder."""
+        import locations
+        root = locations.path("downloads") or self.workroot
+        return root if os.path.isdir(root) else self.workroot
+
+    def _check_vod_room(self):
+        """Joining writes a second copy of everything kept, so the disk it lands on needs room for that and a
+        reserve; the pieces' disk needs the reserve. Short of either: stop keeping pieces (the ones kept so far
+        are still saved when the session ends) and go back to the rolling buffer."""
+        if not self.save_vod or self._vod_upto is not None:
+            return
+        try:
+            free_out = shutil.disk_usage(self._vod_root()).free
+            free_seg = shutil.disk_usage(self.seg_dir).free
+        except OSError:
+            return
+        if free_out >= self._vod_bytes + self.VOD_RESERVE and free_seg >= self.VOD_RESERVE:
+            return
+        self._vod_upto = len(self.segments)
+        at = sum(g["dur"] for g in self.segments)
+        self.vod.update(state="stopped", upto=round(at, 1))
+        self.log(f"The disk is nearly full, so the full stream stopped saving at {engine.fmt_ts(at)}. "
+                 "Moments are still clipped.")
+
+    def _vod_target(self) -> tuple:
+        """(project folder, video path) for the saved stream: a folder of its own next to the live session's,
+        with the video where downloaded VODs go. Opening the file again finds this same folder
+        (engine.local_workdir names a vod.* file's project after the folder it's in)."""
+        import locations
+        base = engine._slug(re.sub(r"^live_", "", os.path.basename(self.dir)) + " stream")[:56].strip("_")
+        wd, n = os.path.join(self.workroot, base), 2
+        while os.path.exists(wd) or os.path.exists(locations.download_dir(wd)):
+            wd = os.path.join(self.workroot, f"{base}_{n}")
+            n += 1
+        return wd, os.path.join(locations.download_dir(wd), "vod.mp4")
+
+    def _save_vod(self) -> bool:
+        """Join the kept pieces into one MP4 (stream copy, no re-encode; ad breaks were never recorded) and
+        register it as a project, so Export VOD lists it. True when it's saved and the pieces can go."""
+        segs = [g for i, g in enumerate(self.segments) if self._kept(i) and os.path.exists(g["path"])]
+        if not segs:
+            self.vod.update(state="off")
+            return False
+        self.vod["state"] = "saving"
+        self.log("Saving the full stream as one video")
+        lst = os.path.join(self.seg_dir, ".concat_vod.txt")
+        dur = sum(g["dur"] for g in segs)
+        tmp = ""
+        try:
+            wd, out = self._vod_target()
+            tmp = os.path.join(os.path.dirname(out), "vod.saving.mp4")    # not vod.*: never listed half-written
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            with open(lst, "w", encoding="utf-8") as f:
+                for g in segs:
+                    f.write("file '" + g["path"].replace("\\", "/").replace("'", "'\\''") + "'\n")
+            # no +faststart: it would write the whole file a second time, and local playback doesn't need it
+            engine.run([engine.ffmpeg(), "-v", "error", "-y", "-nostdin", "-f", "concat", "-safe", "0", "-i", lst,
+                        "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", tmp], timeout=600 + dur / 4)
+            os.replace(tmp, out)
+            try:
+                dur = float(engine.probe(out).get("duration") or dur)
+            except Exception:
+                pass
+            name = re.sub(r"\s*\(live\)$", "", self.title) or "stream"
+            title = f"{name} stream {time.strftime('%Y-%m-%d %H:%M', time.localtime(self.started))}"
+            engine._save_meta(wd, source=out, local=True, title=title, duration=round(dur, 1),
+                              streamer=self.channel or "", recorded_live=True, live_dir=self.dir)
+        except Exception as e:
+            import errorlog
+            errorlog.exc("live:save-vod", channel=self.channel or self.source)
+            try:
+                if tmp:
+                    os.remove(tmp)
+            except OSError:
+                pass
+            self.vod.update(state="failed", note=f"Couldn't save the full stream: {str(e)[:160]}. "
+                                                  f"The recorded pieces are still in {self.seg_dir}")
+            self.log(self.vod["note"])
+            return False
+        finally:
+            try:
+                os.remove(lst)
+            except OSError:
+                pass
+        self.vod.update(state="saved", path=out, title=title, duration=round(dur, 1))
+        self.log(f"Full stream saved: {out}")
+        return True
+
+    def _finish_recording(self):
+        """The session is over and every moment is cut: save the whole stream if it was kept, then let the raw
+        pieces go (when they were temporary, or once they're saved). If saving failed they stay, so the
+        stream isn't lost."""
+        saved = False
+        if self.save_vod:
+            try:
+                saved = self._save_vod()
+            except Exception:
+                saved = False
+        if saved or (self.temp_buffer and self.vod["state"] != "failed"):
+            self.delete_buffer()
 
     # ------------------------------------------------------------------ chat
     def _irc_target(self):

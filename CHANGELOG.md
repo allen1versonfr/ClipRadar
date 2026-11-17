@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.52.0] - 2026-11-17
+
+Pick parts of a long stream and edit them into one video of up to 30 minutes in the new Segments screen, and live clipping saves the whole stream as a VOD.
+
+### Added
+- **Segments.** In Export VOD, play to where a part starts and press Start here, then End here, and Send to Segments: it goes on the end of an edit of that video, or starts a new one. In Segments, each edit lists its parts in the order they'll play. Preview one part, or Play the edit (the ticked parts in order, cut stretches skipped). Rename a part, move its start and end (a second at a time, or to where the player is), cut stretches out of it and put them back, tick or untick it, drag it or use the arrows to change the order, and make it quieter or louder (-12 to +12 dB). Captions: see what was heard in a part (or listen to it now), then Edit captions to change the words, remove a line or add one. Edits save as you go, so an unfinished one is there next time, and a part sent from Export VOD while an edit is open is added without anything being lost. Export makes each part the way Export VOD does (music removed or muted as the copyright scan suggests, flagged words muted, captions in your Export VOD look) and joins them into one file, up to 30 minutes.
+- **Save the whole stream** (live clipping, on by default). Every recorded piece is kept instead of only the last 15 minutes, ad breaks still left out, and when the stream ends they're joined into one video that opens in Export VOD (and from there, Segments). It needs room for about an hour of stream before it starts (about 3 GB an hour at 1080p) and stops keeping, saving what it has, if the disk gets nearly full. Turn it off on the Live card for the old rolling buffer.
+
+### Tests
+- `tests/test_segments.py` (new): what a part keeps once stretches are cut out, a part checked as the screen sent it, edits kept on disk and a save from an older version refused, a typed caption line as timed words; with FFmpeg: an edit exported in its own order with the cut stretch left out, an unticked part left out, a part turned down, edited captions in the subtitle file, and more than 30 minutes refused.
+- `tests/test_live_vod.py` (new): every piece kept and saved as one video, the rolling buffer with the setting off, a nearly full disk, a join that fails keeping the pieces, and the room check before starting.
+- `tests/e2e.py`: the YouTube live session saves the whole stream when stopped; the Twitch one turns it off so the rolling buffer is still checked.
+- `web`: the Segments sums (`segments/model.test.ts`: kept stretches, the edit's length and play order, moving, cuts, caption lines) and the live card.
+
 ## [4.51.0] - 2026-11-17
 
 Export VOD takes the music out from under people talking instead of silencing them, opens any VOD on this PC, lists flagged words to tick, has a preview and caption settings, uploads to YouTube Studio, and is much quicker without burned-in captions.

@@ -168,9 +168,14 @@ USE
                           confirms it). Turn it off in Settings > Live clipping.
       Clip last 30s (C)   the same, from inside Clip Radar
       Stop                stop recording; you can keep reviewing afterwards
-    Only the last 15 minutes of raw stream are kept on disk; moments are cut out
-    as they happen, so long streams don't fill your drive. If the connection
-    drops it reconnects, and it notices when the stream ends.
+    Save the whole stream (on the Live card, on by default): the full
+    recording is kept and saved as one video when the stream ends, ready in
+    Export VOD and Segments. It takes about 3 GB an hour at 1080p, needs room
+    for an hour before it starts, and stops keeping (saving what it has) if
+    the disk gets nearly full. Turn it off and only the last 15 minutes of
+    raw stream are kept on disk; moments are cut out as they happen either
+    way. If the connection drops it reconnects, and it notices when the
+    stream ends.
     Ads: Twitch stitches ads into live streams for viewers without Turbo.
     Clip Radar recognises those ad breaks and leaves them out of the recording,
     so they never end up in a clip (the header shows "Ads skipped"). Sign in
@@ -530,6 +535,37 @@ EXPORT VOD (A WHOLE VIDEO)
   time). You choose the audience and visibility and press Publish yourself.
   Open YouTube Studio opens the upload page in your browser with the file
   selected in File Explorer.
+
+SEGMENTS (PARTS OF A STREAM, EDITED TOGETHER)
+  Pick the parts of a long stream you want and export them as one video of
+  up to 30 minutes.
+  Sending parts: in Export VOD, play to where a part starts and press Start
+  here, then play to where it ends and press End here. Give it a name if
+  you like, choose which edit it goes in (or A new edit) and press Send to
+  Segments. Send as many parts as you want.
+  Segments lists your edits on the left. An edit's parts play in the order
+  shown: drag them, or use the arrows, to change it. Untick a part to leave
+  it out of the export without losing it.
+  Play the edit plays the ticked parts in order, cut stretches skipped, the
+  way the export will be. Click a part to play it or change it:
+    Name                rename it
+    Starts / Ends       a second earlier or later, or Set to where the
+                        player is
+    Cut out             Cut from here, then Cut to here, takes a stretch out
+                        of the middle; Put back undoes it
+    Volume              -12 to +12 dB. Quieter is heard in the preview;
+                        louder only in the export
+    Captions            what was heard in the part (Listen to it now if it
+                        hasn't been). Edit captions lets you change the
+                        words, remove a line or add one
+  The length of the edit and the 30-minute limit are shown above the
+  preview. Changes save as you go, so an unfinished edit is still there next
+  time you open Clip Radar.
+  Export: captions (burned in, a .srt file, both or off, in the look set in
+  Export VOD), size and quality. Deal with music and flagged words removes
+  or mutes music as the copyright scan suggests and mutes flagged words in
+  the categories Settings > Content check mutes, so scan the video in Export
+  VOD first. The file goes in your clips folder, named after the edit.
 
   Settings > Campaigns keeps each clipping campaign's rules together:
   - the text every post must carry (an @handle, a code, #ad), at the end or

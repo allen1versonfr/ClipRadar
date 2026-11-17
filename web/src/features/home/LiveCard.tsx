@@ -23,6 +23,7 @@ export function LiveCard({ status }: { status: Status | undefined }) {
   const [length, setLength] = useState(() => pref('liveLength2', '0'))
   const [wait, setWait] = useState(() => pref('liveWait', true))
   const [keep, setKeep] = useState(() => pref('liveKeep', false))
+  const [saveVod, setSaveVod] = useState(() => pref('liveSaveVod', true))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const twitch = usePoll(loadTwitch, 60_000).data
@@ -40,7 +41,7 @@ export function LiveCard({ status }: { status: Status | undefined }) {
     try {
       const v = await api(Ref, '/api/live/start', {
         source, length: Number(length), frequency: freq, events: getPref('events', true), hands_free: mode === 'hands',
-        wait_for_live: wait, keep_watching: keep, opts, model: opts.whisper_model, language: opts.language,
+        wait_for_live: wait, keep_watching: keep, save_vod: saveVod, opts, model: opts.whisper_model, language: opts.language,
         max_height: Number(getPref('maxh', '1080')), cookies: getPref('cookies', ''),
         chat_delay: delay === '' ? 'auto' : Number(delay), preset, emotes: getPref('useEmotes', true), min_quality: Number(minQ),
       })
@@ -91,13 +92,15 @@ export function LiveCard({ status }: { status: Status | undefined }) {
         <span>Wait for the stream to start<small>Start now even if the channel is offline. Recording begins when it goes live.</small></span></label>
       <label className="chk"><input type="checkbox" checked={keep} onChange={e => save('liveKeep', setKeep)(e.target.checked)} />
         <span>Keep watching after the stream ends<small>Waits for the channel's next stream and starts again.</small></span></label>
+      <label className="chk"><input type="checkbox" checked={saveVod} onChange={e => save('liveSaveVod', setSaveVod)(e.target.checked)} />
+        <span>Save the whole stream<small>Keeps the full recording and saves it as one video when the stream ends, ready in Export VOD. About 3 GB an hour at 1080p.</small></span></label>
       <p className="fine">
         {twitch?.signed_in
           ? twitch.turbo ? <>Signed in to Twitch as <b>{twitch.login}</b> with Turbo: recordings come without ads.</>
             : <>Signed in to Twitch as <b>{twitch.login}</b>. Without Turbo or a sub, ad breaks are left out of the recording.</>
           : <>Ad breaks are left out of recordings. <a href="#settings/twitch">Sign in to Twitch</a> with Turbo for an ad-free stream.</>}
       </p>
-      <p className="fine">{hk?.registered ? `Press ${hk.keys ?? ''} anywhere to clip the last 30 seconds. ` : ''}Only the last 15 minutes of the stream are kept on disk.</p>
+      {(hk?.registered || !saveVod) && <p className="fine">{hk?.registered ? `Press ${hk.keys ?? ''} anywhere to clip the last 30 seconds. ` : ''}{saveVod ? '' : 'Only the last 15 minutes of the stream are kept on disk.'}</p>}
       {error && <p className="err-tx" role="alert">{error}</p>}
       <footer><button className="btn" disabled={busy} onClick={() => void start()}>Start live clipping</button></footer>
     </section>

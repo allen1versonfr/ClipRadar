@@ -194,6 +194,8 @@ jobs:
           python tests/test_studio_handoff.py
           python tests/test_preview_fallback.py
           python tests/test_live_switch.py
+          python tests/test_live_vod.py        # joins the recorded pieces with FFmpeg
+          python tests/test_segments.py        # renders and joins an edit's segments with FFmpeg
           python tests/test_quality.py
 
   build:

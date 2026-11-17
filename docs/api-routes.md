@@ -33,6 +33,7 @@
 | GET | `/api/framing/{id}` |
 | GET | `/api/vodexport` |
 | GET | `/api/vodexport/words` |
+| GET | `/api/segments` |
 | GET | `/api/perf` |
 | GET | `/api/timings` |
 | GET | `/api/strip/{id}` |
@@ -85,6 +86,12 @@
 | POST | `/api/check` |
 | POST | `/api/clip_remove` |
 | POST | `/api/clip_restore` |
+| POST | `/api/segments/add` |
+| POST | `/api/segments/save` |
+| POST | `/api/segments/delete` |
+| POST | `/api/segments/open` |
+| POST | `/api/segments/hear` |
+| POST | `/api/segments/export` |
 | POST | `/api/vodexport/open` |
 | POST | `/api/vodexport/youtube` |
 | POST | `/api/vodexport/scan` |

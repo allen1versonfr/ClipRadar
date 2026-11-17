@@ -47,6 +47,7 @@ import studio_auto
 import tools_setup
 import twitchauth
 import updater
+import segments
 import vodexport
 import voicekeep
 import watermarks
@@ -311,6 +312,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(dict(res, available=True))
         if p == "/api/vodexport":
             return self._json(vodexport.view(S))
+        if p == "/api/segments":
+            return self._json(segments.view(S))
         if p == "/api/vodexport/words":
             # the words already heard around the preview's playhead (nothing is listened to here)
             pr = S.projects.get(q.get("pid", [""])[0])
@@ -1074,6 +1077,36 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"pid": vodexport.open_video(S, str(body.get("pid") or ""), str(body.get("path") or ""))})
             except RuntimeError as e:
                 return self._err(str(e))
+        if p.startswith("/api/segments/"):
+            # Segments: a part of a video sent from Export VOD, an edit saved, opened (its video), deleted,
+            # one segment listened to for its captions, and the edit exported as one video
+            act = p[len("/api/segments/"):]
+            eid = str(body.get("id") or "")
+            try:
+                if act == "add":
+                    e = segments.add(S, str(body.get("pid") or ""), body.get("start"), body.get("end"),
+                                     str(body.get("name") or ""), str(body.get("edit") or ""))
+                    return self._json({"id": e["id"], "name": e["name"]})
+                if act == "save":
+                    return self._json({"ver": segments.save(body)["ver"]})
+                if act == "delete":
+                    segments.delete(eid)
+                    return self._json({"ok": True})
+                if act == "open":
+                    e = segments._find(eid)
+                    segments.ensure_open(S, e)
+                    return self._json({"pid": e["pid"]})
+                if act == "hear":
+                    return self._json({"job": segments.start_hear(S, eid, str(body.get("segment") or ""), body)["id"]})
+                if act == "export":
+                    return self._json({"job": segments.start_export(S, eid, body)["id"]})
+            except segments.Conflict as e:
+                return self._err(str(e), 409)
+            except LookupError as e:
+                return self._err(str(e), 404)
+            except (ValueError, RuntimeError) as e:
+                return self._err(str(e))
+            return self._err("not found", 404)
         if p.startswith("/api/vodexport/"):
             # Export VOD: the copyright (music) scan, the flagged words check, a stretch heard for the preview,
             # the exact preview, the whole video exported, and the exported file handed to YouTube Studio

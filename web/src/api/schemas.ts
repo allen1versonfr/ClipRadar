@@ -564,6 +564,9 @@ export const LiveView = z.looseObject({
   skipped: z.record(z.string(), z.number()).default({}),
   clips: z.array(Clip).default([]),
   next: z.string().default(''),                // Keep watching: the channel's next stream, once this one ended
+  // Save the whole stream: off | keeping | stopped (disk nearly full, kept up to `upto` s) | saving | saved | failed
+  vod: z.looseObject({ state: z.string().default('off'), upto: z.number().nullish(), path: z.string().default(''),
+    title: z.string().default(''), note: z.string().default('') }).default({ state: 'off', path: '', title: '', note: '' }),
 })
 export type LiveView = z.infer<typeof LiveView>
 /** Detection settings › Try: what other settings would suggest, next to the list you have. */
@@ -676,3 +679,35 @@ export const VodWords = z.looseObject({
 export const VodOpened = z.looseObject({ pid: z.string() })
 export const VodYoutube = z.looseObject({ job: z.string().optional(), opened: z.boolean().optional() })
 export type VodExport = z.infer<typeof VodExport>
+
+/** Segments (segments.py): parts of one video, edited together and exported as one video. */
+export const SegLine = z.looseObject({ start: z.number(), end: z.number(), text: z.string().default('') })
+export const SegSegment = z.looseObject({
+  id: z.string(),
+  name: z.string().default(''),
+  start: z.number(),
+  end: z.number(),
+  cuts: z.array(z.array(z.number())).default([]),
+  gain_db: z.number().default(0),
+  on: z.boolean().default(true),
+  lines: z.array(SegLine).nullable().default(null),
+})
+export const SegEdit = z.looseObject({
+  id: z.string(),
+  name: z.string().default(''),
+  pid: z.string(),
+  title: z.string().default(''),
+  duration: z.number().default(0),
+  segments: z.array(SegSegment).default([]),
+  ver: z.number().default(0),
+  length: z.number().default(0),
+  open: z.boolean().default(false),
+  exists: z.boolean().default(true),
+  export_job: VodJob,
+  hear_job: VodJob,
+})
+export type SegEdit = z.infer<typeof SegEdit>
+export const Segments = z.looseObject({ edits: z.array(SegEdit).default([]), max: z.number().default(1800) })
+export type Segments = z.infer<typeof Segments>
+export const SegAdded = z.looseObject({ id: z.string(), name: z.string().default('') })
+export const SegSaved = z.looseObject({ ver: z.number() })

@@ -742,9 +742,11 @@ def main():
         bad = post("/api/live/start", {"source": "not a channel!!"})
         rec("live rejects a bad channel", bad.get("_status") == 400, bad.get("error"))
         # hands-free, started before the stream is up: it should wait for it
+        # Save the whole stream off here, so the rolling buffer is what's checked below; the YouTube session
+        # keeps the default (on) and is checked for its saved VOD when it stops
         v = post("/api/live/start", {"source": stream_url, "chat_channel": "testchan", "length": 20, "warmup": 30,
                                      "buffer_minutes": 1, "hands_free": True, "wait_for_live": True,
-                                     "frequency": "normal", "opts": opts, "model": a.model})
+                                     "frequency": "normal", "opts": opts, "model": a.model, "save_vod": False})
         sid = v.get("id")
         rec("live session starts", sid, v.get("status"))
         waiting = wait(lambda: get(f"/api/live/{sid}")["status"] == "waiting", 20)
@@ -797,6 +799,10 @@ def main():
             post(f"/api/live/{ysid}/stop")
             rec("stopping one stream leaves the other recording", wait(lambda: get(f"/api/live/{ysid}")["status"] == "stopped", 30)
                 and get(f"/api/live/{sid}")["status"] == "recording", (get(f"/api/live/{ysid}")["status"], get(f"/api/live/{sid}")["status"]))
+            yvod = wait(lambda: (lambda v: v if v.get("state") in ("saved", "failed", "off") else None)(
+                get(f"/api/live/{ysid}").get("vod") or {}), 120, 2) or (get(f"/api/live/{ysid}").get("vod") or {})
+            rec("the whole stream is saved as one video when it stops (on by default)",
+                yvod.get("state") == "saved" and os.path.isfile(yvod.get("path") or ""), yvod)
         first = wait(lambda: (lambda c: c if c else None)(get(f"/api/live/{sid}")["clips"]), 150, 2)
         rec("found a moment automatically", first and all(c["at"] >= 30 for c in first if not c.get("manual")),
             first and f"{first[0]['reason']} at {first[0]['at']}s")

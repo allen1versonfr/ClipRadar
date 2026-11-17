@@ -9,7 +9,27 @@ export const LIVE_LABEL: Record<string, string> = { starting: 'Connecting', wait
 const LAT_LABEL: Record<string, string> = { ingest: 'recording', detect: 'spotting', context: 'waiting for the reaction',
   cut: 'cutting', title: 'captions and title', render: 'rendering' }
 
-export interface Bit { text: string; tone?: 'warn' | 'muted'; title?: string }
+export interface Bit { text: string; tone?: 'warn' | 'muted' | 'err'; title?: string; href?: string }
+
+/** What happens to the whole stream: being saved while it records, where it went once it ended, or why not. */
+export function vodNote(L: LiveView): Bit | null {
+  const v = L.vod, active = LIVE_ON.includes(L.status)
+  switch (v.state) {
+    case 'keeping':
+      return active ? { text: 'Saving the full stream. It opens in Export VOD when the stream ends.' } : null
+    case 'stopped':
+      return { text: `Disk nearly full: the full stream stopped saving at ${fmt(v.upto ?? 0)}.`
+        + (active ? ' Moments are still clipped.' : ''), tone: 'warn' }
+    case 'saving':
+      return { text: 'Joining the full stream into one video.' }
+    case 'saved':
+      return { text: `Full stream saved to ${v.path}`, title: v.title, href: '#vod' }
+    case 'failed':
+      return { text: v.note, tone: 'err' }
+    default:
+      return v.note && active ? { text: v.note, tone: 'warn' } : null
+  }
+}
 
 /** The line under the live controls: chat, moments forming, how soon a clip is ready, what was passed on. */
 export function liveStatus(L: LiveView): Bit[] {

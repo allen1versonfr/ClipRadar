@@ -9,6 +9,7 @@ import { ExportsView } from './features/exports/ExportsView'
 import { HomeView } from './features/home/HomeView'
 import { ReviewView } from './features/review/ReviewView'
 import { SettingsView } from './features/settings/SettingsView'
+import { SegmentsView } from './features/segments/SegmentsView'
 import { VodExportView } from './features/vodexport/VodExportView'
 
 // The screens switch by #hash, so the app works the same at /next/ (while the original page stays
@@ -18,6 +19,7 @@ const VIEWS = [
   { id: 'review', label: 'Review' },
   { id: 'exports', label: 'Exports' },
   { id: 'vod', label: 'Export VOD' },
+  { id: 'segments', label: 'Segments' },
   { id: 'settings', label: 'Settings' },
 ] as const
 type ViewId = (typeof VIEWS)[number]['id']
@@ -109,6 +111,7 @@ export function App() {
           : current.id === 'review' && !route.pid ? <ReviewView pid={undefined} />
           : current.id === 'exports' ? <ExportsView />
           : current.id === 'vod' ? <VodExportView />
+          : current.id === 'segments' ? <SegmentsView open={route.pid} />
           : current.id === 'settings' ? <SettingsView status={status.data} refreshStatus={status.refresh} section={route.pid} /> : null}
         {reviewing && (
           <div className="keep-alive" hidden={current.id !== 'review'}>
