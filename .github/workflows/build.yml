@@ -102,7 +102,6 @@ jobs:
           python tests/test_titles.py
           python tests/test_exports.py
           python tests/test_live.py
-          python tests/test_live_vod.py
           python tests/test_framing.py
           python tests/test_sources.py
           python tests/test_locations.py
@@ -195,6 +194,7 @@ jobs:
           python tests/test_studio_handoff.py
           python tests/test_preview_fallback.py
           python tests/test_live_switch.py
+          python tests/test_live_vod.py        # joins the recorded pieces with FFmpeg
           python tests/test_quality.py
 
   build:
