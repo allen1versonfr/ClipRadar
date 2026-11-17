@@ -38,6 +38,7 @@ import hashtags
 import hotkey
 import learning
 import locations
+import outcome
 import paths
 import persist
 import safety
@@ -830,6 +831,7 @@ class Handler(BaseHTTPRequestHandler):
                         r = studio_auto.upload(it.get("path", ""), studio.caption(it.get("title", ""), it.get("post", "")),
                                                press, studio.STUDIO_URL, S.job_step(job), S.job_check(job))
                     except studio_auto.StudioError as e:
+                        outcome.log("upload", "failed", site="tiktok", step=e.step)
                         studio.reveal(it.get("path", ""))           # finish it by hand: the file, shown
                         where = "the TikTok window"
                         if e.step == "browser":                     # no such window: TikTok Studio in your own Edge
@@ -840,15 +842,18 @@ class Handler(BaseHTTPRequestHandler):
                         raise RuntimeError(f"{e} The video is selected in File Explorer and the caption is copied, "
                                            f"so you can finish in {where}.") from None
                     except engine.Cancelled:
+                        outcome.log("upload", "cancelled", site="tiktok")
                         # 4.45: stopped (Clip Radar closing): it stayed "Uploading…" for good
                         it["handoff"].update(auto="failed", step="stopped", error="The upload was stopped before it finished.")
                         S.save_queue_soon()
                         raise
                     except Exception as e:
+                        outcome.log("upload", "failed", site="tiktok", step="error")
                         # 4.45: anything else also left it "Uploading…" for good, and blocked the button's status
                         it["handoff"].update(auto="failed", step="browser", error=str(e)[:300] or type(e).__name__)
                         S.save_queue_soon()
                         raise
+                    outcome.log("upload", "ok", site="tiktok", posted=r["posted"], pressed=r["pressed"])
                     it["handoff"].update(auto="posted" if r["posted"] else "pressed" if r["pressed"] else "ready")
                     S.save_queue_soon()
                     return r

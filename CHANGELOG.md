@@ -5,6 +5,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- **clipradar.log says how each upload, download, live start, render and Discord send ended.** Until now only failures were written down, so there was no way to tell how often something fails. Each attempt now writes one `Outcome` line, shaped like the `Timing` lines, for example `Outcome upload site=tiktok step="caption box" result=failed` (`src/outcome.py`). It says ok, failed or cancelled, which site or platform, and where it failed. It never has a title, caption, file name or link in it. Nothing you see in the app changes.
+- **A reliability report for developers** (`scripts/reliability_report.py LOGDIR --days 14`). It reads the `Outcome` lines and `errors.jsonl` and writes a Markdown table for each feature: attempts, how many went through, the failure rate and the failures by step. Under the table it lists the 5 most common messages for each feature, and the newest page fingerprint for each upload step that failed. The owner runs it on their PC and commits the report under `docs/audits/`.
+
+### Tests
+- `tests/test_reliability_report.py` (new): `Outcome` lines read back from a sample log, dated from the start line and past midnight, counted per site or platform with failures by step. An upload failure isn't counted twice (the job's record and the upload's own). The newest fingerprint is used for each step, and `--days` leaves older lines out.
+
 ## [4.52.0] - 2026-11-17
 
 Pick parts of a long stream and edit them into one video of up to 30 minutes in the new Segments screen, and live clipping saves the whole stream as a VOD.

@@ -137,6 +137,7 @@ jobs:
           python tests/test_api_contract.py
           python tests/test_file_serving.py
           python tests/test_errorlog.py
+          python tests/test_reliability_report.py
           python tests/test_spelling.py
 
   render:
