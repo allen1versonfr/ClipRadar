@@ -4428,13 +4428,38 @@ def mute_commands(spans: list) -> str:
     return "\n".join(out) + "\n"
 
 
+def mute_graph(spans: list, length: float, tail: str, ain: str = "0:a:0", cmd_name: str = "mute.cmd") -> tuple:
+    """The audio part of a filter graph that silences (start, end, mode) spans of input `ain`, lays a 1 kHz
+    tone over the "bleep" ones, runs `tail` (audio_filter) and ends in [a]. Returns (graph, commands): commands
+    is what to write to the file `cmd_name` in FFmpeg's working folder, or "" when the spans fit in the graph."""
+    if len(spans) > SPANS_INLINE:
+        # many spans (a whole VOD's muting): written as timed commands to a file the graph reads, since
+        # thousands of between() terms would pass Windows' 32,767-character command line limit
+        if any(m == "bleep" for _, _, m in spans):
+            return (f"[{ain}]asendcmd=f={cmd_name},volume@cm=1[am];"
+                    f"sine=frequency=1000:sample_rate=48000:duration={length:.3f},volume@bp=0[bp];"
+                    f"[am][bp]amix=inputs=2:duration=first:normalize=0,{tail}[a]"), mute_commands(spans)
+        return f"[{ain}]asendcmd=f={cmd_name},volume@cm=1,{tail}[a]", mute_commands(spans)
+    on = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b, _ in spans)
+    beeps = [(a, b) for a, b, m in spans if m == "bleep"]
+    if beeps:
+        on_b = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in beeps)
+        return (f"[{ain}]volume=0:enable='{on}'[am];"
+                f"sine=frequency=1000:sample_rate=48000:duration={length:.3f},volume=0.6,"
+                f"volume=0:enable='not({on_b})'[bp];"
+                f"[am][bp]amix=inputs=2:duration=first:normalize=0,{tail}[a]"), ""
+    return f"[{ain}]volume=0:enable='{on}',{tail}[a]", ""
+
+
 def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o: RenderOpts,
                 title: str = "", log: Log = _noop, progress: Progress = _noop,
                 check: Check = _noop, words: Optional[list] = None,
                 censor: Optional[list] = None, censor_mode: str = "off", framing: Optional[dict] = None,
-                warn: Log = _noop, diag: Optional[dict] = None) -> str:
+                warn: Log = _noop, diag: Optional[dict] = None, audio_src: str = "") -> str:
     """words: transcript (times relative to clip_start) to caption with; transcribed here if None.
     censor: [(start, end)] spans (relative) to mute ("mute") or bleep ("bleep").
+    audio_src: a sound file to use instead of the video's own sound, starting where the clip starts
+    (Export VOD: the sound with its music removed, voicekeep.keep_voice).
     warn: told when the clip came out differently from what was asked (a layout that had to fall back).
     diag: filled in with what FFmpeg was asked and said (cmd, encoder, exit, stderr, fallback), for the
     render's attempt history, whether it worked or not."""
@@ -4504,6 +4529,8 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
 
     # censoring: silence flagged words, and for "bleep" lay a 1 kHz tone over them
     # spans are (start, end) using censor_mode, or (start, end, mode) for a fix made on one clip
+    wm_imgs = [m for m in marks_of(o) if m.get("kind") == "image" and m.get("image") and os.path.isfile(m["image"])]
+    ain = f"{len(wm_imgs) + 1}:a:0" if audio_src else "0:a:0"       # inputs: the video, image watermarks, then audio_src
     af = ""
     spans = []
     for sp in censor or []:
@@ -4512,32 +4539,12 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         if m in ("mute", "bleep") and b > a and a < length:
             spans.append((max(0.0, a), min(length, b), m))
     cmd_path = os.path.join(work, f"vc_{tag}.cmd")
-    if len(spans) > SPANS_INLINE and info["has_audio"]:
-        # many spans (a whole VOD's muting): written as timed commands to a file the graph reads, since
-        # thousands of between() terms would pass Windows' 32,767-character command line limit
-        with open(cmd_path, "w", encoding="utf-8") as f:
-            f.write(mute_commands(spans))
-        tail = audio_filter(o)
-        if any(m == "bleep" for _, _, m in spans):
-            af = (f";[0:a:0]asendcmd=f=vc_{tag}.cmd,volume@cm=1[am];"
-                  f"sine=frequency=1000:sample_rate=48000:duration={length:.3f},volume@bp=0[bp];"
-                  f"[am][bp]amix=inputs=2:duration=first:normalize=0,{tail}[a]")
-        else:
-            af = f";[0:a:0]asendcmd=f=vc_{tag}.cmd,volume@cm=1,{tail}[a]"
-    elif spans and info["has_audio"]:
-        on = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b, _ in spans)
-        beeps = [(a, b) for a, b, m in spans if m == "bleep"]
-        tail = audio_filter(o)
-        if beeps:
-            on_b = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in beeps)
-            af = (f";[0:a:0]volume=0:enable='{on}'[am];"
-                  f"sine=frequency=1000:sample_rate=48000:duration={length:.3f},volume=0.6,"
-                  f"volume=0:enable='not({on_b})'[bp];"
-                  f"[am][bp]amix=inputs=2:duration=first:normalize=0,{tail}[a]")
-        else:
-            af = f";[0:a:0]volume=0:enable='{on}',{tail}[a]"
-
-    wm_imgs = [m for m in marks_of(o) if m.get("kind") == "image" and m.get("image") and os.path.isfile(m["image"])]
+    if spans and info["has_audio"]:
+        graph, commands = mute_graph(spans, length, audio_filter(o), ain, f"vc_{tag}.cmd")
+        if commands:
+            with open(cmd_path, "w", encoding="utf-8") as f:
+                f.write(commands)
+        af = ";" + graph
 
     def filters(lo: RenderOpts, path: Optional[list]) -> str:
         """The whole filter_complex for layout lo (captions, censoring, watermark, export size)."""
@@ -4611,11 +4618,13 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                *(HW_DECODE if hwdec else []), "-ss", f"{clip_start:.3f}", "-t", f"{length:.3f}", "-i", video]
         for m in wm_imgs:
             cmd += ["-i", m["image"]]
+        if audio_src:
+            cmd += ["-t", f"{length:.3f}", "-i", audio_src]
         cmd += ["-filter_complex", vf, "-map", "[v]"]
         if info["has_audio"] and af:
             cmd += ["-map", "[a]", *acodec, "-ar", "48000"]
         elif info["has_audio"]:
-            cmd += ["-map", "0:a:0", *acodec, "-af", audio_filter(o), "-ar", "48000"]
+            cmd += ["-map", ain, *acodec, "-af", audio_filter(o), "-ar", "48000"]
         cmd += [*enc_args, "-pix_fmt", "yuv420p", "-r", str(output_fps(info, o))]
         if cont != "webm":
             # negative_cts_offsets: the first frame shows at exactly 0:00 even where the edit list is ignored

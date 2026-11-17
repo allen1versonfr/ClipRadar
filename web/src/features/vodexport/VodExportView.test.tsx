@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../../components/Toasts'
 import { VodExportView } from './VodExportView'
@@ -9,73 +9,140 @@ afterEach(() => {
   localStorage.clear()
 })
 
+const VIDEO = {
+  pid: 'p1', title: 'Friday stream', duration: 7200, exists: true, has_audio: true, copyable: true,
+  scan: { spans: [{ start: 60, end: 240, confidence: 0.9, speech: 0.7, suggest: 'voice' }, { start: 3600, end: 3660, confidence: 0.6, speech: 0, suggest: 'mute' }], at: 1, how: 'heard now' },
+  flags: { at: 5, stale: false, flags: [
+    { id: 'a', start: 100, end: 100.4, text: 'f*****', label: 'Swearing', cat: 'profanity', context: 'oh f***** no', on: true },
+    { id: 'b', start: 900, end: 900.5, text: 's***', label: 'Swearing', cat: 'profanity', context: 'that s*** was', on: false },
+  ] },
+  scan_job: null, words_job: null, hear_job: null, preview_job: null, export_job: null, exported: false,
+}
 const VIEW = {
-  music_model: true, whisper: true, censor: 'mute', censor_categories: ['Hate slur', 'Swearing'],
-  videos: [{ pid: 'p1', title: 'Friday stream', duration: 7200, exists: true, has_audio: true,
-    scan: { spans: [{ start: 60, end: 240, confidence: 0.9 }, { start: 3600, end: 3660, confidence: 0.6 }], at: 1, how: 'heard now' },
-    scan_job: null, export_job: null }],
+  music_model: true, voice_model: true, whisper: true, browser: true, censor: 'mute', censor_categories: ['Swearing'],
+  videos: [VIDEO], library: [{ pid: 'old1', title: 'Last week', duration: 3600, where: 'downloaded' }],
 }
 
 function server(calls: Array<[string, unknown]>, view: object = VIEW) {
   return vi.fn(async (path: string, init?: RequestInit) => {
     calls.push([path, init?.body ? JSON.parse(String(init.body)) : undefined])
-    const body = path === '/api/vodexport' ? view : { job: 'j1' }
+    const body = path === '/api/vodexport' ? view : path.startsWith('/api/vodexport/words') ? { words: [], covered: [] }
+      : path === '/api/vodexport/open' ? { pid: 'old1' } : path === '/api/pick_file' ? { path: 'D:\\streams\\big.mkv' } : { job: 'j1' }
     return new Response(JSON.stringify(body), { status: 200 })
   })
 }
+const sent = (calls: Array<[string, unknown]>, p: string) => calls.find(([q]) => q === p)?.[1] as Record<string, unknown> | undefined
 
 describe('Export VOD', () => {
-  it('says to open a video when none is open', async () => {
-    vi.stubGlobal('fetch', server([], { videos: [] }))
+  it('with nothing open, offers the videos on this PC and a file picker', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [] }))
     render(<ToastProvider><VodExportView /></ToastProvider>)
-    expect((await screen.findByTestId('vodx-empty')).textContent).toMatch(/Open one on Home/)
+    expect((await screen.findByTestId('vodx-empty')).textContent).toMatch(/any video on this PC/)
+    fireEvent.click(within(screen.getByTestId('vodx-library')).getByRole('button', { name: /Last week/ }))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/open')).toEqual({ pid: 'old1' }))
+    fireEvent.click(screen.getByTestId('vodx-browse'))
+    await waitFor(() => expect(calls.filter(([p]) => p === '/api/vodexport/open').at(-1)?.[1]).toEqual({ path: 'D:\\streams\\big.mkv' }))
   })
 
-  it('lists the music found, mutes it all unless kept, and exports with muting and captions', async () => {
+  it('each music stretch starts as suggested, can be changed, and is sent with what to do', async () => {
     const calls: Array<[string, unknown]> = []
     vi.stubGlobal('fetch', server(calls))
     render(<ToastProvider><VodExportView /></ToastProvider>)
-    expect((await screen.findByTestId('vodx-music-summary')).textContent).toBe('2 music stretches, 4:00 in all. All muted.')
-    const boxes = screen.getAllByTestId('vodx-span') as HTMLInputElement[]
-    expect(boxes.map(b => b.checked)).toEqual([true, true])
-    fireEvent.click(boxes[1]!)                                          // keep the second one
-    expect(screen.getByTestId('vodx-music-summary').textContent).toBe('2 music stretches, 4:00 in all. 1 muted, 1 kept.')
-    fireEvent.click(screen.getByRole('radio', { name: 'Both' }))
-    expect(screen.getByTestId('vodx-export').textContent).toBe('Export 2:00:00 · 1 music stretch muted')
+    expect((await screen.findByTestId('vodx-music-summary')).textContent).toBe('2 music stretches, 4:00 in all. 1 with music removed, 1 muted.')
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Music at 1:00:00' })).getByRole('radio', { name: 'Keep' }))
+    expect(screen.getByTestId('vodx-music-summary').textContent).toBe('2 music stretches, 4:00 in all. 1 with music removed, 1 kept.')
     fireEvent.click(screen.getByTestId('vodx-export'))
-    await waitFor(() => expect(calls.some(([p]) => p === '/api/vodexport/start')).toBe(true))
-    const body = calls.find(([p]) => p === '/api/vodexport/start')![1] as Record<string, unknown>
-    expect(body).toMatchObject({ pid: 'p1', captions: 'both', words: 'mute', music: [[60, 240]], size: '1080', quality: 'balanced' })
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    expect(sent(calls, '/api/vodexport/start')).toMatchObject({ pid: 'p1', music: [[60, 240, 'voice']] })
   })
 
-  it('starts a copyright scan', async () => {
-    const calls: Array<[string, unknown]> = []
-    vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [{ ...VIEW.videos[0], scan: null }] }))
+  it('without the music remover, music can only be muted', async () => {
+    vi.stubGlobal('fetch', server([], { ...VIEW, voice_model: false }))
     render(<ToastProvider><VodExportView /></ToastProvider>)
-    fireEvent.click(await screen.findByRole('button', { name: 'Scan for music' }))
-    await waitFor(() => expect(calls).toContainEqual(['/api/vodexport/scan', { pid: 'p1' }]))
+    expect((await screen.findByTestId('vodx-music-summary')).textContent).toMatch(/All muted/)
+    expect(screen.getByTestId('vodx-no-remover')).toBeTruthy()
+    expect(screen.queryByRole('radio', { name: 'Remove music' })).toBeNull()
   })
 
-  it("without the speech model, exports without captions or word muting instead of failing", async () => {
+  it('the flagged words queue: ticked ones are muted, untick or tick any', async () => {
     const calls: Array<[string, unknown]> = []
-    vi.stubGlobal('fetch', server(calls, { ...VIEW, whisper: false }))
+    vi.stubGlobal('fetch', server(calls))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    expect((await screen.findByTestId('vodx-flag-summary')).textContent).toBe('2 flagged words, 1 muted.')
+    const boxes = screen.getAllByTestId('vodx-flag') as HTMLInputElement[]
+    expect(boxes.map(b => b.checked)).toEqual([true, false])
+    fireEvent.click(boxes[1]!)
+    expect(screen.getByTestId('vodx-flag-summary').textContent).toBe('2 flagged words, 2 muted.')
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    const ws = sent(calls, '/api/vodexport/start')!.word_spans as number[][]
+    expect(ws.map(x => Math.round(x[0]!))).toEqual([100, 900])
+  })
+
+  it('checks for flagged words', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [{ ...VIDEO, flags: null }] }))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    fireEvent.click(await screen.findByTestId('vodx-check-words'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/words')).toMatchObject({ pid: 'p1' }))
+  })
+
+  it('captions: the look is sent with the export, and with captions off nothing about listening is shown', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    const caps = await screen.findByTestId('vodx-captions')
+    fireEvent.click(within(caps).getByRole('radio', { name: 'Boxed' }))
+    fireEvent.click(within(caps).getByRole('radio', { name: 'Top' }))
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    expect(sent(calls, '/api/vodexport/start')).toMatchObject({ captions: 'burn', style: { caption_style: 'box', caption_pos: 'top' } })
+    fireEvent.click(within(caps).getByRole('radio', { name: 'Off' }))
+    expect(screen.queryByTestId('vodx-style')).toBeNull()
+    expect(within(caps).queryByText(/listened to first/)).toBeNull()
+    expect(screen.getByTestId('vodx-speed').textContent).toMatch(/copied as it is/)
+  })
+
+  it('the exact preview starts from where the player is', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: '1:00 to 4:00 (3:00)' }))
+    fireEvent.click(screen.getByTestId('vodx-exact-btn'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/preview')).toMatchObject({ pid: 'p1', at: 60, music: [[60, 240, 'voice'], [3600, 3660, 'mute']] }))
+  })
+
+  it('without the speech model, exports without captions instead of failing', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, whisper: false, videos: [{ ...VIDEO, flags: null }] }))
     render(<ToastProvider><VodExportView /></ToastProvider>)
     expect((await screen.findAllByText(/Needs the speech model/)).length).toBe(2)
     expect(screen.queryByRole('radiogroup', { name: 'Captions' })).toBeNull()
     fireEvent.click(screen.getByTestId('vodx-export'))
-    await waitFor(() => expect(calls.some(([p]) => p === '/api/vodexport/start')).toBe(true))
-    expect(calls.find(([p]) => p === '/api/vodexport/start')![1]).toMatchObject({ captions: 'off', words: 'off' })
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toMatchObject({ captions: 'off', word_spans: [] }))
   })
 
-  it('a new scan starts the ticks over', async () => {
+  it('after an export, uploads to YouTube Studio or opens it', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [{ ...VIDEO, exported: true }] }))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    fireEvent.click(await screen.findByTestId('vodx-yt-upload'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/youtube')).toMatchObject({ pid: 'p1', title: 'Friday stream', auto: true }))
+    fireEvent.click(screen.getByTestId('vodx-yt-open'))
+    await waitFor(() => expect(calls.filter(([p]) => p === '/api/vodexport/youtube').at(-1)?.[1]).toMatchObject({ auto: false }))
+  })
+
+  it('a new scan starts the choices over', async () => {
     let view: object = VIEW
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(view), { status: 200 })))
+    vi.stubGlobal('fetch', vi.fn(async (p: string) => new Response(JSON.stringify(p === '/api/vodexport' ? view : { words: [], covered: [] }), { status: 200 })))
     const { rerender } = render(<ToastProvider><VodExportView /></ToastProvider>)
-    fireEvent.click((await screen.findAllByTestId('vodx-span'))[0]!)
+    await screen.findByTestId('vodx-music-summary')
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Music at 1:00' })).getByRole('radio', { name: 'Keep' }))
     expect(screen.getByTestId('vodx-music-summary').textContent).toMatch(/1 muted, 1 kept/)
-    view = { ...VIEW, videos: [{ ...VIEW.videos[0], scan: { ...VIEW.videos[0]!.scan, at: 2 } }] }
+    view = { ...VIEW, videos: [{ ...VIDEO, scan: { ...VIDEO.scan, at: 2 } }] }
     fireEvent(document, new Event('visibilitychange'))
     rerender(<ToastProvider><VodExportView /></ToastProvider>)
-    await waitFor(() => expect(screen.getByTestId('vodx-music-summary').textContent).toMatch(/All muted/), { timeout: 4000 })
+    await waitFor(() => expect(screen.getByTestId('vodx-music-summary').textContent).toMatch(/1 with music removed, 1 muted/), { timeout: 4000 })
   })
 })
