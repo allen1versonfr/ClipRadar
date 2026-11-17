@@ -123,6 +123,18 @@ describe('Export VOD', () => {
     await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toMatchObject({ captions: 'off', word_spans: [] }))
   })
 
+  it('a flagged words check already made can be used without the speech model', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, whisper: false }))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    expect((await screen.findByTestId('vodx-flag-summary')).textContent).toBe('2 flagged words, 1 muted.')
+    expect(screen.getByTestId('vodx-flags-no-whisper')).toBeTruthy()
+    expect(screen.queryByTestId('vodx-check-words')).toBeNull()
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    expect((sent(calls, '/api/vodexport/start')!.word_spans as number[][]).length).toBe(1)
+  })
+
   it('after an export, uploads to YouTube Studio or opens it', async () => {
     const calls: Array<[string, unknown]> = []
     vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [{ ...VIDEO, exported: true }] }))

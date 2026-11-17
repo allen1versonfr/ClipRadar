@@ -63,7 +63,7 @@ if not (server.WEB_DIR / "index.html").is_file():
 
 from browser import launch  # noqa: E402
 
-engine.whisper_available = lambda: False          # captions and word muting aren't what this checks
+engine.whisper_available = lambda: False          # captions aren't what this checks; the flagged words check is put in
 srv, url = server.start(7994)
 
 
@@ -87,7 +87,7 @@ while time.time() < deadline:
     time.sleep(0.5)
 check("the video is analysed", j["status"] == "done", j.get("error"))
 pid = j["result"]["pid"]
-server.projects[pid]["copyright"] = {"spans": [{"start": 5.0, "end": 15.0, "confidence": 0.92, "speech": 0.5},
+server.projects[pid]["copyright"] = {"spans": [{"start": 5.0, "end": 15.0, "confidence": 0.92, "speech": 0.0},
                                                {"start": 40.0, "end": 50.0, "confidence": 0.55, "speech": 0.0}], "at": 1.0, "how": "test"}
 server.projects[pid]["vod_flags"] = {"flags": [{"id": "x", "start": 20.0, "end": 20.4, "text": "f***", "label": "Swearing",
                                                 "cat": "profanity", "context": "oh f*** no", "on": True}],

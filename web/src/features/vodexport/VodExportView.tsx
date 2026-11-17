@@ -233,8 +233,10 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
                                  onClick={() => void start('/api/vodexport/words', { pid: v.pid, whisper_model: model, language }, 'Listening for flagged words…')}>
                 {v.flags ? 'Check again' : 'Check for flagged words'}</button>}
         </header>
-        {!canHear && noSpeech}
-        {canHear && <>
+        {!canHear && !(v.flags && v.has_audio) && noSpeech}
+        {/* a check already made can be used without the speech model: only checking again needs it */}
+        {(canHear || (v.flags && v.has_audio)) && <>
+          {!canHear && <p className="hint" data-testid="vodx-flags-no-whisper">Checking again needs the speech model (Whisper). Get it in {toolsLink}.</p>}
           <p className="muted">Listens to the whole video and lists what the content check flags, using what counts in{' '}
             <a href="#settings/safety">Settings › Content check</a>. Ticked words are {c.words === 'bleep' ? 'bleeped' : 'silenced'} and
             hidden in the captions.</p>
