@@ -111,8 +111,16 @@ def line_words(line: dict) -> list:
     words = line["text"].split()
     if not words:
         return []
-    # TODO(human)
-    return []
+    # time shared out by length, so a long word stays up longer than "a"; the +1 gives short words a fair beat
+    a, b = float(line["start"]), float(line["end"])
+    weights = [len(w) + 1 for w in words]
+    total, at, out = sum(weights), a, []
+    for w, k in zip(words, weights):
+        end = at + (b - a) * k / total
+        out.append({"start": round(at, 3), "end": round(end, 3), "word": w})
+        at = end
+    out[-1]["end"] = round(b, 3)        # rounding never leaves the last word short of the line's end
+    return out
 
 
 def caption_words(seg: dict) -> Optional[list]:
