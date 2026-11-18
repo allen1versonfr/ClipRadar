@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [4.53.0] - 2026-11-18
+
+The clips viewers made of a Twitch VOD now count where they really happened, and more of them are found. Turning Press Post for me on or off can't fail any more. Under the hood, the two biggest files are split into smaller ones with nothing working differently, and a failed upload now records what TikTok's or YouTube's page looked like.
+
 ### Changed
 - **The YouTube Studio upload moved out of studio_auto.py into its own file, with no changes** (`src/youtube_auto.py`: `upload_youtube`, the title YouTube takes, and how YouTube Studio's dialog is recognised). It uses the browser window, tabs and failure fingerprint it shares with TikTok's upload from `studio_auto.py`, so a change to one site's page can't break the other's code. `studio_auto.upload_youtube` still works.
 - **Previews moved out of server.py into their own file, with no changes** (`src/previews.py`: the preview copy of a video, Auto-frame's pick, a clip's preview extras and the exact preview render). That completes the split of `server.py`, which went from 3,160 lines to 1,652: the state the app shares, opening a video, project helpers, and starting the server.
