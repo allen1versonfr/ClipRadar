@@ -155,6 +155,29 @@ check("a metric no VOD has: None", rm.summarize([{}], ["recall@10"])["recall@10"
 d = rm.diff({"recall@10": {"mean": 0.6}, "x": {"mean": 1}}, {"recall@10": {"mean": 0.5}})
 check("diff: new minus base, None where one side lacks it", near(d["recall@10"], 0.1) and d["x"] is None, d)
 
+# ---------------------------------------------------------------- the rule for ranking changes
+def ev(w, pk, cats):
+    """An evaluation as eval_ranking.evaluate gives it: overall weighted recall, payoff kept, and per category (mean, VODs)."""
+    m = lambda x, n=19: {"mean": x, "n": n}  # noqa: E731
+    return {"summary": {"wrecall@10": m(w), "payoff_kept": m(pk)},
+            "by_category": {c: {"wrecall@10": m(x, n), "payoff_kept": m(pk, n)} for c, (x, n) in cats.items()}}
+
+
+base = ev(0.27, 0.72, {"chatting": (0.20, 11), "variety": (0.56, 4), "events": (0.42, 1)})
+r = rm.rule_check(ev(0.29, 0.72, {"chatting": (0.22, 11), "variety": (0.55, 4), "events": (0.42, 1)}), base)
+check("better overall, no category down much: passes", r["passes"] and not r["fails"], r)
+r = rm.rule_check(ev(0.245, 0.72, {"chatting": (0.20, 11), "variety": (0.56, 4), "events": (0.42, 1)}), base)
+check("weighted recall@10 down 0.025: fails", not r["passes"] and "weighted recall@10 dropped 0.025" in r["fails"][0], r["fails"])
+r = rm.rule_check(ev(0.25, 0.72, {"chatting": (0.20, 11), "variety": (0.56, 4), "events": (0.42, 1)}), base)
+check("down exactly 0.02: still passes", r["passes"], r["fails"])
+r = rm.rule_check(ev(0.30, 0.72, {"chatting": (0.26, 11), "variety": (0.49, 4), "events": (0.42, 1)}), base)
+check("better overall but one category down 0.07: fails", not r["passes"] and any("variety" in f for f in r["fails"]), r["fails"])
+r = rm.rule_check(ev(0.30, 0.72, {"chatting": (0.22, 11), "variety": (0.56, 4), "events": (0.10, 1)}), base)
+check("a category of one VOD isn't judged", r["passes"] and not any("events" in c[0] for c in r["checks"]), r)
+r = rm.rule_check(ev(0.30, 0.69, {"chatting": (0.22, 11), "variety": (0.56, 4), "events": (0.42, 1)}), base)
+check("payoff kept down 0.03: fails", not r["passes"] and "payoff kept" in r["fails"][0], r["fails"])
+check("nothing to compare: doesn't pass", not rm.rule_check({}, {})["passes"])
+
 # ---------------------------------------------------------------- eval_ranking.py score on a synthetic VOD
 # Ten minutes of quiet noise with four loud stretches that chat laughs at, which viewers clipped (two people each),
 # and one quiet stretch three people clipped with 5,000 views each, where nothing happens. If the viewers' clips
@@ -246,6 +269,7 @@ else:
     check("the same src/ on both sides: no change", d and all(v is None or abs(v) < 1e-9 for v in d.values()), d)
     md = open(os.path.join(out, "report.md"), encoding="utf-8").read() if run.returncode == 0 else ""
     check("the report has the A/B table", "## Against `HEAD`" in md and "baseline → new" in md)
+    check("and the rule's verdict: the same src/ passes", "The rule for ranking changes (docs/plans/README.md): passes" in md, md[:600])
     shutil.rmtree(tmp, ignore_errors=True)
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
