@@ -36,6 +36,11 @@ Clip Radar 5.0, in progress: a turn toward YouTube, now that TikTok is in a good
   are.
 - **Segments has no length limit.** An edit was capped at 30 minutes; it can now be as long as you like.
 
+### Fixed
+- **Changing a folder in Settings › Storage could fail on Windows** with "Access is denied" when the settings file
+  was being read at the same moment. It's saved the way the app's other files are now (atomically, with a temporary
+  file of its own, tried again while Windows holds it), and a read that meets a save tries again.
+
 ### Tests
 - `tests/test_vodexport.py`: the song eraser with a stand-in model (sound with no music comes through as it was,
   stereo stays stereo, all-song is erased, strength pushes an unsure song down further), an export erasing one

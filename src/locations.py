@@ -44,13 +44,26 @@ def defaults() -> dict:
             "temp": str(Path(paths.DATA_DIR) / "temp"), "logs": str(paths.DATA_DIR)}
 
 
+def _read() -> Optional[dict]:
+    """locations.json, or None. Windows refuses a read for a moment while a save replaces the file, so a refused
+    read is tried again rather than taken for "nothing chosen" (5.0, as studio.json in 4.53)."""
+    for i in range(5):
+        try:
+            with open(_FILE(), encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else None
+        except PermissionError:
+            if i == 4:
+                return None
+            time.sleep(0.05 * (i + 1))
+        except (OSError, ValueError):
+            return None
+    return None
+
+
 def load_raw() -> dict:
-    try:
-        with open(_FILE(), encoding="utf-8") as f:
-            d = json.load(f)
-        return {k: str(d.get(k) or "") for k in KEYS if isinstance(d, dict)}
-    except (OSError, ValueError):
-        return {}
+    d = _read()
+    return {k: str(d.get(k) or "") for k in KEYS} if d else {}
 
 
 def _drive_present(p: str) -> bool:
@@ -137,21 +150,15 @@ def save(patch: dict) -> dict:
     with _lock:
         try:
             os.makedirs(str(paths.DATA_DIR), exist_ok=True)
-            tmp = _FILE() + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(dict(cur, _history=cur.get("_history", _history())), f, indent=1)
-            os.replace(tmp, _FILE())
+            import persist        # atomic, a temporary file of its own, and retried while Windows has it open
+            persist.write_json(_FILE(), dict(cur, _history=cur.get("_history", _history())), indent=1)
         except OSError as e:
             return {"ok": False, "errors": dict(errors, _file=str(e))}
     return {"ok": not errors, "errors": errors}
 
 
 def _history() -> list:
-    try:
-        with open(_FILE(), encoding="utf-8") as f:
-            return [h for h in (json.load(f).get("_history") or []) if isinstance(h, str)]
-    except (OSError, ValueError, AttributeError):
-        return []
+    return [h for h in ((_read() or {}).get("_history") or []) if isinstance(h, str)]
 
 
 def project_roots() -> list:

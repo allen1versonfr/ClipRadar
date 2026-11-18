@@ -131,6 +131,27 @@ vv = {x["key"]: x for x in L.view(sizes=False)["locations"]}
 check("Storage shows where they are even when not chosen", vv["vods"]["path"] == L.vods_dir() and not vv["vods"]["set"]
       and vv["segments"]["path"] == L.segments_dir(), vv["vods"])
 
+# a read while a save replaces the file (Windows refuses it for a moment) is tried again, not taken as nothing chosen
+L.save({"vods": mine})
+import builtins  # noqa: E402
+real_open, refused = builtins.open, [0]
+
+
+def busy_open(f, *a, **k):
+    if str(f).endswith("locations.json") and refused[0] < 2:
+        refused[0] += 1
+        raise PermissionError(13, "Access is denied")
+    return real_open(f, *a, **k)
+
+
+builtins.open = busy_open
+try:
+    got = L.vods_dir()
+finally:
+    builtins.open = real_open
+check("a read refused for a moment is tried again", got == mine and refused[0] == 2, (got, refused))
+L.save({"vods": ""})
+
 v = L.view(sizes=True)
 check("storage view lists every folder with free space", [x["key"] for x in v["locations"]] == list(L.KEYS)
       and all(x["free"] for x in v["locations"]))
