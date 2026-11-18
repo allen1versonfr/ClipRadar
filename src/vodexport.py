@@ -41,6 +41,7 @@ import procjob
 import safety
 import studio
 import studio_auto
+import youtube_auto
 import ytextra
 import voicekeep
 import listening
@@ -689,7 +690,7 @@ def to_youtube(S, pid: str, body: dict) -> dict:
     path = pr.get("vod_out") or ""
     if not path or not os.path.isfile(path):
         raise RuntimeError("Export the video first: there's no exported file to upload yet.")
-    title = studio_auto.youtube_title(str(body.get("title") or pr.get("title") or ""))
+    title = youtube_auto.youtube_title(str(body.get("title") or pr.get("title") or ""))
     desc = str(body.get("description") or "")[:5000]
     if not body.get("auto"):
         shown = studio.reveal(path)
@@ -708,7 +709,7 @@ def to_youtube(S, pid: str, body: dict) -> dict:
 
     def go():
         try:
-            r = studio_auto.upload_youtube(path, title, desc, YT_UPLOAD_URL, S.job_step(job), S.job_check(job))
+            r = youtube_auto.upload_youtube(path, title, desc, YT_UPLOAD_URL, S.job_step(job), S.job_check(job))
         except studio_auto.StudioError as e:
             outcome.log("upload", "failed", site="youtube", step=e.step)
             studio.reveal(path)                 # finish it by hand: the file, shown

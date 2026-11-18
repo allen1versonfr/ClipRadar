@@ -104,7 +104,11 @@ SERVER_MOVED = {
                  "_framing_for", "PREVIEW_KEYS", "_preview_cache", "_preview_lock", "PREVIEW_CACHE_MAX",
                  "preview_extras", "_previews", "start_preview_render"],
 }
-HUBS = {"engine": MOVED, "server": SERVER_MOVED}
+# and for studio_auto.py (phase 6): YouTube Studio's upload, which uses studio_auto's browser plumbing at call time
+STUDIO_MOVED = {
+    "youtube_auto": ["YT_TITLE_MAX", "YT", "youtube_title", "_yt_tab", "_yt_put", "upload_youtube"],
+}
+HUBS = {"engine": MOVED, "server": SERVER_MOVED, "studio_auto": STUDIO_MOVED}
 
 failures = []
 
@@ -161,15 +165,15 @@ for hub, moved in HUBS.items():
                                cwd=os.path.join(ROOT, "src"), capture_output=True, text=True, timeout=180)
         check(f"{module} imports on its own, before {hub}", alone.returncode == 0, alone.stderr[-600:])
         alt = "|".join(re.escape(n) for n in names)
-        who = "engine" if hub == "engine" else "(?:server|S)"
+        who = {"engine": "engine", "server": "(?:server|S)"}.get(hub, hub)
         patch = re.compile(rf"\b{who}\.({alt})\s*=(?!=)|setattr\(\s*{who}\s*,\s*['\"]({alt})['\"]")
         found = [f"{path}:{text.count(chr(10), 0, m.start()) + 1}: {m.group(0)}"
                  for path, text in texts.items() for m in patch.finditer(text)]
         check(f"nothing replaces one of {module}'s names through {hub} (patch {module}.<name> instead)", not found,
               "; ".join(found))
-        if hub == "server":
-            copies = re.findall(r"^\s*from server import .*$", texts[os.path.join("src", module + ".py")], re.M)
-            check(f"{module} reads server's state as S.<name>, never a copy (from server import ...)", not copies, copies)
+        if hub != "engine":
+            copies = re.findall(rf"^\s*from {hub} import .*$", texts[os.path.join("src", module + ".py")], re.M)
+            check(f"{module} reads {hub}'s names at call time, never a copy (from {hub} import ...)", not copies, copies)
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

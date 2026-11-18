@@ -160,6 +160,8 @@ src/
   learning.py     learns per streamer from what you keep, skip and post
   twitchauth.py   Twitch sign-in for ad-free live recording
   studio.py       TikTok Studio handoff (caption, file, upload page)
+  studio_auto.py  uploading to TikTok Studio in Clip Radar's own browser window, and the page fingerprint
+  youtube_auto.py uploading an exported VOD to YouTube Studio in that window
   watermarks.py   watermark layers, and watermark files to share and import
   campaigns.py    clipping campaigns: post rules, length limits, own watermark, Discord channel
   discordhook.py  sending clips to a Discord webhook, downloading shared files from a link

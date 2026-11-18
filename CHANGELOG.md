@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Changed
+- **The YouTube Studio upload moved out of studio_auto.py into its own file, with no changes** (`src/youtube_auto.py`: `upload_youtube`, the title YouTube takes, and how YouTube Studio's dialog is recognised). It uses the browser window, tabs and failure fingerprint it shares with TikTok's upload from `studio_auto.py`, so a change to one site's page can't break the other's code. `studio_auto.upload_youtube` still works.
 - **Previews moved out of server.py into their own file, with no changes** (`src/previews.py`: the preview copy of a video, Auto-frame's pick, a clip's preview extras and the exact preview render). That completes the split of `server.py`, which went from 3,160 lines to 1,652: the state the app shares, opening a video, project helpers, and starting the server.
 - **Live mode's glue moved out of server.py into its own file, with no changes** (`src/live_glue.py`: starting a live session, turning its moments into clips, Home › Sources, and the clip hotkey). `server.py` is now 1,818 lines.
 - **Listening moved out of server.py into its own file, with no changes** (`src/listening.py`: the transcripts of a video, `ensure_words`, listening to clips for titles and captions, and the deep scan). `server.py` is now 2,041 lines.
@@ -25,6 +26,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Tests
 - `tests/test_engine_split.py` (new): `engine` re-exports every moved name as the same object, `engine.py` no longer defines them and imports the new file at its top level (so the app build finds it). No test, script or module replaces a moved name through `engine`, because a fake put there would no longer reach the code that calls it.
+- `tests/test_youtube_auto.py` now tests `youtube_auto` directly, and `tests/test_engine_split.py` checks the YouTube names the same way.
 - `tests/test_preview_extras.py`: the Auto-frame stand-in now replaces `previews._framing_for`.
 - Tests that stand in for starting a live session or a live moment's render (`test_autopilot`, `test_autopilot_pin`) now replace `live_glue.<name>`.
 - Tests that stand in for hearing words or saving transcripts (`test_deepscan`, `test_captions_ahead`, `test_retry`, `test_timing`, `test_vodexport`, `test_segments`, `test_gpu_choice`, `test_autopilot_pin`, `test_web_review`, `test_web_a11y`, and `scripts/readme_shots.py`) now replace `listening.<name>`.
