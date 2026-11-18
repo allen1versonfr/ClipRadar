@@ -151,7 +151,7 @@ def find(an: analysis.Analysis, words: list, taken: list, count: Optional[int] =
             break
         a, e = int(s["start"]), int(s["end"])
         lo, hi = max(0, a - 2), min(n, e + 7)
-        if lo >= hi or float(an.score[lo:hi].max()) >= engine.GOOD:
+        if lo >= hi or float(an.score[lo:hi].max()) >= analysis.GOOD:
             continue                     # the hype finder already sees this stretch
         idx = s["i"]
         # setup: earlier sentences that run into this one (up to ~15 s)
@@ -170,11 +170,11 @@ def find(an: analysis.Analysis, words: list, taken: list, count: Optional[int] =
             while k < min(n, e + 8) and laugh[k] > 0.08:
                 k += 1
             en = max(en, k + 1.0)
-        if en - st < engine.MIN_LEN:
-            st = max(0.0, en - engine.MIN_LEN)
+        if en - st < analysis.MIN_LEN:
+            st = max(0.0, en - analysis.MIN_LEN)
         if en - st > 60:
             st = en - 60
-        st, en = analysis.refine_with_words(st, en, s["start"], words, engine.MIN_LEN, 60.0)
+        st, en = analysis.refine_with_words(st, en, s["start"], words, analysis.MIN_LEN, 60.0)
         en = min(en, an.duration)
         if any(st < b - 2 and en > a2 + 2 for a2, b in used):
             continue

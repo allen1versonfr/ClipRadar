@@ -266,6 +266,7 @@ from analysis import (  # noqa: E402,F401
     NO_CHAT_SCALE, pick_clips, REACT, REACT_PHRASES, _react_points, reaction_kind, _reason, refine_with_words,
     _robust_z, _rolling, _save_analysis, score_signals, smart_bounds, _snap, standout_bar, STANDOUT_GAP, strength,
     _STRETCH, STRETCHED, _TOKEN, TOKEN_REPEAT, _UHH, WEAK_QUALITY,
+    MIN_LEN, MAX_LEN, STRONG, GOOD,
 )
 
 
@@ -293,4 +294,5 @@ from render import (  # noqa: E402,F401
     RENDER_THREADS, RenderOpts, SEEN_LUMA, SEEN_SHARE, SHAPES, _shifted, SPANS_INLINE, SPEEDS, _start_lumas,
     text_width, title_border, TITLE_DEFAULT_Y, TITLE_GROW, TITLE_STYLES, TITLE_TOP, title_top, TITLE_YELLOW,
     video_encoder, watermark_anchor, watermark_window, _with_rate, _wm_alpha, WM_POSITIONS, write_srt,
+    W, H, PUNCH_IN, PUNCH_HOLD, PUNCH_OUT, WM_TOP, WM_BOTTOM,
 )

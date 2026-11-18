@@ -299,7 +299,7 @@ def selftest(out_json: str, media: str = "") -> int:
                 f"{engine.fmt_ts(clips[0].start)}-{engine.fmt_ts(clips[0].end)} ({clips[0].reason})" if clips else "no clips")
             auto = analysis.pick_clips(an, count=0, length=0, chat=chat)
             est = analysis.estimate(an)
-            rec("smart clip length", bool(auto) and all(engine.MIN_LEN - 0.5 <= c.end - c.start <= engine.MAX_LEN + 0.5
+            rec("smart clip length", bool(auto) and all(analysis.MIN_LEN - 0.5 <= c.end - c.start <= analysis.MAX_LEN + 0.5
                                                         or c.end - c.start >= info["duration"] - 1 for c in auto),
                 f"{[round(c.end - c.start, 1) for c in auto]} s; estimate {est}")
             heard, heard_words, rlog = [], [], []
