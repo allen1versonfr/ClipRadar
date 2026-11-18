@@ -496,7 +496,8 @@ def write_manifest(path: str, entries: list, built: dict):
 
 
 def coverage(asc: list, desc: list, length: float, page: int = PAGE) -> list:
-    """Where in the VOD every clip is known, as [[from, to], ...] (clip start times). Twitch gives an anonymous client
+    """Where in the VOD every clip is known, as [[from, to], ...]: every clip that ends in there (videoOffsetSeconds is
+    a clip's end), so every clip wholly inside a stretch within one of them. Twitch gives an anonymous client
     one page of a VOD's clips, in the order they come in the VOD, from the start (ASC) or from the end (DESC): all of
     them when there are fewer than a page, or when the two pages meet; otherwise the start and the end, not the middle."""
     length = float(length)
@@ -526,6 +527,9 @@ def vod_clips(vod: str):
             return None
         length = int(v.get("lengthSeconds") or length)
         pages[order] = [(e or {}).get("node") or {} for e in v["clips"]["edges"]]
+    # where a clip is in the VOD: Twitch's videoOffsetSeconds is where it ENDS (the press of the clip button), not
+    # where it starts. Measured 2026-11-17 by matching the sound of 22 clips from 5 channels against their VODs: every
+    # one started durationSeconds before videoOffsetSeconds (within 2 s, one 6 s). twitchclips.parse takes it as the start
     clips, seen = [], set()
     for n in pages["ASC"] + pages["DESC"]:
         off, dur = n.get("videoOffsetSeconds"), n.get("durationSeconds")
@@ -533,10 +537,10 @@ def vod_clips(vod: str):
                 or not isinstance(off, (int, float)) or off < 0 or not isinstance(dur, (int, float)) or dur <= 0:
             continue
         seen.add(n["id"])
-        clips.append({"id": n["id"], "start": float(off), "end": float(off) + float(dur), "views": int(n.get("viewCount") or 0),
+        clips.append({"id": n["id"], "start": max(0.0, float(off) - float(dur)), "end": float(off), "views": int(n.get("viewCount") or 0),
                       "title": str(n.get("title") or "")[:140], "creator": ((n.get("curator") or {}).get("login")) or ""})
     clips.sort(key=lambda c: (c["start"], c["id"]))
-    return {"vod": str(vod), "fetched": time.time(), "length": length, "source": "video.clips",
+    return {"vod": str(vod), "fetched": time.time(), "length": length, "source": "video.clips", "offset_is": "end",
             "complete": coverage([n.get("videoOffsetSeconds") for n in pages["ASC"]],
                                  [n.get("videoOffsetSeconds") for n in pages["DESC"]], length),
             "clips": clips}
@@ -563,6 +567,17 @@ def stretch(vod: str, length: int, seed: int = SEED, complete=None):
 
 def inside(a: float, b: float, complete: list) -> bool:
     return any(lo <= a and b <= hi for lo, hi in complete or [])
+
+
+def video_ok(path: str, want: float) -> bool:
+    """A downloaded stretch with sound, nearly as long as asked for (a section of a VOD Twitch muted parts of comes
+    down as an empty 262-byte file)."""
+    import engine
+    try:
+        info = engine.probe(path)
+    except Exception:
+        return False
+    return bool(info.get("has_audio")) and float(info.get("duration") or 0) >= 0.95 * want - 5
 
 
 def freeze_clips(vc: dict, a: int, b: int) -> dict:
@@ -631,11 +646,20 @@ def build_one(e: dict, corpus: str, ytdlp: str, seed: int = SEED, log=print) -> 
         for n, (svc, _kind) in es.by_name.items():
             names.setdefault(svc, []).append(n)
         _write(epath, names)
-    tc.save_chat(vod, a, b, os.path.join(wd, "chat.json"), login, game)
+    # the video before the chat: a VOD that can't be downloaded says so in seconds, before minutes of chat
+    video = os.path.join(wd, "video.mp4")
     try:
-        tc.download_audio(vod, a, b, os.path.join(wd, "video.mp4"), ytdlp)
+        tc.download_audio(vod, a, b, video, ytdlp)
     except (subprocess.SubprocessError, OSError, IndexError) as ex:
         return {"vod": vod, "error": f"couldn't download the video ({str(ex)[:120]}); run build again to retry"}
+    if not video_ok(video, b - a):
+        try:
+            os.remove(video)
+        except OSError:
+            pass
+        return {"vod": vod, "error": "the video came down empty or short. A VOD with parts Twitch muted for music can't be cut "
+                                     "this way (yt-dlp's sections read nothing from its playlist), nor a subscriber-only one"}
+    tc.save_chat(vod, a, b, os.path.join(wd, "chat.json"), login, game)
     cat = e["tags"].get("cat") or game
     engine._save_meta(wd, title=v.get("title", ""), streamer=login, streamer_display=(v.get("owner") or {}).get("displayName", ""),
                       game=game, platform="twitch", source=f"https://www.twitch.tv/videos/{vod}", start=a, end=b, vod=vod,

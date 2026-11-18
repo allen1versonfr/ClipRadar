@@ -124,8 +124,8 @@ tc.gql = lambda q, tries=4: (asked.append(q), {"data": {"video": {"lengthSeconds
 vc = er.vod_clips("777")
 check("both ends of the VOD's own list asked for", len(asked) == 2 and "sort:ASC" in asked[0] and "sort:DESC" in asked[1]
       and 'video(id:"777")' in asked[0], asked)
-check("each clip once, in order, from this VOD only, with a place in it",
-      [(c["id"], c["start"], c["end"]) for c in vc["clips"]] == [("c1", 4000.0, 4030.0), ("c2", 4001.0, 4029.0), ("c3", 5000.0, 5030.0)], vc)
+check("each clip once, in order, from this VOD only, ending where Twitch's offset says (it's the end, not the start)",
+      [(c["id"], c["start"], c["end"]) for c in vc["clips"]] == [("c1", 3970.0, 4000.0), ("c2", 3973.0, 4001.0), ("c3", 4970.0, 5000.0)], vc)
 check("with views, title and creator", (vc["clips"][0]["views"], vc["clips"][0]["title"], vc["clips"][0]["creator"], vc["clips"][2]["creator"])
       == (900, "big one", "ann", ""), vc["clips"])
 check("and where the list is complete", vc["complete"] == [[0.0, 9000.0]] and vc["length"] == 9000, vc)
@@ -163,7 +163,7 @@ def fake_gql(q, tries=4):
         return {"data": {"video": {"lengthSeconds": 30000, "clips": {"edges": edges}}}}
     edges = [node("b", at(-600), 30, 5, "before", "zed"), node("c1", at(400), 30, 900, "big one", "ann"),
              node("c2", at(401), 28, 40, "big one", "bob"), node("c3", at(1400), 30, 3, "no curator"),
-             node("e", B - 10, 30, 3, "across the end", "eve")]
+             node("e", B + 20, 30, 3, "across the end", "eve")]
     return {"data": {"video": {"lengthSeconds": 30000, "clips": {"edges": edges}}}}
 
 
@@ -183,6 +183,8 @@ def fake_download(vod, a, b, out, ytdlp):
 
 A, B = er.stretch("777", 30000)
 tc.video_info, tc.chat, tc.download_audio, tc.gql = fake_info, fake_chat, fake_download, fake_gql
+real_video_ok = er.video_ok
+er.video_ok = lambda path, want: os.path.getsize(path) > 10000
 twitchclips.fetch = lambda *a, **k: (_ for _ in ()).throw(AssertionError("the channel's lists aren't the answer key"))
 emotes.for_channel = lambda twitch_id="", login="", log=None, refresh=False: emotes.EmoteSet({"7tv": ["KEKW", "xdd"], "bttv": ["catJAM"]})
 corpus = os.path.join(tmp, "corpus")
@@ -201,14 +203,15 @@ tc.gql = lambda q, tries=4: (_ for _ in ()).throw(AssertionError("asked again"))
 r = er.build_one(entry, corpus, "yt-dlp", log=lambda m: None)
 final = os.path.join(corpus, f"somebody_777_{A}")
 check("run again: built, without asking Twitch for the clips again", not r.get("error") and os.path.isdir(final) and not os.path.exists(part), r)
-check("nor the chat, which was saved the first time", calls["chat"] == 1, calls)
+check("the chat is read once the video is there", calls["chat"] == 1, calls)
 check("a project score uses (the frozen lists folder isn't one)", er.projects(corpus) == [final])
 meta = json.load(open(os.path.join(final, "meta.json"), encoding="utf-8"))
 check("meta: the stretch, the VOD, the category and holdout",
       (meta["start"], meta["end"], meta["vod"], meta["category"], meta["holdout"], meta["platform"]) == (A, B, "777", "irl", True, "twitch"), meta)
 frozen = json.load(open(os.path.join(final, "twitch_clips.json"), encoding="utf-8"))
-check("the frozen clips: times from the stretch's start, with creators",
-      [(c["start"], c["creator"]) for c in frozen["clips"]] == [(400.0, "ann"), (401.0, "bob"), (1400.0, "")], frozen["clips"])
+check("the frozen clips: times from the stretch's start, each ending at Twitch's offset, with creators",
+      [(c["start"], c["end"], c["creator"]) for c in frozen["clips"]] == [(370.0, 400.0, "ann"), (373.0, 401.0, "bob"), (1370.0, 1400.0, "")],
+      frozen["clips"])
 check("the channel's emotes frozen, by service", json.load(open(os.path.join(final, "emotes.json"))) == {"7tv": ["KEKW", "xdd"], "bttv": ["catJAM"]})
 chat = json.load(open(os.path.join(final, "chat.json"), encoding="utf-8"))
 check("chat as the app reads it, times from the stretch's start", chat["comments"][0]["content_offset_seconds"] == 10
@@ -221,6 +224,19 @@ r = er.build_one(entry, corpus, "yt-dlp", log=lambda m: None)
 check("a third run leaves a built project alone", r.get("skipped") and calls["download"] == 2, (r, calls))
 
 tc.gql = fake_gql
+calls["chat"] = 0
+small = [True]
+real_download = tc.download_audio
+tc.download_audio = lambda vod, a, b, out, ytdlp: open(out, "wb").write(b"\0" * (262 if small[0] else 20000))
+r = er.build_one(er.parse_manifest("990")[0], corpus, "yt-dlp", log=lambda m: None)
+check("a video that comes down empty (a VOD muted for music): an error, no chat read, the file removed",
+      "empty or short" in r.get("error", "") and calls["chat"] == 0
+      and not any(f.startswith("somebody_990") and os.path.exists(os.path.join(corpus, f, "video.mp4")) for f in os.listdir(corpus)), r)
+tc.download_audio = real_download
+junk = os.path.join(tmp, "junk.mp4")
+with open(junk, "wb") as f:
+    f.write(b"\0" * 262)
+check("video_ok: 262 bytes of nothing isn't a video", real_video_ok(junk, 60) is False)
 tc.video_info = lambda vod: {}
 check("a VOD Twitch doesn't know: an error, nothing made",
       "not found" in er.build_one(er.parse_manifest("888")[0], corpus, "yt-dlp", log=lambda m: None).get("error", ""))

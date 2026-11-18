@@ -10,45 +10,47 @@
 #   cat=         chatting, variety (games other than shooters), irl, fps, events. From the VOD's own category.
 #   size=        small (under 2,000 watching), medium (2,000 to 15,000), big (over 15,000), live on 2026-11-17.
 #   lang=        the stream's language.
-#   holdout      a third of each category, picked at random (seed 97). score leaves these out unless --holdout:
+#   holdout      a third of each category (at least one left in), picked at random (seed 97). score leaves these out unless --holdout:
 #                look at them only when a change is otherwise ready, so changes aren't tuned to the VODs they're
 #                checked on (section 8).
 #
 # Chosen 2026-11-17 from 1,523 public VODs surveyed across categories and languages: these are VODs that have at
 # least 8 moments two or more people clipped (or 500+ views) in their stretch, at most two per channel. That rule
-# leaves out most small streams and most shooter VODs, so they're under-represented: few people clip them. The
-# clips come from each VOD's own list (both ends of it, 100 each), not the channel's most viewed clips that the app
-# reads (twitchclips.fetch), which on most VODs is a small part of them.
+# leaves out most small streams and most shooter VODs, so they're under-represented: few people clip them. Also left
+# out: subscriber-only VODs, and VODs with parts Twitch muted for music (yt-dlp's sections come down empty from
+# those), which keeps out music-heavy streams. 8 of the first 30 picked were one or the other, so there's 1 shooter
+# VOD and 1 French one. The clips come from each VOD's own list (both ends of it, 100 each), not the channel's most
+# viewed clips that the app reads (twitchclips.fetch), which on most VODs is a small part of them. A clip ends at
+# Twitch's videoOffsetSeconds; it doesn't start there (measured on 22 clips, see eval_ranking.vod_clips).
 #
 # Twitch deletes VODs after 7 to 60 days, and with them the video and chat (not the clips). Build soon after a change
 # here; a VOD that's gone can't be built again, so keep the CORPUS folder.
-2929115707 cat=chatting size=big lang=en  # stableronaldo
+2929115707 cat=chatting size=big lang=en holdout  # stableronaldo
+2922292514 cat=chatting size=big lang=en  # stableronaldo
 2927850434 cat=chatting size=big lang=en  # hasanabi
-2926394800 cat=chatting size=medium lang=en holdout  # plaqueboymax
-2930641575 cat=chatting size=medium lang=en holdout  # tyrone
+2930725553 cat=chatting size=big lang=en  # hasanabi
+2926394800 cat=chatting size=medium lang=en  # plaqueboymax
+2922596094 cat=chatting size=medium lang=en  # plaqueboymax
+2920994237 cat=chatting size=medium lang=en  # jinnytty
+2929376496 cat=chatting size=medium lang=en  # realkatieb
 2925647366 cat=chatting size=small lang=en holdout  # e11ysa
-2926062186 cat=chatting size=small lang=en holdout  # elina
-2924393734 cat=chatting size=small lang=en  # itskreas
-2927047627 cat=chatting size=big lang=fr  # jltomy
-2930735422 cat=chatting size=medium lang=fr  # gotaga
+2924393734 cat=chatting size=small lang=en holdout  # itskreas
+2928001302 cat=chatting size=small lang=en  # itskreas
 2928013414 cat=chatting size=small lang=fr  # mirssadvm
-2926021952 cat=chatting size=big lang=es  # rubius
-2930895806 cat=chatting size=big lang=es  # peereira7
+2930895806 cat=chatting size=big lang=es holdout  # peereira7
 2927116113 cat=chatting size=medium lang=pt  # bisteconee
 2917650484 cat=chatting size=big lang=de holdout  # papaplatte
 2921308640 cat=chatting size=medium lang=de  # coachlim
-2930661265 cat=variety size=small lang=en holdout  # indoorscream, GTA RP
+2930661265 cat=variety size=small lang=en  # indoorscream, GTA RP
 2930726095 cat=variety size=small lang=en  # ster, GTA RP
-2908847501 cat=variety size=medium lang=en  # teegrizzley, GTA RP
-2921218131 cat=variety size=big lang=es holdout  # peereira7, GTA San Andreas
-2915344033 cat=variety size=medium lang=pt  # bisteconee, Backrooms
-2923458661 cat=variety size=medium lang=en  # realkatieb, QSMP (Minecraft)
+2921218131 cat=variety size=big lang=es  # peereira7, GTA San Andreas
+2915344033 cat=variety size=medium lang=pt holdout  # bisteconee, Backrooms
+2923458661 cat=variety size=medium lang=en holdout  # realkatieb, QSMP (Minecraft)
 2926795779 cat=variety size=small lang=es  # paache_, Rocket League
 2929771098 cat=irl size=medium lang=de  # agaamuza
 2924165363 cat=irl size=medium lang=de  # agaamuza
-2925697413 cat=irl size=medium lang=de  # handofblood
 2916372387 cat=irl size=medium lang=en holdout  # ariathome
+2929595961 cat=irl size=medium lang=de  # coachlim, a 36-hour stream in I'm Only Sleeping
 2930747792 cat=fps size=medium lang=en  # tarik, VALORANT
-2929935152 cat=fps size=small lang=en holdout  # sypherpk, Fortnite
 2927424042 cat=events size=small lang=en  # blastpremier, Counter-Strike tournament broadcast
 2923224397 cat=events size=big lang=de holdout  # papaplatte, Special Events
