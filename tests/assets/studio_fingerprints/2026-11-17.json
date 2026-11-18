@@ -1,0 +1,154 @@
+{
+ "taken": "2026-11-17 22:39",
+ "site": "tiktok",
+ "url": "https://www.tiktok.com/tiktokstudio/upload",
+ "source": "studio_check",
+ "signed_in": true,
+ "ok": true,
+ "page": {
+  "path": "/tiktokstudio/upload",
+  "lang": "en",
+  "window": [
+   2552,
+   1356
+  ],
+  "selectors": {
+   "file": {
+    "match": true,
+    "visible": false,
+    "enabled": true
+   },
+   "caption": {
+    "match": false
+   },
+   "post": {
+    "match": false
+   },
+   "login": {
+    "match": false
+   },
+   "posted": {
+    "match": false
+   },
+   "upload_error": {
+    "match": false
+   },
+   "shown_caption": {
+    "match": false
+   },
+   "post_now": {
+    "match": false
+   }
+  },
+  "marks": [
+   "select_video_button",
+   "select_video_container"
+  ],
+  "buttons": [
+   "",
+   "Upload",
+   "",
+   "Home",
+   "Posts",
+   "Analytics",
+   "Comments",
+   "Inspiration",
+   "Creator Academy",
+   "Royalty-free sounds",
+   "Smart Split",
+   "Feedback",
+   "",
+   "Try now",
+   "Videos",
+   "Photos",
+   "Select video to upload Or drag",
+   "Select video"
+  ],
+  "site": "tiktok",
+  "version": "4.52.1"
+ },
+ "file": {
+  "path": "/tiktokstudio/upload",
+  "lang": "en",
+  "window": [
+   2552,
+   1356
+  ],
+  "selectors": {
+   "file": {
+    "match": false
+   },
+   "caption": {
+    "match": true,
+    "visible": true,
+    "enabled": true
+   },
+   "post": {
+    "match": true,
+    "visible": true,
+    "enabled": false
+   },
+   "login": {
+    "match": false
+   },
+   "posted": {
+    "match": false
+   },
+   "upload_error": {
+    "match": false
+   },
+   "shown_caption": {
+    "match": true
+   },
+   "post_now": {
+    "match": false
+   }
+  },
+  "marks": [
+   "advanced_settings_container",
+   "aigc_container",
+   "caption_container",
+   "copyright_container",
+   "cover_container",
+   "discard_…_button",
+   "disclose_content_container",
+   "mobile_preview_container",
+   "poi_container",
+   "save_draft_button",
+   "upload_status_container",
+   "user_perm_container",
+   "video_visibility_container",
+   "…_container",
+   "…_video_button"
+  ],
+  "buttons": [
+   "",
+   "Upload",
+   "",
+   "Home",
+   "Posts",
+   "Analytics",
+   "Comments",
+   "Inspiration",
+   "Creator Academy",
+   "Monetization",
+   "Royalty-free sounds",
+   "Smart Split",
+   "Feedback",
+   "",
+   "Hashtags",
+   "Mention",
+   "",
+   "Everyone",
+   "",
+   "Edit",
+   "Sounds",
+   "Text",
+   "…",
+   "Save draft",
+   "Discard"
+  ],
+  "site": "tiktok",
+  "version": "4.52.1"
+ }
+}
