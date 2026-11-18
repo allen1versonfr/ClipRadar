@@ -12,6 +12,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Tests
 - `tests/test_reliability_report.py` (new): `Outcome` lines read back from a sample log, dated from the start line and past midnight, counted per site or platform with failures by step. An upload failure isn't counted twice (the job's record and the upload's own). The newest fingerprint is used for each step, and `--days` leaves older lines out.
 
+## [4.52.1] - 2026-11-17
+
+Small fixes to how the app looks: links in empty screens, and the Settings tables in a narrow window.
+
+### Fixed
+- Links in empty screens (Exports, Review, Segments) were the browser's default blue, purple once visited. They're white and underlined like the app's other links, and turn green on hover.
+- Settings › Content check: in a narrow window the Censor column was pushed out of view. The category names now wrap so all three columns fit.
+- Settings › Downloads and tools: in a narrow window the tools table made the whole Settings page scroll sideways.
+
 ## [4.52.0] - 2026-11-17
 
 Pick parts of a long stream and edit them into one video of up to 30 minutes in the new Segments screen, and live clipping saves the whole stream as a VOD.
