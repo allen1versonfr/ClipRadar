@@ -538,7 +538,18 @@ def upload(path: str, caption: str, press_post: bool, url: str, step: Callable[[
            check: Callable[[], None] = lambda: None) -> dict:
     """Drive TikTok Studio's upload page. Returns {"posted": bool, "pressed": bool}; raises StudioError.
     One upload at a time (two would fight over the same tab). If the window or its tab goes away midway
-    (closed, crashed), it starts again once in a fresh one; a step TikTok's page refused is not retried."""
+    (closed, crashed), it starts again once in a fresh one; a step TikTok's page refused is not retried.
+    A failure is recorded in the error log with what the page looked like (fingerprint)."""
+    at: dict = {}
+    try:
+        return _upload(path, caption, press_post, url, step, check, at)
+    except StudioError as e:
+        _record_failure("tiktok", e, at.get("fingerprint"))
+        raise
+
+
+def _upload(path: str, caption: str, press_post: bool, url: str, step: Callable[[str], None],
+            check: Callable[[], None], at: dict) -> dict:
     if not os.path.isfile(path):
         raise StudioError("file", "That clip's file isn't there any more. Render it again first.")
     caption = fit_caption(caption)
@@ -548,7 +559,8 @@ def upload(path: str, caption: str, press_post: bool, url: str, step: Callable[[
             check()
     try:
         for attempt in range(2):
-            at = {"step": "browser", "pressed": False}       # how far it got, for what a failure means
+            at.clear()
+            at.update(step="browser", pressed=False)        # how far it got, for what a failure means
 
             def where(s: str):
                 at["step"] = STEP_OF.get(s, at["step"])
@@ -647,6 +659,11 @@ def _upload_once(path: str, caption: str, press_post: bool, url: str, step: Call
         posted = got == "posted" or _wait(page, SELECTORS["posted"], 90, check, every=0.5)
         page.call("Page.bringToFront")
         return {"posted": posted, "pressed": True}
+    except (StudioError, cdp.CDPError) as e:
+        # a step the page didn't have: what the page looked like, for the error log (upload() records it)
+        if isinstance(e, StudioError) or str(e).startswith(PAGE_SCRIPT):
+            at["fingerprint"] = fingerprint(page, "tiktok", private=(caption, path))
+        raise
     finally:
         page.close()
 
@@ -709,7 +726,9 @@ def upload_youtube(path: str, title: str, description: str, url: str, step: Call
     description typed. It stops there. Audience, visibility and Publish are choices only you can make, so they
     are never pressed. Returns {"ready": True, "title": typed?, "description": typed?}; raises StudioError."""
     if not os.path.isfile(path):
-        raise StudioError("file", "The exported file isn't there any more. Export the video again first.")
+        e = StudioError("file", "The exported file isn't there any more. Export the video again first.")
+        _record_failure("youtube", e, None)
+        raise e
     title = youtube_title(title)
     if not _one_at_a_time.acquire(blocking=False):
         step("Waiting for the upload before it to finish")
@@ -752,15 +771,141 @@ def upload_youtube(path: str, title: str, description: str, url: str, step: Call
             wrote = _yt_put(page, YT["description"], description.strip())
         page.call("Page.bringToFront")
         return {"ready": True, "title": typed, "description": wrote}
+    except StudioError as e:
+        _record_failure("youtube", e, fingerprint(page, "youtube", private=(title, description, path)) if page else None)
+        raise
     except (cdp.CDPError, OSError) as e:
         if str(e).startswith(PAGE_SCRIPT):
-            raise StudioError("details", "YouTube Studio's page didn't respond as expected. YouTube may have changed "
-                                         "the page: finish it in the YouTube window.") from None
-        raise StudioError("browser", f"Lost Clip Radar's browser window ({e}). Try again.") from None
+            err = StudioError("details", "YouTube Studio's page didn't respond as expected. YouTube may have changed "
+                                         "the page: finish it in the YouTube window.")
+            _record_failure("youtube", err, fingerprint(page, "youtube", private=(title, description, path)) if page else None)
+            raise err from None
+        err = StudioError("browser", f"Lost Clip Radar's browser window ({e}). Try again.")
+        _record_failure("youtube", err, None)
+        raise err from None
     finally:
         if page is not None:
             page.close()
         _one_at_a_time.release()
+
+
+# ---------------------------------------------------------------- what the page looked like (when a step fails)
+#
+# A failed upload is recorded in errors.jsonl with a fingerprint of the page: which of the selectors above it has
+# (and whether each is visible and can be pressed), TikTok's own data-e2e marks, the words on its buttons, its
+# path, language and window size. Enough to see what changed on TikTok's (or YouTube's) side without asking what
+# the person saw. Nothing personal: the caption, the title, the file's name and the account are never in it.
+# Button words that look like a @handle, #hashtag, number or e-mail are blanked, and so is every word that's in
+# the caption or title box, the file box, anything marking the account (its name, avatar, profile), or the
+# caption, title and file name Clip Radar put in. Taking it never raises and takes at most 2 s.
+
+FINGERPRINT_WAIT = 2.0
+FP_MARKS = 200                # data-e2e marks kept
+FP_BUTTONS = 40               # buttons kept, each cut to 30 characters
+# elements whose words are the account's (its name, avatar, profile link), on TikTok and YouTube
+_ACCOUNT = ("[data-e2e*=user i],[data-e2e*=nick i],[data-e2e*=profile i],[data-e2e*=account i],[data-e2e*=avatar i],"
+            "[data-e2e*=author i],[class*=avatar i],[class*=nickname i],[class*=username i],[class*=user-name i],"
+            "[class*=account i],[class*=profile i],[aria-label*=account i],[aria-label*=profile i],[aria-label*=channel i],"
+            "[id*=account i],[id*=channel-name i],[id*=avatar i],ytcp-entity-name,ytd-channel-name")
+_FP_JS = r"""(() => {
+  const blank = t => String(t || '').replace(/\s+/g, ' ').trim()
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '…')          // e-mail
+    .replace(/[@#][^\s@#]+/g, '…')                         // @handle, #hashtag
+    .replace(/\d[\d.,:]*/g, '…');                          // numbers
+  const words = t => String(t || '').toLowerCase().split(/[\s,.;:!?"'()\[\]{}<>\/\\|_-]+/).filter(w => w.length >= 3);
+  const own = new Set();
+  const keep = t => words(t).forEach(w => own.add(w.replace(/^[#@]+/, '')));
+  document.querySelectorAll('[contenteditable], textarea, input:not([type=file]):not([type=hidden])')
+    .forEach(e => keep(e.innerText || e.value));
+  document.querySelectorAll('input[type=file]').forEach(e => [...(e.files || [])].forEach(f => keep(f.name)));
+  document.querySelectorAll(%ACCOUNT%).forEach(e => {
+    keep(e.innerText); keep(e.getAttribute('aria-label')); keep(e.getAttribute('title')); keep(e.getAttribute('alt'));
+    e.querySelectorAll('img').forEach(i => keep(i.alt));
+  });
+  const scrub = t => blank(t).replace(/[^\s,.;:!?"'()\[\]{}<>\/\\|_-]+/g, w => own.has(w.toLowerCase().replace(/^[#@]+/, '')) ? '…' : w);
+  const shown = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);
+  const out = {
+    path: location.pathname.split('/').map(p => /^@|^(?=.*\d).{12,}$|^UC[\w-]{20,}$/.test(p) ? '…' : p).join('/'),
+    lang: document.documentElement.lang || '', window: [innerWidth, innerHeight], selectors: {}, marks: [], buttons: [],
+  };
+  const SEL = {%SELECTORS%};
+  for (const k of Object.keys(SEL)) {
+    try {
+      const v = SEL[k]();
+      out.selectors[k] = v instanceof Element ? { match: true, visible: shown(v),
+        enabled: !v.disabled && v.getAttribute('aria-disabled') !== 'true' } : { match: !!v };
+    } catch (e) { out.selectors[k] = { match: false, error: true }; }
+  }
+  try {
+    out.marks = [...new Set([...document.querySelectorAll('[data-e2e]')].map(e => scrub(e.getAttribute('data-e2e')).slice(0, 60)))]
+      .sort().slice(0, %MARKS%);
+  } catch (e) { out.marks_error = true; }
+  try {
+    out.buttons = [...document.querySelectorAll('button, [role=button]')].filter(b => !b.closest('[contenteditable]'))
+      .slice(0, %BUTTONS%).map(b => scrub(b.innerText || b.getAttribute('aria-label')).slice(0, 30));
+  } catch (e) { out.buttons_error = true; }
+  return out;
+})()"""
+
+
+def _fingerprint_js(selectors: dict) -> str:
+    sel = ", ".join(f"{json.dumps(k)}: () => ({v})" for k, v in selectors.items())
+    return (_FP_JS.replace("%SELECTORS%", sel).replace("%ACCOUNT%", json.dumps(_ACCOUNT))
+            .replace("%MARKS%", str(FP_MARKS)).replace("%BUTTONS%", str(FP_BUTTONS)))
+
+
+def _site_selectors(site: str) -> dict:
+    if site == "youtube":
+        return dict(YT)
+    return dict(SELECTORS, shown_caption=SHOWN_CAPTION, post_now=POST_NOW)
+
+
+_WORD = re.compile(r"[^\s,.;:!?\"'()\[\]{}<>/\\|_-]+")
+
+
+def _scrub(value, own: set):
+    """Every word Clip Radar put in (the caption, the title, the file's name) blanked, wherever it is."""
+    if isinstance(value, str):
+        return _WORD.sub(lambda m: "…" if m.group(0).lower().lstrip("#@") in own else m.group(0), value)
+    if isinstance(value, list):
+        return [_scrub(v, own) for v in value]
+    if isinstance(value, dict):
+        return {k: _scrub(v, own) for k, v in value.items()}
+    return value
+
+
+def fingerprint(page, site: str, private=()) -> Optional[dict]:
+    """What the page looks like, without anything personal (see above); None if it couldn't be taken. private:
+    the caption, title, description and file path that went in, blanked here too. Never raises."""
+    try:
+        fp = page.eval(_fingerprint_js(_site_selectors(site)), timeout=FINGERPRINT_WAIT)
+        if not isinstance(fp, dict):
+            return None
+        own = set()
+        for text in private:
+            text = str(text or "")
+            if os.sep in text or "/" in text:
+                text = os.path.splitext(os.path.basename(text))[0]
+            own.update(w.lower().lstrip("#@") for w in _WORD.findall(text) if len(w.lstrip("#@")) >= 3)
+        fp = _scrub(fp, own)
+        fp["site"] = site
+        try:
+            from version import VERSION
+            fp["version"] = VERSION
+        except Exception:
+            pass
+        return fp
+    except Exception:
+        return None
+
+
+def _record_failure(site: str, err: StudioError, fp: Optional[dict]) -> None:
+    """A failed upload in errors.jsonl, with the page's fingerprint when there was a page."""
+    try:
+        import errorlog
+        errorlog.record("upload", str(err), step=err.step, site=site, fingerprint=fp)
+    except Exception:
+        pass
 
 
 def describe() -> dict:

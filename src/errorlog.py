@@ -8,7 +8,8 @@ blanked and the home folder becomes ~, so the file can be attached to a bug repo
 clipradar.log is everything the app prints and starts over at 2 MB; this file only holds failures, so
 they last far longer (5 MB, then one older file).
 
-  record(where, message, detail="", exc=None, **context)   a failure
+  record(where, message, detail="", exc=None, fingerprint=None, **context)   a failure (fingerprint: what a
+                                                             page looked like, kept as JSON, studio_auto.fingerprint)
   exc(where, **context)                                      the exception being handled, printed and recorded
   recent(limit)                                              newest first, for Settings › About
   install()                                                  record crashes on any thread
@@ -55,7 +56,11 @@ def _version() -> str:
         return ""
 
 
-def record(where: str, message: str, detail: str = "", exc: Optional[BaseException] = None, **context) -> None:
+FINGERPRINT_MAX = 20_000      # characters of JSON: a fingerprint bigger than this is left out
+
+
+def record(where: str, message: str, detail: str = "", exc: Optional[BaseException] = None,
+           fingerprint: Optional[dict] = None, **context) -> None:
     """Add a failure to the error log. Never raises: recording an error must not cause another."""
     try:
         e = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "version": _version(), "where": str(where),
@@ -69,6 +74,13 @@ def record(where: str, message: str, detail: str = "", exc: Optional[BaseExcepti
         ctx = {k: redact(str(v))[:500] for k, v in context.items() if v not in (None, "")}
         if ctx:
             e["context"] = ctx
+        if isinstance(fingerprint, dict) and fingerprint:
+            try:
+                fp = json.loads(redact(json.dumps(fingerprint, ensure_ascii=False)))
+                if len(json.dumps(fp, ensure_ascii=False)) <= FINGERPRINT_MAX:
+                    e["fingerprint"] = fp
+            except (TypeError, ValueError):
+                pass                                # recorded without it
         line = json.dumps(e, ensure_ascii=False) + "\n"
         p = path()
         with _lock:

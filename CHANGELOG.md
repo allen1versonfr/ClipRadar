@@ -7,11 +7,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 - **The storage code moved out of engine.py into its own file, with no changes** (`src/storage.py`: `storage_summary`, `delete_vods`, `delete_clips`, `recent_projects` and their helpers). This is the first step of splitting the 4,800-line `engine.py` into smaller files. Nothing works differently. `engine.storage_summary` and the rest still work, and Settings › Storage and automatic cleanup now call `storage` directly.
+- **A failed TikTok or YouTube Studio upload records what the page looked like.** Before, the error log only had the message, so each fix to the upload was worked out afterwards from what you remembered seeing. Now the failure in `errors.jsonl` (Settings › About › Error log) comes with a fingerprint of the page: which of the parts Clip Radar looks for were there, visible and pressable, TikTok's own marks on the page, the words on up to 40 buttons, the page's address without its query, its language, the window size and Clip Radar's version (`studio_auto.fingerprint`). Nothing personal is in it: your caption, title, description, the file's name and your account's name are blanked, and so is anything that looks like an @handle, hashtag, number or e-mail. Taking it never holds up the hand-off by more than 2 seconds, and if the page won't give one the failure is recorded without it.
 
 ### Tests
 - `tests/test_engine_split.py` (new): `engine` re-exports every moved name as the same object, `engine.py` no longer defines them and imports the new file at its top level (so the app build finds it). No test, script or module replaces a moved name through `engine`, because a fake put there would no longer reach the code that calls it.
 - `tests/test_cleanup.py`: the two stand-ins for deleting files and listing project folders now replace `storage._remove` and `storage._project_dirs`.
 - `tests/test_web_settings.py`: Press Post for me waits for the save's answer from the server, then reads the setting once. Before, it waited a fixed half second, and on a busy runner "and turned off again" read the setting before the save landed. Reading `studio.json` while the server replaces it also fails the save on Windows.
+- `tests/test_studio_auto.py`: a page without the upload box records a fingerprint saying so; an upload TikTok refuses records the caption box showing and Post not pressable yet, with no word of the caption, the file's name or the account (now in the stand-in page's header, `tests/fake_studio.py`) in the record; a page whose own script breaks the fingerprint (`"throws"`) still has its failure recorded; a page that doesn't answer is given up on after 2 s.
+- `tests/test_youtube_auto.py`: the same for YouTube Studio's page asking to create a channel first.
+- `tests/test_errorlog.py`: a fingerprint is kept as JSON with secrets blanked, and one that can't be written doesn't stop the failure being recorded.
 
 ## [4.52.1] - 2026-11-17
 

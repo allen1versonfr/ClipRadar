@@ -4,7 +4,8 @@ Studio's upload dialog in a real browser: Edge or Chrome when installed, else Pl
 
 The video that goes in is the exported file; the title replaces the one YouTube starts with (the file's name) and
 the description is typed. It stops there: audience, visibility and Publish are never pressed. The first time, it
-waits for you to sign in. A page without the upload box (YouTube asking something first) is a named step.
+waits for you to sign in. A page without the upload box (YouTube asking something first) is a named step, recorded in
+the error log with a fingerprint of the page that has none of the title, description, file name or account.
 
   python tests/test_youtube_auto.py
 """
@@ -77,7 +78,9 @@ class _H(BaseHTTPRequestHandler):
                 return self._send("<!doctype html><title>Sign in</title><body>Sign in to continue to YouTube"
                                   "<script>history.replaceState(null, '', '/signin-page'); window.__login = 1</script>")
             if mode == "channel":
-                return self._send("<!doctype html><title>Create your channel</title><body>Create a channel first")
+                return self._send("<!doctype html><html lang=en><title>Create your channel</title><body>"
+                                  "<ytd-channel-name>Mira Okonkwo</ytd-channel-name> Create a channel first"
+                                  "<button>Create channel</button><button aria-label='Account'>Mira Okonkwo</button>")
             page = UPLOAD.replace("<script>", f"<script>const MODE = {mode!r};", 1)
             return self._send(page)
         self._send("not found", 404)
@@ -170,11 +173,24 @@ try:
 
     srv = start("channel")
     try:
-        studio_auto.upload_youtube(video, "T", "", srv.url, lambda s: None)
+        studio_auto.upload_youtube(video, "Zanzibar marathon recap", "Quokka giveaway tonight", srv.url, lambda s: None)
         check("a page without the upload box is a named step", False)
     except studio_auto.StudioError as e:
         check("a page without the upload box is a named step", e.step == "file box" and "answer it" in str(e), (e.step, str(e)))
     srv.shutdown()
+    # recorded in errors.jsonl with the page's fingerprint, and nothing of the title, description, file or account
+    import json
+    import errorlog
+    rec = next((x for x in errorlog.recent(20) if x.get("where") == "upload"), {})
+    fp = rec.get("fingerprint") or {}
+    check("the failure is recorded with YouTube's fingerprint", rec.get("context", {}).get("site") == "youtube"
+          and rec.get("context", {}).get("step") == "file box" and fp.get("site") == "youtube", rec)
+    check("which shows no upload box", fp.get("selectors", {}).get("file") == {"match": False}
+          and set(studio_auto.YT) <= set(fp.get("selectors", {})), fp.get("selectors"))
+    check("and the page's buttons", "Create channel" in fp.get("buttons", []), fp.get("buttons"))
+    text = json.dumps(rec, ensure_ascii=False).lower()
+    check("no title, description, file name or account in it",
+          not [w for w in ("zanzibar", "quokka", "friday", "okonkwo", "mira") if w in text], text[:500])
 
     try:
         studio_auto.upload_youtube(os.path.join(tmp, "gone.mp4"), "T", "", srv.url, lambda s: None)

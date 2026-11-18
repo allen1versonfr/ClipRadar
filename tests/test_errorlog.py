@@ -62,6 +62,18 @@ check("a failure is recorded with where, the version and the traceback",
 check("with what was going on", e.get("context") == {"clip": "Clip 1"}, e.get("context"))
 check("secrets are blanked", "SECRETTOKEN" not in json.dumps(e), e["message"])
 
+# an upload failure's page fingerprint (studio_auto.fingerprint) is kept as JSON, not cut to a line of text
+fp = {"path": "/tiktokstudio/upload", "selectors": {"file": {"match": False}}, "buttons": ["Post"] * 40,
+      "marks": ["token=SECRETMARK"]}
+errorlog.record("upload", "Couldn't find TikTok Studio's upload box.", step="file box", site="tiktok", fingerprint=fp)
+e = lines()[-1]
+check("a fingerprint is kept whole, as JSON", e.get("fingerprint", {}).get("selectors") == fp["selectors"]
+      and len(e["fingerprint"]["buttons"]) == 40, e)
+check("its secrets blanked too", "SECRETMARK" not in json.dumps(e), e.get("fingerprint"))
+errorlog.record("upload", "no fingerprint", fingerprint={"bad": object()})
+check("a fingerprint that can't be written: the failure is still recorded", lines()[-1]["message"] == "no fingerprint"
+      and "fingerprint" not in lines()[-1], lines()[-1])
+
 # a job that fails is recorded with its last steps
 job = server.new_job("analyze")
 server.job_logger(job)("Downloading the VOD")
