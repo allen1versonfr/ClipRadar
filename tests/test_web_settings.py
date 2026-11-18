@@ -118,12 +118,19 @@ with sync_playwright() as pw:
     check("#settings/tiktok opens Settings at TikTok", 0 <= top < 200, top)
     page.wait_for_selector("[data-testid=set-press-post]", timeout=10000)
     if page.get_by_test_id("set-press-post").count():
+        # the box changes at once and the save (POST /api/studio) follows: wait for the saved setting, not a fixed
+        # half second (on a busy runner the save could land after it, and "turned off again" read the old value)
+        def saved_press_post(want: bool) -> bool:
+            end = time.time() + 10
+            while time.time() < end:
+                if studio_auto.load_settings()["press_post"] is want:
+                    return True
+                page.wait_for_timeout(100)
+            return False
         page.get_by_test_id("set-press-post").check()
-        page.wait_for_timeout(500)
-        check("Press Post for me is saved from Settings", studio_auto.load_settings()["press_post"] is True)
+        check("Press Post for me is saved from Settings", saved_press_post(True))
         page.get_by_test_id("set-press-post").uncheck()
-        page.wait_for_timeout(500)
-        check("and turned off again", studio_auto.load_settings()["press_post"] is False)
+        check("and turned off again", saved_press_post(False))
     else:
         check("without Edge or Chrome, TikTok says how posting works", "Open TikTok Studio" in page.get_by_test_id("set-tiktok").inner_text())
     page.goto(url + "/next/#settings")
