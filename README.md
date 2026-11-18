@@ -141,8 +141,9 @@ The installer is built from `installer/clipradar.iss` with [Inno Setup 6](https:
 src/
   app.py          desktop window (pywebview / WebView2) and --selftest
   server.py       local HTTP API the UI talks to, render queue
-  engine.py       download, analysis, clip picking, rendering, captions
+  engine.py       analysis, clip picking, rendering, captions
   storage.py      what's on disk (VODs, clips) and deleting it, for Settings › Storage and cleanup
+  acquire.py      getting the video and its chat: yt-dlp, TwitchDownloader, chat replays
   live.py         live recording (own HLS reader that skips ads), chat reader, moment detection
   autopilot.py    what runs on its own: events, steps, the shared hold gate, each clip's record of what happened
   autopilot_steps.py  the steps: hands-free titling and render, Discord, cleanup, Keep watching

@@ -6,6 +6,7 @@ so far kept their promises:
 - engine.py no longer defines any of them itself (one copy of each);
 - no test, script or module replaces a moved name through engine (engine.X = fake, setattr(engine, "X", …)): that
   stops working once the code calling X lives in the new module, which looks X up there. Patch the new module;
+- each new module can be imported on its own, before engine, and is then the same module engine re-exports;
 - engine.py imports each new module at its top level, so PyInstaller's analysis (scripts/build_exe.bat and
   .github/workflows/build.yml, which freeze src/app.py) finds it without a --hidden-import.
 
@@ -20,6 +21,7 @@ import glob
 import importlib
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,6 +39,13 @@ import engine  # noqa: E402
 MOVED = {
     "storage": ["storage_summary", "delete_vods", "delete_clips", "recent_projects", "_project_dirs", "_vod_files",
                 "_has_vod", "_clip_files", "_size", "_dir_size", "_remove", "_prune"],
+    "acquire": ["Source", "local_workdir", "_meta", "acquire", "LOW_HEIGHT", "low_quality", "_video_format",
+                "_write_info", "_sound_part", "_size_of", "_Soon", "_check_download_space", "probe_url",
+                "_youtube_chat", "_download_video", "_Stepper", "_finish_download", "_ytdlp_cli", "FRAGMENTS",
+                "DOWNLOAD_STALL_S", "SOUND_GRACE_S", "NO_FASTSTART", "TDL_PART", "_watch_stall", "_container",
+                "_reusable", "_download_bytes", "_join_progress", "kill_tree", "_ytdlp_module",
+                "_clean_ytdlp_error", "_download_chat", "_with_info", "_early_sound", "_hand_over",
+                "_sidecar_chat", "load_chat", "_chat_games", "game_at", "_yt_chat", "_yt_emoji", "chat_times"],
 }
 
 failures = []
@@ -67,6 +76,11 @@ for module, names in MOVED.items():
     check(f"engine.py doesn't define {module}'s names any more", not still, still)
     check(f"engine.py imports {module} at its top level (PyInstaller finds it)",
           re.search(rf"^(from {module} import|import {module}\b)", engine_src, re.M) is not None)
+    # imported on its own (a script, a test), before engine: the same module engine re-exports, not a half-loaded copy
+    alone = subprocess.run([sys.executable, "-c", f"import {module}, engine; "
+                            f"assert all(getattr(engine, n) is getattr({module}, n) for n in {names!r})"],
+                           cwd=os.path.join(ROOT, "src"), capture_output=True, text=True, timeout=120)
+    check(f"{module} imports on its own, before engine", alone.returncode == 0, alone.stderr[-600:])
     alt = "|".join(re.escape(n) for n in names)
     patch = re.compile(rf"\bengine\.({alt})\s*=(?!=)|setattr\(\s*engine\s*,\s*['\"]({alt})['\"]")
     found = [f"{path}:{text.count(chr(10), 0, m.start()) + 1}: {m.group(0)}"
