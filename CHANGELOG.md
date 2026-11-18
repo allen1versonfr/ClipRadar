@@ -12,6 +12,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `tests/test_engine_split.py` (new): `engine` re-exports every moved name as the same object, `engine.py` no longer defines them and imports the new file at its top level (so the app build finds it). No test, script or module replaces a moved name through `engine`, because a fake put there would no longer reach the code that calls it.
 - `tests/test_cleanup.py`: the two stand-ins for deleting files and listing project folders now replace `storage._remove` and `storage._project_dirs`.
 
+## [4.52.1] - 2026-11-17
+
+Small fixes to how the app looks: links in empty screens, and the Settings tables in a narrow window.
+
+### Fixed
+- Links in empty screens (Exports, Review, Segments) were the browser's default blue, purple once visited. They're white and underlined like the app's other links, and turn green on hover.
+- Settings › Content check: in a narrow window the Censor column was pushed out of view. The category names now wrap so all three columns fit.
+- Settings › Downloads and tools: in a narrow window the tools table made the whole Settings page scroll sideways.
+
 ## [4.52.0] - 2026-11-17
 
 Pick parts of a long stream and edit them into one video of up to 30 minutes in the new Segments screen, and live clipping saves the whole stream as a VOD.

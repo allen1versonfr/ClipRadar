@@ -134,8 +134,8 @@ h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .chk small, .hint, .fine { color: var(--tx2); font-size: 12px; }
 .fine { margin: 0; }
 /* links are text, not actions: the green is kept for the main action, the selection and progress */
-.fine a, .not-ported p a { color: var(--tx0); text-decoration: underline; text-underline-offset: 2px; }
-.fine a:hover, .not-ported p a:hover { color: var(--accent); }
+.fine a, .not-ported p a, :where(.main, .status-bar) a:not([class]) { color: var(--tx0); text-decoration: underline; text-underline-offset: 2px; }
+.fine a:hover, .not-ported p a:hover, :where(.main, .status-bar) a:not([class]):hover { color: var(--accent); }
 details.adv summary { cursor: pointer; color: var(--tx1); }
 details.adv[open] summary { margin-bottom: 10px; }
 .seg { display: inline-flex; border: 1px solid var(--line2); border-radius: var(--r); overflow: hidden; align-self: flex-start; }
@@ -252,7 +252,8 @@ p.notice { margin: 0; }
 .ex-status.tuned { color: var(--accent); }
 
 .sf-table th.c, .sf-table td.c { text-align: center; width: 72px; }
-.sf-table th:first-child, .sf-table td:first-child { width: 100%; white-space: normal; }
+/* .table.sf-table: outranks .table.static td:first-child (nowrap, 1%), which pushed Censor off narrow windows */
+.table.sf-table th:first-child, .table.sf-table td:first-child { width: 100%; white-space: normal; }
 .sf-table th.c, .sf-table td.c { min-width: 64px; }
 .sf-table input { accent-color: var(--accent); }
 .settings h3.sub { margin: 4px 0 0; font-size: 13px; font-weight: 650; }
