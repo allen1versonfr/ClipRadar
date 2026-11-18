@@ -170,6 +170,8 @@ def score_vod(ranked: list, viewer_clips: list, auto: Optional[list] = None, whi
     out = {"truth": len(t), "moments": len(ms), "clips": len(ranked)}
     for n in TOP_N:
         out[f"recall@{n}"] = recall(ranked, t, n)
+    # the most recall@10 can be when each of the 10 clips finds a different moment: with 25 truth moments it's 0.4
+    out[f"ceiling@{HEADLINE_N}"] = min(1.0, HEADLINE_N / len(t)) if t else None
     out[f"wrecall@{HEADLINE_N}"] = weighted_recall(ranked, t, HEADLINE_N)
     out[f"precision@{HEADLINE_N}"] = precision(ranked, viewer_clips, HEADLINE_N)
     out["payoff_kept"] = payoff_kept(ranked, t, HEADLINE_N)
@@ -192,7 +194,7 @@ def misses(ranked: list, ms: list, n: int = HEADLINE_N) -> list:
 
 
 # ---------------------------------------------------------------------------------------------- the corpus
-METRICS = [f"recall@{n}" for n in TOP_N] + [f"wrecall@{HEADLINE_N}", f"precision@{HEADLINE_N}", "payoff_kept",
+METRICS = [f"recall@{n}" for n in TOP_N] + [f"ceiling@{HEADLINE_N}", f"wrecall@{HEADLINE_N}", f"precision@{HEADLINE_N}", "payoff_kept",
                                              "first_hit", "auto_count", "auto_recall"]
 
 
