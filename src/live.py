@@ -48,6 +48,8 @@ from typing import Callable, Optional
 import numpy as np
 
 import engine
+
+import analysis
 import procjob
 
 SEG_SECONDS = 10
@@ -268,7 +270,7 @@ class LiveSession:
         self.chat: list = []                   # (media seconds, text, user, kind), recent part
         self.chat_lock = threading.Lock()
         import chatsignal
-        self.scorer = chatsignal.ChatScorer(engine.chat_weight)
+        self.scorer = chatsignal.ChatScorer(analysis.chat_weight)
         self._raw: list = []                   # chat reaction per media second it arrived (weighed, not shifted)
         self._said_raw: list = []              # messages per media second (counted, not weighed), and those
         self._talk_raw: list = []              # that were plain talk, not reactions (detect.talk_mult)
@@ -956,15 +958,15 @@ class LiveSession:
                 self.log(f"Laughter detection stopped: {str(e)[:100]}")
                 self.events = None
         buf = np.concatenate([self._pending_audio, pcm])
-        blk = sr // engine.FINE_HZ
+        blk = sr // analysis.FINE_HZ
         whole = buf.size // blk
         if whole:
             pw = np.mean(buf[: whole * blk].reshape(whole, blk) ** 2, axis=1)
             self.fine.extend((10 * np.log10(np.maximum(pw, 1e-10))).tolist())
-            secs = len(self.fine) // engine.FINE_HZ
+            secs = len(self.fine) // analysis.FINE_HZ
             while len(self.loud) < secs:
                 i = len(self.loud)
-                p10 = 10 ** (np.asarray(self.fine[i * engine.FINE_HZ:(i + 1) * engine.FINE_HZ]) / 10)
+                p10 = 10 ** (np.asarray(self.fine[i * analysis.FINE_HZ:(i + 1) * analysis.FINE_HZ]) / 10)
                 self.loud.append(float(10 * np.log10(max(float(p10.mean()), 1e-10))))
         self._pending_audio = buf[whole * blk:]
 
@@ -981,25 +983,25 @@ class LiveSession:
         if self.delay_auto and n >= 300 and n - self._delay_at >= self.DELAY_EVERY:
             # how late chat reacts, worked out again as the stream goes on
             self._delay_at = n
-            lag, sure = detect.estimate_delay(engine._fit(raw[:n], n), engine._audio_z(loud, n), ev, self.chat_delay)
+            lag, sure = detect.estimate_delay(analysis._fit(raw[:n], n), analysis._audio_z(loud, n), ev, self.chat_delay)
             if sure and (not self.delay_sure or abs(lag - self.chat_delay) >= 1):
                 self.log(f"Chat reacts about {lag:.0f} s after the stream")
             if sure:
                 self.chat_delay, self.delay_sure = lag, True
-        rate = engine._fit(detect.shift(engine._fit(raw, n + 20), self.chat_delay)[:n], n)
+        rate = analysis._fit(detect.shift(analysis._fit(raw, n + 20), self.chat_delay)[:n], n)
         # chat that dropped or went quiet: rank by what's on stream instead of waiting for chat
         use_chat = self.chat_usable()
         cw = self.chat_weight if use_chat else 0.0
-        said, talk = (engine._fit(detect.shift(engine._fit(x, n + 20), self.chat_delay)[:n], n) for x in (said_raw, talk_raw))
+        said, talk = (analysis._fit(detect.shift(analysis._fit(x, n + 20), self.chat_delay)[:n], n) for x in (said_raw, talk_raw))
         if not use_chat:
             rate = np.zeros(n, dtype=np.float32)
-        an = engine.score_signals(loud, [], n, float(n), self.chat_delay,
+        an = analysis.score_signals(loud, [], n, float(n), self.chat_delay,
                                   cw, rate=rate, stats=self.scorer.summary(), events=ev,
-                                  fine=np.asarray(self.fine[: n * engine.FINE_HZ], dtype=np.float32), said=said, talk=talk)
+                                  fine=np.asarray(self.fine[: n * analysis.FINE_HZ], dtype=np.float32), said=said, talk=talk)
         an.surge = detect.surge_signal(rate) if an.has_chat else None
         if emo is not None and use_chat:
             # emote waves count for live the same way they do for VODs
-            an.emote_rate = engine._fit(detect.shift(engine._fit(emo, n + 20), self.chat_delay)[:n], n)
+            an.emote_rate = analysis._fit(detect.shift(analysis._fit(emo, n + 20), self.chat_delay)[:n], n)
             an.emote_z = detect.emote_signal(an.emote_rate)
         an.react = detect.react_signal(an)
         an.noise = detect.noise_mult(an)
@@ -1009,21 +1011,21 @@ class LiveSession:
         return an
 
     def grade(self, rank: float, an=None) -> int:
-        """A moment's 0-100 score, graded like a VOD's clips (engine.grades): its strength, capped by where
+        """A moment's 0-100 score, graded like a VOD's clips (analysis.grades): its strength, capped by where
         it stands among the stream's moments so far and the moments already clipped, so a long session
         can't fill up with 90+ clips. Your lowest score is checked against this."""
         an = an if an is not None else self._graded_an
         if an is None:
             import detect
             return detect.quality(rank)
-        return engine.grades(an, self.clip_scores + [float(rank)])[-1]
+        return analysis.grades(an, self.clip_scores + [float(rank)])[-1]
 
     def grades(self, ranks: list) -> list:
         """Every moment's score again, now that more of the stream is known (live_on_moment)."""
         if self._graded_an is None:
             import detect
             return [detect.quality(r) for r in ranks]
-        return engine.grades(self._graded_an, [float(r) for r in ranks])
+        return analysis.grades(self._graded_an, [float(r) for r in ranks])
 
     def _detect(self, final: bool = False):
         n = len(self.loud)
@@ -1086,10 +1088,10 @@ class LiveSession:
         # strongest first: when moments compete for the same stretch (or the PC is busy), the best one wins
         for p in sorted(self.pending, key=lambda q: -float(s[min(q, len(s) - 1)])):
             if self.length > 0:
-                st, en = engine.fixed_bounds(an, p, self.length, 0.6)
+                st, en = analysis.fixed_bounds(an, p, self.length, 0.6)
                 done = final or en <= n - 1
             else:
-                st, en, done = engine.smart_bounds(an, p, avail=n, final=final)
+                st, en, done = analysis.smart_bounds(an, p, avail=n, final=final)
             if not done:
                 continue
             self.pending.remove(p)
@@ -1102,7 +1104,7 @@ class LiveSession:
             adj = 0.0
             if self.adjust is not None:
                 try:
-                    adj = float(self.adjust([engine.clip_features(an, st, en, p, chat, chat_t, self.chat_delay)])[0])
+                    adj = float(self.adjust([analysis.clip_features(an, st, en, p, chat, chat_t, self.chat_delay)])[0])
                 except Exception:
                     adj = 0.0
                 if s[p] + adj < self.threshold:
@@ -1125,7 +1127,7 @@ class LiveSession:
             for k, v in lat.items():
                 self.note_latency(k, v)
             self.auto_peaks.append(p)
-            self._make_moment(st, en, float(p), engine._reason(an, p, chat, chat_t, self.chat_delay), an, chat,
+            self._make_moment(st, en, float(p), analysis._reason(an, p, chat, chat_t, self.chat_delay), an, chat,
                               lat=lat, aired=cand.get("aired"))
         # candidates that were dropped before they became moments
         for p in list(self.forming):
@@ -1198,10 +1200,10 @@ class LiveSession:
         mchat = [(m[0] - offset,) + tuple(m[1:]) for m in chat if offset - 30 <= m[0] <= last + 30]
         a, b = int(offset), int(math.ceil(last))
         sub = an.part(a, min(b, len(an.score)))
-        feat = engine.clip_features(an, start, end, peak, chat, engine.chat_times(chat), self.chat_delay)
+        feat = analysis.clip_features(an, start, end, peak, chat, engine.chat_times(chat), self.chat_delay)
         import detect
         sc = round(float(an.score[min(int(peak), len(an.score) - 1)]), 2)
-        clip = engine.Clip(1, round(start - offset, 2), round(end - offset, 2), round(peak - offset, 2),
+        clip = analysis.Clip(1, round(start - offset, 2), round(end - offset, 2), round(peak - offset, 2),
                            sc, reason, feat, quality=self.grade(sc, an), parts=detect.breakdown(an, peak))
         self.clip_scores.append(sc)
         self.log(f"Moment {self._moment_n} at {engine.fmt_ts(peak)}" + (" (yours)" if manual else ""))

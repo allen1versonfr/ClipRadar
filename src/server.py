@@ -43,6 +43,7 @@ import numpy as np
 import autopilot
 import autopilot_steps
 import engine
+import analysis
 import render
 import whisper
 import live
@@ -535,7 +536,7 @@ def _chat_title(pr: dict, start: float, end: float) -> str:
     # titles-v2: the stream's title and game typed back ("NMSBoxing") aren't about the moment
     meta = engine._meta(pr["workdir"]) if pr.get("workdir") else {}
     avoid = (meta.get("title") or pr.get("title", ""), engine.game_at(meta, start), _streamer_name(pr))
-    return chattitles.find(msgs, names | set(engine.HYPE), _streamer_name(pr), avoid)["title"]
+    return chattitles.find(msgs, names | set(analysis.HYPE), _streamer_name(pr), avoid)["title"]
 
 
 TITLE_PREFS = str(paths.DATA_DIR / "titles.json")
@@ -656,7 +657,7 @@ def clip_dicts(pid: str, clips: list, kind: str = "hype", progress=None) -> list
         path = os.path.join(tdir, name)
         if not os.path.exists(path):
             try:
-                engine.make_thumb(pr["video"], t, path, exact=False)
+                analysis.make_thumb(pr["video"], t, path, exact=False)
             except Exception:
                 pass
     # each FFmpeg spends most of its time opening the video (a long VOD's index), not decoding, so a few
@@ -710,7 +711,7 @@ def project_view(pid: str) -> dict:
         "width": pr["info"]["width"], "height": pr["info"]["height"],
         "has_chat": an.has_chat, "has_audio": an.has_audio, "chat_count": len(pr["chat"]),
         "chat_weight": an.chat_weight_pct, "chat_stats": an.chat_stats or {},
-        "events": an.has_events, "estimate": engine.estimate(an),
+        "events": an.has_events, "estimate": analysis.estimate(an),
         "streamer": pr.get("streamer", ""), "streamer_name": _streamer_name(pr),
         "learning": learning.describe(pr.get("streamer", "")),
         "curve": curve_preview(an.score), "clips": pr["clips"], "gems": pr.get("gems", []),
@@ -738,7 +739,7 @@ def _pick(pr: dict, count: int, length: float, det: Optional[dict] = None) -> li
     pr["count"] = count
     det = det or pr.get("detect") or detect.settings({})
     tr = learning.trim_offsets(pr.get("streamer", ""))
-    clips = engine.pick_clips(an, count=count, length=length, chat=pr["chat"], chat_delay=pr["chat_delay"],
+    clips = analysis.pick_clips(an, count=count, length=length, chat=pr["chat"], chat_delay=pr["chat_delay"],
                               adjust=learning.adjuster(pr.get("streamer", "")),
                               min_len=det["min_len"], max_len=det["max_len"], sensitivity=det["sensitivity"],
                               back=detect.preset(det["preset"])["back"], offsets=(tr["start"], tr["end"]))
@@ -749,11 +750,11 @@ def _pick(pr: dict, count: int, length: float, det: Optional[dict] = None) -> li
 
 
 def regrade(pr: dict):
-    """Score every clip in the list against the stream and each other (engine.grades): run whenever the
+    """Score every clip in the list against the stream and each other (analysis.grades): run whenever the
     list changes, and on reopening a project saved before the scores were graded this way."""
     cs = [c for c in pr.get("clips", []) if c.get("kind", "hype") == "hype" and not c.get("whole")]   # a whole video has no score
     if cs and pr.get("analysis") is not None:
-        for c, q in zip(cs, engine.grades(pr["analysis"], [float(c.get("score") or 0) for c in cs])):
+        for c, q in zip(cs, analysis.grades(pr["analysis"], [float(c.get("score") or 0) for c in cs])):
             c["quality"] = q
 
 
@@ -785,7 +786,7 @@ def _revive(pid: str, d: dict) -> dict:
     if m and not os.path.exists(os.path.join(pr["workdir"], "thumbs", m.group(1))):
         try:                     # thumbnails go with Delete VODs; make them again
             os.makedirs(os.path.join(pr["workdir"], "thumbs"), exist_ok=True)
-            engine.make_thumb(pr["video"], d["start"] + (d["end"] - d["start"]) * 0.6,
+            analysis.make_thumb(pr["video"], d["start"] + (d["end"] - d["start"]) * 0.6,
                               os.path.join(pr["workdir"], "thumbs", m.group(1)), exact=False)
         except Exception:
             pass
@@ -904,7 +905,7 @@ def do_analyze(job, body: dict):
         step("Loading 7TV, BTTV and FFZ emotes")
         es = emotes.for_channel(engine._meta(s.workdir).get("streamer_id", ""), s.streamer, log)
         step("Finding the best moments")
-    an = engine.analyze_cached(s.workdir, s.video, s.chat, chat_delay=det["chat_delay"],
+    an = analysis.analyze_cached(s.workdir, s.video, s.chat, chat_delay=det["chat_delay"],
                                chat_weight_pct=float(body.get("chat_weight", detect.preset(det["preset"])["chat"])),
                                log=log, progress=job_progress(job, dl_share if downloading[0] else 0.0, an_end), check=check,
                                events=bool(body.get("events", True)), emote_set=es,
@@ -931,7 +932,7 @@ def do_analyze(job, body: dict):
     pr["yt"] = ytextra.load(s.workdir)        # a YouTube video: Most replayed, comments, captions
     engine._save_meta(s.workdir, duration=an.duration)
     _load_transcripts(pr)
-    est = engine.estimate(an)
+    est = analysis.estimate(an)
     if saved:
         # opened before: bring back the clips, their numbers and everything you did to them
         st = saved.get("settings") or {}
@@ -951,8 +952,8 @@ def do_analyze(job, body: dict):
         # already a clip (an X post someone cut, a clip you saved): the whole video is the one clip, ready
         # for captions and a layout; nothing to find
         sc = round(float(an.score.max()) if len(an.score) else 0.0, 2)
-        clips = [engine.Clip(0, 0.0, round(an.duration, 2), round(an.duration / 2, 2), sc, "The whole video (already a clip)",
-                             engine.clip_features(an, 0.0, an.duration, an.duration / 2))]
+        clips = [analysis.Clip(0, 0.0, round(an.duration, 2), round(an.duration / 2, 2), sc, "The whole video (already a clip)",
+                             analysis.clip_features(an, 0.0, an.duration, an.duration / 2))]
         _number(pr, clips)
         step("Making thumbnails")
         pr["clips"] = clip_dicts(pid, clips, progress=job_progress(job, an_end, 1.0))
@@ -1318,7 +1319,7 @@ def start_listening(pid: str, order: list, model: str, lang: str):
                     and d.get("state") != "kept":
                 # never start or stop mid-sentence
                 fixed = (d.get("len_mode") or pr.get("length") or 0) > 0
-                a2, b2 = engine.refine_with_words(d["start"], d["end"], d.get("peak", d["start"]), words,
+                a2, b2 = analysis.refine_with_words(d["start"], d["end"], d.get("peak", d["start"]), words,
                                                   max_move=3.0 if fixed else 8.0)
                 a2, b2 = max(0.0, a2), min(_media_end(pr) or pr["analysis"].duration, b2)
                 if b2 - a2 >= 3 and (abs(a2 - d["start"]) > 0.05 or abs(b2 - d["end"]) > 0.05):
@@ -2335,7 +2336,7 @@ def strip_data(pr: dict, a: float, b: float) -> dict:
     if b - a > 3600:                       # an hour at most per request: the timeline asks for what it shows
         b = a + 3600
     i0, i1 = int(a), int(math.ceil(b))
-    hz = engine.FINE_HZ
+    hz = analysis.FINE_HZ
     out = {"a": a, "b": b, "hz": hz, "wave": [], "events": {}, "chat": []}
     if an.fine is not None:
         out["wave"] = [round(float(x), 1) for x in an.fine[int(a * hz):int(b * hz)]]

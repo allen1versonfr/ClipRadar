@@ -32,6 +32,7 @@ import errorlog
 import detect
 import discordhook
 import engine
+import analysis
 import render
 import whisper
 import exports
@@ -396,7 +397,7 @@ class Handler(BaseHTTPRequestHandler):
             os.makedirs(os.path.dirname(out), exist_ok=True)
             if not os.path.exists(out):
                 try:
-                    engine.make_thumb(pr["video"], t, out, width=1280)
+                    analysis.make_thumb(pr["video"], t, out, width=1280)
                 except Exception as e:
                     return self._err(str(e), 500)
             return self._send_file(out, "image/jpeg", cache=True)
@@ -951,7 +952,7 @@ class Handler(BaseHTTPRequestHandler):
             made = {d["id"]: d for d in S.clip_dicts(pid, fresh)}
             for d in made.values():
                 d["len_mode"] = length
-            new = [made[x.id] if isinstance(x, engine.Clip) else x for x in order]
+            new = [made[x.id] if isinstance(x, analysis.Clip) else x for x in order]
             for u in mine:                     # yours slot in by score
                 at = next((i for i, c in enumerate(new) if c.get("score", 0) < u.get("score", 0)), len(new))
                 new.insert(at, u)
@@ -974,10 +975,10 @@ class Handler(BaseHTTPRequestHandler):
                 start = max(0.0, min(t - length * 0.5, an.duration - length))
                 end = min(an.duration, start + length)
             else:
-                start, end, _ = engine.smart_bounds(an, t)
+                start, end, _ = analysis.smart_bounds(an, t)
             sc = an.score[int(min(max(t, 0), len(an.score) - 1))]
-            clip = engine.Clip(0, round(start, 2), round(end, 2), t, round(float(sc), 2), "Added by you",
-                               engine.clip_features(an, start, end, t, pr["chat"], engine.chat_times(pr["chat"]),
+            clip = analysis.Clip(0, round(start, 2), round(end, 2), t, round(float(sc), 2), "Added by you",
+                               analysis.clip_features(an, start, end, t, pr["chat"], engine.chat_times(pr["chat"]),
                                                     pr["chat_delay"]))
             S._number(pr, [clip], "hype", {c["id"] for c in pr["clips"] + pr.get("gems", [])})
             d = S.clip_dicts(pid, [clip])[0]

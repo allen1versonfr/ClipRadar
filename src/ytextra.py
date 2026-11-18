@@ -301,7 +301,7 @@ def caption_signal(an, words: list) -> Optional[np.ndarray]:
 
 
 def apply(an, d: dict):
-    """Attach the YouTube signals to an Analysis (engine.Analysis.combine mixes them in)."""
+    """Attach the YouTube signals to an Analysis (analysis.Analysis.combine mixes them in)."""
     n = len(an.audio_z)
     an.replay = replay_signal(d, n)
     an.comments, an.comment_people = comment_signal(d, n)

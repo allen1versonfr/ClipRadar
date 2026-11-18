@@ -1093,7 +1093,7 @@ def _early_sound(soon: "_Soon", url: str, workdir: str, cookies_browser: str, co
     sound part (vod.f<id>.<ext>). A copy goes there as soon as it's down, and yt-dlp, finding it, joins it
     instead of downloading it again. The video comes first and is about nine tenths of the bytes, so the
     sound is nearly always there in time; if yt-dlp got to it first, it's left alone."""
-    from engine import measure_audio     # defined further down engine.py
+    from analysis import measure_audio     # analysis.py imports engine, which imports this module
     d = os.path.join(workdir, "sound_first")
     exe = which("yt-dlp")
 

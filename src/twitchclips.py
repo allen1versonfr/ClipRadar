@@ -160,7 +160,7 @@ def signal(d: dict, n: int) -> tuple:
 
 
 def apply(an, d: dict):
-    """Attach the viewers' clips to an Analysis (engine.Analysis.combine mixes them in)."""
+    """Attach the viewers' clips to an Analysis (analysis.Analysis.combine mixes them in)."""
     an.vclips, an.vclip_people = signal(d, len(an.audio_z))
     an.vclip_views = _views_per_second(d, len(an.audio_z)) if an.vclips is not None else None
     return an

@@ -51,6 +51,7 @@ import campaigns  # noqa: E402
 import cleanup  # noqa: E402
 import discordhook  # noqa: E402
 import engine  # noqa: E402
+import analysis  # noqa: E402
 import whisper  # noqa: E402
 import framing  # noqa: E402
 import safety  # noqa: E402
@@ -115,7 +116,7 @@ def fake_words(pr, a, b, model, lang, check=lambda: None, stats=None, task="capt
 server.ensure_words = fake_words
 whisper.whisper_available = lambda: True
 engine.probe = lambda path: {"duration": 60.0, "has_audio": True, "fps": 30.0, "width": 1920, "height": 1080}
-engine.make_thumb = lambda *a, **k: None
+analysis.make_thumb = lambda *a, **k: None
 framing.available = lambda: False
 
 SENT: list = []

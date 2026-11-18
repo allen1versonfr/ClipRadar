@@ -211,6 +211,7 @@ def selftest(out_json: str, media: str = "") -> int:
     import subprocess
     import traceback
     import engine
+    import analysis
     import render
     import whisper
 
@@ -292,12 +293,12 @@ def selftest(out_json: str, media: str = "") -> int:
                 rec("laughter detector runs", False, f"model missing (looked in {paths.RES_DIR / 'models'})")
             # fake chat burst at 30s so the chat path is exercised too
             chat = [(t * 0.7, "hi") for t in range(80)] + [(33 + i * 0.05, "KEKW clip it") for i in range(120)]
-            an = engine.analyze(media, sorted(chat))
-            clips = engine.pick_clips(an, count=3, length=15, chat=chat)
+            an = analysis.analyze(media, sorted(chat))
+            clips = analysis.pick_clips(an, count=3, length=15, chat=chat)
             rec("analyze", bool(clips), f"{info['duration']:.0f}s video, top clip "
                 f"{engine.fmt_ts(clips[0].start)}-{engine.fmt_ts(clips[0].end)} ({clips[0].reason})" if clips else "no clips")
-            auto = engine.pick_clips(an, count=0, length=0, chat=chat)
-            est = engine.estimate(an)
+            auto = analysis.pick_clips(an, count=0, length=0, chat=chat)
+            est = analysis.estimate(an)
             rec("smart clip length", bool(auto) and all(engine.MIN_LEN - 0.5 <= c.end - c.start <= engine.MAX_LEN + 0.5
                                                         or c.end - c.start >= info["duration"] - 1 for c in auto),
                 f"{[round(c.end - c.start, 1) for c in auto]} s; estimate {est}")
@@ -327,7 +328,7 @@ def selftest(out_json: str, media: str = "") -> int:
             absw = [dict(w, start=w["start"] + start, end=w["end"] + start) for w in heard_words]
             if absw:
                 mid = absw[len(absw) // 2]
-                a2, b2 = engine.refine_with_words(mid["start"] + 0.05, absw[-1]["end"] - 0.1, mid["start"], absw)
+                a2, b2 = analysis.refine_with_words(mid["start"] + 0.05, absw[-1]["end"] - 0.1, mid["start"], absw)
                 import gems
                 g, curve = gems.find(an, absw, [])
                 rec("cuts land between sentences", a2 <= mid["start"] and b2 >= absw[-1]["end"] - 0.1,

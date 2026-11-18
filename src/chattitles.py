@@ -122,13 +122,13 @@ def _ok_phrase(ws: tuple, names: set, emotes: set, avoid: str = "") -> bool:
 
 
 def _shout_ok(w: str, names: set, emotes: set, avoid: str, streamer: str) -> bool:
-    import engine
+    import analysis
     import titles
     return (len(w) >= 3 and w not in STOP and w not in SHOUT_STOP and w not in emotes and w not in names
             and w not in titles.TOPIC_STOP and w not in titles.PLAIN and w not in titles.REACTION_ONLY
             and not (streamer and (w in streamer or streamer in w)) and not _is_context((w,), avoid)
-            and not titles.PROFANITY.search(w) and not engine.LAUGH_TEXT.match(w) and w not in engine.HYPE
-            and w not in engine.REACT and not engine.reaction_kind(w) and not _DIGITS.search(w))
+            and not titles.PROFANITY.search(w) and not analysis.LAUGH_TEXT.match(w) and w not in analysis.HYPE
+            and w not in analysis.REACT and not analysis.reaction_kind(w) and not _DIGITS.search(w))
 
 
 def _cased(word: str, raw: list) -> str:

@@ -68,6 +68,17 @@ MOVED = {
                "read_through", "_crop_failed", "_graph_failed", "LAYOUT_NAMES", "_first_reason", "_frame_luma",
                "_start_lumas", "black_start", "_ffmpeg_reason", "SPANS_INLINE", "mute_commands", "mute_graph",
                "render_clip"],
+    "analysis": ["HYPE", "_TOKEN", "REACT", "STRETCHED", "REACT_PHRASES", "LAUGH_TEXT", "_STRETCH",
+                 "TOKEN_REPEAT", "_react_points", "CONFUSED", "CRINGE", "CONFUSED_PHRASES", "CRINGE_PHRASES",
+                 "_UHH", "_HMM", "_CONFUSED_ASK", "KINDS", "_EMOTE_TOK", "_KIND_OF", "_awkward_points",
+                 "reaction_kind", "MOOD_LABEL", "MOOD_MIN", "chat_mood", "_awkward_word", "chat_weight",
+                 "is_reaction", "FINE_HZ", "measure_audio", "_rolling", "_robust_z", "_fit", "EVENT_WEIGHTS",
+                 "AGREE_WEIGHT", "Analysis", "analyze", "ANALYSIS_VERSION", "_analysis_key", "_save_analysis",
+                 "_load_analysis", "analyze_cached", "_finish", "chat_rate", "_audio_z", "score_signals",
+                 "Clip", "estimate", "MAX_AUTO_CLIPS", "STANDOUT_GAP", "standout_bar", "_snap", "smart_bounds",
+                 "fixed_bounds", "_ends_sentence", "refine_with_words", "clip_features", "moment_scores",
+                 "NO_CHAT_JOIN", "NO_CHAT_SCALE", "strength", "grades", "WEAK_QUALITY", "MIN_AUTO_CLIPS",
+                 "pick_clips", "_reason", "make_thumb"],
 }
 
 failures = []

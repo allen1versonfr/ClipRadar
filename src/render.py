@@ -40,7 +40,7 @@ if "engine" not in sys.modules:
     del sys.modules[__name__]
     import engine  # noqa: E402,F401
 if TYPE_CHECKING:
-    from engine import Analysis  # noqa: F401  (punch_beats' annotation; engine.py's analysis moves in 4e)
+    from analysis import Analysis  # noqa: F401  (punch_beats' annotation)
 from engine import (  # noqa: E402  engine imports this module after these are defined
     CREATE_NO_WINDOW, Cancelled, Check, Log, Progress, RenderInputError, _noop, ffmpeg, fmt_ts, probe, run,
 )
