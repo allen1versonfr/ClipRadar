@@ -27,6 +27,7 @@ os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import engine  # noqa: E402
+import render as render_mod  # noqa: E402  (this file has a render() of its own)
 
 failures = []
 
@@ -103,7 +104,7 @@ def counted_black_start(*a, **kw):
     return REAL_BLACK_START(*a, **kw)
 
 
-engine.black_start = counted_black_start
+render_mod.black_start = counted_black_start
 subprocess.Popen = StandInGpu
 try:
     # 1. the GPU encoder blacks the first frame: caught, rendered again on the CPU
@@ -154,7 +155,7 @@ try:
           and not any("black first frame" in m for m in logs), (diag, logs))
 finally:
     subprocess.Popen = REAL_POPEN
-    engine.black_start = REAL_BLACK_START
+    render_mod.black_start = REAL_BLACK_START
 
 # 4. the check itself, on files made directly
 plain = os.path.join(TMP, "plain.mp4")

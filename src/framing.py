@@ -23,6 +23,8 @@ from typing import Optional
 import numpy as np
 
 import engine
+
+import render
 import paths
 
 MODEL = "ultraface-rfb-320.onnx"
@@ -562,7 +564,7 @@ def shift(path: list, offset: float, length: float) -> list:
 
 def crop_frac(info: dict, o) -> float:
     """How much of the source width a full-frame crop shows, for this shape and zoom."""
-    W, H = engine.out_size(o)
+    W, H = render.out_size(o)
     sw, sh = info["width"], info["height"]
     return min(1.0, min(sw, sh * W / H) / max(1.0, float(getattr(o, "game_zoom", 1.0))) / sw)
 

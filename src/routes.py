@@ -32,6 +32,7 @@ import errorlog
 import detect
 import discordhook
 import engine
+import render
 import whisper
 import exports
 import framing
@@ -1170,7 +1171,7 @@ class Handler(BaseHTTPRequestHandler):
             ro = S._ropts(dict(body.get("opts") or {}, track="auto"))
             fr = S._framing_for(pr, a, b, ro) if b - a >= 1 else None
             if fr is None:
-                return self._json({"path": [], "reason": "Follow face works with the Whole frame layout." if engine.effective_layout(ro) != "full"
+                return self._json({"path": [], "reason": "Follow face works with the Whole frame layout." if render.effective_layout(ro) != "full"
                                    else "Face finding isn't available in this copy.", "confidence": 0})
             return self._json(fr)
 

@@ -283,8 +283,8 @@ def choose(task: str, size: str, log: Callable[[str], None] = lambda m: None) ->
         whispercpp.fetch_later(size, log)
         pick = ("whisper", f"Whisper '{size}' is still downloading")
     else:
-        import engine
-        renders_full = engine._hw_slots._value == 0
+        import render
+        renders_full = render._hw_slots._value == 0
         pick = decide(task, want, True, cpu_load(), renders_full or gpu_load() >= GPU_BUSY)
     _routes[task] = {"on": "gpu" if pick[0] == "vulkan" or whisper_gpu_ok() else "cpu", "why": pick[1]}
     return {"engine": pick[0], "why": pick[1], "task": task}
@@ -304,9 +304,9 @@ def forget() -> None:
 
 def status() -> dict:
     """For Settings › Performance: the card, and what runs on it."""
-    import engine
+    import render
     import whisper
-    enc = engine._encoder_cache.get("hw")
+    enc = render._encoder_cache.get("hw")
     c = card()
     nv = nvidia_gpu()
     vulkan = vulkan_usable()
@@ -316,8 +316,8 @@ def status() -> dict:
         "cuda_libs": cuda_libs(),
         "pack": installed() or whispercpp.installed(),
         "whisper_device": whisper.whisper_device(),
-        "encoder": (enc[0] if enc else "CPU") if "hw" in engine._encoder_cache else "",
-        "hw_decode": bool(engine._encoder_cache.get("hwdec", True)),
+        "encoder": (enc[0] if enc else "CPU") if "hw" in render._encoder_cache else "",
+        "hw_decode": bool(render._encoder_cache.get("hwdec", True)),
         "download_mb": 1300 if nv else whispercpp.DOWNLOAD_MB,
         "card": c["name"],
         "vendor": c["vendor"],

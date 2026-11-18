@@ -51,6 +51,23 @@ MOVED = {
                 "whisper_available", "_load_whisper", "CARD_REST", "_card_rest", "_CARD_ERROR",
                 "whisper_device", "FEW_WORDS", "CARD_GAIN", "REHEAR_FROM", "_HALLUCINATION", "transcribe",
                 "_transcribe", "_hear", "extract_audio", "_whisper_cache", "_whisper_device", "_whisper_said"],
+    "render": ["RenderOpts", "SHAPES", "out_size", "final_size", "audio_filter", "effective_layout", "_even",
+               "MAX_FPS", "output_fps", "SPEEDS", "_num", "MAX_CAMS", "MAX_ZOOM", "MIN_CAM_PX", "crop_filter",
+               "PUNCH_ZOOM", "PUNCH_MAX", "PUNCH_GAP", "PUNCH_EDGE", "punch_beats", "punch_filter",
+               "build_filter", "_ass_color", "_ass_time", "_ass_escape", "FONTS", "FONT_SCALE",
+               "CAPTION_STYLES", "TITLE_STYLES", "TITLE_YELLOW", "MAX_TEXT_SIZE", "FONT_GLYPH", "TITLE_GROW",
+               "FIT_MIN", "text_width", "fit_text", "fonts_dir", "_font", "fonts_for", "CAPTION_MOTIONS",
+               "FILLER_WORDS", "EMPH_WORDS", "caption_words", "motion_of", "_emphasised", "LINE_LEADS",
+               "LINE_LEADS_SOFT", "_line_cost", "_balance", "_chunks", "WM_POSITIONS", "marks_of", "_mpos",
+               "mark_anchor", "watermark_anchor", "mark_window", "watermark_window", "_mark_fs",
+               "_mark_dialogue", "_wm_alpha", "_shifted", "_join_lines", "title_border", "TITLE_DEFAULT_Y",
+               "TITLE_TOP", "title_top", "build_ass", "_encoder_cache", "RENDER_THREADS", "RENDER_PRIORITY",
+               "_HW", "_HW_HEVC", "CPU_ENCODERS", "HW_SLOTS", "_hw_slots", "_hw_fails", "_HW_BUSY", "HW_DECODE",
+               "hw_failed", "hw_worked", "_rate_args", "video_encoder", "_probe_hw", "_with_rate", "write_srt",
+               "DARK_LUMA", "SEEN_LUMA", "SEEN_SHARE", "BLUR_SHARP", "picture_check", "audio_peak",
+               "read_through", "_crop_failed", "_graph_failed", "LAYOUT_NAMES", "_first_reason", "_frame_luma",
+               "_start_lumas", "black_start", "_ffmpeg_reason", "SPANS_INLINE", "mute_commands", "mute_graph",
+               "render_clip"],
 }
 
 failures = []

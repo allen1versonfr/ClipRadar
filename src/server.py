@@ -43,6 +43,7 @@ import numpy as np
 import autopilot
 import autopilot_steps
 import engine
+import render
 import whisper
 import live
 import paths
@@ -1524,7 +1525,7 @@ def _wm_opts(w: dict) -> dict:
 def _cams(v) -> list:
     """Layout › Facecams beyond the first: up to 3 boxes of four numbers (anything else is left out)."""
     out = []
-    for r in (v if isinstance(v, list) else [])[:engine.MAX_CAMS - 1]:
+    for r in (v if isinstance(v, list) else [])[:render.MAX_CAMS - 1]:
         try:
             box = tuple(float(x) for x in r)
         except (TypeError, ValueError):
@@ -1534,9 +1535,9 @@ def _cams(v) -> list:
     return out
 
 
-def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
+def _ropts(o: dict, ex: Optional[dict] = None) -> render.RenderOpts:
     ex = ex or {}
-    return engine.RenderOpts(
+    return render.RenderOpts(
         **_wm_opts(ex.get("watermark") or {}),
         fps=int(ex.get("fps", 0)), speed=str(ex.get("speed", "balanced")), crf=int(ex.get("crf", 20)),
         scale=float(ex.get("scale", 1.0)),
@@ -1553,7 +1554,7 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         captions=bool(o.get("captions", True)),
         caption_pos=o.get("caption_pos", "auto"),
         caption_color=o.get("caption_color", "#FFE600"),
-        caption_size=_int_in(o.get("caption_size"), 100, 50, engine.MAX_TEXT_SIZE["caption"]),
+        caption_size=_int_in(o.get("caption_size"), 100, 50, render.MAX_TEXT_SIZE["caption"]),
         words_per_line=int(o.get("words_per_line", 3)),
         uppercase=bool(o.get("uppercase", True)),
         title_fit=o.get("title_fit", True) is not False,
@@ -1570,7 +1571,7 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         cap_y=_frac(o.get("cap_y"), 0.7),
         title_style=str(o.get("title_style", "box")),
         title_font=str(o.get("title_font", "classic")),
-        title_size=_int_in(o.get("title_size"), 100, 50, engine.MAX_TEXT_SIZE["title"]),
+        title_size=_int_in(o.get("title_size"), 100, 50, render.MAX_TEXT_SIZE["title"]),
         title_color=o.get("title_color") if re.fullmatch(r"#[0-9a-fA-F]{6}", str(o.get("title_color") or "")) else "#FFFFFF",
         title_outline=_int_in(o.get("title_outline"), 100, 0, 300),
         title_x=_frac(o.get("title_x"), 0.5),
@@ -1578,11 +1579,11 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         whisper_model=o.get("whisper_model", "small"),
         language=o.get("language", ""),
         hw_encode=bool(o.get("hw_encode", True)),
-        aspect=o.get("aspect") if o.get("aspect") in engine.SHAPES else "9:16",
+        aspect=o.get("aspect") if o.get("aspect") in render.SHAPES else "9:16",
         track="off" if o.get("track") == "off" else "auto",
         track_target=o.get("track_target") if o.get("track_target") in framing.TARGETS else "auto",
         focus_y=_frac(o.get("focus_y"), 0.4),
-        punch=o.get("punch") if o.get("punch") in engine.PUNCH_ZOOM else "off",
+        punch=o.get("punch") if o.get("punch") in render.PUNCH_ZOOM else "off",
     )
 
 
@@ -1622,7 +1623,7 @@ def _auto_layout(pr: dict) -> dict:
 
 def _framing_for(pr: dict, start: float, end: float, ro, log=None) -> Optional[dict]:
     """Follow the face for a whole-frame crop (Layout › Follow face). None when it doesn't apply."""
-    if engine.effective_layout(ro) != "full" or ro.track != "auto" or not framing.available():
+    if render.effective_layout(ro) != "full" or ro.track != "auto" or not framing.available():
         return None
     try:
         return framing.track(pr["video"], start, end, pr["info"], ro, cache_dir=locations.temp_dir(os.path.basename(pr["workdir"]), "framing"),
@@ -1641,9 +1642,9 @@ PREVIEW_CACHE_MAX = 256
 
 def preview_extras(pid: str, pr: dict, start: float, end: float, opts: dict) -> dict:
     """What Review's live preview needs to draw a clip the way it renders (4.47.1): the punch-in beats, in
-    seconds into the clip (engine.punch_beats, [] when Punch-in is off), and the face the render follows
+    seconds into the clip (render.punch_beats, [] when Punch-in is off), and the face the render follows
     (_framing_for: face_y and face_h as shares of the frame's height, None without one). followed: the crop
-    follows the face, which is when a title that hasn't been moved keeps off it (engine.title_top).
+    follows the face, which is when a title that hasn't been moved keeps off it (render.title_top).
     Kept per clip and framing, so scrubbing or replaying asks nothing again."""
     o = {k: opts[k] for k in PREVIEW_KEYS if k in (opts or {})}
     key = json.dumps([pid, round(start, 2), round(end, 2), id(pr.get("analysis")), o], sort_keys=True, default=str)
@@ -1652,7 +1653,7 @@ def preview_extras(pid: str, pr: dict, start: float, end: float, opts: dict) -> 
     if hit is not None:
         return hit
     ro = _ropts(o)
-    beats = engine.punch_beats(pr.get("analysis"), start, end) if ro.punch in engine.PUNCH_ZOOM else []
+    beats = render.punch_beats(pr.get("analysis"), start, end) if ro.punch in render.PUNCH_ZOOM else []
     fr = _framing_for(pr, start, end, ro) if end - start >= 1 else None
     face_y = face_h = None
     if fr and fr.get("face_y") is not None and fr.get("face_h") is not None:
@@ -1848,7 +1849,7 @@ def _check_output(path: str, expect: float, want_audio: bool = False) -> Optiona
     else:
         # the file must read to its end: a render cut short by a crash or a full disk often
         # still has a readable header and the right length
-        plays, peak = engine.read_through(path, audio=bool(want_audio and info["has_audio"]))
+        plays, peak = render.read_through(path, audio=bool(want_audio and info["has_audio"]))
         if plays:
             return peak
         why = " (its end doesn't play)"
@@ -2051,7 +2052,7 @@ def _render_item(it: dict):
     name = _file_name(it, outdir)
     length = it["end"] - it["start"]
     _check_space(outdir, length)
-    enc = engine.video_encoder(ro)[0]
+    enc = render.video_encoder(ro)[0]
     skey = exports.speed_key(enc, ex)
     known = exports.speed(skey)
     it["eta"] = round(length / known + 3, 1) if known else None      # before it starts: from earlier renders
@@ -2081,9 +2082,9 @@ def _render_item(it: dict):
 
     it["source_title"] = pr["title"]
     if ro.punch != "off":                    # Layout › Punch-in: on this clip's own peaks
-        ro.punch_at = engine.punch_beats(pr.get("analysis"), it["start"], it["end"])
+        ro.punch_at = render.punch_beats(pr.get("analysis"), it["start"], it["end"])
     fr = None
-    if engine.effective_layout(ro) == "full" and ro.track == "auto":
+    if render.effective_layout(ro) == "full" and ro.track == "auto":
         set_stage(it, "preparing", "Finding the face")
         timer.mark("finding the face")
         fr = _framing_for(pr, it["start"], it["end"], ro)
@@ -2105,7 +2106,7 @@ def _render_item(it: dict):
         it["progress"] = 0.0
         t_start = time.time()
         enc_t0[0] = None
-        engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=title,
+        render.render_clip(pr["video"], it["start"], it["end"], path, ro, title=title,
                            progress=prog, check=check, words=words, censor=spans, censor_mode=mode,
                            log=lambda m: print("  " + m, flush=True), framing=fr,
                            warn=lambda m: it.__setitem__("warning", m), diag=diag)
@@ -2130,7 +2131,7 @@ def _render_item(it: dict):
                 raise
     if subs in ("burn_srt", "srt") and srt_words:
         try:
-            engine.write_srt(srt_words, ro, os.path.splitext(path)[0] + ".srt", length)
+            render.write_srt(srt_words, ro, os.path.splitext(path)[0] + ".srt", length)
             it["srt"] = True
         except OSError:
             pass
@@ -2241,10 +2242,10 @@ def hashtags_view(streamer: str = "") -> dict:
 
 def perf_view() -> dict:
     sp = exports.all_speeds()
-    enc = engine._encoder_cache.get("hw")
+    enc = render._encoder_cache.get("hw")
     mem = locations.memory()
     return {"cpus": os.cpu_count() or 0, "mem_free": mem["free"], "mem_total": mem["total"],
-            "waiting_for_memory": _mem_short() and MAX_WORKERS[0] > 1, "encoder": (enc[0] if enc else "libx264 (CPU)") if "hw" in engine._encoder_cache else "not checked yet",
+            "waiting_for_memory": _mem_short() and MAX_WORKERS[0] > 1, "encoder": (enc[0] if enc else "libx264 (CPU)") if "hw" in render._encoder_cache else "not checked yet",
             "speeds": {k: v for k, v in sp.items() if "|" not in k}, "workers": MAX_WORKERS[0],
             "priority": exports.load()["priority"]}
 
@@ -2258,7 +2259,7 @@ def _check_sound(it: dict, pr: dict, path: str, peak=_UNMEASURED):
     if not pr["info"].get("has_audio"):
         return
     if peak is _UNMEASURED:
-        peak = engine.audio_peak(path)
+        peak = render.audio_peak(path)
     if peak is None:
         try:
             os.remove(path)
@@ -2278,7 +2279,7 @@ def _picture_soon(it: dict, pr: dict):
 
     def look():
         try:
-            box["pc"] = engine.picture_check(pr["video"], it["start"], it["end"])
+            box["pc"] = render.picture_check(pr["video"], it["start"], it["end"])
         except Exception:
             pass
     t = threading.Thread(target=look, daemon=True)
@@ -2389,19 +2390,19 @@ def start_preview_render(pid: str, c: dict, opts: dict, at: float) -> dict:
         if not ro.captions:
             words = []
         fr = None
-        if engine.effective_layout(ro) == "full" and ro.track == "auto":
+        if render.effective_layout(ro) == "full" and ro.track == "auto":
             job["step"] = "Finding the face"
             # the whole clip's path (shared with the export, cached), shifted to this stretch
             fr = _framing_for(pr, float(c["start"]), float(c["end"]), ro)
             if fr and fr.get("path"):
                 fr = dict(fr, path=framing.shift(fr["path"], seg_a - float(c["start"]), seg_b - seg_a))
         if ro.punch != "off":                # the clip's beats, on this stretch of it
-            ro.punch_at = [t - (seg_a - float(c["start"])) for t in engine.punch_beats(pr.get("analysis"), float(c["start"]),
+            ro.punch_at = [t - (seg_a - float(c["start"])) for t in render.punch_beats(pr.get("analysis"), float(c["start"]),
                                                                                    float(c["end"]))]
             ro.punch_at = [t for t in ro.punch_at if 0 <= t <= seg_b - seg_a]
         name = f"preview_{int(time.time() * 1000)}.mp4"
         job["step"] = "Rendering"
-        engine.render_clip(pr["video"], seg_a, seg_b, os.path.join(outdir, name), ro, title=title,
+        render.render_clip(pr["video"], seg_a, seg_b, os.path.join(outdir, name), ro, title=title,
                            progress=job_progress(job, 0.1, 1.0), check=check, words=words, censor=spans, censor_mode=mode,
                            framing=fr)
         return {"url": f"/files/{pid}/preview/{name}", "start": seg_a, "end": seg_b}
@@ -2570,13 +2571,13 @@ def apply_perf(prefs: Optional[dict] = None):
     p = prefs or exports.load()
     MAX_WORKERS[0] = p["renders"]
     if p["priority"] == "responsive":
-        engine.RENDER_PRIORITY[0] = 0x00004000 if sys.platform == "win32" else 0     # BELOW_NORMAL_PRIORITY_CLASS
+        render.RENDER_PRIORITY[0] = 0x00004000 if sys.platform == "win32" else 0     # BELOW_NORMAL_PRIORITY_CLASS
         # leave one core for you; the lower priority (Windows) already lets what you're doing go first.
         # Half the cores cost a third of the speed (measured: 30 s clip, 4 cores, 23.8 s vs 18.2 s)
-        engine.RENDER_THREADS[:] = ["-threads", str(max(2, (os.cpu_count() or 4) - 1))]
+        render.RENDER_THREADS[:] = ["-threads", str(max(2, (os.cpu_count() or 4) - 1))]
     else:
-        engine.RENDER_PRIORITY[0] = 0
-        engine.RENDER_THREADS[:] = []
+        render.RENDER_PRIORITY[0] = 0
+        render.RENDER_THREADS[:] = []
     start_prehear()
     while len(_workers) < MAX_WORKERS[0]:
         i = len(_workers)
@@ -2601,7 +2602,7 @@ def queue_eta() -> Optional[float]:
                 total += x["eta"]
         else:
             ex = x.get("export") or {}
-            sp = exports.speed(exports.speed_key(engine.video_encoder(_ropts(x.get("opts") or {}, ex))[0], ex))
+            sp = exports.speed(exports.speed_key(render.video_encoder(_ropts(x.get("opts") or {}, ex))[0], ex))
             if not sp:
                 unknown = True
             else:

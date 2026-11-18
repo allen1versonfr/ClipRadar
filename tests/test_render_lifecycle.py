@@ -32,6 +32,7 @@ os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import engine  # noqa: E402
+import render  # noqa: E402
 import exports  # noqa: E402
 import persist  # noqa: E402
 import server  # noqa: E402
@@ -211,9 +212,9 @@ check("a deleted recording is named as such", q and q.get("error_kind") == "sour
 
 # 4. a real FFmpeg filter failure: classed as a layout problem, with FFmpeg's command and words kept
 real_bf = engine.build_filter
-engine.build_filter = lambda info, o, path=None, face=None: ("[0:v]crop=4000:4000:0:0,scale=1080:1920,format=yuv420p[v]", 960.0)
+render.build_filter = lambda info, o, path=None, face=None: ("[0:v]crop=4000:4000:0:0,scale=1080:1920,format=yuv420p[v]", 960.0)
 q = wait(item("bad", 2.0, 6.0)["id"], ("done", "error"))
-engine.build_filter = real_bf
+render.build_filter = real_bf
 h = (q or {}).get("history") or []
 check("a filter that can't be built fails as a layout problem", q and q.get("error_kind") == "layout"
       and "Layout" in q.get("error", ""), q and (q.get("error_kind"), q.get("error")))
@@ -231,9 +232,9 @@ check("and clears the old failure", q and not q.get("error") and "error_kind" no
 # 4b. a layout FFmpeg refuses although its crop fits: the clip still comes out (blur-fit), the warning
 # says so, and the attempt keeps the first failure's graph, exit code and reason, not the fallback's
 real_cf = engine.crop_filter
-engine.crop_filter = lambda sw, sh, w, h, x, y: real_cf(sw, sh, w, h, x, y).replace("crop=", "crop=4000:4000:0:0,crop=", 1)
+render.crop_filter = lambda sw, sh, w, h, x, y: real_cf(sw, sh, w, h, x, y).replace("crop=", "crop=4000:4000:0:0,crop=", 1)
 q = wait(item("fb", 2.0, 6.0)["id"], ("done", "error"))
-engine.crop_filter = real_cf
+render.crop_filter = real_cf
 h = (q or {}).get("history") or []
 ff = h[-1].get("first_failure") if h else None
 check("a layout FFmpeg refuses still gives a clip, with a warning", q and q["status"] == "done"
@@ -267,7 +268,7 @@ def stall_once(*a, **k):
     return real_rc(*a, **k)
 
 
-engine.render_clip = stall_once
+render.render_clip = stall_once
 q = wait(item("stall", 2.0, 6.0)["id"], ("done", "error"))
 check("a stalled render is tried once more by itself and finishes", q and q["status"] == "done"
       and [a["outcome"] for a in q["history"]] == ["error", "done"] and q["history"][0].get("kind") == "stalled",
@@ -280,12 +281,12 @@ def always_stall(*a, **k):
 
 
 calls["n"] = 0
-engine.render_clip = always_stall
+render.render_clip = always_stall
 q = wait(item("stall2", 2.0, 6.0)["id"], ("done", "error"))
 time.sleep(1.0)
 check("stalling again: it stops after two tries", q and q["status"] == "error" and calls["n"] == 2
       and q.get("retryable") is True, (calls["n"], q and q.get("status")))
-engine.render_clip = real_rc
+render.render_clip = real_rc
 
 # 6. cancelling a render stops FFmpeg and leaves nothing behind
 it = item("cancel", 0.0, 38.0, export=dict(exports.settings(exports.load()), speed="high"))

@@ -12,7 +12,7 @@ Export VOD: a whole video saved as one file, with the muting system and captions
     for laughter. Each stretch can have its music removed with the voices kept (voicekeep.py), be muted
     whole, or be left alone. It hears *music*, not which song: a safety net, not a guarantee.
   - Speed: when the picture isn't changed (no burned-in captions, the video's own size) it's copied as
-    it is and only the sound is made again. Otherwise it's engine.render_clip in a wide frame (16:9).
+    it is and only the sound is made again. Otherwise it's render.render_clip in a wide frame (16:9).
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ import numpy as np
 
 import audio_events
 import engine
+import render
 import whisper
 import exports
 import locations
@@ -334,7 +335,7 @@ def clean_options(body: dict, duration: float) -> dict:
     }
 
 
-def render_opts(S, o: dict, info: dict) -> engine.RenderOpts:
+def render_opts(S, o: dict, info: dict) -> render.RenderOpts:
     """A wide frame showing the whole picture: as it is for a 16:9 video, on a blurred background otherwise,
     with the captions styled as chosen on the screen."""
     sw, sh = info.get("width") or 1920, info.get("height") or 1080
@@ -491,10 +492,10 @@ def _run_ffmpeg(cmd: list, cwd: str, length: float, progress, check) -> None:
         p.wait()
         reader.join(timeout=5)
     if p.returncode != 0:
-        raise RuntimeError("ffmpeg failed:\n" + engine._ffmpeg_reason("".join(err[-60:])))
+        raise RuntimeError("ffmpeg failed:\n" + render._ffmpeg_reason("".join(err[-60:])))
 
 
-def copy_video(video: str, out_path: str, info: dict, ro: engine.RenderOpts, spans: list, audio_src: str,
+def copy_video(video: str, out_path: str, info: dict, ro: render.RenderOpts, spans: list, audio_src: str,
                progress, check) -> None:
     """The export with the picture copied as it is and only the sound made again (muted spans, the sound with
     its music removed). Many times faster than encoding the picture: nothing is decoded but the sound."""
@@ -511,9 +512,9 @@ def copy_video(video: str, out_path: str, info: dict, ro: engine.RenderOpts, spa
         cmd += ["-tag:v", "hvc1"]
     try:
         if info.get("has_audio"):
-            tail = engine.audio_filter(ro)
+            tail = render.audio_filter(ro)
             if spans:
-                graph, commands = engine.mute_graph(spans, length, tail, ain, cmd_name)
+                graph, commands = render.mute_graph(spans, length, tail, ain, cmd_name)
                 if commands:
                     with open(os.path.join(work, cmd_name), "w", encoding="utf-8") as f:
                         f.write(commands)
@@ -602,7 +603,7 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
         else:
             step("Rendering" if part else "Rendering the whole video" if whole else "Rendering the preview")
             burn = [dict(w, start=w["start"] - a, end=w["end"] - a) for w in words] if ro.captions else []
-            engine.render_clip(video, a, b, path, ro, title="", log=log, progress=prog, check=check,
+            render.render_clip(video, a, b, path, ro, title="", log=log, progress=prog, check=check,
                                words=burn, censor=spans, censor_mode="mute", audio_src=audio_src,
                                warn=lambda m: job.__setitem__("warning", m))
     finally:
@@ -644,7 +645,7 @@ def run_export(S, job: dict, pid: str, o: dict) -> dict:
     srt = ""
     if o["captions"] in ("srt", "both") and r["words"]:
         srt = os.path.splitext(path)[0] + ".srt"
-        engine.write_srt(r["words"], r["ro"], srt, dur)
+        render.write_srt(r["words"], r["ro"], srt, dur)
     took = time.time() - t0
     S.job_logger(job)(f"Saved {name} in {engine.fmt_ts(took)}.")
     pr["vod_out"] = path

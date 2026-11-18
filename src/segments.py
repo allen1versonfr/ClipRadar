@@ -24,6 +24,8 @@ import uuid
 from typing import Optional
 
 import engine
+
+import render
 import whisper
 import exports
 import locations
@@ -34,7 +36,7 @@ MAX_LEN = 30 * 60.0      # seconds an export can be
 MIN_LEN = 0.5            # a segment (or what's left of it) shorter than this is nothing
 NAME_MAX = 80
 MAX_SEGMENTS = 200
-GAIN = (-12.0, 12.0)     # dB, as engine.audio_filter allows
+GAIN = (-12.0, 12.0)     # dB, as render.audio_filter allows
 
 _lock = threading.Lock()
 _edits: Optional[list] = None
@@ -308,7 +310,7 @@ def join(parts: list, out_path: str, check=lambda: None) -> None:
                                encoding="utf-8", errors="replace", creationflags=engine.CREATE_NO_WINDOW)
             if r.returncode == 0 and os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
                 return
-        raise RuntimeError("Couldn't join the segments:\n" + engine._ffmpeg_reason(r.stderr[-4000:]))
+        raise RuntimeError("Couldn't join the segments:\n" + render._ffmpeg_reason(r.stderr[-4000:]))
     finally:
         try:
             os.remove(lst)
@@ -371,7 +373,7 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
     srt = ""
     if o["captions"] in ("srt", "both") and words and ro is not None:
         srt = os.path.splitext(path)[0] + ".srt"
-        engine.write_srt(words, ro, srt, total)
+        render.write_srt(words, ro, srt, total)
     took = time.time() - t0
     log(f"Saved {name}: {len(plan)} part{'s' if len(plan) != 1 else ''}, {engine.fmt_ts(total)}, in {engine.fmt_ts(took)}.")
     return {"path": path, "name": name, "folder": outdir, "srt": os.path.basename(srt) if srt else "",
