@@ -27,7 +27,10 @@ os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import engine  # noqa: E402
+import whisper  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
+import render_queue  # noqa: E402
 
 failures = []
 
@@ -54,9 +57,9 @@ def fake_ensure_words(pr, a, b, model, lang, check=lambda: None, stats=None, tas
     return []
 
 
-server.ensure_words = fake_ensure_words
-server._render_project = lambda it: PR
-engine.whisper_available = lambda: True
+listening.ensure_words = fake_ensure_words
+render_queue._render_project = lambda it: PR
+whisper.whisper_available = lambda: True
 
 
 def item(i, status="queued", **kw):

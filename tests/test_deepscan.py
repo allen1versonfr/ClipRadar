@@ -26,8 +26,9 @@ os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import numpy as np  # noqa: E402
-import engine  # noqa: E402
+import whisper  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 
 failures = []
 
@@ -59,12 +60,12 @@ def fake_transcribe(audio, model, lang, log, prompt="", **kw):
     return [{"start": 0.5, "end": 0.9, "word": "hello"}]
 
 
-engine.extract_audio = fake_extract
-engine.transcribe = fake_transcribe
-engine.whisper_available = lambda: True
-server._vocab = lambda pr: ""
-server._save_transcripts = lambda pr: None
-server._update_gems = lambda pid, model, lang: server.projects[pid].__setitem__("gems", [])
+whisper.extract_audio = fake_extract
+whisper.transcribe = fake_transcribe
+whisper.whisper_available = lambda: True
+listening._vocab = lambda pr: ""
+listening._save_transcripts = lambda pr: None
+listening._update_gems = lambda pid, model, lang: server.projects[pid].__setitem__("gems", [])
 
 
 def project(duration: float) -> str:

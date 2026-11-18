@@ -211,6 +211,9 @@ def selftest(out_json: str, media: str = "") -> int:
     import subprocess
     import traceback
     import engine
+    import analysis
+    import render
+    import whisper
 
     checks = []
 
@@ -242,7 +245,7 @@ def selftest(out_json: str, media: str = "") -> int:
     rec("ui bundled", (paths.RES_DIR / "web" / "index.html").is_file(), paths.RES_DIR)
     rec("ui fonts bundled", (paths.RES_DIR / "ui" / "fonts" / "Inter-Regular.woff").is_file(), paths.RES_DIR)
     try:
-        rec("encoder", True, engine.video_encoder(engine.RenderOpts())[0])
+        rec("encoder", True, render.video_encoder(render.RenderOpts())[0])
     except Exception as e:
         rec("encoder", False, e)
 
@@ -290,28 +293,28 @@ def selftest(out_json: str, media: str = "") -> int:
                 rec("laughter detector runs", False, f"model missing (looked in {paths.RES_DIR / 'models'})")
             # fake chat burst at 30s so the chat path is exercised too
             chat = [(t * 0.7, "hi") for t in range(80)] + [(33 + i * 0.05, "KEKW clip it") for i in range(120)]
-            an = engine.analyze(media, sorted(chat))
-            clips = engine.pick_clips(an, count=3, length=15, chat=chat)
+            an = analysis.analyze(media, sorted(chat))
+            clips = analysis.pick_clips(an, count=3, length=15, chat=chat)
             rec("analyze", bool(clips), f"{info['duration']:.0f}s video, top clip "
                 f"{engine.fmt_ts(clips[0].start)}-{engine.fmt_ts(clips[0].end)} ({clips[0].reason})" if clips else "no clips")
-            auto = engine.pick_clips(an, count=0, length=0, chat=chat)
-            est = engine.estimate(an)
-            rec("smart clip length", bool(auto) and all(engine.MIN_LEN - 0.5 <= c.end - c.start <= engine.MAX_LEN + 0.5
+            auto = analysis.pick_clips(an, count=0, length=0, chat=chat)
+            est = analysis.estimate(an)
+            rec("smart clip length", bool(auto) and all(analysis.MIN_LEN - 0.5 <= c.end - c.start <= analysis.MAX_LEN + 0.5
                                                         or c.end - c.start >= info["duration"] - 1 for c in auto),
                 f"{[round(c.end - c.start, 1) for c in auto]} s; estimate {est}")
             heard, heard_words, rlog = [], [], []
-            real = engine.transcribe
+            real = whisper.transcribe
 
             def spy(*a, **k):
                 w = real(*a, **k)
                 heard.extend(x["word"] for x in w)
                 heard_words.extend(w)
                 return w
-            engine.transcribe = spy
+            whisper.transcribe = spy
             out = os.path.join(os.path.dirname(out_json), "selftest_clip.mp4")
             start = 26.0
-            engine.render_clip(media, start, start + 14, out,
-                               engine.RenderOpts(layout="split", cam=(0.02, 0.03, 0.25, 0.25),
+            render.render_clip(media, start, start + 14, out,
+                               render.RenderOpts(layout="split", cam=(0.02, 0.03, 0.25, 0.25),
                                                  whisper_model="tiny", language="en"),
                                title="Self test", log=lambda m: (print("  " + m, flush=True), rlog.append(m)))
             oi = engine.probe(out)
@@ -325,7 +328,7 @@ def selftest(out_json: str, media: str = "") -> int:
             absw = [dict(w, start=w["start"] + start, end=w["end"] + start) for w in heard_words]
             if absw:
                 mid = absw[len(absw) // 2]
-                a2, b2 = engine.refine_with_words(mid["start"] + 0.05, absw[-1]["end"] - 0.1, mid["start"], absw)
+                a2, b2 = analysis.refine_with_words(mid["start"] + 0.05, absw[-1]["end"] - 0.1, mid["start"], absw)
                 import gems
                 g, curve = gems.find(an, absw, [])
                 rec("cuts land between sentences", a2 <= mid["start"] and b2 >= absw[-1]["end"] - 0.1,
@@ -334,19 +337,19 @@ def selftest(out_json: str, media: str = "") -> int:
             rec("auto title", bool(t["title"]) and bool(t["quote"]),
                 f"{t['title']} | vibe: {t['vibe'] or 'none'} | others: {' / '.join(t['titles'][1:4])}")
             # hand-edited captions, a bundled font, a highlight box and dragged positions
-            fonts = sorted(p.name for p in engine.fonts_dir().glob("*.*") if p.suffix in (".ttf", ".otf"))
+            fonts = sorted(p.name for p in render.fonts_dir().glob("*.*") if p.suffix in (".ttf", ".otf"))
             rec("caption fonts bundled", len(fonts) >= 7, ", ".join(fonts))
             out2 = os.path.join(os.path.dirname(out_json), "selftest_styled.mp4")
-            styled = engine.RenderOpts(layout="split", cam=(0.02, 0.03, 0.25, 0.25), caption_style="box",
+            styled = render.RenderOpts(layout="split", cam=(0.02, 0.03, 0.25, 0.25), caption_style="box",
                                        caption_font="montserrat", caption_color="#00FF00", caption_pos="custom",
                                        cap_x=0.35, cap_y=0.6, title_font="anton", title_style="dark",
                                        title_x=0.5, title_y=0.3)
-            engine.render_clip(media, start, start + 3, out2, styled, title="Chat's \"best\" moment",
+            render.render_clip(media, start, start + 3, out2, styled, title="Chat's \"best\" moment",
                                words=[{"start": 0.1, "end": 1.4, "word": "FIXED"}, {"start": 1.4, "end": 2.5, "word": "TEXT"}])
             # same clip without captions: whatever differs between the two frames is the captions
             out3 = os.path.join(os.path.dirname(out_json), "selftest_plain.mp4")
-            plain = engine.RenderOpts(**{**styled.__dict__, "captions": False})
-            engine.render_clip(media, start, start + 3, out3, plain, title="Chat's \"best\" moment", words=[])
+            plain = render.RenderOpts(**{**styled.__dict__, "captions": False})
+            render.render_clip(media, start, start + 3, out3, plain, title="Chat's \"best\" moment", words=[])
             import numpy as np
 
             def frame(path):
@@ -367,7 +370,7 @@ def selftest(out_json: str, media: str = "") -> int:
             res = safety.scan(ws, cfg=cfg)
             ws2, spans, mode = safety.censored(ws, res, cfg)
             out4 = os.path.join(os.path.dirname(out_json), "selftest_bleep.mp4")
-            engine.render_clip(media, start, start + 3, out4, engine.RenderOpts(layout="split", hw_encode=False),
+            render.render_clip(media, start, start + 3, out4, render.RenderOpts(layout="split", hw_encode=False),
                                words=ws2, censor=spans, censor_mode=mode)
             pcm = np.frombuffer(subprocess.run([engine.ffmpeg(), "-v", "error", "-i", out4, "-ac", "1", "-ar", "16000",
                                                 "-f", "f32le", "-"], capture_output=True, check=True,

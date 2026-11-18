@@ -13,7 +13,10 @@ channel's id), with no sign-in. Twitch doesn't let anonymous clients page past t
 viewed clips of the last day, then the last week and so on up to the period that covers the VOD's age,
 and keeps the ones from this VOD. Shorter periods find more of a recent VOD's clips: on an 11-hour xQc
 VOD a day old, the last day's list had 85 of its clips and the last week's only 12. On an older VOD
-it's the clips that stood out that month, which is still what counts.
+it's the clips that stood out that month, which is still what counts. It also asks for the VOD's own list,
+from its start and from its end (vod_edges), which on most VODs holds far more of its clips.
+
+Where a clip is: Twitch's videoOffsetSeconds is where the clip ends, not where it starts (see parse).
 
 Everything here is optional: no clips, an old VOD, a network error or a format change gives nothing, and
 ranking is as before. Saved as twitch_clips.json in the project and fetched again after REFRESH_S,
@@ -37,6 +40,7 @@ REFRESH_S = 6 * 3600     # fetched again when the saved list is older than this
 PER_PAGE = 100           # Twitch's page size; anonymous clients get the first page only
 VIEWS_HALF = 200         # views at which a clip counts for half again as much as an unwatched one
 PERIODS = ("LAST_DAY", "LAST_WEEK", "LAST_MONTH", "ALL_TIME")
+FORMAT = 2               # 2: a clip's start and end where it really is (offset = its end). 1 (no mark): start = offset
 MAX_CLIP_S = 90          # a clip over twice this long says little about where the moment is: left out
 
 
@@ -78,12 +82,35 @@ def fetch(vod_id: str, log=lambda m: None, timeout: float = 8.0) -> Optional[dic
     except Exception as e:
         log(f"Couldn't read the clips viewers made ({str(e)[:80]}).")
         return None
-    return {"vod": vod_id, "fetched": time.time(), "period": period, "length": v.get("lengthSeconds") or 0,
-            "clips": parse(edges, vod_id)}
+    edges += vod_edges(vod_id, timeout)
+    return {"vod": vod_id, "fetched": time.time(), "format": FORMAT, "period": period,
+            "length": v.get("lengthSeconds") or 0, "clips": parse(edges, vod_id)}
+
+
+def vod_edges(vod_id: str, timeout: float = 8.0) -> list:
+    """The VOD's own list of clips, from its start and from its end: Twitch gives a signed-out app the first
+    100 of each and no more. The channel's lists above are its most viewed clips, shared between all its VODs, so
+    on most VODs they hold a small part of the clips (on three live VODs, 43-73 of 75-200). This holds every clip
+    of a VOD with up to 200, and of a busier one its start and end; the channel's lists still catch the most viewed
+    in its middle. It works on a VOD that's still recording too. Nothing here when Twitch refuses it."""
+    out: list = []
+    for order in ("ASC", "DESC"):
+        try:
+            d = _gql('query{video(id:"%s"){clips(first:%d,sort:%s){edges{node{'
+                     'id title viewCount durationSeconds videoOffsetSeconds video{id}}}}}}' % (vod_id, PER_PAGE, order), timeout)
+            out += ((((d.get("data") or {}).get("video") or {}).get("clips") or {}).get("edges")) or []
+        except Exception:
+            pass
+    return out
 
 
 def parse(edges: list, vod_id: str) -> list:
-    """The clips in a GQL answer that come from this VOD, as {start, end, views, title}."""
+    """The clips in a GQL answer that come from this VOD, as {start, end, views, title}.
+
+    Twitch's videoOffsetSeconds is where a clip ENDS (where the clip button was pressed), not where it starts.
+    It used to be taken as the start, which put every clip a clip-length (often 30-60 s) late. Measured
+    2026-11-17 by matching the sound of 22 clips from 5 channels against their VODs: each started durationSeconds
+    before videoOffsetSeconds, within 2 s (one 6 s). docs/audits/ranking-baseline-2026-11-18.md."""
     out, seen = [], set()
     for e in edges or []:
         n = (e or {}).get("node") or {}
@@ -96,7 +123,7 @@ def parse(edges: list, vod_id: str) -> list:
         off, dur = n.get("videoOffsetSeconds"), n.get("durationSeconds")
         if not isinstance(off, (int, float)) or off < 0 or not isinstance(dur, (int, float)) or dur <= 0:
             continue
-        out.append({"start": float(off), "end": float(off) + float(dur), "views": int(n.get("viewCount") or 0),
+        out.append({"start": max(0.0, float(off) - float(dur)), "end": float(off), "views": int(n.get("viewCount") or 0),
                     "title": str(n.get("title") or "")[:140]})
     out.sort(key=lambda c: c["start"])
     return out
@@ -106,9 +133,26 @@ def load(workdir: str) -> dict:
     try:
         with open(os.path.join(workdir, FILE), encoding="utf-8") as f:
             d = json.load(f)
-        return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
         return {}
+    return upgrade(d) if isinstance(d, dict) else {}
+
+
+def upgrade(d: dict) -> dict:
+    """A list saved before format 2 has each clip a clip-length late (see parse): move it to where it is, so an open
+    project is right before its list is fetched again. scripts/eval_ranking.py's lists were always right
+    (offset_is "end")."""
+    if int(d.get("format") or 1) >= FORMAT or d.get("offset_is") == "end":
+        return d
+    clips = []
+    for c in d.get("clips") or []:
+        try:
+            a, b = float(c["start"]), float(c["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        clips.append(dict(c, start=max(0.0, a - (b - a)), end=a))
+    clips.sort(key=lambda c: c["start"])
+    return dict(d, clips=clips, format=FORMAT)
 
 
 def refresh(workdir: str, vod_id: str, log=lambda m: None) -> dict:
@@ -160,7 +204,7 @@ def signal(d: dict, n: int) -> tuple:
 
 
 def apply(an, d: dict):
-    """Attach the viewers' clips to an Analysis (engine.Analysis.combine mixes them in)."""
+    """Attach the viewers' clips to an Analysis (analysis.Analysis.combine mixes them in)."""
     an.vclips, an.vclip_people = signal(d, len(an.audio_z))
     an.vclip_views = _views_per_second(d, len(an.audio_z)) if an.vclips is not None else None
     return an

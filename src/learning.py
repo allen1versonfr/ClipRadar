@@ -255,7 +255,7 @@ def summary() -> dict:
 LABELS = {"chat": "Chat reaction", "audio": "Loudness", "laugh": "Laughter", "scream": "Screaming",
           "cheer": "Cheering", "speech": "Talking", "length": "Clip length", "clipreq": '"Clip it" in chat',
           "pos": "How far into the stream", "emotes": "Emote reactions"}
-# what every clip is scored on before anything is learned (engine.score_signals, detect.py)
+# what every clip is scored on before anything is learned (analysis.score_signals, detect.py)
 RULES = [
     "Chat reacting harder than usual for this stream (bots, commands, sub notices, raids, one person "
     "spamming, copypasta and F-spam count little or nothing)",

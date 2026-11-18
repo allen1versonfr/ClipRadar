@@ -35,6 +35,7 @@ os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import engine  # noqa: E402
+import render as render_mod  # noqa: E402  (this file has a render() of its own)
 import framing  # noqa: E402
 
 failures = []
@@ -379,7 +380,7 @@ check("a crop that could leave the picture fails as a layout bug, before FFmpeg,
 
 # 11. blur-fit is still there for a crop FFmpeg won't make although it fits
 real_cf = engine.crop_filter
-engine.crop_filter = lambda sw, sh, w, h, x, y: real_cf(sw, sh, w, h, x, y).replace("crop=", "crop=4000:4000:0:0,crop=", 1)
+render_mod.crop_filter = lambda sw, sh, w, h, x, y: real_cf(sw, sh, w, h, x, y).replace("crop=", "crop=4000:4000:0:0,crop=", 1)
 out, diag, warned, err = render(LAND, 1.0, 3.0, layout="split", cam=(0.7, 0, 0.3, 0.3))
 bad = [f"render failed: {str(err)[-300:]}"] if err else verify(out, (1080, 1920), 3.0)
 check("a crop FFmpeg refuses: the whole picture on a blurred background, said so", not bad and diag.get("layout_used") == "Blur-fit"
@@ -389,10 +390,10 @@ check("a crop FFmpeg refuses: the whole picture on a blurred background, said so
 calls = []
 real_popen, real_ve = subprocess.Popen, engine.video_encoder
 subprocess.Popen = lambda cmd, *a, **k: (calls.append(cmd), real_popen(cmd, *a, **k))[1]
-engine.video_encoder = lambda o: ("h264_test", real_ve(engine.RenderOpts(hw_encode=False))[1])
+render_mod.video_encoder = lambda o: ("h264_test", real_ve(engine.RenderOpts(hw_encode=False))[1])
 engine._encoder_cache["hw"] = "h264_test"
 out, diag, warned, err = render(LAND, 1.0, 2.0, layout="full")
-subprocess.Popen, engine.video_encoder, engine.crop_filter = real_popen, real_ve, real_cf
+subprocess.Popen, render_mod.video_encoder, render_mod.crop_filter = real_popen, real_ve, real_cf
 renders = [c for c in calls if "-filter_complex" in c and "-progress" in c]      # renders, not the checks after
 check("a graph that can't be built isn't retried on the CPU (it would fail the same way)", not err and len(renders) == 2
       and "used the CPU" not in diag.get("fallback", "") and engine._encoder_cache.get("hw") == "h264_test",
@@ -400,9 +401,9 @@ check("a graph that can't be built isn't retried on the CPU (it would fail the s
 engine._encoder_cache.pop("hw", None)
 # when blur-fit can't be made either: a failure that says both, keeping the first one's words
 real_bf = engine.build_filter
-engine.build_filter = lambda info, o, path=None, face=None: ("[0:v]crop=4000:4000:0:0,scale=1080:1920,format=yuv420p[v]", 960.0)
+render_mod.build_filter = lambda info, o, path=None, face=None: ("[0:v]crop=4000:4000:0:0,scale=1080:1920,format=yuv420p[v]", 960.0)
 out, diag, warned, err = render(LAND, 1.0, 2.0, layout="full")
-engine.build_filter = real_bf
+render_mod.build_filter = real_bf
 check("when blur-fit fails too, the render fails and says both, keeping the first failure's command",
       isinstance(err, RuntimeError) and "and Blur-fit failed too" in str(err) and "and Blur-fit failed too" in diag.get("fallback", "")
       and diag.get("fallback_stderr") and diag.get("exit") not in (None, 0) and not warned

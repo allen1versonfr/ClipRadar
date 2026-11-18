@@ -35,6 +35,7 @@ import engine  # noqa: E402
 import paths  # noqa: E402
 import segments  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 
 failures = []
 
@@ -119,8 +120,8 @@ if shutil.which("ffmpeg"):
                     "-vf", "geq=lum='T*6':cb=128:cr=128", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
                     "-shortest", video], check=True)
     server.projects[PID]["info"] = engine.probe(video)
-    server.ensure_words = lambda pr, a, b, *x, **k: []
-    server._save_transcripts = lambda pr: None
+    listening.ensure_words = lambda pr, a, b, *x, **k: []
+    listening._save_transcripts = lambda pr: None
 
     def luma(path, at):
         raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{at}", "-i", path, "-frames:v", "1", "-vf", "format=gray",

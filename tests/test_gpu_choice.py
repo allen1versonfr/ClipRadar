@@ -34,8 +34,10 @@ sys.path.insert(0, os.path.join(HERE, "..", "src", "stubs"))
 import numpy as np  # noqa: E402
 
 import engine  # noqa: E402
+import whisper  # noqa: E402
 import gpu  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 import whispercpp  # noqa: E402
 
 failures = []
@@ -192,7 +194,7 @@ real = (gpu.whisper_gpu_ok, whispercpp.installed, whispercpp.has_model, gpu.card
 ran = []
 real_cpp, real_cpu = whispercpp.transcribe, engine._transcribe
 whispercpp.transcribe = lambda *a, **k: ran.append("card") or [{"start": 2.0, "end": 2.5, "word": "card"}]
-engine._transcribe = lambda *a, **k: ran.append("cpu") or [{"start": 2.0, "end": 2.5, "word": "cpu"}]
+whisper._transcribe = lambda *a, **k: ran.append("cpu") or [{"start": 2.0, "end": 2.5, "word": "cpu"}]
 try:
     gpu.whisper_gpu_ok = lambda: False
     whispercpp.installed = lambda: True
@@ -258,7 +260,7 @@ try:
         return [{"start": 2.0, "end": 2.5, "word": word}] * n
 
     def heard(cpu, card):
-        engine._transcribe = lambda *a, **k: ran.append("cpu") or many(cpu, "cpu")
+        whisper._transcribe = lambda *a, **k: ran.append("cpu") or many(cpu, "cpu")
         whispercpp.transcribe = lambda *a, **k: ran.append("card") or many(card, "card")
     caption = gpu.choose("captions", "large-v3")
     heard(6, 26)                                 # 30 s of sound: 2 a second would be 60 words
@@ -302,12 +304,12 @@ try:
     out = engine.transcribe(AUDIO, "large-v3", "en", lambda m: None, pick=caption)
     check("the card failing keeps the CPU's words", out[0]["word"] == "cpu", out)
     whispercpp.transcribe = lambda *a, **k: ran.append("card") or [{"start": 2.0, "end": 2.5, "word": "card"}]
-    engine._transcribe = lambda *a, **k: ran.append("cpu") or [{"start": 2.0, "end": 2.5, "word": "cpu"}]
+    whisper._transcribe = lambda *a, **k: ran.append("cpu") or [{"start": 2.0, "end": 2.5, "word": "cpu"}]
 
     # ------------------------------------------------------------ a title's words don't become a caption's
     pr = {"tx_lock": threading.Lock(), "duration": 60.0, "video": "x.mp4"}
-    server.engine.extract_audio = lambda v, a, n: np.zeros(int(16000 * n), dtype=np.float32)
-    server._vocab = lambda p: ""
+    whisper.extract_audio = lambda v, a, n: np.zeros(int(16000 * n), dtype=np.float32)
+    listening._vocab = lambda p: ""
     ran.clear()
     words = server.ensure_words(pr, 10, 20, "small", "en", task="titles")
     check("a title is heard on the card", ran == ["card"] and [w["word"] for w in words] == ["card"], (ran, words))
@@ -364,7 +366,7 @@ try:
     whispercpp.transcribe = lambda *a, **k: ran.append("card") or [{"start": 2.0, "end": 2.5, "word": "card"}]
 finally:
     gpu.whisper_gpu_ok, whispercpp.installed, whispercpp.has_model, gpu.card, gpu.cpu_load, gpu.gpu_load = real
-    whispercpp.transcribe, engine._transcribe = real_cpp, real_cpu
+    whispercpp.transcribe, whisper._transcribe = real_cpp, real_cpu
 
 # ---------------------------------------------------------------- the download
 FILES = {"/whisper-cli.exe": b"program", "/vad/" + whispercpp.VAD[0]: b"vad", "/m/" + whispercpp.MODELS["small"][0]: b"model" * 40}

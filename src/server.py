@@ -1,6 +1,21 @@
 """
 Clip Radar local server. Run:  python server.py
 Opens http://127.0.0.1:7860 in your browser. Everything stays on your PC.
+
+Where things live (hardening phase 5). This module holds the state the whole app shares: projects, jobs, the render
+queue (queue, queue_lock, queue_wake), live_sessions, WORKROOT, MODE, SHUTTING_DOWN, and the job helpers (new_job,
+run_job, job_logger...). The work is split out by what it does:
+
+  render_queue.py   the render queue's workers, rendering a clip, its checks, why a render failed
+  listening.py      what's said: transcripts, ensure_words, listening to clips, the deep scan
+  live_glue.py      live sessions started and their moments turned into clips, Home › Sources, the hotkey
+  previews.py       the preview copy of a video, Auto-frame, a clip's preview extras, the exact preview render
+  routes.py         the HTTP request handler
+
+Those modules read the shared state and helpers as server.<name> (import server as S) when they run, never as a copy
+(from server import x): WORKROOT is rebound when Settings › Storage changes, and tests swap functions and settings
+on this module, so a copy would go stale. This module calls what moved out where it lives now (render_queue.queue_add),
+and re-exports those names at its end, so server.<name> still works for scripts and older code.
 """
 
 from __future__ import annotations
@@ -21,7 +36,6 @@ for _s in (sys.stdout, sys.stderr):
 import bisect
 import glob
 import hashlib
-import functools
 import json
 import math
 import mimetypes
@@ -43,7 +57,8 @@ import numpy as np
 import autopilot
 import autopilot_steps
 import engine
-import live
+import analysis
+import render
 import paths
 import studio
 import titles
@@ -65,7 +80,6 @@ import exports
 import framing
 import outcome
 import sources
-import gems
 import hashtags
 import learning
 import persist
@@ -272,9 +286,9 @@ def trim_memory(now: Optional[float] = None) -> dict:
             out["jobs"] += 1
     with queue_lock:
         needed = {it.get("pid") for it in queue if it.get("status") in ("queued", "rendering")}
-    for pid in list(_render_projects):
+    for pid in list(render_queue._render_projects):
         if pid not in needed:
-            _render_projects.pop(pid, None)
+            render_queue._render_projects.pop(pid, None)
             out["render_projects"] += 1
     return out
 
@@ -306,41 +320,6 @@ def new_job(kind: str) -> dict:
 
 
 JOB_PUBLIC = ("id", "kind", "status", "step", "progress", "eta", "log", "result", "error", "started")
-
-
-def preview_path(pr: dict) -> str:
-    """Where a project's preview copy goes (engine.make_preview): in Clip Radar's temporary files, named
-    after the video and its size and date, so it's made once per video and cleared with the old temp files."""
-    v = pr.get("video", "")
-    try:
-        st = os.stat(v)
-        sig = f"{os.path.abspath(v)}|{st.st_size}|{int(st.st_mtime)}"
-    except OSError:
-        sig = os.path.abspath(v)
-    d = os.path.join(locations.path("temp"), "previews")
-    os.makedirs(d, exist_ok=True)
-    return os.path.join(d, hashlib.sha1(sig.encode()).hexdigest()[:16] + ".mp4")
-
-
-def start_preview(pid: str) -> dict:
-    """{"ready": True} when the project's preview copy is there; otherwise the job making it."""
-    pr = projects[pid]
-    out = preview_path(pr)
-    if os.path.isfile(out):
-        return {"ready": True}
-    old = jobs.get(pr.get("preview_job", ""))
-    if old and old["status"] == "running":
-        return {"job": old["id"]}
-    job = new_job("preview")
-    pr["preview_job"] = job["id"]
-
-    def go():
-        job_step(job)("Making a version the preview can play")
-        engine.make_preview(pr["video"], out, float((pr.get("info") or {}).get("duration") or 0),
-                            job_progress(job, 0, 1), job_check(job))
-        return {"ready": True}
-    run_job(job, go)
-    return {"job": job["id"]}
 
 
 def job_public(job: dict) -> dict:
@@ -533,7 +512,7 @@ def _chat_title(pr: dict, start: float, end: float) -> str:
     # titles-v2: the stream's title and game typed back ("NMSBoxing") aren't about the moment
     meta = engine._meta(pr["workdir"]) if pr.get("workdir") else {}
     avoid = (meta.get("title") or pr.get("title", ""), engine.game_at(meta, start), _streamer_name(pr))
-    return chattitles.find(msgs, names | set(engine.HYPE), _streamer_name(pr), avoid)["title"]
+    return chattitles.find(msgs, names | set(analysis.HYPE), _streamer_name(pr), avoid)["title"]
 
 
 TITLE_PREFS = str(paths.DATA_DIR / "titles.json")
@@ -654,7 +633,7 @@ def clip_dicts(pid: str, clips: list, kind: str = "hype", progress=None) -> list
         path = os.path.join(tdir, name)
         if not os.path.exists(path):
             try:
-                engine.make_thumb(pr["video"], t, path, exact=False)
+                analysis.make_thumb(pr["video"], t, path, exact=False)
             except Exception:
                 pass
     # each FFmpeg spends most of its time opening the video (a long VOD's index), not decoding, so a few
@@ -708,11 +687,11 @@ def project_view(pid: str) -> dict:
         "width": pr["info"]["width"], "height": pr["info"]["height"],
         "has_chat": an.has_chat, "has_audio": an.has_audio, "chat_count": len(pr["chat"]),
         "chat_weight": an.chat_weight_pct, "chat_stats": an.chat_stats or {},
-        "events": an.has_events, "estimate": engine.estimate(an),
+        "events": an.has_events, "estimate": analysis.estimate(an),
         "streamer": pr.get("streamer", ""), "streamer_name": _streamer_name(pr),
         "learning": learning.describe(pr.get("streamer", "")),
         "curve": curve_preview(an.score), "clips": pr["clips"], "gems": pr.get("gems", []),
-        "deep": deep_status(pr), "length_mode": pr.get("length", 0),
+        "deep": listening.deep_status(pr), "length_mode": pr.get("length", 0),
         "vod": f"/vod/{pid}", "vcodec": pr["info"].get("vcodec", ""),
         "ext": os.path.splitext(pr["video"])[1].lower(),
         "settings": {"count": pr.get("count", 0), "length": pr.get("length", 0),
@@ -736,7 +715,7 @@ def _pick(pr: dict, count: int, length: float, det: Optional[dict] = None) -> li
     pr["count"] = count
     det = det or pr.get("detect") or detect.settings({})
     tr = learning.trim_offsets(pr.get("streamer", ""))
-    clips = engine.pick_clips(an, count=count, length=length, chat=pr["chat"], chat_delay=pr["chat_delay"],
+    clips = analysis.pick_clips(an, count=count, length=length, chat=pr["chat"], chat_delay=pr["chat_delay"],
                               adjust=learning.adjuster(pr.get("streamer", "")),
                               min_len=det["min_len"], max_len=det["max_len"], sensitivity=det["sensitivity"],
                               back=detect.preset(det["preset"])["back"], offsets=(tr["start"], tr["end"]))
@@ -747,11 +726,11 @@ def _pick(pr: dict, count: int, length: float, det: Optional[dict] = None) -> li
 
 
 def regrade(pr: dict):
-    """Score every clip in the list against the stream and each other (engine.grades): run whenever the
+    """Score every clip in the list against the stream and each other (analysis.grades): run whenever the
     list changes, and on reopening a project saved before the scores were graded this way."""
     cs = [c for c in pr.get("clips", []) if c.get("kind", "hype") == "hype" and not c.get("whole")]   # a whole video has no score
     if cs and pr.get("analysis") is not None:
-        for c, q in zip(cs, engine.grades(pr["analysis"], [float(c.get("score") or 0) for c in cs])):
+        for c, q in zip(cs, analysis.grades(pr["analysis"], [float(c.get("score") or 0) for c in cs])):
             c["quality"] = q
 
 
@@ -783,7 +762,7 @@ def _revive(pid: str, d: dict) -> dict:
     if m and not os.path.exists(os.path.join(pr["workdir"], "thumbs", m.group(1))):
         try:                     # thumbnails go with Delete VODs; make them again
             os.makedirs(os.path.join(pr["workdir"], "thumbs"), exist_ok=True)
-            engine.make_thumb(pr["video"], d["start"] + (d["end"] - d["start"]) * 0.6,
+            analysis.make_thumb(pr["video"], d["start"] + (d["end"] - d["start"]) * 0.6,
                               os.path.join(pr["workdir"], "thumbs", m.group(1)), exact=False)
         except Exception:
             pass
@@ -902,7 +881,7 @@ def do_analyze(job, body: dict):
         step("Loading 7TV, BTTV and FFZ emotes")
         es = emotes.for_channel(engine._meta(s.workdir).get("streamer_id", ""), s.streamer, log)
         step("Finding the best moments")
-    an = engine.analyze_cached(s.workdir, s.video, s.chat, chat_delay=det["chat_delay"],
+    an = analysis.analyze_cached(s.workdir, s.video, s.chat, chat_delay=det["chat_delay"],
                                chat_weight_pct=float(body.get("chat_weight", detect.preset(det["preset"])["chat"])),
                                log=log, progress=job_progress(job, dl_share if downloading[0] else 0.0, an_end), check=check,
                                events=bool(body.get("events", True)), emote_set=es,
@@ -928,8 +907,8 @@ def do_analyze(job, body: dict):
     pr["streamer_display"] = engine._meta(s.workdir).get("streamer_display", "")
     pr["yt"] = ytextra.load(s.workdir)        # a YouTube video: Most replayed, comments, captions
     engine._save_meta(s.workdir, duration=an.duration)
-    _load_transcripts(pr)
-    est = engine.estimate(an)
+    listening._load_transcripts(pr)
+    est = analysis.estimate(an)
     if saved:
         # opened before: bring back the clips, their numbers and everything you did to them
         st = saved.get("settings") or {}
@@ -949,8 +928,8 @@ def do_analyze(job, body: dict):
         # already a clip (an X post someone cut, a clip you saved): the whole video is the one clip, ready
         # for captions and a layout; nothing to find
         sc = round(float(an.score.max()) if len(an.score) else 0.0, 2)
-        clips = [engine.Clip(0, 0.0, round(an.duration, 2), round(an.duration / 2, 2), sc, "The whole video (already a clip)",
-                             engine.clip_features(an, 0.0, an.duration, an.duration / 2))]
+        clips = [analysis.Clip(0, 0.0, round(an.duration, 2), round(an.duration / 2, 2), sc, "The whole video (already a clip)",
+                             analysis.clip_features(an, 0.0, an.duration, an.duration / 2))]
         _number(pr, clips)
         step("Making thumbnails")
         pr["clips"] = clip_dicts(pid, clips, progress=job_progress(job, an_end, 1.0))
@@ -978,371 +957,21 @@ def do_analyze(job, body: dict):
             log(f"Ranking tuned to what you kept and skipped before ({learning.describe(s.streamer)['using']}).")
     save_project_soon(pid, 0.1)
     if not saved:
-        _warm_framing(pr)
-    model, lang = _deep_model(body.get("deep_model") or "auto"), body.get("language") or ""
+        previews._warm_framing(pr)
+    model, lang = listening._deep_model(body.get("deep_model") or "auto"), body.get("language") or ""
     if saved and pr["deep_done"] and pr["gems"]:
         pass                                    # quiet gems came back with the project
-    elif _covered(pr, model, lang) >= 0.98:
-        _update_gems(pid, model, lang)          # deep scanned before: the quiet gems are ready right away
+    elif listening._covered(pr, model, lang) >= 0.98:
+        listening._update_gems(pid, model, lang)          # deep scanned before: the quiet gems are ready right away
         pr.update(deep_done=True, deep_model=model, deep_lang=lang)
     elif body.get("deep_scan"):
         try:
-            start_deep_scan(pid, model, lang)
+            listening.start_deep_scan(pid, model, lang)
         except RuntimeError as e:
             log(f"Deep scan skipped: {e}")
     timer.name = s.title
     timer.done()
     return project_view(pid)
-
-
-# ---- deep scan: transcribe the whole VOD, then find quiet gems
-
-def _deep_model(choice: str) -> str:
-    if choice and choice != "auto":
-        return choice
-    # small only where Whisper really runs on the GPU: a CUDA device without NVIDIA's libraries ran "small" on
-    # the CPU, several times slower than "base" (4.36)
-    import gpu
-    return "small" if gpu.whisper_gpu_ok() or gpu.vulkan_usable() else "base"
-
-
-def deep_status(pr: dict) -> dict:
-    j = jobs.get(pr.get("deep_job", ""))
-    st = {"state": "none", "progress": 0.0, "step": "", "model": pr.get("deep_model", ""), "error": "",
-          "gems": len(pr.get("gems", [])), "can": engine.whisper_available() and pr["info"].get("has_audio", False)}
-    if pr.get("deep_done"):
-        st["state"] = "done"
-        st["progress"] = 1.0
-    if j:
-        st.update(progress=j["progress"], step=j["step"])
-        if j["status"] == "running":
-            st["state"] = "running"
-        elif j["status"] == "error":
-            st.update(state="error", error=j.get("error") or "")
-        elif j["status"] == "cancelled" and not pr.get("deep_done"):
-            st["state"] = "cancelled"
-    return st
-
-
-def _covered(pr: dict, model: str, lang: str) -> float:
-    tx = pr.get("tx", {}).get(f"{model}|{lang}")
-    if not tx:
-        return 0.0
-    return sum(b - a for a, b in tx["covered"]) / max(1.0, pr["analysis"].duration)
-
-
-def _update_gems(pid: str, model: str, lang: str):
-    pr = projects[pid]
-    tx = pr.get("tx", {}).get(f"{model}|{lang}")
-    if not tx:
-        return
-    words = tx["words"]
-    taken = [(c["start"], c["end"]) for c in pr["clips"]]
-    found, _curve = gems.find(pr["analysis"], words, taken, chat=pr["chat"], chat_delay=pr["chat_delay"])
-    old = {g["id"]: g for g in pr.get("gems", [])}
-    out, used = [], {c.get("title", "").lower() for c in pr["clips"]}
-    fresh = []
-    _number(pr, found, "gem")
-    gone = _removed_nums(pr)
-    found = [g for g in found if g.id not in gone]
-    for g in found:
-        o = old.pop(g.id, None)
-        if o:
-            out.append(o)
-        else:
-            fresh.append(g)
-    # gems you already did something with stay, even if a later pass ranks them out
-    out += [g for g in old.values() if persist.touched(g)]
-    for d in clip_dicts(pid, fresh, kind="gem"):
-        ws = [w for w in words if d["start"] - TX_MARGIN <= w["start"] <= d["end"] + TX_MARGIN]
-        d["words"] = ws
-        _title_clip(pr, d, ws, used)
-        d["listened"] = True
-        d["kind"] = "gem"
-        out.append(d)
-    out.sort(key=lambda d: -d.get("score", 0))
-    pr["gems"] = out
-    save_project_soon(pid)
-
-
-def start_deep_scan(pid: str, model: str, lang: str):
-    pr = projects[pid]
-    if not engine.whisper_available():
-        raise RuntimeError("Deep scan needs Whisper, which isn't available in this install.")
-    if not pr["info"].get("has_audio"):
-        raise RuntimeError("This video has no sound to transcribe.")
-    old = jobs.get(pr.get("deep_job", ""))
-    if old and old["status"] == "running":
-        return old
-    model = _deep_model(model)
-    job = new_job("deepscan")
-    pr.update(deep_job=job["id"], deep_model=model, deep_lang=lang, deep_done=False)
-    dur = pr["analysis"].duration
-
-    def go():
-        check, log = job_check(job), job_logger(job)
-        log(f"Deep scan with Whisper '{model}': transcribing the whole stream.")
-        step_s = 60.0
-        a, last_gems, t0 = 0.0, 0.0, time.time()
-        stats, bad_run, bad_from = {}, 0, 0.0
-        job["step"] = "Deep scan: getting Whisper ready"
-        while a < dur:
-            check()
-            # titles for the suggested clips come first: let a running listening job finish
-            while (jobs.get(pr.get("listen_job", "")) or {}).get("status") == "running":
-                check()
-                time.sleep(0.5)
-            b = min(dur, a + step_s)
-            before = stats.get("unreadable", 0)
-            ensure_words(pr, a, b, model, lang, check, stats, task="scan")
-            if stats.get("unreadable", 0) > before:
-                bad_from = a if not bad_run else bad_from
-                bad_run += 1
-            else:
-                bad_run = 0
-            if bad_run >= 3:
-                # not "done, no gems": say the sound couldn't be read, so Retry means something
-                raise RuntimeError(f"Couldn't read the video's sound from {engine.fmt_ts(bad_from)}. "
-                                   "The file may be damaged or still downloading.")
-            job["progress"] = round(b / dur, 4)
-            took = time.time() - t0
-            left = took / max(b, 1) * (dur - b)
-            job["step"] = f"Deep scan {int(b / dur * 100)}%" + (f", about {engine.fmt_ts(left)} left" if b > 120 else "")
-            if b - last_gems >= 900 or b >= dur:
-                _update_gems(pid, model, lang)           # gems show up while the scan goes on
-                last_gems = b
-            a = b
-        pr["deep_done"] = True
-        _save_transcripts(pr)
-        if stats.get("unreadable"):
-            log(f"Couldn't read the sound in {stats['unreadable']} short stretch(es); they were skipped.")
-        n = len(pr.get("gems", []))
-        log(f"Deep scan done: {n} quiet gems.")
-        return {"gems": n}
-    run_job(job, go)
-    return job
-
-
-def _tx_file(pr: dict) -> str:
-    return os.path.join(pr["workdir"], "transcripts.json")
-
-
-def _video_sig(pr: dict) -> str:
-    try:
-        st = os.stat(pr["video"])
-        return f"{st.st_size}:{int(st.st_mtime)}"
-    except OSError:
-        return ""
-
-
-def _load_transcripts(pr: dict):
-    """Transcripts made before for this VOD (deep scans, captions) so nothing is transcribed twice."""
-    try:
-        with open(_tx_file(pr), encoding="utf-8") as f:
-            data = json.load(f)
-        if data.get("video") != _video_sig(pr):
-            return
-        pr["tx"] = {k: {"words": v["words"], "covered": [tuple(x) for x in v["covered"]],
-                        "rough": [tuple(x) for x in v.get("rough", [])]}
-                    for k, v in data.get("tx", {}).items()}
-    except (OSError, ValueError, KeyError, TypeError):
-        pass
-
-
-def _save_transcripts(pr: dict):
-    if pr.get("live") or not pr.get("tx"):
-        return
-    tmp = _tx_file(pr) + ".tmp"
-    try:
-        with pr["tx_lock"]:
-            data = {"video": _video_sig(pr), "tx": {k: {"words": v["words"], "covered": v["covered"],
-                                                         "rough": v.get("rough", [])}
-                                                     for k, v in pr["tx"].items()}}
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
-        os.replace(tmp, _tx_file(pr))
-    except OSError:
-        pass
-
-
-# ---- transcript cache: each stretch of the VOD is transcribed once, then reused
-#      for titles, the live caption preview, and the final render
-
-def _tx(pr: dict, model: str, lang: str) -> dict:
-    return pr.setdefault("tx", {}).setdefault(f"{model}|{lang}", {"words": [], "covered": []})
-
-
-def _vocab(pr: dict) -> str:
-    """Names and words Whisper should expect for this stream: the streamer, the channel's emotes, your list."""
-    es = getattr(pr.get("analysis"), "_emotes", None)
-    return exports.prompt(_streamer_name(pr), list(es.by_name) if es else None, exports.load().get("vocab"))
-
-
-def _without(spans: list, cut: list) -> list:
-    """spans with every stretch in cut taken out."""
-    for ca, cb in cut:
-        spans = [s for a, b in spans for s in ((a, min(b, ca)), (max(a, cb), b)) if s[1] > s[0]]
-    return spans
-
-
-def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lambda: None,
-                 stats: Optional[dict] = None, task: str = "captions", timer: Optional[timing.Timer] = None) -> list:
-    """Transcript words (absolute times) for [a, b] of the VOD, transcribing any missing parts.
-    A stretch whose sound can't be read isn't marked as done (so it's tried again later) and is
-    counted in stats["unreadable"]. task: "titles", "scan" or "captions" (gpu.choose). Words from the
-    Vulkan engine are marked rough: good for a title, but a caption hears that stretch again on
-    faster-whisper, or the words the card guessed for a title would end up burned into the clip."""
-    dur = pr["analysis"].duration if "analysis" in pr else pr.get("duration") or b
-    a, b = max(0.0, a), min(dur, b)
-    import gpu
-    pick = gpu.choose(task, model, lambda m: print(f"  {m}", flush=True))
-    on_card = pick["engine"] == "vulkan"
-    timer = timer or timing.Timer("words")
-    heard = "Whisper (card)" if on_card or gpu.whisper_gpu_ok() else "Whisper (CPU)"
-    # the lock covers the transcript, not the listening: a title being heard mustn't hold up a render's captions (measured,
-    # 31 titles and a Deep scan: 35 to 62 s waiting for 15 to 52 s of Whisper)
-    t0 = time.time()
-    with pr["tx_lock"]:
-        timer.add("waiting for other listening", time.time() - t0)
-        tx = _tx(pr, model, lang)
-        gaps, cur = [], a
-        for ca, cb in sorted(tx["covered"] if on_card or task != "captions" else _without(tx["covered"], tx.get("rough", []))):
-            if cb <= cur:
-                continue
-            if ca > cur:
-                gaps.append((cur, min(ca, b)))
-            cur = max(cur, cb)
-            if cur >= b:
-                break
-        if cur < b:
-            gaps.append((cur, b))
-    for ga, gb in gaps:
-        if gb - ga < 0.5:
-            continue
-        check()
-        pad_a, pad_b = max(0.0, ga - 1.0), gb + 1.0   # a little overlap so edge words aren't cut
-        t0 = time.time()
-        audio = engine.extract_audio(pr["video"], pad_a, pad_b - pad_a)
-        timer.add("reading the sound", time.time() - t0)
-        if audio is None:
-            if stats is not None:
-                stats["unreadable"] = stats.get("unreadable", 0) + 1
-            continue
-        new = []
-        if audio.size >= 1600:
-            t0 = time.time()
-            found = engine.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr), pick=pick, check=check)
-            timer.add(heard, time.time() - t0)
-            new = [{"start": round(w["start"] + pad_a, 3), "end": round(w["end"] + pad_a, 3), "word": w["word"]} for w in found]
-        with pr["tx_lock"]:
-            # heard on the card, it gives way to any part a caption finished meanwhile
-            for sa, sb in _without([(ga, gb)], _without(tx["covered"], tx.get("rough", []))) if on_card else [(ga, gb)]:
-                tx["words"] = sorted([w for w in tx["words"] if not (sa <= (w["start"] + w["end"]) / 2 < sb)]
-                                     + [w for w in new if sa <= (w["start"] + w["end"]) / 2 < sb], key=lambda w: w["start"])
-                tx["covered"].append((sa, sb))
-                tx["rough"] = _without(tx.get("rough", []), [(sa, sb)]) + ([(sa, sb)] if on_card else [])
-            # merge intervals
-            merged = []
-            for ca, cb in sorted(tx["covered"]):
-                if merged and ca <= merged[-1][1] + 0.01:
-                    merged[-1] = (merged[-1][0], max(merged[-1][1], cb))
-                else:
-                    merged.append((ca, cb))
-            tx["covered"] = merged
-    with pr["tx_lock"]:
-        return [w for w in tx["words"] if a <= w["start"] < b]
-
-
-def start_listening(pid: str, order: list, model: str, lang: str):
-    """Background job: transcribe each suggested clip and give it a proper title."""
-    pr = projects[pid]
-    old = jobs.get(pr.get("listen_job", ""))
-    if old and old["status"] == "running":
-        old["cancel"] = True
-    job = new_job("listen")
-    pr["listen_job"] = job["id"]
-    yt_words = bool((pr.get("yt") or {}).get("words"))
-    can_listen = (engine.whisper_available() and pr["info"]["has_audio"]) or yt_words
-
-    def go():
-        check = job_check(job)
-        ver = pr.get("clips_ver", 0)
-        ids = [i for i in order if any(c["id"] == i for c in pr["clips"])]
-        ids += [c["id"] for c in pr["clips"] if c["id"] not in ids]
-        todo = [i for i in ids if not next((c for c in pr["clips"] if c["id"] == i), {}).get("listened")]
-        t_start = time.time()
-        timer = timing.Timer("titles", pr.get("title") or "")
-        if todo:
-            how = "YouTube's captions" if yt_words else f"Whisper {model}" if can_listen else "chat only"
-            print(f"  Titling {len(todo)} clips ({how})...", flush=True)
-        for n, cid in enumerate(todo):
-            check()
-            if pr.get("clips_ver", 0) != ver:
-                return
-            d = next((c for c in pr["clips"] if c["id"] == cid), None)
-            if not d or d.get("listened"):
-                continue
-            job["step"] = f"Listening to clip {n + 1} of {len(todo)}"
-            words = []
-            if can_listen:
-                gated = bool(pr.get("live"))
-                try:
-                    if gated:
-                        job["step"] = "Waiting for other moments to be listened to" if live_gate.queued() or live_gate.busy else job["step"]
-                        t0 = time.time()
-                        live_gate.acquire(_live_prio(d), check)
-                        timer.add("waiting for other moments", time.time() - t0)
-                        job["step"] = f"Listening to clip {n + 1} of {len(todo)}"
-                    try:
-                        if yt_words:
-                            # YouTube's own captions: titles and cut points right away, no Whisper
-                            words = ytextra.words_in(pr["yt"], d["start"] - TX_MARGIN, d["end"] + TX_MARGIN)
-                        else:
-                            words = ensure_words(pr, d["start"] - TX_MARGIN, d["end"] + TX_MARGIN, model, lang, check, task="titles",
-                                                 timer=timer)
-                    finally:
-                        if gated:
-                            live_gate.release()
-                except engine.Cancelled:
-                    raise
-                except Exception as e:
-                    job_logger(job)(f"Couldn't transcribe clip: {str(e)[:160]}")
-            used = {c["title"].lower() for c in pr["clips"] if c is not d and c.get("listened")}
-            sess = live_sessions.get(pr.get("live", ""))
-            if sess:   # live moments are separate projects; don't repeat titles across the stream
-                used |= {projects[m]["clips"][0]["title"].lower() for m in sess.moments
-                         if m != pid and m in projects and projects[m]["clips"] and projects[m]["clips"][0].get("listened")}
-            if words and not d.get("trimmed") and not d.get("manual") and not d.get("userTrim") \
-                    and d.get("state") != "kept":
-                # never start or stop mid-sentence
-                fixed = (d.get("len_mode") or pr.get("length") or 0) > 0
-                a2, b2 = engine.refine_with_words(d["start"], d["end"], d.get("peak", d["start"]), words,
-                                                  max_move=3.0 if fixed else 8.0)
-                a2, b2 = max(0.0, a2), min(_media_end(pr) or pr["analysis"].duration, b2)
-                if b2 - a2 >= 3 and (abs(a2 - d["start"]) > 0.05 or abs(b2 - d["end"]) > 0.05):
-                    d["start"], d["end"] = round(a2, 2), round(b2, 2)
-                    d["orig"] = [d["start"], d["end"]]
-                    if d.get("abs_start") is not None and d.get("at") is not None:
-                        off = d["at"] - d.get("peak", 0)
-                        d["abs_start"], d["abs_end"] = round(off + d["start"], 1), round(off + d["end"], 1)
-            d["words"] = words
-            t0 = time.time()
-            _title_clip(pr, d, words, used)
-            timer.add("writing the title", time.time() - t0)
-            d["listened"] = True
-            autopilot.clip_titled(pid, d)
-            job["progress"] = (n + 1) / max(1, len(todo))
-            if not pr.get("live"):
-                save_project_soon(pid, 3.0)
-        if todo:
-            print(f"  Titled {len(todo)} clips in {time.time() - t_start:.0f} s.", flush=True)
-            if timer.steps:
-                timer.done()
-        if not pr.get("live"):
-            _save_transcripts(pr)
-        return {"ok": True}
-    run_job(job, go)
-    return job
 
 
 # ---- learning from what you keep, skip and post
@@ -1523,7 +1152,7 @@ def _wm_opts(w: dict) -> dict:
 def _cams(v) -> list:
     """Layout › Facecams beyond the first: up to 3 boxes of four numbers (anything else is left out)."""
     out = []
-    for r in (v if isinstance(v, list) else [])[:engine.MAX_CAMS - 1]:
+    for r in (v if isinstance(v, list) else [])[:render.MAX_CAMS - 1]:
         try:
             box = tuple(float(x) for x in r)
         except (TypeError, ValueError):
@@ -1533,9 +1162,9 @@ def _cams(v) -> list:
     return out
 
 
-def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
+def _ropts(o: dict, ex: Optional[dict] = None) -> render.RenderOpts:
     ex = ex or {}
-    return engine.RenderOpts(
+    return render.RenderOpts(
         **_wm_opts(ex.get("watermark") or {}),
         fps=int(ex.get("fps", 0)), speed=str(ex.get("speed", "balanced")), crf=int(ex.get("crf", 20)),
         scale=float(ex.get("scale", 1.0)),
@@ -1552,7 +1181,7 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         captions=bool(o.get("captions", True)),
         caption_pos=o.get("caption_pos", "auto"),
         caption_color=o.get("caption_color", "#FFE600"),
-        caption_size=_int_in(o.get("caption_size"), 100, 50, engine.MAX_TEXT_SIZE["caption"]),
+        caption_size=_int_in(o.get("caption_size"), 100, 50, render.MAX_TEXT_SIZE["caption"]),
         words_per_line=int(o.get("words_per_line", 3)),
         uppercase=bool(o.get("uppercase", True)),
         title_fit=o.get("title_fit", True) is not False,
@@ -1569,7 +1198,7 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         cap_y=_frac(o.get("cap_y"), 0.7),
         title_style=str(o.get("title_style", "box")),
         title_font=str(o.get("title_font", "classic")),
-        title_size=_int_in(o.get("title_size"), 100, 50, engine.MAX_TEXT_SIZE["title"]),
+        title_size=_int_in(o.get("title_size"), 100, 50, render.MAX_TEXT_SIZE["title"]),
         title_color=o.get("title_color") if re.fullmatch(r"#[0-9a-fA-F]{6}", str(o.get("title_color") or "")) else "#FFFFFF",
         title_outline=_int_in(o.get("title_outline"), 100, 0, 300),
         title_x=_frac(o.get("title_x"), 0.5),
@@ -1577,575 +1206,12 @@ def _ropts(o: dict, ex: Optional[dict] = None) -> engine.RenderOpts:
         whisper_model=o.get("whisper_model", "small"),
         language=o.get("language", ""),
         hw_encode=bool(o.get("hw_encode", True)),
-        aspect=o.get("aspect") if o.get("aspect") in engine.SHAPES else "9:16",
+        aspect=o.get("aspect") if o.get("aspect") in render.SHAPES else "9:16",
         track="off" if o.get("track") == "off" else "auto",
         track_target=o.get("track_target") if o.get("track_target") in framing.TARGETS else "auto",
         focus_y=_frac(o.get("focus_y"), 0.4),
-        punch=o.get("punch") if o.get("punch") in engine.PUNCH_ZOOM else "off",
+        punch=o.get("punch") if o.get("punch") in render.PUNCH_ZOOM else "off",
     )
-
-
-def _framing_dir(pr: dict) -> str:
-    return locations.temp_dir(os.path.basename(pr["workdir"]), "framing")
-
-
-def _warm_framing(pr: dict) -> None:
-    """Look for a facecam or a person while the video opens, so Layout › Auto-frame (which a new video runs by
-    itself) has its answer ready instead of starting then: a few seconds on a long VOD, in the background."""
-    if not pr.get("video") or not framing.available():
-        return
-
-    def run():
-        try:
-            framing.suggest(pr["video"], float(pr["info"].get("duration") or 0) or 60.0, cache_dir=_framing_dir(pr))
-        except Exception as e:
-            print(f"  Auto-frame skipped: {str(e)[:160]}", flush=True)
-    threading.Thread(target=run, name="framing-warm", daemon=True).start()
-
-
-def _auto_layout(pr: dict) -> dict:
-    """Layout › Auto-frame's pick for a project as render options ({} when it can't tell). For renders
-    asked for without a layout: the default Cam + game box is the top-left corner, which on a stream
-    without a facecam shows whatever is there (the chat overlay, a corner of the game)."""
-    if not pr.get("video") or not framing.available():
-        return {}
-    try:
-        r = framing.suggest(pr["video"], float(pr["info"].get("duration") or 0) or 60.0, cache_dir=_framing_dir(pr))
-    except Exception as e:
-        print(f"  Auto-frame skipped: {str(e)[:160]}", flush=True)
-        return {}
-    if not r.get("layout"):
-        return {}
-    return {k: r[k] for k in ("layout", "cam", "track") if r.get(k)}
-
-
-def _framing_for(pr: dict, start: float, end: float, ro, log=None) -> Optional[dict]:
-    """Follow the face for a whole-frame crop (Layout › Follow face). None when it doesn't apply."""
-    if engine.effective_layout(ro) != "full" or ro.track != "auto" or not framing.available():
-        return None
-    try:
-        return framing.track(pr["video"], start, end, pr["info"], ro, cache_dir=locations.temp_dir(os.path.basename(pr["workdir"]), "framing"),
-                             log=log or (lambda m: print("  " + m, flush=True)))
-    except Exception as e:
-        print(f"  Framing skipped: {str(e)[:160]}", flush=True)
-        return None
-
-
-PREVIEW_KEYS = ("layout", "cam", "cams", "cam_height", "game_zoom", "game_x", "track", "track_target", "focus_y",
-                "aspect", "punch")           # what the punch beats and the followed face depend on (Layout tab)
-_preview_cache: dict = {}
-_preview_lock = threading.Lock()
-PREVIEW_CACHE_MAX = 256
-
-
-def preview_extras(pid: str, pr: dict, start: float, end: float, opts: dict) -> dict:
-    """What Review's live preview needs to draw a clip the way it renders (4.47.1): the punch-in beats, in
-    seconds into the clip (engine.punch_beats, [] when Punch-in is off), and the face the render follows
-    (_framing_for: face_y and face_h as shares of the frame's height, None without one). followed: the crop
-    follows the face, which is when a title that hasn't been moved keeps off it (engine.title_top).
-    Kept per clip and framing, so scrubbing or replaying asks nothing again."""
-    o = {k: opts[k] for k in PREVIEW_KEYS if k in (opts or {})}
-    key = json.dumps([pid, round(start, 2), round(end, 2), id(pr.get("analysis")), o], sort_keys=True, default=str)
-    with _preview_lock:
-        hit = _preview_cache.get(key)
-    if hit is not None:
-        return hit
-    ro = _ropts(o)
-    beats = engine.punch_beats(pr.get("analysis"), start, end) if ro.punch in engine.PUNCH_ZOOM else []
-    fr = _framing_for(pr, start, end, ro) if end - start >= 1 else None
-    face_y = face_h = None
-    if fr and fr.get("face_y") is not None and fr.get("face_h") is not None:
-        face_y, face_h = round(float(fr["face_y"]), 4), round(float(fr["face_h"]), 4)
-    out = {"punch": ro.punch, "punch_at": [round(float(t), 2) for t in beats], "face_y": face_y, "face_h": face_h,
-           "followed": bool(fr and fr.get("path")) and face_y is not None}
-    with _preview_lock:
-        if len(_preview_cache) >= PREVIEW_CACHE_MAX:
-            _preview_cache.pop(next(iter(_preview_cache)))
-        _preview_cache[key] = out
-    return out
-
-
-def queue_public(it: dict) -> dict:
-    d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path", "words", "sig", "_diag")}
-    d["duration"] = round(it["end"] - it["start"], 2)
-    return d
-
-
-SOUND_LOG: list = []         # (event, item id) of every sound played, for the tests
-
-
-def play_sound(event: str, it: dict):
-    """One short Windows sound per event: 'queued' when you add a clip, 'ready' when a render
-    finishes. Called from the one place each event happens, so it can't play twice."""
-    if not exports.load().get("sounds", True):
-        return
-    SOUND_LOG.append((event, it.get("id")))
-    import sounds
-    sounds.play("lock" if event == "ready" else "contact")       # radar pings (4.41), not Windows' beeps
-
-
-def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
-    start_, end_ = float(c["start"]), float(c["end"])
-    if end_ - start_ < 1:
-        raise RuntimeError("That clip is too short.")
-    pr = projects.get(pid) or {}
-    if pr and "layout" not in (opts or {}):
-        opts = dict(opts or {}, **_auto_layout(pr))
-    d = _find_clip(pr, c.get("id")) if pr else None
-    if d:
-        why = checkflow.blocks_render(d)
-        if why:
-            raise RuntimeError(why)
-        if d.get("orig") and not pr.get("live") and not d.get("manual") and (
-                abs(start_ - d["orig"][0]) > 0.3 or abs(end_ - d["orig"][1]) > 0.3):
-            # how you trimmed it teaches where this streamer's clips should start and end
-            try:
-                learning.record_trim(pr.get("streamer", ""), f"{pr.get('source', '')}|{int(d.get('peak', start_))}",
-                                     start_ - d["orig"][0], end_ - d["orig"][1])
-            except Exception:
-                pass
-    it = {"id": uuid.uuid4().hex[:8], "pid": pid, "clip_id": c.get("id"), "rank": int(c.get("rank") or 0),
-          "start": start_, "end": end_, "title": str(c.get("title") or "")[:120],
-          "post": str(c.get("post") or "")[:2200], "thumb": c.get("thumb", ""),
-          "gain": max(-12.0, min(12.0, float(c.get("gain") or 0))),
-          "source_title": pr.get("title", ""),
-          # enough to render it after a restart, when the project isn't open any more
-          "video": pr.get("video", ""), "workdir": pr.get("workdir", ""), "live": pr.get("live", ""),
-          "opts": dict(opts or {}), "status": "queued", "stage": "queued", "progress": 0.0, "step": "Waiting",
-          "error": "", "cancel": False, "created": time.time(),
-          "words": _clean_words(c.get("words")),
-          # content check: fixes you applied, and flags you chose to leave alone (not censored)
-          "fix_spans": checkflow.render_spans(d) if d else [],
-          "keep_fps": [f["fp"] for f in ((d or {}).get("safety") or {}).get("flags", [])
-                       if f.get("status") in ("accepted", "dismissed")]}
-    try:
-        it["link"] = sources.link_at(engine._meta(pr.get("workdir", "")), start_)    # back to the source, at this moment
-    except Exception:
-        it["link"] = ""
-    prefs = exports.load()
-    ex = exports.settings(prefs)
-    camp = campaigns.active()
-    if camp:
-        # Settings › Campaigns: the active campaign's watermark and post rules go with the clip
-        ex["watermark"] = campaigns.watermark_for(camp, ex["watermark"])
-        it["campaign"] = {k: camp[k] for k in ("id", "name", "caption", "caption_where", "tags")}
-    it["export"] = ex
-    it["name_fields"] = exports.fields_for(dict(d or {}, title=it["title"]), pr, ex["preset"], number=it["clip_id"])
-    it["sig"] = json.dumps([pid, it["clip_id"], round(start_, 2), round(end_, 2), it["title"], it["opts"], ex], sort_keys=True,
-                           default=str)
-    mx = exports.PRESETS[ex["preset"]].get("max_len")
-    if mx and end_ - start_ > mx:
-        it["warning"] = (f"{exports.PRESETS[ex['preset']]['label']} allows up to {engine.fmt_ts(mx)}; "
-                         f"this clip is {engine.fmt_ts(end_ - start_)}. Trim it, or pick another preset.")
-    cw = campaigns.length_warning(camp, end_ - start_)
-    if cw:
-        it["warning"] = (it.get("warning", "") + " " + cw).strip()
-    with queue_lock:
-        # the same clip sent twice (double click, two windows): render it once
-        dup = next((x for x in queue if x.get("sig") == it["sig"] and x["status"] in ("queued", "rendering")), None)
-        if dup:
-            return dup                         # already queued: no second sound either
-        queue.append(it)
-    queue_wake.set()
-    _prehear_wake.set()
-    save_queue_soon()
-    if sound:
-        play_sound("queued", it)
-    return it
-
-
-_render_projects: dict = {}
-
-
-def _render_project(it: dict) -> dict:
-    """The project a queued clip comes from. After a restart it isn't open, so rebuild the little
-    a render needs (the video, its folder and any transcript made before)."""
-    pr = projects.get(it["pid"])
-    if pr:
-        return pr
-    video = it.get("video") or ""
-    if not video or not os.path.exists(video):
-        raise RuntimeError("The VOD for this clip was deleted.")
-    # one copy per project: a clip's captions heard ahead and a render of the same project must share its transcript
-    with _render_projects_lock:
-        pr = _render_projects.get(it["pid"])
-        if not pr or pr["video"] != video:
-            info = engine.probe(video)
-            pr = {"video": video, "workdir": it.get("workdir") or os.path.dirname(video),
-                  "title": it.get("source_title", ""), "info": info, "duration": info["duration"],
-                  "tx_lock": threading.Lock(), "live": it.get("live", "")}
-            if not pr["live"]:
-                _load_transcripts(pr)
-            _render_projects[it["pid"]] = pr
-    return pr
-
-
-_render_projects_lock = threading.Lock()
-
-
-def queue_busy() -> bool:
-    return any(it["status"] in ("queued", "rendering") for it in queue)
-
-
-def _file_name(it: dict, outdir: str) -> str:
-    """The clip's file is named after its title, chosen once: a retry replaces its own file, and only
-    another clip with the same title gets " (2)"."""
-    if it.get("name") and os.path.normcase(it.get("folder") or "") == os.path.normcase(outdir):
-        return it["name"]
-    ex = it.get("export") or {}
-    ext = ex.get("container", "mp4") if ex.get("container") in ("mp4", "mov", "webm") else "mp4"
-    if it.get("name_fields"):
-        base = exports.file_name(ex.get("template", exports.DEFAULT_TEMPLATE), dict(it["name_fields"], title=it["title"] or "clip"))
-    else:
-        base = _safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
-    # Settings › Hashtags › In file names: the real tags, '#' and all, chosen with the name (so a retry keeps them)
-    nf = it.get("name_fields") or {}
-    base = hashtags.with_tags(base, hashtags.file_tags(nf.get("streamer", ""), platform=nf.get("platform", "")))
-    with queue_lock:
-        claimed = {os.path.normcase(x["name"]) for x in queue if x is not it and x.get("name")
-                   and os.path.normcase(x.get("folder") or "") == os.path.normcase(outdir)}
-    name, n = f"{base}.{ext}", 2
-    while os.path.normcase(name) in claimed or os.path.exists(os.path.join(outdir, name)):
-        name = f"{base} ({n}).{ext}"
-        n += 1
-    it["name"], it["folder"] = name, outdir
-    save_queue_soon()
-    return name
-
-
-MB_PER_SECOND = 1.5      # generous upper bound for a 1080x1920 clip
-
-
-def _check_space(outdir: str, seconds: float):
-    need = seconds * MB_PER_SECOND * 1e6 + 200e6
-    try:
-        free = shutil.disk_usage(outdir).free
-    except OSError:
-        return
-    if free < need:
-        raise OSError(28, f"No space left on device ({free // 1_000_000} MB free, "
-                          f"about {int(need // 1_000_000)} MB needed)")
-
-
-def _check_output(path: str, expect: float, want_audio: bool = False) -> Optional[float]:
-    """A finished render must be a real video of the right length, with sound when the source has
-    it, that reads to its end, before it counts as done. A broken one is deleted, never
-    shown as a finished clip. Returns the sound's peak in dB when want_audio (None if it couldn't be
-    measured), read in the same pass, for _check_sound."""
-    why = ""
-    try:
-        size = os.path.getsize(path)
-        info = engine.probe(path) if size > 1000 else None
-    except Exception:
-        info = None
-    if not info:
-        why = ""
-    elif abs(info["duration"] - expect) > max(1.0, expect * 0.05):
-        why = f" ({info['duration']:.1f}s instead of {expect:.1f}s)"
-    elif want_audio and not info["has_audio"]:
-        why = " (no sound)"
-    else:
-        # the file must read to its end: a render cut short by a crash or a full disk often
-        # still has a readable header and the right length
-        plays, peak = engine.read_through(path, audio=bool(want_audio and info["has_audio"]))
-        if plays:
-            return peak
-        why = " (its end doesn't play)"
-    try:
-        os.remove(path)
-    except OSError:
-        pass
-    raise BrokenOutput(f"The rendered file came out broken{why}.")
-
-
-class BrokenOutput(RuntimeError):
-    pass
-
-
-# ---- captions heard ahead: the next kept clip's words while this one encodes ------------------------------------
-# A render used to hear its captions itself, then encode: the CPU sat idle while the GPU encoded, and the GPU while the
-# CPU listened. On the owner's PC that hearing was 79% of render time (efficiency audit 2026-11-08, F1, 188 min a week)
-# and clips waited behind it (F4, 56 min). Now, while one clip renders, the clips queued after it are heard in order,
-# one at a time, through the same ensure_words, so the render finds them done. The words are the same; only when
-# they're heard changes. A clip with nothing ahead of it isn't touched: its render starts at once and hears it as before.
-_prehear: dict = {}                 # queue item id -> Event: set once its captions are heard (or hearing gave up)
-_prehear_wake = threading.Event()
-_prehear_started = [False]
-
-
-def _needs_captions(it: dict, pr: dict, ro) -> bool:
-    """The render will hear this clip (the same test as _render_inputs)."""
-    cfg = safety.load_config()
-    censoring = cfg.get("enabled", True) and cfg.get("censor", "off") != "off"
-    return (it.get("words") is None and bool(ro.captions or censoring) and bool(pr["info"].get("has_audio"))
-            and engine.whisper_available())
-
-
-def _prehear_one() -> bool:
-    """Hear the next queued clip that waits behind a render. False when there's nothing to do."""
-    with queue_lock:
-        for k in [k for k in _prehear if not any(x["id"] == k for x in queue)]:
-            _prehear.pop(k).set()                       # gone from the queue: nobody waits for it
-        if not any(x["status"] == "rendering" for x in queue):
-            return False
-        it = next((x for x in queue if x["status"] == "queued" and x["id"] not in _prehear and not x.get("cancel")), None)
-        if it is None:
-            return False
-        ev = _prehear[it["id"]] = threading.Event()
-    try:
-        pr = _render_project(it)
-        ro = _ropts(it["opts"], it.get("export") or {})
-        if not _needs_captions(it, pr, ro):
-            return True
-
-        def check():
-            if it.get("cancel") or SHUTTING_DOWN[0] or not any(x is it for x in queue):
-                raise engine.Cancelled()
-        timer = timing.Timer("captions ahead", it.get("title") or "")
-        ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check, timer=timer)
-        timer.done()
-    except engine.Cancelled:
-        pass
-    except Exception as e:                              # the render hears it again itself, and reports what failed
-        print(f"  Couldn't hear the captions of \"{it.get('title') or 'a clip'}\" ahead: {str(e)[:140]}", flush=True)
-    finally:
-        ev.set()
-    return True
-
-
-def _prehear_loop():
-    while not SHUTTING_DOWN[0]:
-        _prehear_wake.wait(2.0)
-        _prehear_wake.clear()
-        while not SHUTTING_DOWN[0] and _prehear_one():
-            pass
-
-
-def start_prehear():
-    if not _prehear_started[0]:
-        _prehear_started[0] = True
-        threading.Thread(target=_prehear_loop, name="captions-ahead", daemon=True).start()
-
-
-def _wait_prehear(it: dict, check, timer: Optional[timing.Timer]):
-    """A clip whose captions are being heard ahead waits for that instead of hearing them a second time."""
-    ev = _prehear.get(it["id"])
-    if ev is None or ev.is_set():
-        return
-    t0 = time.time()
-    while not ev.wait(0.5):
-        check()
-    if timer:
-        timer.add("waiting for captions heard ahead", time.time() - t0)
-
-
-def _render_inputs(it: dict, pr: dict, ro, check, timer: Optional[timing.Timer] = None) -> tuple:
-    """Captions, title and censoring for a render of it['start']..it['end'] (a clip, or a few seconds
-    of one for the exact preview). Returns (words, title, post, spans, mode)."""
-    cfg = safety.load_config()
-    censoring = cfg.get("enabled", True) and cfg.get("censor", "off") != "off"
-    words = None
-    if it.get("words") is not None:
-        # captions corrected by hand in the app
-        words = [dict(w, start=w["start"] - it["start"], end=w["end"] - it["start"])
-                 for w in it["words"] if it["start"] - 0.2 <= w["start"] < it["end"]]
-    elif (ro.captions or censoring) and pr["info"]["has_audio"] and engine.whisper_available():
-        set_stage(it, "preparing", "Listening for captions")
-        try:
-            _wait_prehear(it, check, timer)
-            abs_words = ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check, timer=timer)
-        except engine.Cancelled:
-            raise
-        except Exception as e:
-            # Whisper couldn't run (often: its first download failed). YouTube's own captions if the video
-            # has them; otherwise the clip renders without captions and says so. Censoring needs the
-            # words, so with censoring on the render stops rather than skip the bleeps.
-            abs_words = ytextra.words_in(pr.get("yt") or {}, it["start"], it["end"])
-            if not abs_words and censoring:
-                raise RuntimeError(f"Couldn't transcribe the clip to censor it ({str(e)[:120]}). "
-                                   "Check your internet connection (the speech model downloads the first time), then retry.")
-            if not abs_words:
-                it["warning"] = (f"Rendered without captions: the speech model couldn't run ({str(e)[:100]}). "
-                                 "Check your internet connection (it downloads the first time), then press Retry.")
-                it["captions_skipped"] = True
-        words = [{"start": w["start"] - it["start"], "end": w["end"] - it["start"], "word": w["word"]}
-                 for w in abs_words if w["start"] < it["end"]]
-    # content check: flag, and (if switched on) mask and bleep what it finds
-    title, post = it["title"], it.get("post", "")
-    spans, mode = [], "off"
-    if cfg.get("enabled", True):
-        res = safety.scan(words or [], title, post, cfg)
-        it["safety"] = {"level": res["level"], "flags": res["flags"][:20]}
-        if censoring:
-            # flags you left alone or dismissed in Review aren't censored
-            keep = set(it.get("keep_fps") or [])
-            res_c = dict(res, flags=[f for f in res["flags"]
-                                     if checkflow.fingerprint(f, {"start": it["start"]}) not in keep])
-            words, spans, mode = safety.censored(words or [], res_c, cfg)
-            title, post = safety.mask_text(title, cfg), safety.mask_text(post, cfg)
-            it["censored"] = sum(1 for f in res_c["flags"] if f["cat"] in cfg.get("censor_categories", []))
-    # fixes applied in Review: mute or bleep those words, and mask them in the captions
-    spans = [(a, b, mode) for a, b in spans]
-    for a, b, kind in it.get("fix_spans") or []:
-        ra, rb = a - it["start"], b - it["start"]
-        if rb > 0 and ra < it["end"] - it["start"]:
-            spans.append((max(0.0, ra), rb, kind))
-            if words:
-                words = [dict(w, word=safety.mask(w["word"])) if ra - 0.02 <= w["start"] <= rb else w for w in words]
-            it["censored"] = it.get("censored", 0) + 1
-    if words:
-        words = exports.replace_words(words, exports.load().get("replace"))   # Settings › Captions › Replace words
-    if not ro.captions:
-        words = []
-    return words, title, post, spans, mode
-
-
-def _validate_render(it: dict, pr: dict, outdir: str):
-    """Before any work: the source is there and readable, the clip lies inside it, and the clip's
-    folder can be written. Each failure names its cause, so it isn't retried blindly."""
-    if not os.path.exists(pr["video"]):
-        raise RuntimeError("The VOD for this clip was deleted.")
-    try:
-        info = engine.probe(pr["video"])
-    except RuntimeError as e:
-        raise engine.RenderInputError("source_damaged", str(e)) from None
-    except Exception as e:
-        raise engine.RenderInputError("source_damaged", "The source video couldn't be read: "
-                                      + (str(e).strip().splitlines() or [type(e).__name__])[-1][:200]) from None
-    if not it["end"] - it["start"] >= 0.5:
-        raise engine.RenderInputError("source_range", "This clip is too short to render.")
-    if info["duration"] and it["start"] > info["duration"] - 0.5 and not (it.get("live") or pr.get("live")):
-        raise engine.RenderInputError("source_range", f"This clip starts at {engine.fmt_ts(it['start'])}, after the end "
-                                                      f"of the video ({engine.fmt_ts(info['duration'])}).")
-    try:
-        os.makedirs(outdir, exist_ok=True)
-        probe_file = os.path.join(outdir, f".vc_write_{it['id']}.tmp")
-        with open(probe_file, "wb") as f:
-            f.write(b"ok")
-        os.remove(probe_file)
-    except OSError as e:
-        if getattr(e, "errno", None) in (28, 112):
-            raise
-        raise engine.RenderInputError("output_folder", f"Clip Radar can't save clips in {outdir} ({e.strerror or e}). "
-                                                       "Choose another folder in Settings › Storage.") from None
-
-
-def _render_item(it: dict):
-    set_stage(it, "validating", "Checking the source")
-    it["progress"] = 0.0
-    timer = timing.Timer("render", it.get("title") or "")
-    for k, v in (it.get("lat") or {}).items():            # a hands-free moment: the way here, from the moment it aired
-        if k not in ("render", "total"):
-            timer.add(k, v)
-    timer.add("waiting to render", timer.started - it.get("created", timer.started))
-    timer.mark("checking the source")
-    diag = it["_diag"] = {}
-    pr = _render_project(it)
-    ex = it.get("export") or {}
-    ro = _ropts(it["opts"], ex)
-    ro.gain_db = max(-12.0, min(12.0, float(it.get("gain") or 0)))       # Clip tab › Volume
-    subs = ex.get("subtitles", "burn")
-    outdir = locations.clips_dir(pr["workdir"])          # Settings › Storage › Rendered clips
-    _validate_render(it, pr, outdir)
-    name = _file_name(it, outdir)
-    length = it["end"] - it["start"]
-    _check_space(outdir, length)
-    enc = engine.video_encoder(ro)[0]
-    skey = exports.speed_key(enc, ex)
-    known = exports.speed(skey)
-    it["eta"] = round(length / known + 3, 1) if known else None      # before it starts: from earlier renders
-    enc_t0 = [None]
-
-    def check():
-        if it["cancel"]:
-            raise engine.Cancelled()
-
-    def prog(x):
-        # the engine reports 0.3..1.0 while FFmpeg encodes (from FFmpeg's own out_time); only that part
-        # is a real measurement, so it's the only part shown as a percentage
-        if x < 0.3:
-            return
-        frac = max(0.0, min(1.0, (x - 0.3) / 0.7))
-        it["progress"] = round(frac, 3)
-        now = time.time()
-        if enc_t0[0] is None:
-            enc_t0[0] = now
-        el = now - enc_t0[0]
-        if frac > 0.04 and el > 1.5:                   # time left from the speed so far
-            it["eta"] = round((1 - frac) * el / frac + 2, 1)
-
-    if TEST_HOOKS.get("fail_next_render"):
-        TEST_HOOKS["fail_next_render"] = False
-        raise OSError(28, "No space left on device")
-
-    it["source_title"] = pr["title"]
-    if ro.punch != "off":                    # Layout › Punch-in: on this clip's own peaks
-        ro.punch_at = engine.punch_beats(pr.get("analysis"), it["start"], it["end"])
-    fr = None
-    if engine.effective_layout(ro) == "full" and ro.track == "auto":
-        set_stage(it, "preparing", "Finding the face")
-        timer.mark("finding the face")
-        fr = _framing_for(pr, it["start"], it["end"], ro)
-        check()
-        if fr is not None:
-            it["framing"] = {"followed": bool(fr.get("path")), "reason": fr.get("reason", ""), "confidence": fr.get("confidence", 0)}
-    set_stage(it, "preparing", "Getting captions ready")
-    timer.mark("captions and content check")
-    words, title, post, spans, mode = _render_inputs(it, pr, ro, check, timer)
-    srt_words = list(words or []) if ro.captions else []
-    if subs == "srt":
-        words = []                                  # subtitles as a file only, not burned in
-    path = os.path.join(outdir, name)
-    expect = min(it["end"], pr["info"]["duration"] or it["end"]) - max(0.0, it["start"])
-    picture = _picture_soon(it, pr)
-    for attempt in (1, 2):
-        set_stage(it, "rendering", "Rendering" if attempt == 1 else "Rendering again")
-        timer.mark("encoding")
-        it["progress"] = 0.0
-        t_start = time.time()
-        enc_t0[0] = None
-        engine.render_clip(pr["video"], it["start"], it["end"], path, ro, title=title,
-                           progress=prog, check=check, words=words, censor=spans, censor_mode=mode,
-                           log=lambda m: print("  " + m, flush=True), framing=fr,
-                           warn=lambda m: it.__setitem__("warning", m), diag=diag)
-        took = time.time() - (enc_t0[0] or t_start)
-        if took > 0.5:
-            exports.record_speed(skey, length / took)
-        set_stage(it, "verifying", "Checking the file")
-        timer.mark("checking the file")
-        it["eta"] = 1
-        if TEST_HOOKS.get("break_next_output"):
-            TEST_HOOKS["break_next_output"] = False
-            with open(path, "r+b") as f:
-                f.truncate(500)
-        try:
-            peak = _check_output(path, expect, want_audio=bool(pr["info"].get("has_audio")))
-            _check_sound(it, pr, path, peak)
-            _check_picture(it, pr, picture)
-            break
-        except BrokenOutput as e:
-            print(f"  {e}" + (" Trying once more." if attempt == 1 else ""), flush=True)
-            if attempt == 2:
-                raise
-    if subs in ("burn_srt", "srt") and srt_words:
-        try:
-            engine.write_srt(srt_words, ro, os.path.splitext(path)[0] + ".srt", length)
-            it["srt"] = True
-        except OSError:
-            pass
-    it["eta"] = 0
-    # the campaign's required text and hashtags, added after the content check so they're never masked
-    post = campaigns.apply_post(post, it.get("campaign"), title)
-    # caption to paste when posting, saved next to the video
-    if post:
-        it["post"] = post
-        try:
-            persist.write_text(os.path.splitext(path)[0] + ".txt", post + "\n")
-        except OSError:
-            pass
-    it["path"] = path
-    it["url"] = f"/export/{it['id']}?v={int(time.time() * 1000)}"
-    timer.done()
 
 
 def campaigns_view() -> dict:
@@ -2203,9 +1269,6 @@ def auto_discord(it: dict):
     threading.Thread(target=go, daemon=True).start()
 
 
-TEST_HOOKS = {"fail_next_render": False, "break_next_output": False}
-
-
 def export_view(sample: Optional[dict] = None) -> dict:
     prefs = exports.load()
     st = exports.settings(prefs)
@@ -2240,68 +1303,12 @@ def hashtags_view(streamer: str = "") -> dict:
 
 def perf_view() -> dict:
     sp = exports.all_speeds()
-    enc = engine._encoder_cache.get("hw")
+    enc = render._encoder_cache.get("hw")
     mem = locations.memory()
     return {"cpus": os.cpu_count() or 0, "mem_free": mem["free"], "mem_total": mem["total"],
-            "waiting_for_memory": _mem_short() and MAX_WORKERS[0] > 1, "encoder": (enc[0] if enc else "libx264 (CPU)") if "hw" in engine._encoder_cache else "not checked yet",
-            "speeds": {k: v for k, v in sp.items() if "|" not in k}, "workers": MAX_WORKERS[0],
+            "waiting_for_memory": render_queue._mem_short() and render_queue.MAX_WORKERS[0] > 1, "encoder": (enc[0] if enc else "libx264 (CPU)") if "hw" in render._encoder_cache else "not checked yet",
+            "speeds": {k: v for k, v in sp.items() if "|" not in k}, "workers": render_queue.MAX_WORKERS[0],
             "priority": exports.load()["priority"]}
-
-
-_UNMEASURED = object()
-
-
-def _check_sound(it: dict, pr: dict, path: str, peak=_UNMEASURED):
-    """A clip from a video with sound must come out with sound; one that's nearly silent gets a warning.
-    peak: what _check_output measured (dB or None), so the file isn't read again."""
-    if not pr["info"].get("has_audio"):
-        return
-    if peak is _UNMEASURED:
-        peak = engine.audio_peak(path)
-    if peak is None:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-        raise BrokenOutput("The rendered file came out without sound.")
-    if peak < -60:
-        it["warning"] = ("This clip came out almost silent. If it shouldn't be, check the stream at this point "
-                         "(Twitch mutes some music).")
-
-
-def _picture_soon(it: dict, pr: dict):
-    """Start looking at the clip's picture now; returns a wait() that gives the result (None if it failed).
-    It reads the source, not the render, so it runs while FFmpeg encodes: after the render it added about
-    2 s to every clip (measured: five seeks into a 32 GB, 9-hour VOD), a quarter of a short GPU render."""
-    box: dict = {}
-
-    def look():
-        try:
-            box["pc"] = engine.picture_check(pr["video"], it["start"], it["end"])
-        except Exception:
-            pass
-    t = threading.Thread(target=look, daemon=True)
-    t.start()
-
-    def wait():
-        t.join()
-        return box.get("pc")
-    return wait
-
-
-def _check_picture(it: dict, pr: dict, measured=None):
-    """A clip that's mostly too dark or too blurry to watch on a phone gets a warning (it still renders).
-    measured: a wait() from _picture_soon, when the check already started alongside the render."""
-    pc = (measured or _picture_soon(it, pr))()
-    if pc is None:
-        return
-    it["picture"] = pc
-    if it.get("warning"):
-        return
-    if pc["dark"] >= 0.6:
-        it["warning"] = "Most of this clip is very dark: it may be hard to see on a phone."
-    elif pc["blurry"] >= 0.6:
-        it["warning"] = "Most of this clip is blurry (fast movement or out of focus): check it before posting."
 
 
 def _compare_settings(pr: dict, det: dict, cw: float, count: int, length: float) -> dict:
@@ -2333,7 +1340,7 @@ def strip_data(pr: dict, a: float, b: float) -> dict:
     if b - a > 3600:                       # an hour at most per request: the timeline asks for what it shows
         b = a + 3600
     i0, i1 = int(a), int(math.ceil(b))
-    hz = engine.FINE_HZ
+    hz = analysis.FINE_HZ
     out = {"a": a, "b": b, "hz": hz, "wave": [], "events": {}, "chat": []}
     if an.fine is not None:
         out["wave"] = [round(float(x), 1) for x in an.fine[int(a * hz):int(b * hz)]]
@@ -2351,73 +1358,6 @@ def strip_data(pr: dict, a: float, b: float) -> dict:
     return out
 
 
-_previews: dict = {}
-
-
-def start_preview_render(pid: str, c: dict, opts: dict, at: float) -> dict:
-    pr = projects[pid]
-    start_, end_ = float(c["start"]), float(c["end"])
-    if end_ - start_ < 1:
-        raise RuntimeError("That clip is too short.")
-    seg_a = min(max(start_, at - 1.0), max(start_, end_ - 6.0))
-    seg_b = min(end_, seg_a + 6.0)
-    d = _find_clip(pr, c.get("id")) or {}
-    it = {"start": seg_a, "end": seg_b, "title": str(c.get("title") or "")[:120], "post": "",
-          "words": _clean_words(c.get("words")), "fix_spans": checkflow.render_spans(d) if d else [],
-          "keep_fps": [f["fp"] for f in (d.get("safety") or {}).get("flags", []) if f.get("status") in ("accepted", "dismissed")],
-          "cancel": False}
-    job = new_job("preview")
-    old = _previews.get(pid)
-    if old and old["status"] == "running":
-        old["cancel"] = True
-    _previews[pid] = job
-
-    def go():
-        check = job_check(job)
-        ro = _ropts(dict(opts, hw_encode=opts.get("hw_encode", True)))
-        ro.crf = 28
-        outdir = locations.temp_dir(os.path.basename(pr["workdir"]), "preview")
-        os.makedirs(outdir, exist_ok=True)
-        for f in sorted(glob.glob(os.path.join(outdir, "preview_*.mp4")))[:-2]:   # keep the last few
-            try:
-                os.remove(f)
-            except OSError:
-                pass
-        job["step"] = "Getting captions ready"
-        words, title, _post, spans, mode = _render_inputs(it, pr, ro, check)
-        if not ro.captions:
-            words = []
-        fr = None
-        if engine.effective_layout(ro) == "full" and ro.track == "auto":
-            job["step"] = "Finding the face"
-            # the whole clip's path (shared with the export, cached), shifted to this stretch
-            fr = _framing_for(pr, float(c["start"]), float(c["end"]), ro)
-            if fr and fr.get("path"):
-                fr = dict(fr, path=framing.shift(fr["path"], seg_a - float(c["start"]), seg_b - seg_a))
-        if ro.punch != "off":                # the clip's beats, on this stretch of it
-            ro.punch_at = [t - (seg_a - float(c["start"])) for t in engine.punch_beats(pr.get("analysis"), float(c["start"]),
-                                                                                   float(c["end"]))]
-            ro.punch_at = [t for t in ro.punch_at if 0 <= t <= seg_b - seg_a]
-        name = f"preview_{int(time.time() * 1000)}.mp4"
-        job["step"] = "Rendering"
-        engine.render_clip(pr["video"], seg_a, seg_b, os.path.join(outdir, name), ro, title=title,
-                           progress=job_progress(job, 0.1, 1.0), check=check, words=words, censor=spans, censor_mode=mode,
-                           framing=fr)
-        return {"url": f"/files/{pid}/preview/{name}", "start": seg_a, "end": seg_b}
-    run_job(job, go)
-    return job
-
-
-# Why a render failed, as (kind, retryable). Retryable kinds can come right on a second try with nothing
-# changed (a stall, a file another program had open); the rest need something fixed first, so they're
-# never retried automatically and the message says what to change.
-RETRYABLE = {"stalled", "broken_output", "file_locked", "memory", "gpu_memory", "ffmpeg_memory", "interrupted"}
-
-RAM_SHORT = 0.75 * 1024 ** 3        # free memory under this when something failed for memory: the PC really was short
-_CARD_WORDS = re.compile(r"cuda|cublas|cudnn|nvenc|openencodesession|d3d11|dxva|surface pool|vram|vulkan|"
-                         r"device memory|graphics card|\bgpu\b", re.I)
-
-
 def memory_error(e: BaseException) -> Optional[tuple]:
     """(kind, message) when e is about memory, else None. Only Python's MemoryError, or memory words when the
     PC's free memory really is low, mean "your PC ran out of memory". The graphics card has its own memory,
@@ -2429,9 +1369,9 @@ def memory_error(e: BaseException) -> Optional[tuple]:
     if not words and not isinstance(e, MemoryError):
         return None
     free = locations.memory()["free"]
-    if isinstance(e, MemoryError) or (free is not None and free < RAM_SHORT):
+    if isinstance(e, MemoryError) or (free is not None and free < render_queue.RAM_SHORT):
         return "memory", "Your PC ran out of memory. Close some programs (or let other work finish), then retry."
-    if _CARD_WORDS.search(low):
+    if render_queue._CARD_WORDS.search(low):
         return "gpu_memory", ("The graphics card ran out of memory (a game, other renders or Whisper can fill it; your "
                               "PC's own memory was fine). Close games or other programs using the graphics card, or turn "
                               "off \"Use the GPU to encode\" in the Layout tab, then retry.")
@@ -2441,270 +1381,18 @@ def memory_error(e: BaseException) -> Optional[tuple]:
                              "off \"Use the GPU to encode\" in the Layout tab, or press Reset there.")
 
 
-def classify_render_error(e: Exception) -> tuple:
-    """(kind, what went wrong and what to do in plain words, technical details)."""
-    raw = str(e) or type(e).__name__
-    low = raw.lower()
-    if isinstance(e, engine.RenderInputError):
-        return e.kind, raw, raw
-    errno_ = getattr(e, "errno", None) or getattr(e, "winerror", None)
-    mem = memory_error(e)
-    rules = [
-        ("disk_full", errno_ in (28, 112) or "no space left" in low or "not enough space" in low,
-         "Your drive is full. Free up space (Settings › Storage: Clear temporary files, Delete VODs) or choose another "
-         "folder for rendered clips, then retry."),
-        ("file_locked", errno_ in (13, 32) or "permission denied" in low or "being used by another process" in low,
-         "The clip's file is open in another program, like a video player. Close it, then retry."),
-        ("source_missing", "vod for this clip was deleted" in low or "no such file" in low and "input" not in low,
-         "The stream recording for this clip was deleted, so it can't be rendered any more."),
-        ("memory", mem is not None and mem[0] != "ffmpeg_memory", mem[1] if mem else ""),
-        ("captions", "error initializing filter 'subtitles'" in low or "libass" in low or "fontconfig" in low,
-         "The captions couldn't be drawn. Try the Classic font in the Text tab, then retry."),
-        ("encoder", "error while opening encoder" in low or "nvenc" in low or "qsv" in low or "amf" in low,
-         "The video encoder failed. Turn off \"Use the GPU to encode\" in the Layout tab, then retry."),
-        ("layout", "failed to configure input pad" in low or "error reinitializing filters" in low
-         or "error initializing complex filter" in low or "invalid too big or non positive size" in low,
-         "The clip's layout couldn't be built from this video (a crop or the framing lands outside the picture). "
-         "Press Reset in the Layout tab or choose another layout, then retry."),
-        ("broken_output", "came out broken" in low,
-         "The finished file came out broken twice. Retry; if it keeps happening, turn off "
-         "\"Use the GPU to encode\" in the Layout tab."),
-        ("stalled", "made no progress" in low,
-         "FFmpeg stopped making progress and was stopped. Retry; if it keeps happening, turn off "
-         "\"Use the GPU to encode\" in the Layout tab or try a shorter clip."),
-        ("ffmpeg_memory", mem is not None, mem[1] if mem else ""),
-        ("source_damaged", "invalid data found" in low or "moov atom" in low or "end of file" in low
-         or "no video track" in low,
-         "The source video is damaged or incomplete, so this part couldn't be read."),
-        ("stalled", "timed out" in low or "timeout" in low,
-         "Rendering took too long and was stopped. Retry; if it keeps happening, try a shorter clip."),
-    ]
-    for kind, hit, msg in rules:
-        if hit:
-            return (mem[0] if kind == "memory" else kind), msg, raw[-1500:]
-    first = raw.strip().splitlines()[-1] if raw.strip() else type(e).__name__
-    return "unknown", f"Rendering stopped with an error: {first[:200]}", raw[-1500:]
-
-
-def friendly_render_error(e: Exception) -> tuple:
-    """(what went wrong and what to do, in plain words; technical details)."""
-    return classify_render_error(e)[1:]
-
-
-redact = errorlog.redact       # diagnostics without secrets (tokens and keys blanked, the home folder as ~)
-
-
-def set_stage(it: dict, stage: str, step: str):
-    """Where a render is: queued, validating, preparing, rendering, verifying, then done, error or
-    cancelled. The UI shows a percentage only while rendering, where FFmpeg reports real progress;
-    the other stages show their step and how long they've taken."""
-    it["stage"], it["step"], it["stage_at"] = stage, step, time.time()
-    if it.get("history") and it["history"][-1].get("outcome") == "running":
-        it["history"][-1]["stage"] = stage
-
-
-HISTORY_KEEP = 8
-
-
-def _attempt_start(it: dict):
-    hist = it.setdefault("history", [])
-    hist.append({"n": (hist[-1]["n"] + 1) if hist else 1, "started": time.time(), "outcome": "running",
-                 "stage": "validating"})
-    del hist[:-HISTORY_KEEP]
-
-
-def _attempt_end(it: dict, outcome: str, kind: str = "", error: str = "", diag: Optional[dict] = None):
-    hist = it.get("history") or []
-    if not hist or hist[-1].get("outcome") != "running":
-        return
-    a = hist[-1]
-    a.update(ended=time.time(), outcome=outcome)
-    if kind:
-        a["kind"] = kind
-    if error:
-        a["error"] = error[:300]
-    d = diag or {}
-    for k in ("encoder", "exit", "fallback", "black_start", "layout_used"):
-        if d.get(k) not in (None, ""):
-            a[k] = d[k]
-    ff = d.get("first_failure")
-    if ff:
-        # a layout that had to fall back: what failed first, even though the clip came out
-        a["first_failure"] = {"layout": ff.get("layout", ""), "exit": ff.get("exit"),
-                              "reason": redact(ff.get("reason", ""))[-1500:], "filter": redact(ff.get("filter", ""))[:4000]}
-    if outcome != "done":
-        if d.get("cmd"):
-            a["cmd"] = redact(d["cmd"])[:2000]
-        if d.get("stderr"):
-            a["stderr"] = redact(d["stderr"])[-1500:]
-        if d.get("fallback_stderr"):
-            a["fallback_stderr"] = redact(d["fallback_stderr"])[-1500:]
-
-
-def _after_render(it: dict):
-    """Once a clip is ready: a finished VOD may now be cleaned up (Settings › Storage, off by default)."""
-    if cleanup.load()["vods"]:
-        run_cleanup()
-
-
 def run_cleanup(wait: bool = False):
     """Settings › Storage › Clean up automatically: the rules that are on (cleanup.py has them)."""
     def go():
         with queue_lock:
             items = [dict(x) for x in queue]
         open_dirs = {pr["workdir"] for pr in list(projects.values()) if pr.get("workdir")}
-        live_dirs = tuple(os.path.dirname(sess.seg_dir) for sess in live_list())
+        live_dirs = tuple(os.path.dirname(sess.seg_dir) for sess in live_glue.live_list())
         cleanup.sweep(locations.project_roots() or [WORKROOT], items, open_dirs, live_dirs, log=_say)
     if wait:
         go()
     else:
         threading.Thread(target=go, daemon=True).start()
-
-
-MAX_WORKERS = [1]
-
-
-def apply_perf(prefs: Optional[dict] = None):
-    """Settings › Performance: renders at once, and keeping the PC responsive versus finishing faster."""
-    p = prefs or exports.load()
-    MAX_WORKERS[0] = p["renders"]
-    if p["priority"] == "responsive":
-        engine.RENDER_PRIORITY[0] = 0x00004000 if sys.platform == "win32" else 0     # BELOW_NORMAL_PRIORITY_CLASS
-        # leave one core for you; the lower priority (Windows) already lets what you're doing go first.
-        # Half the cores cost a third of the speed (measured: 30 s clip, 4 cores, 23.8 s vs 18.2 s)
-        engine.RENDER_THREADS[:] = ["-threads", str(max(2, (os.cpu_count() or 4) - 1))]
-    else:
-        engine.RENDER_PRIORITY[0] = 0
-        engine.RENDER_THREADS[:] = []
-    start_prehear()
-    while len(_workers) < MAX_WORKERS[0]:
-        i = len(_workers)
-        _workers.append(threading.Thread(target=queue_worker, args=(i,), daemon=True))
-        _workers[-1].start()
-    queue_wake.set()
-
-
-_workers: list = []
-
-
-def queue_eta() -> Optional[float]:
-    """Time until everything in the queue is rendered (None when there's nothing to go on yet)."""
-    total, unknown = 0.0, False
-    with queue_lock:
-        items = [x for x in queue if x["status"] in ("queued", "rendering")]
-    for x in items:
-        if x["status"] == "rendering":
-            if x.get("eta") is None:
-                unknown = True
-            else:
-                total += x["eta"]
-        else:
-            ex = x.get("export") or {}
-            sp = exports.speed(exports.speed_key(engine.video_encoder(_ropts(x.get("opts") or {}, ex))[0], ex))
-            if not sp:
-                unknown = True
-            else:
-                total += (x["end"] - x["start"]) / sp + 3
-    if not items:
-        return 0.0
-    return None if unknown and total == 0 else round(total / max(1, min(MAX_WORKERS[0], len(items))), 1)
-
-
-MEM_RESERVE = 1.0 * 1024 ** 3      # leave this much memory free before starting another render at once
-
-
-def _mem_short() -> bool:
-    m = locations.memory()
-    return m["free"] is not None and m["free"] < MEM_RESERVE
-
-
-def queue_worker(idx: int = 0):
-    while True:
-        queue_wake.wait(2.0)
-        queue_wake.clear()
-        if idx >= MAX_WORKERS[0]:
-            continue                                  # fewer renders at once now: this worker rests
-        while True:
-            with queue_lock:
-                has_queued = any(x["status"] == "queued" for x in queue)
-                has_rendering = any(x["status"] == "rendering" for x in queue)
-            if not has_queued:
-                break
-            if idx > 0 and has_rendering and _mem_short():
-                # Wait only when there is actual competing work; don't pin an idle worker
-                # in a memory loop when the queue is empty.
-                time.sleep(3)
-                continue
-            with queue_lock:
-                it = next((x for x in queue if x["status"] == "queued"), None)
-                if it and it.get("live"):
-                    # live moments waiting together: the strongest renders first
-                    it = max((x for x in queue if x["status"] == "queued" and x.get("live")),
-                             key=lambda x: x.get("prio", 0), default=it)
-                if it:
-                    it["status"] = "rendering"
-                    it["progress"] = 0.0
-                    _attempt_start(it)
-            _prehear_wake.set()                       # the clips behind this one can be heard now
-            if not it:
-                break
-            if SHUTTING_DOWN[0]:
-                it["status"] = "queued"
-                it["history"].pop()
-                return
-            save_queue_soon()
-            t0 = time.time()
-            print(f"  Rendering \"{it.get('title') or 'clip'}\" ({it['end'] - it['start']:.0f} s)...", flush=True)
-            try:
-                _render_item(it)
-                it["status"] = "done"
-                it["progress"] = 1.0
-                set_stage(it, "done", f"Done in {time.time() - t0:.0f}s")
-                _attempt_end(it, "done", diag=it.pop("_diag", None))
-                print(f"  Rendered {it.get('name') or 'the clip'} in {time.time() - t0:.0f} s.", flush=True)
-                outcome.log("render", "ok", live=bool(it.get("live")))
-                save_queue_soon(0)
-                autopilot.render_done(it)      # sound, Discord, cleanup, latency: autopilot_steps
-            except engine.Cancelled:
-                outcome.log("render", "cancelled", live=bool(it.get("live")), closing=bool(SHUTTING_DOWN[0]))
-                with queue_lock:
-                    _attempt_end(it, "interrupted" if SHUTTING_DOWN[0] else "cancelled", diag=it.pop("_diag", None))
-                    if SHUTTING_DOWN[0]:
-                        it.update(status="queued", progress=0.0, step="Waiting", stage="queued", cancel=False)
-                    elif it in queue:
-                        it["stage"] = "cancelled"
-                        queue.remove(it)
-                save_queue_soon(0)
-                continue
-            except Exception as e:
-                kind, msg, detail = classify_render_error(e)
-                retryable = kind in RETRYABLE
-                diag = it.pop("_diag", None)
-                _attempt_end(it, "error", kind=kind, error=msg, diag=diag)
-                it["attempts"] = it.get("attempts", 0) + 1
-                fails = [a for a in it.get("history", []) if a.get("outcome") == "error"]
-                if kind == "stalled" and len(fails) == 1 and not it.get("cancel"):
-                    # a stall is the one failure a second try usually gets past by itself: once
-                    print(f"  Render stalled; trying once more ({detail[-200:]})", flush=True)
-                    outcome.log("render", "failed", kind=kind, live=bool(it.get("live")), retry=True)
-                    errorlog.record("render:stalled", "Render stalled; trying once more", detail, clip=it.get("title", ""))
-                    it.update(status="queued", progress=0.0, eta=None, stage="queued", step="Waiting to try again")
-                    save_queue_soon(0)
-                    queue_wake.set()
-                    continue
-                it["status"] = "error"
-                it["stage"] = "error"
-                it["error"], it["detail"] = msg, redact(detail)
-                it["error_kind"], it["retryable"] = kind, retryable
-                print(f"  Render failed [{kind}]: {it['error']} ({it['detail'][:300]})", flush=True)
-                outcome.log("render", "failed", kind=kind, live=bool(it.get("live")))
-                errorlog.record(f"render:{kind}", msg, detail, clip=it.get("title", ""), source=it.get("source_title", ""),
-                                attempt=it["attempts"], retryable=retryable)
-                if not isinstance(e, (RuntimeError, OSError, engine.RenderInputError)):
-                    traceback.print_exc()
-                save_queue_soon(0)
-                autopilot.render_failed(it, kind)
-                continue
 
 
 # --------------------------------------------------------------------------
@@ -2713,237 +1401,6 @@ def queue_worker(idx: int = 0):
 
 live_sessions: dict = {}
 SERVER_PORT = [PORT]
-
-
-LIVE_ON = ("starting", "waiting", "recording", "reconnecting")
-
-
-def live_active():
-    return next((s for s in live_sessions.values() if s.status in LIVE_ON), None)
-
-
-def live_list() -> list:
-    return [s for s in live_sessions.values() if s.status in LIVE_ON]
-
-
-def _same_source(a: str, b: str) -> bool:
-    ca, cb = sources.classify(a), sources.classify(b)
-    return (ca["platform"], ca["id"] or ca["url"].lower()) == (cb["platform"], cb["id"] or cb["url"].lower())
-
-
-def sources_view() -> dict:
-    """Everything going on, per source (Home › Sources): VODs being opened and streams being clipped."""
-    out = []
-    for j in sorted(jobs.values(), key=lambda j: j["started"]):
-        if j["kind"] != "analyze" or (j["status"] in ("done", "cancelled") and time.time() - j["started"] > 1800):
-            continue
-        body = j.get("body") or {}
-        c = sources.classify(body.get("source", ""))
-        res = j.get("result") or {}
-        pr = projects.get(res.get("pid", "")) or {}
-        an = pr.get("analysis")
-        out.append({"type": "vod", "id": j["id"], "status": j["status"], "step": j["step"], "progress": round(j["progress"], 3),
-                    "eta": j.get("eta"), "source": body.get("source", ""), "label": c["label"],
-                    "title": res.get("title") or (os.path.basename(body.get("source", "")) if c["platform"] == "local" else c["url"]),
-                    "pid": res.get("pid", ""), "error": (j.get("error") or "").splitlines()[0] if j.get("error") else "",
-                    "started": j["started"],
-                    # for Review's list of open videos: what's left to review in each, and how long it is
-                    "todo": sum(1 for d in pr.get("clips", []) if d.get("state", "todo") == "todo"),
-                    "duration": round(float(getattr(an, "duration", 0) or 0), 1)})
-    for sess in live_sessions.values():
-        if sess.status not in LIVE_ON and time.time() - sess.started > 6 * 3600:
-            continue
-        out.append({"type": "live", "id": sess.id, "status": sess.status, "title": sess.title, "source": sess.source,
-                    "label": sources.classify(sess.source)["label"] if not sess.channel else "Twitch livestream",
-                    "recorded": sess.recorded, "moments": len(sess.moments), "chat_state": sess.chat_state(),
-                    "error": sess.error, "started": sess.started})
-    p = exports.load()
-    return {"items": out, "limits": {"downloads": p["downloads"], "lives": p["lives"]}}
-
-
-def on_hotkey():
-    """Ctrl+Alt+C anywhere in Windows: clip the last 30 seconds of the live stream."""
-    sess = live_active()
-    if sess and sess.status in ("recording", "reconnecting"):
-        sess.clip_now(30)
-        sess.hotkey_clips = getattr(sess, "hotkey_clips", 0) + 1
-        hotkey.beep(True)
-    else:
-        hotkey.beep(False)
-
-
-class PriorityGate:
-    """Lets one job at a time through, the highest priority first (live moments waiting for Whisper:
-    the moment you clipped yourself, then the strongest)."""
-
-    def __init__(self, slots: int = 1):
-        self.cv = threading.Condition()
-        self.slots, self.busy, self.waiting, self.n = slots, 0, [], 0
-
-    def acquire(self, prio: float, check=None):
-        with self.cv:
-            self.n += 1
-            key = (-float(prio), self.n)
-            self.waiting.append(key)
-            try:
-                while self.busy >= self.slots or min(self.waiting) != key:
-                    self.cv.wait(0.5)
-                    if check:
-                        check()
-            except BaseException:
-                self.waiting.remove(key)
-                self.cv.notify_all()
-                raise
-            self.waiting.remove(key)
-            self.busy += 1
-
-    def release(self):
-        with self.cv:
-            self.busy -= 1
-            self.cv.notify_all()
-
-    def queued(self) -> int:
-        with self.cv:
-            return len(self.waiting)
-
-
-live_gate = PriorityGate(1)
-
-
-def _live_prio(d: dict) -> float:
-    return 1000.0 if d.get("manual") else float(d.get("quality") or 0)
-
-
-def _live_rendered(it: dict):
-    """Hands-free: how long rendering took, and the whole way from the moment on stream to the file."""
-    sess = live_sessions.get(it.get("live") or "")
-    if not sess or it.get("status") != "done":
-        return
-    now = time.time()
-    sess.note_latency("render", now - it.get("created", now))
-    lat = it.get("lat") or {}
-    if it.get("aired"):
-        lat["render"] = round(now - it.get("created", now), 2)
-        lat["total"] = round(now - it["aired"], 2)
-        sess.note_latency("total", lat["total"])
-        sess.last_lat = lat
-
-
-def live_on_moment(sess, m: dict):
-    """A live session found a moment: register it as a small project, title it, maybe render it."""
-    mid = uuid.uuid4().hex[:8]
-    pr = {"video": m["video"], "chat": m["chat"], "title": f"{sess.title}, moment {m['number']}",
-          "workdir": sess.dir, "analysis": m["analysis"], "info": engine.probe(m["video"]), "clips": [],
-          "chat_delay": sess.chat_delay, "source": sess.source, "clips_ver": 0, "live": sess.id,
-          "thumb_prefix": f"m{m['number']}_", "streamer": sess.channel or "", "length": sess.length,
-          "tx_lock": threading.Lock()}
-    projects[mid] = pr
-    clip = m["clip"]
-    clip.id = m["number"]
-    pr["clips"] = clip_dicts(mid, [clip])
-    d = pr["clips"][0]
-    d.update(moment=m["number"], manual=m["manual"], live=sess.id, created=time.time(),
-             at=round(m["offset"] + clip.peak, 1), abs_start=round(m["offset"] + clip.start, 1),
-             abs_end=round(m["offset"] + clip.end, 1), len_mode=sess.length, lat=dict(m.get("lat") or {}))
-    sess.moments.append(mid)
-    # more of the stream is known now: every moment's score again, so 90+ stays the session's best few
-    ds = [projects[x]["clips"][0] for x in sess.moments if x in projects and projects[x].get("clips")]
-    for c, q in zip(ds, sess.grades([float(c.get("score") or 0) for c in ds])):
-        c["quality"] = q
-    autopilot.moment_found(sess, mid, d, m.get("aired"))     # titled, then maybe rendered: autopilot_steps
-
-
-def _live_delay(v):
-    """Chat delay for live: a number of seconds, or "auto" (empty) to work it out from the stream."""
-    if v in (None, "", "auto"):
-        return "auto"
-    try:
-        return min(max(float(v), 0.0), 30.0)
-    except (TypeError, ValueError):
-        return "auto"
-
-
-LIVE_VOD_CHECK = 3600       # Save the whole stream: room for at least this many seconds before it starts
-
-
-def live_vod_setting(body: dict) -> tuple:
-    """(save the whole stream?, why not): on unless turned off, and only with room for an hour of it on the disk
-    it's saved to. The session keeps checking as it records (live.LiveSession._check_vod_room)."""
-    if not body.get("save_vod", True):
-        return False, ""
-    try:
-        _check_space(locations.path("downloads") or WORKROOT, LIVE_VOD_CHECK)
-    except OSError as e:
-        return False, f"Not saving the full stream: {e.strerror or e}. Moments are still clipped."
-    return True, ""
-
-
-def _live_outcome(start):
-    """An Outcome line for each live session start (outcome.py)."""
-    @functools.wraps(start)
-    def wrapped(src: str, body: dict):
-        try:
-            sess = start(src, body)
-        except Exception:
-            outcome.log("live", "failed", platform=_platform(src), step="start")
-            raise
-        outcome.log("live", "ok", platform=_platform(src), keep_watching=bool(body.get("keep_watching")))
-        return sess
-    return wrapped
-
-
-@_live_outcome
-def start_live_session(src: str, body: dict):
-    """Create and start a live session. body holds every setting so 'keep watching' can start the next one."""
-    sid = uuid.uuid4().hex[:8]
-    save_vod, vod_note = live_vod_setting(body)
-    sess = live.LiveSession(
-        sid, src, WORKROOT, temp_root=locations.path("temp"), length=float(body.get("length", 0) or 0), events=bool(body.get("events", True)),
-        sensitivity=body.get("frequency") or body.get("sensitivity", "normal"),
-        chat_delay=_live_delay(body.get("chat_delay", "auto")), min_quality=int(body.get("min_quality") or 0),
-        chat_weight=float(body.get("chat_weight", 60)), max_height=int(body.get("max_height", 1080)),
-        cookies=body.get("cookies") or "", warmup=float(body.get("warmup", 90)),
-        buffer_minutes=float(body.get("buffer_minutes", 15)),
-        wait_for_live=bool(body.get("wait_for_live", False)), save_vod=save_vod, save_vod_note=vod_note,
-        on_moment=live_on_moment, on_end=autopilot.session_ended,      # Keep watching: autopilot_steps.keep_watching
-        log=lambda m: print("  [live] " + m, flush=True))
-    if body.get("chat_channel"):
-        sess.channel = live.parse_channel(body["chat_channel"]) or sess.channel
-        if sess.channel and sess.title == "stream (live)":
-            sess.title = f"{sess.channel} (live)"
-            engine._save_meta(sess.dir, title=sess.title, source=sess.source, live=True)
-    sess.adjust = learning.adjuster(sess.channel or "")
-    sess.weights = detect.preset(body.get("preset"))
-    if sess.channel and body.get("emotes", True):
-        def load_emotes(se=sess):
-            # 7TV/BTTV/FFZ emotes make chat reactions count the same way they do for VODs
-            es = emotes.for_channel(login=se.channel, log=se.log)
-            if es:
-                se.scorer.hype = detect.weigher(es)
-                se.emote_set = es
-        threading.Thread(target=load_emotes, daemon=True).start()
-    hands_free = bool(body.get("hands_free", body.get("auto_render")))
-    sess.extra = {"auto_render": hands_free, "opts": dict(body.get("opts") or {}),
-                  "model": body.get("model") or "small", "language": body.get("language") or "",
-                  "keep_watching": bool(body.get("keep_watching")),
-                  "params": dict(body, source=src), "user_stopped": False}
-    live_sessions[sid] = sess
-    sess.start()
-    return sess
-
-def live_view(sess) -> dict:
-    v = sess.public()
-    v["clips"] = [projects[mid]["clips"][0] for mid in sess.moments if mid in projects and projects[mid]["clips"]]
-    v["auto_render"] = bool(sess.extra.get("auto_render"))
-    v["hands_free"] = v["auto_render"]
-    v["keep_watching"] = bool(sess.extra.get("keep_watching"))
-    v["held"] = sum(1 for c in v["clips"] if c.get("held"))
-    v["hotkey_clips"] = getattr(sess, "hotkey_clips", 0)
-    v["next"] = sess.extra.get("next", "")
-    v["listening"] = any(j["status"] == "running" and j["kind"] == "listen" for j in
-                         (jobs.get(projects[mid].get("listen_job", "")) or {"status": "", "kind": ""}
-                          for mid in sess.moments if mid in projects))
-    return v
 
 
 # --------------------------------------------------------------------------
@@ -3077,9 +1534,9 @@ def start(port: int = PORT):
         _clean_leftovers()
         load_queue()
         autopilot.app_started()          # the start-up cleanup sweep: autopilot_steps.cleanup_start
-        apply_perf()
+        render_queue.apply_perf()
         updater.start_background(log=_say)
-        hotkey.start(on_hotkey)
+        hotkey.start(live_glue.on_hotkey)
         _keeper.start()
     return srv, f"http://127.0.0.1:{port}"
 
@@ -3131,7 +1588,7 @@ def _clean_leftovers():
 
 def busy() -> bool:
     """A download, tool setup or render is in progress (background listening doesn't count)."""
-    return (queue_busy() or live_active() is not None
+    return (render_queue.queue_busy() or live_glue.live_active() is not None
             or any(j["status"] == "running" and j["kind"] not in ("listen", "deepscan", "twitchlogin")
                    for j in jobs.values()))
 
@@ -3151,6 +1608,44 @@ def main():
             time.sleep(3600)
     except KeyboardInterrupt:
         pass
+
+
+# render_queue.py: re-exported, so server.<name> still works; code calls render_queue.<name>
+import render_queue  # noqa: E402
+from render_queue import (  # noqa: E402,F401
+    _after_render, apply_perf, _attempt_end, _attempt_start, BrokenOutput, _CARD_WORDS, _check_output,
+    _check_picture, _check_sound, _check_space, classify_render_error, _file_name, friendly_render_error,
+    HISTORY_KEEP, MAX_WORKERS, MB_PER_SECOND, MEM_RESERVE, _mem_short, _needs_captions, _picture_soon, play_sound,
+    _prehear, _prehear_loop, _prehear_one, _prehear_started, _prehear_wake, queue_add, queue_busy, queue_eta,
+    queue_public, queue_worker, RAM_SHORT, redact, _render_inputs, _render_item, _render_project, _render_projects,
+    _render_projects_lock, RETRYABLE, set_stage, SOUND_LOG, start_prehear, TEST_HOOKS, _UNMEASURED,
+    _validate_render, _wait_prehear, _workers,
+)
+
+
+# listening.py: re-exported, so server.<name> still works; code calls listening.<name>
+import listening  # noqa: E402
+from listening import (  # noqa: E402,F401
+    _covered, _deep_model, deep_status, ensure_words, _load_transcripts, _save_transcripts, start_deep_scan,
+    start_listening, _tx, _tx_file, _update_gems, _video_sig, _vocab, _without,
+)
+
+
+# live_glue.py: re-exported, so server.<name> still works; code calls live_glue.<name>
+import live_glue  # noqa: E402
+from live_glue import (  # noqa: E402,F401
+    live_active, _live_delay, live_gate, live_list, LIVE_ON, live_on_moment, _live_outcome, _live_prio,
+    _live_rendered, live_view, LIVE_VOD_CHECK, live_vod_setting, on_hotkey, PriorityGate, _same_source,
+    sources_view, start_live_session,
+)
+
+
+# previews.py: re-exported, so server.<name> still works; code calls previews.<name>
+import previews  # noqa: E402
+from previews import (  # noqa: E402,F401
+    _auto_layout, _framing_dir, _framing_for, _preview_cache, PREVIEW_CACHE_MAX, preview_extras, PREVIEW_KEYS,
+    _preview_lock, preview_path, _previews, start_preview, start_preview_render, _warm_framing,
+)
 
 
 if __name__ == "__main__":

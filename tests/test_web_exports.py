@@ -49,6 +49,7 @@ if not shutil.which("ffmpeg"):
     sys.exit(0)
 
 import engine  # noqa: E402
+import render  # noqa: E402
 import exports  # noqa: E402
 import server  # noqa: E402
 from browser import launch  # noqa: E402
@@ -118,10 +119,10 @@ with sync_playwright() as pw:
 
     # a real FFmpeg failure, explained, then retried
     real_bf = engine.build_filter
-    engine.build_filter = lambda info, o, path=None, face=None: ("[0:v]crop=4000:4000:0:0,scale=1080:1920,format=yuv420p[v]", 960.0)
+    render.build_filter = lambda info, o, path=None, face=None: ("[0:v]crop=4000:4000:0:0,scale=1080:1920,format=yuv420p[v]", 960.0)
     item("w2", 1.0, 5.0, "Broken layout")
     page.wait_for_selector("[data-testid=export-row][data-id=w2][data-status=error]", timeout=60000)
-    engine.build_filter = real_bf
+    render.build_filter = real_bf
     page.locator("[data-testid=export-row][data-id=w2]").click()
     detail = page.locator("[data-testid=export-detail]")
     check("the failure says it's a layout problem", "layout" in detail.locator("[data-testid=export-error]").inner_text())

@@ -53,7 +53,7 @@ PRESETS = {
 }
 SENSITIVITY = {
     # floor: weakest moment considered when the number of clips is automatic. rel (4.33): and how close it
-    # must come to the stream's own best moments (engine.standout_bar); quality first, so an automatic list
+    # must come to the stream's own best moments (analysis.standout_bar); quality first, so an automatic list
     # is the moments that stand out, not a number per hour. count: and Fewer keeps the best 60% of those, so
     # it's fewer even when a stream's moments are all about as strong
     "fewer": {"label": "Fewer, stronger", "floor": 2.3, "rel": 0.65, "count": 0.6},
@@ -100,18 +100,18 @@ def describe(s: dict, used_delay: Optional[float] = None, has_chat: bool = True)
 # ---------------------------------------------------------------- extra signals
 
 def _roll(x, win):
-    import engine
-    return engine._rolling(x, win, "mean")
+    import analysis
+    return analysis._rolling(x, win, "mean")
 
 
 def _fit(a, n):
-    import engine
-    return engine._fit(a, n)
+    import analysis
+    return analysis._fit(a, n)
 
 
 def _rz(x):
-    import engine
-    return engine._robust_z(x)
+    import analysis
+    return analysis._robust_z(x)
 
 
 def surge_signal(rate: np.ndarray) -> np.ndarray:
@@ -177,8 +177,8 @@ def emote_signal(rate: np.ndarray) -> np.ndarray:
     if float((rate > 0).sum()) < 10:
         return np.zeros(len(rate), dtype=np.float32)
     short = _roll(rate, 8)
-    import engine
-    base = engine._rolling(rate, 300, "median")
+    import analysis
+    base = analysis._rolling(rate, 300, "median")
     s = (short - base) / (np.sqrt(np.maximum(base, 0)) + 1.0)
     return np.clip(_rz(s), 0, 8).astype(np.float32)
 
@@ -214,7 +214,7 @@ def talk_mult(said: Optional[np.ndarray], talk: Optional[np.ndarray], emote_rate
     """How much chat counts each second (TALK_FLOOR..1): less where what chat added on top of its usual
     pace is plain talk ("germany", "pizza", "2 hours ago": the streamer asked chat something) rather than
     reactions. Judged against how much this chat usually just talks, so a chat that rarely uses emotes
-    isn't marked down. said, talk: messages per second, and those that were plain talk (engine.chat_rate).
+    isn't marked down. said, talk: messages per second, and those that were plain talk (analysis.chat_rate).
     Counted as messages, not weighed: a reaction weighs about three times a message, so a few in the
     background would hide a crowd answering a question. emote_rate: 7TV/BTTV/FFZ emote use per second, taken back out of the talk (a VOD's
     chat is weighed before its emote lists are known)."""
@@ -227,11 +227,11 @@ def talk_mult(said: Optional[np.ndarray], talk: Optional[np.ndarray], emote_rate
         tk = np.maximum(0, tk - np.asarray(emote_rate, dtype=np.float32)[:n])
     if float((rate > 0).sum()) < 60:
         return None
-    import engine
+    import analysis
     tot = _roll(rate, 8)
     usual = float(np.sum(tk)) / max(float(np.sum(rate)), 1e-6)      # how much of this chat is talk overall
-    more = tot - engine._rolling(rate, 300, "median")
-    more_talk = _roll(tk, 8) - engine._rolling(tk, 300, "median")
+    more = tot - analysis._rolling(rate, 300, "median")
+    more_talk = _roll(tk, 8) - analysis._rolling(tk, 300, "median")
     share = np.where(more > 1e-3, np.clip(more_talk / np.maximum(more, 1e-3), 0, 1), usual)
     ref = max(usual, 0.5)
     over = np.clip((share - ref) / max(0.1, 0.5 * (1 - ref)), 0, 1)        # all talk well before 100%
@@ -313,8 +313,8 @@ def enrich(an, chat: list, delay: float, es=None, rate: Optional[np.ndarray] = N
     """Add the extra signals to an Analysis (cheap; done after loading a cached analysis too)."""
     n = len(an.audio_z)
     if rate is None and chat:
-        import engine
-        rate, _ = engine.chat_rate(chat, n, delay)
+        import analysis
+        rate, _ = analysis.chat_rate(chat, n, delay)
     rate = np.zeros(n, dtype=np.float32) if rate is None else np.asarray(rate, dtype=np.float32)[:n]
     an.surge = surge_signal(rate) if an.has_chat else np.zeros(n, dtype=np.float32)
     er, top = emote_rate(chat, n, delay, es)
@@ -331,14 +331,14 @@ def enrich(an, chat: list, delay: float, es=None, rate: Optional[np.ndarray] = N
 def weigher(es):
     """chat_weight that also counts 7TV/BTTV/FFZ emotes (used by live mode's chat scorer)."""
     import emotes
-    import engine
+    import analysis
 
     def w(text: str) -> float:
-        base = engine.chat_weight(text)
+        base = analysis.chat_weight(text)
         extra = 0.0
         for tok in _TOK.findall(text or ""):
             e = es.find(tok) if es else None
-            if e and tok.lower() not in engine.HYPE and e not in emotes.POPULAR and es.by_name[e][1] != "calm":
+            if e and tok.lower() not in analysis.HYPE and e not in emotes.POPULAR and es.by_name[e][1] != "calm":
                 extra += 0.5 + (0.5 if es.by_name[e][1] else 0.0)     # (popular ones count in chat_weight)
         return min(8.0, base + min(extra, 3.0))
     return w
@@ -352,13 +352,13 @@ def estimate_delay(rate0: np.ndarray, an_audio: np.ndarray, events: Optional[dic
     n = min(len(rate0), len(an_audio))
     if n < 300 or float((rate0 > 0).sum()) < 50:
         return default, False
-    import engine
+    import analysis
     trig = np.clip(np.asarray(an_audio[:n], dtype=np.float32), 0, 8)
     if events:
         for k, w in (("laugh", 3.0), ("scream", 3.0), ("cheer", 2.0)):
             if k in events and events[k] is not None:
-                trig = trig + w * np.clip(engine._fit(events[k], n), 0, 1)
-    base = engine._rolling(rate0[:n], 300, "median")
+                trig = trig + w * np.clip(analysis._fit(events[k], n), 0, 1)
+    base = analysis._rolling(rate0[:n], 300, "median")
     c = (rate0[:n] - base) / (np.sqrt(np.maximum(base, 0)) + 1.0)
     # compare when things start: the stream gets loud or laughs, then chat starts to rise
     onset = lambda x: _roll(np.clip(np.diff(x, prepend=x[:1]), 0, None), 3)  # noqa: E731
@@ -418,7 +418,7 @@ def find_trigger(an, peak: int, back: float = 25.0) -> Optional[float]:
 
 def quality(rank: float) -> int:
     """0-100 from how strong a moment is on its own. 50 is a clear moment, 75 a strong one. Not a promise
-    of views. A stream's clips are graded with ceiling() too (engine.grades), so 90+ stays its best few."""
+    of views. A stream's clips are graded with ceiling() too (analysis.grades), so 90+ stays its best few."""
     return int(round(100 * (1 - math.exp(-max(0.0, rank) / 3.5))))
 
 

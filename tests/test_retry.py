@@ -29,7 +29,9 @@ os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
+import render_queue  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 
 failures = []
 
@@ -72,7 +74,7 @@ def fake_render(it):
     it["path"] = os.path.join(it["folder"], it["name"])
 
 
-server._render_item = fake_render
+render_queue._render_item = fake_render
 srv, url = server.start(7991)
 
 
@@ -152,6 +154,8 @@ srv.shutdown()
 # the speech model can't run (its first download failed): the clip renders without captions and says
 # so; YouTube's captions stand in when the video has them; with censoring on, the render stops instead
 import engine  # noqa: E402
+import render  # noqa: E402
+import whisper  # noqa: E402
 import safety  # noqa: E402
 real_ew, real_wa = server.ensure_words, engine.whisper_available
 
@@ -160,7 +164,7 @@ def broken(*a, **k):
     raise RuntimeError("Couldn't load Whisper. cpu: 403 Forbidden")
 
 
-server.ensure_words, engine.whisper_available = broken, lambda: True
+listening.ensure_words, whisper.whisper_available = broken, lambda: True
 ro = engine.RenderOpts(captions=True)
 prw = {"info": {"has_audio": True}, "yt": {}, "chat": []}
 it = {"start": 10.0, "end": 20.0, "title": "T", "post": ""}
@@ -181,7 +185,7 @@ try:
 except RuntimeError as e:
     check("with censoring on, the render stops instead of skipping the bleeps", "censor" in str(e), str(e))
 safety.save_config({"censor": "off"})
-server.ensure_words, engine.whisper_available = real_ew, real_wa
+listening.ensure_words, whisper.whisper_available = real_ew, real_wa
 
 # a layout whose crop FFmpeg can't build still gives a clip: the whole picture, with a warning
 long_err = "\n".join(["[Parsed_crop_1 @ 0x1] Invalid too big or non positive size for width '4000' or height '4000'",
@@ -201,7 +205,7 @@ if shutil.which("ffmpeg"):
         f, cy = real_bf(info, o, path, face)
         return (f.replace(",crop=", ",crop=4000:4000:0:0,crop=", 1) if o.layout == "full" else f), cy
 
-    engine.build_filter = too_big
+    render.build_filter = too_big
     warned, logged = [], []
     out = os.path.join(tmp, "out.mp4")
     try:
@@ -212,7 +216,7 @@ if shutil.which("ffmpeg"):
         check("a crop that can't be built still renders the clip", False, str(e)[-300:])
     check("and says the layout fell back, and where FFmpeg's reason is", warned and "blurred background" in warned[0]
           and "details" in warned[0], warned)
-    engine.build_filter = lambda info, o, path=None, face=None: (
+    render.build_filter = lambda info, o, path=None, face=None: (
         "[0:v]crop=4000:4000:0:0,scale=1080:1920,format=yuv420p[v]", 960.0)
     try:
         engine.render_clip(src, 0.0, 1.5, os.path.join(tmp, "out2.mp4"),
@@ -220,7 +224,7 @@ if shutil.which("ffmpeg"):
         check("when the fallback can't be built either, the render fails", False)
     except RuntimeError as e:
         check("when the fallback can't be built either, the render fails with FFmpeg's reason", "Parsed_crop" in str(e), str(e))
-    engine.build_filter = real_bf
+    render.build_filter = real_bf
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)

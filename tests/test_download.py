@@ -30,6 +30,7 @@ os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import engine  # noqa: E402
+import acquire  # noqa: E402
 
 failures = []
 
@@ -76,7 +77,7 @@ else:
     open(exe, "w").write(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n')
     os.chmod(exe, 0o755)
 
-engine.DOWNLOAD_STALL_S = 4
+acquire.DOWNLOAD_STALL_S = 4
 steps, logs = [], []
 
 
@@ -252,12 +253,13 @@ if ff:
     check("an MP4 stopped part way is removed so it downloads again",
           engine._reusable(bad, logs.append) is None and not os.path.exists(bad))
     real_probe = engine.ffprobe
-    engine.ffprobe = lambda: "/no/such/ffprobe"
+    # the download code (acquire.py) holds its own reference to engine's helper: replaced in both
+    engine.ffprobe = acquire.ffprobe = lambda: "/no/such/ffprobe"
     keep = os.path.join(tempfile.mkdtemp(prefix="vc_keep_"), "vod.mp4")
     open(keep, "wb").write(b"x" * 5000)
     check("no FFprobe: a VOD on disk is reused as before (never deleted on a guess)",
           engine._reusable(keep, logs.append) == keep and os.path.exists(keep))
-    engine.ffprobe = real_probe
+    engine.ffprobe = acquire.ffprobe = real_probe
 else:
     print("[skip] no FFmpeg: reusing a VOD isn't checked")
 
@@ -274,15 +276,15 @@ try:
     except RuntimeError:
         fresh_ok = False
     check("a fresh 33 GB VOD with 50 GB free is refused (it needs room for the join)", not fresh_ok)
-    real_bytes = engine._download_bytes
-    engine._download_bytes = lambda folder: int(20e9)     # 20 GB already downloaded (a real file that big is slow on Windows)
+    real_bytes = acquire._download_bytes
+    acquire._download_bytes = lambda folder: int(20e9)     # 20 GB already downloaded (a real file that big is slow on Windows)
     try:
         engine._check_download_space(sd, 32.75e9)
         resumed_ok = True
     except RuntimeError:
         resumed_ok = False
     finally:
-        engine._download_bytes = real_bytes
+        acquire._download_bytes = real_bytes
     check("the same VOD with 20 GB of it on disk is let through", resumed_ok)
 finally:
     locations.free_space = real_free
@@ -308,7 +310,7 @@ open(tdl, "w").write(f'@"{sys.executable}" "{tscript}" %*\n' if os.name == "nt"
                      else f'#!/bin/sh\nexec "{sys.executable}" "{tscript}" "$@"\n')
 os.chmod(tdl, 0o755)
 real_which = engine.which
-engine.which = lambda n: tdl if n == "TwitchDownloaderCLI" else None
+engine.which = acquire.which = lambda n: tdl if n == "TwitchDownloaderCLI" else None   # engine's helper, and acquire's reference
 import builtins  # noqa: E402
 real_import = builtins.__import__
 
@@ -324,7 +326,7 @@ try:
     for mode in ("fail", "ok", "hang"):
         os.environ["TDL_MODE"] = mode
         # starting the stand-in can take several seconds on Windows CI: only the stuck one gets the short limit
-        engine.DOWNLOAD_STALL_S = 4 if mode == "hang" else 60
+        acquire.DOWNLOAD_STALL_S = 4 if mode == "hang" else 60
         wd = tempfile.mkdtemp(prefix="vc_tdl_")
         t0 = time.monotonic()
         try:
@@ -344,8 +346,8 @@ try:
                   isinstance(res, str) and has_vod is None and took < 30, (res, round(took, 1)))
 finally:
     builtins.__import__ = real_import
-    engine.which = real_which
-    engine.DOWNLOAD_STALL_S = 4
+    engine.which = acquire.which = real_which
+    acquire.DOWNLOAD_STALL_S = 4
 
 # ---------------------------------------------------------------- 4.45: only a low resolution on offer
 yt360 = {"requested_formats": [{"height": 360, "vcodec": "avc1"}, {"vcodec": "none"}],

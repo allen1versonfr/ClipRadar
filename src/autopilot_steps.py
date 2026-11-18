@@ -23,9 +23,9 @@ def _live(ctx: Ctx) -> bool:
 
 def title_moment(ctx: Ctx):
     """Title the moment: Whisper, the cut refined to what was said, a title, the content check."""
-    import server
+    import listening
     extra = ctx.sess.extra
-    server.start_listening(ctx.pid, [ctx.d["id"]], extra.get("model") or "small", extra.get("language") or "")
+    listening.start_listening(ctx.pid, [ctx.d["id"]], extra.get("model") or "small", extra.get("language") or "")
 
 
 # ---------------------------------------------------------------- clip_titled
@@ -44,7 +44,8 @@ def latency_title(ctx: Ctx):
 
 def hands_free_render(ctx: Ctx):
     """Hands-free: queue the moment for rendering, unless the content check holds it back for you."""
-    import server
+    import live_glue
+    import render_queue
     d, sess, mid = ctx.d, ctx.sess, ctx.pid
     extra = sess.extra
     number = d.get("moment")
@@ -59,8 +60,8 @@ def hands_free_render(ctx: Ctx):
         return "held", hold.why
     c = dict(d, rank=number)
     c["post"] = d.get("post", "")
-    it = server.queue_add(mid, c, extra.get("opts") or {})
-    it["prio"] = server._live_prio(d)
+    it = render_queue.queue_add(mid, c, extra.get("opts") or {})
+    it["prio"] = live_glue._live_prio(d)
     it["auto"] = True                      # rendered on its own (hands-free), not by you
     it["lat"], it["aired"] = dict(d["lat"]), ctx.aired
     d["auto_queued"] = True
@@ -71,8 +72,8 @@ def hands_free_render(ctx: Ctx):
 
 def ready_sound(ctx: Ctx):
     """The 'ready' sound (play_sound checks Settings › Exports › sounds itself)."""
-    import server
-    server.play_sound("ready", ctx.it)
+    import render_queue
+    render_queue.play_sound("ready", ctx.it)
 
 
 def discord_on(ctx: Ctx) -> bool:
@@ -100,9 +101,9 @@ def find_clip(it: dict):
 def cleanup_vods(ctx: Ctx):
     """A finished VOD may now be cleaned up (Settings › Storage, off by default)."""
     import errorlog
-    import server
+    import render_queue
     try:
-        server._after_render(ctx.it)
+        render_queue._after_render(ctx.it)
     except Exception as e:
         errorlog.exc("after-render", clip=ctx.it.get("title", ""))      # as queue_worker logged it
         return "failed", f"{type(e).__name__}: {e}"
@@ -110,8 +111,8 @@ def cleanup_vods(ctx: Ctx):
 
 def latency_render(ctx: Ctx):
     """Hands-free: how long rendering took, and the whole way from the moment on stream to the file."""
-    import server
-    server._live_rendered(ctx.it)
+    import live_glue
+    live_glue._live_rendered(ctx.it)
 
 
 # ---------------------------------------------------------------- clip_skipped
@@ -150,14 +151,14 @@ def keep_watching_on(ctx: Ctx) -> bool:
 
 def keep_watching(ctx: Ctx):
     """Start the next session on the same channel, with the same settings, waiting for it to go live."""
-    import server
+    import live_glue
     sess = ctx.sess
     params = dict(sess.extra["params"])
     params.update(wait_for_live=True, opts=sess.extra.get("opts"),
                   hands_free=sess.extra.get("auto_render"), frequency=sess.frequency, min_quality=sess.min_quality,
                   model=sess.extra.get("model"), language=sess.extra.get("language"))
     try:
-        nxt = server.start_live_session(params["source"], params)
+        nxt = live_glue.start_live_session(params["source"], params)
         sess.extra["next"] = nxt.id
         sess.log("Waiting for the next stream.")
     except Exception as e:

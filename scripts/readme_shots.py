@@ -48,6 +48,7 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 
 import safety  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 from browser import launch  # noqa: E402
 
 VIEW = {"width": 1440, "height": 900}
@@ -60,7 +61,7 @@ def _no_whisper(pid, order, model, lang):
     return job
 
 
-server.start_listening = _no_whisper
+listening.start_listening = _no_whisper
 
 
 def sample_video(path: str, seconds: int) -> None:

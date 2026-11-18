@@ -51,9 +51,14 @@ import campaigns  # noqa: E402
 import cleanup  # noqa: E402
 import discordhook  # noqa: E402
 import engine  # noqa: E402
+import analysis  # noqa: E402
+import whisper  # noqa: E402
 import framing  # noqa: E402
 import safety  # noqa: E402
 import server  # noqa: E402
+import live_glue  # noqa: E402
+import listening  # noqa: E402
+import render_queue  # noqa: E402
 
 failures = []
 
@@ -111,10 +116,10 @@ def fake_words(pr, a, b, model, lang, check=lambda: None, stats=None, task="capt
     return [{"start": round(t + i * 0.4, 2), "end": round(t + i * 0.4 + 0.35, 2), "word": w} for i, w in enumerate(SAY["words"])]
 
 
-server.ensure_words = fake_words
-engine.whisper_available = lambda: True
+listening.ensure_words = fake_words
+whisper.whisper_available = lambda: True
 engine.probe = lambda path: {"duration": 60.0, "has_audio": True, "fps": 30.0, "width": 1920, "height": 1080}
-engine.make_thumb = lambda *a, **k: None
+analysis.make_thumb = lambda *a, **k: None
 framing.available = lambda: False
 
 SENT: list = []
@@ -127,7 +132,7 @@ def fake_send(webhook, content, file_path="", limit=0, timeout=0.0):
 
 
 discordhook.send = fake_send
-server.play_sound = lambda event, it: EVENTS.append(("sound", event))
+render_queue.play_sound = lambda event, it: EVENTS.append(("sound", event))
 cleanup.sweep = lambda *a, **k: EVENTS.append(("cleanup",))
 
 _real_live_rendered = server._live_rendered
@@ -138,7 +143,7 @@ def live_rendered(it):
     _real_live_rendered(it)
 
 
-server._live_rendered = live_rendered
+live_glue._live_rendered = live_rendered
 
 OUT = tempfile.mkdtemp(prefix="vc_out_")
 RENDER = {"mode": "ok"}
@@ -157,7 +162,7 @@ def fake_render(it):
     it["path"], it["name"], it["folder"] = path, os.path.basename(path), OUT
 
 
-server._render_item = fake_render
+render_queue._render_item = fake_render
 
 
 class _StopWorker(Exception):
@@ -412,7 +417,7 @@ def fake_start(src, body):
     return types.SimpleNamespace(id="next1")
 
 
-server.start_live_session = fake_start
+live_glue.start_live_session = fake_start
 try:
     reset()
     sess = FakeSession(hands_free=True, keep_watching=True, opts={"layout": "full"}, model="medium", language="en",
@@ -441,7 +446,7 @@ try:
         autopilot.session_ended(sess)       # was server._watch_for_next(sess), before issue 50 phase 5
         check(f"10: a session that {'was stopped' if status == 'stopped' else 'failed'}: no next session", STARTED == [], STARTED)
 finally:
-    server.start_live_session = _real_start
+    live_glue.start_live_session = _real_start
 
 # 11. shutting down mid-render --------------------------------------------------------------------
 reset()

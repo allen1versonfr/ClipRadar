@@ -1,5 +1,5 @@
 """
-Uploading an exported VOD to YouTube Studio for you (studio_auto.upload_youtube), against a stand-in for YouTube
+Uploading an exported VOD to YouTube Studio for you (youtube_auto.upload_youtube), against a stand-in for YouTube
 Studio's upload dialog in a real browser: Edge or Chrome when installed, else Playwright's Chromium.
 
 The video that goes in is the exported file; the title replaces the one YouTube starts with (the file's name) and
@@ -30,6 +30,7 @@ os.environ["CLIPRADAR_STUDIO_HEADLESS"] = "1"
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import studio_auto  # noqa: E402
+import youtube_auto  # noqa: E402
 
 failures = []
 
@@ -117,7 +118,7 @@ if not studio_auto.find_browser():
 print("browser:", studio_auto.find_browser())
 
 # the sign-in check looks for Google's sign-in page; the stand-in signs in on its own address
-studio_auto.YT["login"] = "location.pathname === '/signin-page'"
+youtube_auto.YT["login"] = "location.pathname === '/signin-page'"
 tmp = tempfile.mkdtemp(prefix="vc_yt_")
 video = os.path.join(tmp, "Friday stream (full VOD).mp4")
 with open(video, "wb") as f:
@@ -126,9 +127,9 @@ steps: list = []
 
 try:
     srv = start()
-    r = studio_auto.upload_youtube(video, "Friday <stream> highlights", "Full stream from Friday.\nTimestamps below.",
+    r = youtube_auto.upload_youtube(video, "Friday <stream> highlights", "Full stream from Friday.\nTimestamps below.",
                                    srv.url, steps.append)
-    page = studio_auto._yt_tab(studio_auto._state["port"], srv.url)[0]
+    page = youtube_auto._yt_tab(studio_auto._state["port"], srv.url)[0]
     try:
         title = page.eval("document.querySelector('#title-textarea #textbox').innerText")
         desc = page.eval("document.querySelector('#description-textarea #textbox').innerText")
@@ -151,7 +152,7 @@ try:
 
     def run():
         try:
-            done["r"] = studio_auto.upload_youtube(video, "T", "", srv.url, steps.append)
+            done["r"] = youtube_auto.upload_youtube(video, "T", "", srv.url, steps.append)
         except Exception as e:      # noqa: BLE001  said in the check below
             done["error"] = repr(e)
     t = threading.Thread(target=run, daemon=True)
@@ -173,7 +174,7 @@ try:
 
     srv = start("channel")
     try:
-        studio_auto.upload_youtube(video, "Zanzibar marathon recap", "Quokka giveaway tonight", srv.url, lambda s: None)
+        youtube_auto.upload_youtube(video, "Zanzibar marathon recap", "Quokka giveaway tonight", srv.url, lambda s: None)
         check("a page without the upload box is a named step", False)
     except studio_auto.StudioError as e:
         check("a page without the upload box is a named step", e.step == "file box" and "answer it" in str(e), (e.step, str(e)))
@@ -186,14 +187,14 @@ try:
     check("the failure is recorded with YouTube's fingerprint", rec.get("context", {}).get("site") == "youtube"
           and rec.get("context", {}).get("step") == "file box" and fp.get("site") == "youtube", rec)
     check("which shows no upload box", fp.get("selectors", {}).get("file") == {"match": False}
-          and set(studio_auto.YT) <= set(fp.get("selectors", {})), fp.get("selectors"))
+          and set(youtube_auto.YT) <= set(fp.get("selectors", {})), fp.get("selectors"))
     check("and the page's buttons", "Create channel" in fp.get("buttons", []), fp.get("buttons"))
     text = json.dumps(rec, ensure_ascii=False).lower()
     check("no title, description, file name or account in it",
           not [w for w in ("zanzibar", "quokka", "friday", "okonkwo", "mira") if w in text], text[:500])
 
     try:
-        studio_auto.upload_youtube(os.path.join(tmp, "gone.mp4"), "T", "", srv.url, lambda s: None)
+        youtube_auto.upload_youtube(os.path.join(tmp, "gone.mp4"), "T", "", srv.url, lambda s: None)
         check("a file that isn't there is refused", False)
     except studio_auto.StudioError as e:
         check("a file that isn't there is refused", e.step == "file", e.step)

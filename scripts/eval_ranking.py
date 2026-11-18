@@ -338,7 +338,16 @@ def report(args, ev: dict, side: dict, base_ev=None) -> str:
         L.append("")
     if base_ev is not None:
         d = rm.diff(ev["summary"], base_ev["summary"])
-        L += [f"## Against `{args.baseline}`", "", "| Metric | Baseline | This checkout | Change |", "|---|---|---|---|"]
+        rule = rm.rule_check(ev, base_ev)
+        L += [f"## Against `{args.baseline}`", "",
+              f"**The rule for ranking changes (docs/plans/README.md): {'passes' if rule['passes'] else 'FAILS'}.**", "",
+              "| Checked | Baseline | This checkout | Change | Allowed drop | |", "|---|---|---|---|---|---|"]
+        for what, b, n, c, lim, ok in rule["checks"]:
+            L.append(f"| {what} | {b:.3f} | {n:.3f} | {c:+.3f} | {lim:.2f} | {'ok' if ok else '**fails**'} |")
+        small = [c for c in ev["by_category"] if ((ev["by_category"][c] or {}).get("wrecall@10") or {}).get("n", 0) < rm.RULE_MIN_VODS]
+        if small:
+            L.append(f"\nNot judged (fewer than {rm.RULE_MIN_VODS} VODs): {', '.join(c or 'no category' for c in sorted(small))}.")
+        L += ["", "| Metric | Baseline | This checkout | Change |", "|---|---|---|---|"]
         for k, label, pct in HEAD:
             b, n = (base_ev["summary"].get(k) or {}).get("mean"), (ev["summary"].get(k) or {}).get("mean")
             ch = d.get(k)
@@ -429,7 +438,8 @@ def score(args) -> int:
     with open(os.path.join(args.out, "report.json"), "w", encoding="utf-8") as f:
         json.dump({"date": datetime.date.today().isoformat(), "checkout": _describe(), "baseline": args.baseline or None,
                    "caveat": CAVEAT, "side": side, "eval": ev, "ablation": ablation(ev),
-                   "baseline_side": base_side, "baseline_eval": base_ev}, f, indent=1)
+                   "baseline_side": base_side, "baseline_eval": base_ev,
+                   "rule": rm.rule_check(ev, base_ev) if base_ev is not None else None}, f, indent=1)
     s = ev["summary"]
     line = "  ".join(f"{k} {_f((s.get(k) or {}).get('mean'), k not in ('first_hit', 'auto_count'))}"
                      for k in ("recall@10", "wrecall@10", "precision@10", "payoff_kept", "first_hit", "auto_count"))
@@ -437,6 +447,8 @@ def score(args) -> int:
     if base_ev is not None:
         d = rm.diff(s, base_ev["summary"])
         print("change: " + "  ".join(f"{k} {d[k]:+.3f}" for k in ("recall@10", "wrecall@10", "payoff_kept") if d.get(k) is not None))
+        rule = rm.rule_check(ev, base_ev)
+        print("the rule for ranking changes: " + ("passes" if rule["passes"] else "FAILS: " + "; ".join(rule["fails"])))
     print(f"Wrote {os.path.join(args.out, 'report.md')} and report.json")
     return 0
 
@@ -516,8 +528,8 @@ def coverage(asc: list, desc: list, length: float, page: int = PAGE) -> list:
 def vod_clips(vod: str):
     """Every clip of the VOD that Twitch tells an anonymous client about, with who made it, and where that list is
     complete: {"vod", "fetched", "length", "complete", "clips": [{id, start, end, views, title, creator}]}. None when
-    Twitch couldn't be asked. twitchclips.fetch (what the app uses) reads the channel's most viewed clips instead,
-    which on most VODs is a small part of them."""
+    Twitch couldn't be asked. twitchclips.fetch (what the app uses) also mixes in the channel's most viewed clips,
+    which aren't complete for any stretch, so they can't be part of an answer key."""
     import title_corpus as tc
     pages, length = {}, 0
     for order in ("ASC", "DESC"):
@@ -530,7 +542,7 @@ def vod_clips(vod: str):
         pages[order] = [(e or {}).get("node") or {} for e in v["clips"]["edges"]]
     # where a clip is in the VOD: Twitch's videoOffsetSeconds is where it ENDS (the press of the clip button), not
     # where it starts. Measured 2026-11-17 by matching the sound of 22 clips from 5 channels against their VODs: every
-    # one started durationSeconds before videoOffsetSeconds (within 2 s, one 6 s). twitchclips.parse takes it as the start
+    # one started durationSeconds before videoOffsetSeconds (within 2 s, one 6 s). twitchclips.parse does the same now
     clips, seen = [], set()
     for n in pages["ASC"] + pages["DESC"]:
         off, dur = n.get("videoOffsetSeconds"), n.get("durationSeconds")

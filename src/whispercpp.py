@@ -198,14 +198,14 @@ def _write_wav(path: str, audio: np.ndarray) -> None:
 
 
 def command(size: str, language: str) -> list:
-    """The same choices as engine._transcribe: beam 5, no carried-over text, the same silence and speech lengths."""
+    """The same choices as whisper._transcribe: beam 5, no carried-over text, the same silence and speech lengths."""
     return [str(exe()), "-m", str(model_file(size)), "-f", "a.wav", "-of", "a", "-oj", "-l", language or "auto", "-bs", "5",
             "-mc", "0", "-ml", "1", "-sow", "-pp", "-t", str(max(1, min(4, (os.cpu_count() or 2) - 1))),
             "--vad", "-vm", str(folder() / VAD[0]), "-vsd", "400", "-vspd", "0", "-vp", "400"]
 
 
 def _words(data: dict, stop: re.Pattern) -> list:
-    """whisper-cli's one-word segments as engine.transcribe's words, without made-up phrases ("thanks for watching")."""
+    """whisper-cli's one-word segments as whisper.transcribe's words, without made-up phrases ("thanks for watching")."""
     words = [{"start": s["offsets"]["from"] / 1000, "end": s["offsets"]["to"] / 1000, "word": s["text"].strip()}
              for s in data.get("transcription", []) if s.get("text", "").strip()]
     text, at = "", []

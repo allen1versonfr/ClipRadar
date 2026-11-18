@@ -54,6 +54,7 @@ if not shutil.which("ffmpeg"):
 
 import safety  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 
 safety.save_config({"custom": ["watch"]})        # flags the suggested title "Watch till the end": a clip to check
 
@@ -101,7 +102,7 @@ def _listening_forever(pid, order, model, lang):
     return job
 
 
-server.start_listening = _listening_forever
+listening.start_listening = _listening_forever
 
 
 def server_clip(cid):

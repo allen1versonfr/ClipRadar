@@ -337,13 +337,15 @@ import json  # noqa: E402
 
 import discordhook  # noqa: E402
 import server  # noqa: E402
+import live_glue  # noqa: E402
+import render_queue  # noqa: E402
 
 autopilot.reset()
 autopilot_steps.register()
 check("12: the server points the gate at its projects", autopilot.find_clip is autopilot_steps.find_clip)
 SENT: list = []
 discordhook.send = lambda hook, text, path="", *a, **k: (SENT.append(text), {"attached": False, "note": ""})[1]
-server.play_sound = lambda *a, **k: None
+render_queue.play_sound = lambda *a, **k: None
 
 
 class InlineThread:
@@ -602,7 +604,7 @@ def kw(sess):
     return [(e["step"], e["outcome"]) for e in sess.extra.get("auto_log", [])]
 
 
-server.start_live_session = fake_start
+live_glue.start_live_session = fake_start
 try:
     sess = Sess()
     autopilot.session_ended(sess)
@@ -620,7 +622,7 @@ try:
     check("14: Keep watching couldn't start the next one: said in the session, recorded as failed",
           s3.logged == ["Couldn't keep watching: no room"] and kw(s3) == [("keep_watching", "failed")], (s3.logged, kw(s3)))
 finally:
-    server.start_live_session = _real_start
+    live_glue.start_live_session = _real_start
 
 SWEPT: list = []
 _real_run_cleanup = server.run_cleanup
@@ -740,7 +742,7 @@ check("15: no callback given: nothing to tell", s.status == "ended")
 
 # the whole way: a real session ending on its own starts the next one, once, through autopilot
 STARTED.clear()
-server.start_live_session = fake_start
+live_glue.start_live_session = fake_start
 try:
     s, _told = session(lambda s: "https://x/hls.m3u8", on_end=autopilot.session_ended)
     s.extra = {"auto_render": False, "opts": {}, "model": "small", "language": "", "keep_watching": True,
@@ -752,7 +754,7 @@ try:
     check("15: server passes autopilot.session_ended as the session's on_end",
           "on_end=autopilot.session_ended" in inspect.getsource(_real_start))
 finally:
-    server.start_live_session = _real_start
+    live_glue.start_live_session = _real_start
 
 autopilot.reset()
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")

@@ -3,8 +3,9 @@ Clip Radar's HTTP routes: the request handler for the local server.
 
 Moved out of server.py so routing and the app's work (projects, jobs, the render queue, live
 sessions) live apart. Everything the handler uses from server.py is read as S.<name> at request
-time, so tests that swap a server function or setting (server._render_item = ..., server.WEB_DIR
-= ...) still reach the handler. The full route list: docs/api-routes.md.
+time, so tests that swap a server function or setting (server.WEB_DIR = ...) still reach the handler;
+what moved out of server.py is called where it lives now (render_queue.queue_add, ...), so swapping
+render_queue.<name> reaches it too. The full route list: docs/api-routes.md.
 """
 
 from __future__ import annotations
@@ -32,6 +33,9 @@ import errorlog
 import detect
 import discordhook
 import engine
+import analysis
+import render
+import whisper
 import exports
 import framing
 import hashtags
@@ -53,7 +57,11 @@ import vodexport
 import voicekeep
 import watermarks
 
+import render_queue
 import server as S
+import previews
+import live_glue
+import listening
 
 
 _ui_errors: list = []        # when the UI last reported errors (/api/client_error)
@@ -233,8 +241,8 @@ class Handler(BaseHTTPRequestHandler):
                 "api": S.API_VERSION,
                 "ui": S.ui_mode(), "next": S.web_available(),
                 "running": S.busy(),
-                "live": (S.live_active().id if S.live_active() else ""),
-                "lives": [{"id": x.id, "title": x.title, "status": x.status} for x in S.live_list()],
+                "live": (live_glue.live_active().id if live_glue.live_active() else ""),
+                "lives": [{"id": x.id, "title": x.title, "status": x.status} for x in live_glue.live_list()],
                 "hotkey": hotkey.status(),
             })
         if p == "/api/update":
@@ -256,7 +264,7 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/api/live/(\w+)", p)
         if m:
             sess = S.live_sessions.get(m.group(1))
-            return self._json(S.live_view(sess)) if sess else self._err("That live session is gone.", 404)
+            return self._json(live_glue.live_view(sess)) if sess else self._err("That live session is gone.", 404)
         if p == "/api/twitch":
             return self._json(twitchauth.status(refresh="refresh" in q))
         if p == "/api/learning":
@@ -271,8 +279,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(learning.explain((q.get("streamer") or [""])[0]))
         if p == "/api/queue":
             with S.queue_lock:
-                items = [S.queue_public(it) for it in S.queue]
-            return self._json({"items": items, "eta": S.queue_eta(), "workers": S.MAX_WORKERS[0]})
+                items = [render_queue.queue_public(it) for it in S.queue]
+            return self._json({"items": items, "eta": render_queue.queue_eta(), "workers": render_queue.MAX_WORKERS[0]})
         if p == "/api/export":
             return self._json(S.export_view())
         if p == "/api/spelling":
@@ -284,7 +292,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/campaigns":
             return self._json(S.campaigns_view())
         if p == "/api/sources":
-            return self._json(S.sources_view())
+            return self._json(live_glue.sources_view())
         if p == "/api/locations":
             return self._json(locations.view())
         m = re.fullmatch(r"/api/framing/(\w+)", p)
@@ -359,7 +367,7 @@ class Handler(BaseHTTPRequestHandler):
             if not pr:
                 return self._err("This session expired. Press Find clips again.", 404)
             lj = S.jobs.get(pr.get("listen_job", ""))
-            return self._json({"clips": pr["clips"], "gems": pr.get("gems", []), "deep": S.deep_status(pr),
+            return self._json({"clips": pr["clips"], "gems": pr.get("gems", []), "deep": listening.deep_status(pr),
                                "listening": bool(lj and lj["status"] == "running"),
                                "step": lj["step"] if lj else ""})
         if p == "/api/storage":
@@ -380,8 +388,8 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/vod/(\w+)", p)
         if m and m.group(1) in S.projects:
             pr = S.projects[m.group(1)]
-            if q.get("preview") and os.path.isfile(S.preview_path(pr)):
-                return self._send_file(S.preview_path(pr), "video/mp4")   # the copy the window can play
+            if q.get("preview") and os.path.isfile(previews.preview_path(pr)):
+                return self._send_file(previews.preview_path(pr), "video/mp4")   # the copy the window can play
             return self._send_file(pr["video"])
         m = re.fullmatch(r"/api/frame/(\w+)", p)
         if m and m.group(1) in S.projects:
@@ -394,7 +402,7 @@ class Handler(BaseHTTPRequestHandler):
             os.makedirs(os.path.dirname(out), exist_ok=True)
             if not os.path.exists(out):
                 try:
-                    engine.make_thumb(pr["video"], t, out, width=1280)
+                    analysis.make_thumb(pr["video"], t, out, width=1280)
                 except Exception as e:
                     return self._err(str(e), 500)
             return self._send_file(out, "image/jpeg", cache=True)
@@ -447,7 +455,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/analyze":
             src = (body.get("source") or "").strip()
             dup = next((j for j in S.jobs.values() if j["kind"] == "analyze" and j["status"] == "running"
-                        and S._same_source((j.get("body") or {}).get("source", ""), src)), None)
+                        and live_glue._same_source((j.get("body") or {}).get("source", ""), src)), None)
             if dup:
                 return self._json({"job": dup["id"], "already": True})     # opening it already
             job = S.new_job("analyze")
@@ -456,14 +464,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"job": job["id"]})
 
         if p == "/api/locations":
-            if S.live_list() or S.busy():
+            if live_glue.live_list() or S.busy():
                 return self._err("Wait for downloads, renders and live clipping to finish, then change folders.", 409)
             res = locations.save(body or {})
             S._set_workroot()
             return self._json(dict(locations.view(), errors=res["errors"]))
 
         if p == "/api/storage/clear_cache":
-            keep = [os.path.dirname(sess.seg_dir) for sess in S.live_list()]
+            keep = [os.path.dirname(sess.seg_dir) for sess in live_glue.live_list()]
             res = locations.clear_temp(keep=tuple(keep))
             part = locations.stale_partials([locations.path("downloads")] + locations.project_roots())
             freed2, _ = engine._remove(part)
@@ -475,7 +483,7 @@ class Handler(BaseHTTPRequestHandler):
             if job and job["kind"] == "analyze" and job["status"] == "running":
                 job["pause"] = job["cancel"] = True
                 job["step"] = "Pausing"
-            return self._json(S.sources_view())
+            return self._json(live_glue.sources_view())
 
         if p == "/api/sources/resume":
             old = S.jobs.get(body.get("job", ""))
@@ -492,9 +500,9 @@ class Handler(BaseHTTPRequestHandler):
             if job and job["status"] != "running":
                 S.jobs.pop(job["id"], None)
             sess = S.live_sessions.get(body.get("live", ""))
-            if sess and sess.status not in S.LIVE_ON:
+            if sess and sess.status not in live_glue.LIVE_ON:
                 sess.started = 0                    # drops out of the list
-            return self._json(S.sources_view())
+            return self._json(live_glue.sources_view())
 
         if p == "/api/setup_tools":
             want = [w for w in body.get("want", []) if w in ("ffmpeg", "twitchdownloader", "ytdlp", "laughter", "music_remover")]
@@ -530,14 +538,14 @@ class Handler(BaseHTTPRequestHandler):
             def go_gpu():
                 S.job_step(job)("Downloading GPU support for Whisper")
                 res = gpu.install(progress=S.job_progress(job, 0, 1), log=S.job_logger(job), check=S.job_check(job))
-                engine.release_whisper()          # loaded on the CPU: the next one loads on the GPU
+                whisper.release_whisper()          # loaded on the CPU: the next one loads on the GPU
                 return res
             S.run_job(job, go_gpu)
             return self._json({"job": job["id"]})
 
         if p == "/api/gpu/remove":
             import gpu
-            engine.release_whisper()
+            whisper.release_whisper()
             return self._json(gpu.remove())
 
         if p == "/api/gpu/mode":
@@ -644,7 +652,7 @@ class Handler(BaseHTTPRequestHandler):
                 r = S.send_to_discord(it, with_file=body.get("file"))
             except RuntimeError as e:
                 return self._err(str(e))
-            return self._json(dict(r, item=S.queue_public(it)))
+            return self._json(dict(r, item=render_queue.queue_public(it)))
 
         if p == "/api/pick_file":
             kind = body.get("kind", "video")
@@ -695,7 +703,7 @@ class Handler(BaseHTTPRequestHandler):
             what = body.get("what")
             if what not in ("vods", "clips"):
                 return self._err("Unknown delete request.")
-            if S.live_active():
+            if live_glue.live_active():
                 return self._err("Stop live clipping first, then delete.", 409)
             if S.busy():
                 return self._err("Wait for the current download or render to finish (or cancel it), then try again.", 409)
@@ -755,8 +763,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/live/start":
             src = (body.get("source") or "").strip()
-            on = S.live_list()
-            if any(S._same_source(sess.source, src) for sess in on):
+            on = live_glue.live_list()
+            if any(live_glue._same_source(sess.source, src) for sess in on):
                 return self._err("That stream is already being clipped.", 409)
             limit = exports.load()["lives"]
             if len(on) >= limit:
@@ -765,10 +773,10 @@ class Handler(BaseHTTPRequestHandler):
             if not engine.which("ffmpeg"):
                 return self._err("ffmpeg is missing. Download the tools first.")
             try:
-                sess = S.start_live_session(src, dict(body))
+                sess = live_glue.start_live_session(src, dict(body))
             except ValueError as e:
                 return self._err(str(e))
-            return self._json(S.live_view(sess))
+            return self._json(live_glue.live_view(sess))
 
         m = re.fullmatch(r"/api/live/(\w+)/(stop|clip|settings)", p)
         if m:
@@ -806,7 +814,7 @@ class Handler(BaseHTTPRequestHandler):
                 for k in ("model", "language"):
                     if k in body:
                         sess.extra[k] = body[k]
-            return self._json(S.live_view(sess))
+            return self._json(live_glue.live_view(sess))
 
         if p == "/api/handoff":
             # TikTok Studio: copy the caption (in the window), show the file, open the upload page
@@ -881,7 +889,7 @@ class Handler(BaseHTTPRequestHandler):
             pid = str(body.get("pid") or "")
             if pid not in S.projects:
                 return self._err("This session expired. Press Find clips again.", 404)
-            return self._json(S.start_preview(pid))
+            return self._json(previews.start_preview(pid))
 
         if p == "/api/studio":
             if "press_post" in body:
@@ -949,7 +957,7 @@ class Handler(BaseHTTPRequestHandler):
             made = {d["id"]: d for d in S.clip_dicts(pid, fresh)}
             for d in made.values():
                 d["len_mode"] = length
-            new = [made[x.id] if isinstance(x, engine.Clip) else x for x in order]
+            new = [made[x.id] if isinstance(x, analysis.Clip) else x for x in order]
             for u in mine:                     # yours slot in by score
                 at = next((i for i, c in enumerate(new) if c.get("score", 0) < u.get("score", 0)), len(new))
                 new.insert(at, u)
@@ -972,10 +980,10 @@ class Handler(BaseHTTPRequestHandler):
                 start = max(0.0, min(t - length * 0.5, an.duration - length))
                 end = min(an.duration, start + length)
             else:
-                start, end, _ = engine.smart_bounds(an, t)
+                start, end, _ = analysis.smart_bounds(an, t)
             sc = an.score[int(min(max(t, 0), len(an.score) - 1))]
-            clip = engine.Clip(0, round(start, 2), round(end, 2), t, round(float(sc), 2), "Added by you",
-                               engine.clip_features(an, start, end, t, pr["chat"], engine.chat_times(pr["chat"]),
+            clip = analysis.Clip(0, round(start, 2), round(end, 2), t, round(float(sc), 2), "Added by you",
+                               analysis.clip_features(an, start, end, t, pr["chat"], engine.chat_times(pr["chat"]),
                                                     pr["chat_delay"]))
             S._number(pr, [clip], "hype", {c["id"] for c in pr["clips"] + pr.get("gems", [])})
             d = S.clip_dicts(pid, [clip])[0]
@@ -1141,7 +1149,7 @@ class Handler(BaseHTTPRequestHandler):
             if pid not in S.projects:
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
-                job = S.start_preview_render(pid, body.get("clip") or {}, body.get("opts") or {}, float(body.get("at", 0)))
+                job = previews.start_preview_render(pid, body.get("clip") or {}, body.get("opts") or {}, float(body.get("at", 0)))
             except RuntimeError as e:
                 return self._err(str(e))
             return self._json({"job": job["id"]})
@@ -1167,14 +1175,14 @@ class Handler(BaseHTTPRequestHandler):
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
             ro = S._ropts(dict(body.get("opts") or {}, track="auto"))
-            fr = S._framing_for(pr, a, b, ro) if b - a >= 1 else None
+            fr = previews._framing_for(pr, a, b, ro) if b - a >= 1 else None
             if fr is None:
-                return self._json({"path": [], "reason": "Follow face works with the Whole frame layout." if engine.effective_layout(ro) != "full"
+                return self._json({"path": [], "reason": "Follow face works with the Whole frame layout." if render.effective_layout(ro) != "full"
                                    else "Face finding isn't available in this copy.", "confidence": 0})
             return self._json(fr)
 
         if p == "/api/preview/extras":
-            # Review's live preview: the punch-in beats and the followed face for one clip (S.preview_extras)
+            # Review's live preview: the punch-in beats and the followed face for one clip (previews.preview_extras)
             pr = S.projects.get(body.get("pid"))
             if not pr:
                 return self._err("This session expired. Press Find clips again.", 404)
@@ -1184,11 +1192,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("Bad clip.")
             if not (math.isfinite(a) and math.isfinite(b)) or b <= a:
                 return self._err("Bad clip.")
-            return self._json(S.preview_extras(str(body.get("pid")), pr, a, b, dict(body.get("opts") or {})))
+            return self._json(previews.preview_extras(str(body.get("pid")), pr, a, b, dict(body.get("opts") or {})))
 
         if p == "/api/export":
             prefs = exports.save(body)
-            S.apply_perf(prefs)
+            render_queue.apply_perf(prefs)
             return self._json(S.export_view(body.get("sample")))
 
         if p == "/api/streamer":
@@ -1229,7 +1237,7 @@ class Handler(BaseHTTPRequestHandler):
             pid = body.get("pid")
             if pid not in S.projects:
                 return self._err("This session expired. Press Find clips again.", 404)
-            job = S.start_listening(pid, [int(i) for i in body.get("order", [])],
+            job = listening.start_listening(pid, [int(i) for i in body.get("order", [])],
                                   body.get("model") or "small", body.get("language") or "")
             return self._json({"job": job["id"]})
 
@@ -1238,12 +1246,12 @@ class Handler(BaseHTTPRequestHandler):
             if pid not in S.projects:
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
-                it = S.queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=body.get("sound", True) is not False)
+                it = render_queue.queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=body.get("sound", True) is not False)
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
             except RuntimeError as e:
                 return self._err(str(e))
-            return self._json(S.queue_public(it))
+            return self._json(render_queue.queue_public(it))
 
         if p == "/api/queue/remove":
             with S.queue_lock:
@@ -1298,7 +1306,7 @@ class Handler(BaseHTTPRequestHandler):
         if p.startswith("/api/test/") and os.environ.get("CLIPRADAR_TEST") == "1":
             act = p[len("/api/test/"):]
             if act in ("fail_next_render", "break_next_output"):
-                S.TEST_HOOKS[act] = True
+                render_queue.TEST_HOOKS[act] = True
                 return self._json({"ok": True})
             if act == "hotkey":
                 return self._json({"ok": hotkey.simulate()})
@@ -1328,12 +1336,12 @@ class Handler(BaseHTTPRequestHandler):
                 j = S.jobs.get(S.projects[pid].get("deep_job", ""))
                 if j and j["status"] == "running":
                     j["cancel"] = True
-                return self._json(S.deep_status(S.projects[pid]))
+                return self._json(listening.deep_status(S.projects[pid]))
             try:
-                S.start_deep_scan(pid, body.get("model") or "auto", body.get("language") or "")
+                listening.start_deep_scan(pid, body.get("model") or "auto", body.get("language") or "")
             except RuntimeError as e:
                 return self._err(str(e))
-            return self._json(S.deep_status(S.projects[pid]))
+            return self._json(listening.deep_status(S.projects[pid]))
 
         if p == "/api/feedback":
             action = str(body.get("action") or "")

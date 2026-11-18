@@ -217,3 +217,35 @@ def diff(new: dict, base: dict) -> dict:
         a, b = (new.get(k) or {}).get("mean"), (base.get(k) or {}).get("mean")
         out[k] = None if a is None or b is None else a - b
     return out
+
+
+# ---------------------------------------------------------------------------------------------- the rule for ranking changes
+# docs/plans/README.md, "Changing how moments are ranked": a change ships only if, against main,
+RULE_WRECALL = 0.02       # weighted recall@10 doesn't drop by more than this,
+RULE_CATEGORY = 0.05      # no category's weighted recall@10 drops by more than this,
+RULE_PAYOFF = 0.02        # and payoff kept doesn't drop by more than this (one moment on one VOD is about 0.01)
+RULE_MIN_VODS = 3         # categories with fewer scored VODs than this are shown but not judged: one VOD is noise
+
+
+def rule_check(new: dict, base: dict) -> dict:
+    """The rule, on two evaluations ({"summary", "by_category"}, as eval_ranking.evaluate gives them):
+    {"passes": bool, "fails": [reasons], "checks": [(what, base, new, change, limit, ok)]}."""
+    checks = []
+
+    def mean(ev, k, cat=None):
+        sm = (ev.get("by_category") or {}).get(cat) if cat is not None else ev.get("summary")
+        return ((sm or {}).get(k) or {}).get("mean")
+
+    def add(what, b, n, limit):
+        if b is None or n is None:
+            return
+        checks.append((what, b, n, n - b, limit, n - b >= -limit - 1e-9))
+    add(f"weighted recall@{HEADLINE_N}", mean(base, f"wrecall@{HEADLINE_N}"), mean(new, f"wrecall@{HEADLINE_N}"), RULE_WRECALL)
+    add("payoff kept", mean(base, "payoff_kept"), mean(new, "payoff_kept"), RULE_PAYOFF)
+    for cat in sorted(set(base.get("by_category") or {}) & set(new.get("by_category") or {})):
+        n_vods = ((base["by_category"][cat] or {}).get(f"wrecall@{HEADLINE_N}") or {}).get("n", 0)
+        if n_vods >= RULE_MIN_VODS:
+            add(f"weighted recall@{HEADLINE_N}, {cat or 'no category'} ({n_vods} VODs)", mean(base, f"wrecall@{HEADLINE_N}", cat),
+                mean(new, f"wrecall@{HEADLINE_N}", cat), RULE_CATEGORY)
+    fails = [f"{w} dropped {-c:.3f} (limit {lim:.2f})" for w, _, _, c, lim, ok in checks if not ok]
+    return {"passes": bool(checks) and not fails, "fails": fails, "checks": checks}

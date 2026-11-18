@@ -25,8 +25,10 @@ sys.path.insert(0, os.path.join(HERE, "..", "src", "stubs"))
 import numpy as np  # noqa: E402
 
 import engine  # noqa: E402
+import whisper  # noqa: E402
 import gpu  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 import timing  # noqa: E402
 
 failures = []
@@ -67,9 +69,9 @@ check("a step that's only a number keeps its text", "100%" in blank.done()["step
 # a title: what it waited for, reading the sound and Whisper are told apart
 gpu.choose, real_choose = (lambda task, size, log=None: {"engine": "whisper", "why": ""}), gpu.choose
 real = engine.extract_audio, engine.transcribe
-engine.extract_audio = lambda v, a, n: np.zeros(int(16000 * n), dtype=np.float32)
-engine.transcribe = lambda *a, **k: [{"start": 1.0, "end": 1.5, "word": "hi"}]
-server._vocab = lambda p: ""
+whisper.extract_audio = lambda v, a, n: np.zeros(int(16000 * n), dtype=np.float32)
+whisper.transcribe = lambda *a, **k: [{"start": 1.0, "end": 1.5, "word": "hi"}]
+listening._vocab = lambda p: ""
 try:
     pr = {"tx_lock": threading.Lock(), "duration": 60.0, "video": "x.mp4"}
     t = timing.Timer("title")
@@ -80,7 +82,7 @@ try:
     pr2 = {"tx_lock": threading.Lock(), "duration": 60.0, "video": "x.mp4"}
     check("nobody has to time it", len(server.ensure_words(pr2, 0, 10, "small", "en", task="titles")) == 1)
 finally:
-    engine.extract_audio, engine.transcribe = real
+    whisper.extract_audio, whisper.transcribe = real
     gpu.choose = real_choose
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")

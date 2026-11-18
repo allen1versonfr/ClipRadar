@@ -52,7 +52,7 @@ KINDS = [
                          r"^o+$|^aaa+$|ohno|meltdown|scatter|^d:$|:0|mad|rage)", re.I)),
 ]
 # 4.35: the 7TV emotes chat uses most (7TV's top of all time), with the reaction each one means and what it
-# adds to a message (like engine.HYPE). Exact names: "CAUGHT" is the emote, "caught" a word. Counted even when
+# adds to a message (like analysis.HYPE). Exact names: "CAUGHT" is the emote, "caught" a word. Counted even when
 # the channel's emote lists couldn't be loaded, and on YouTube and X. Emotes for vibing, greetings and sleep
 # aren't here: they add nothing.
 POPULAR = {

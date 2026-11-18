@@ -34,6 +34,7 @@ os.environ["CLIPRADAR_DATA"] = tempfile.mkdtemp(prefix="vc_test_")
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import engine  # noqa: E402
+import acquire  # noqa: E402
 import ytextra  # noqa: E402
 
 failures = []
@@ -126,7 +127,7 @@ else:
     os.chmod(fake_exe, 0o755)
 # the stand-in, never a real yt-dlp (CI has one in tools/, which is looked in before PATH)
 _which = engine.which
-engine.which = lambda name: fake_exe if name == "yt-dlp" else _which(name)
+engine.which = acquire.which = lambda name: fake_exe if name == "yt-dlp" else _which(name)   # engine's helper, and acquire's reference
 # a lookup is a few seconds on YouTube, comments ten or more, the video most of the time, its sound a tenth
 TIMES = dict(LOOKUP_S=0.8, COMMENTS_S=1.5, VIDEO_S=2.5, AUDIO_S=0.8, SOUND_S=0.6)
 os.environ.update(FAKE_INFO=os.path.join(tmp, "info.json"), FAKE_MP4=src_mp4, FAKE_M4A=src_m4a,

@@ -11,6 +11,10 @@ a clip was posted when it saw TikTok confirm it.
 
 The page is found by what it shows (the file box, the caption box, the button that says Post), kept in
 SELECTORS below, so an update to them is one place. CLIPRADAR_STUDIO_BROWSER picks the browser (tests).
+
+The same window uploads an exported VOD to YouTube Studio: that's youtube_auto.py (hardening phase 6), which uses the
+browser plumbing here (the window, its tabs, waiting for the page, the fingerprint of a failed upload, one upload at a
+time) as studio_auto.<name>. Its names are re-exported at the end of this file.
 """
 
 from __future__ import annotations
@@ -68,7 +72,6 @@ POST_NOW = ("[...document.querySelectorAll('button')].find(x => /^\\s*(post now|
             "jetzt posten|jetzt veröffentlichen|pubblica ora|postar agora|publicar agora|опубликовать сейчас|"
             "今すぐ投稿|지금 게시|立即发布|立即發佈|şimdi yayınla|opublikuj teraz|nu publiceren|đăng ngay|"
             "posting sekarang)\\s*$/i.test(x.innerText || ''))")
-
 
 
 class StudioError(RuntimeError):
@@ -668,127 +671,6 @@ def _upload_once(path: str, caption: str, press_post: bool, url: str, step: Call
         page.close()
 
 
-# ---------------------------------------------------------------- YouTube Studio (Export VOD)
-
-YT_TITLE_MAX = 100            # YouTube's title limit (characters)
-# How YouTube Studio's upload dialog is recognised. Each is a JavaScript expression run in the page.
-YT = {
-    # the hidden file box behind "Select files"
-    "file": "document.querySelector('ytcp-uploads-file-picker input[type=file]') || document.querySelector('input[type=file]')",
-    # Google asking you to sign in first
-    "login": "location.hostname === 'accounts.google.com' || /ServiceLogin|\\/signin/i.test(location.pathname)",
-    # the details step, once YouTube has the file: the title and description boxes (rich text)
-    "title": ("document.querySelector('#title-textarea #textbox') || document.querySelector('ytcp-video-title [contenteditable=true]')"
-              " || document.querySelector('[contenteditable=true][aria-label*=title i]')"),
-    "description": ("document.querySelector('#description-textarea #textbox')"
-                    " || document.querySelector('ytcp-video-description [contenteditable=true]')"
-                    " || document.querySelector('[contenteditable=true][aria-label*=viewers i]')"),
-}
-
-
-def youtube_title(text: str) -> str:
-    """A title YouTube takes: one line, no angle brackets (YouTube refuses them), at most 100 characters."""
-    t = re.sub(r"\s+", " ", (text or "").replace("<", "").replace(">", "")).strip()
-    return t[:YT_TITLE_MAX].rstrip()
-
-
-def _yt_tab(port: int, url: str) -> tuple:
-    """(a tab for YouTube's upload page, whether it was just opened on it). The tab already on YouTube Studio
-    (or on `url`) is used again; the TikTok tab is left alone."""
-    for t in cdp.targets(port):
-        u = t.get("url", "")
-        if t.get("type") == "page" and t.get("webSocketDebuggerUrl") and (
-                u.startswith("https://studio.youtube.com") or u.startswith(re.sub(r"[?#].*$", "", url))):
-            return cdp.Page(t["webSocketDebuggerUrl"], t.get("id", "")), False
-    t = cdp.new_tab(port, url)
-    return cdp.Page(t["webSocketDebuggerUrl"], t.get("id", "")), True
-
-
-def _yt_put(page: cdp.Page, box: str, text: str) -> bool:
-    """Replace what's in one of YouTube's rich text boxes with text. True when the box then says it."""
-    want = _caption_words(text)
-    for _ in range(2):
-        ok = page.eval(f"(() => {{ const e = {box}; if (!e) return false; e.focus(); const r = document.createRange(); "
-                       "r.selectNodeContents(e); const s = getSelection(); s.removeAllRanges(); s.addRange(r); return true })()",
-                       timeout=10)
-        if not ok:
-            return False
-        page.call("Input.insertText", text=text)
-        time.sleep(0.3)
-        if _caption_words(page.eval(f"(({box}) || {{}}).innerText || ''", timeout=10) or "") == want:
-            return True
-    return False
-
-
-def upload_youtube(path: str, title: str, description: str, url: str, step: Callable[[str], None],
-                   check: Callable[[], None] = lambda: None) -> dict:
-    """Drive YouTube Studio's upload dialog in Clip Radar's own browser window: the video put in, the title and
-    description typed. It stops there. Audience, visibility and Publish are choices only you can make, so they
-    are never pressed. Returns {"ready": True, "title": typed?, "description": typed?}; raises StudioError."""
-    if not os.path.isfile(path):
-        e = StudioError("file", "The exported file isn't there any more. Export the video again first.")
-        _record_failure("youtube", e, None)
-        raise e
-    title = youtube_title(title)
-    if not _one_at_a_time.acquire(blocking=False):
-        step("Waiting for the upload before it to finish")
-        while not _one_at_a_time.acquire(timeout=1.0):
-            check()
-    page = None
-    try:
-        step("Opening YouTube Studio")
-        port = open_browser(url)
-        page, fresh = _yt_tab(port, url)
-        _clear_dialog(page)
-        page.call("Page.enable")
-        if not fresh:
-            _navigate(page, url, check)             # a new upload dialog, not the last video's
-        page.call("Page.bringToFront")
-        first = _first(page, {"file": YT["file"], "login": YT["login"]}, 45, check)
-        if first == "login":
-            step("Sign in to YouTube in the window that opened. Clip Radar carries on when you're in.")
-            if not _wait(page, YT["file"], LOGIN_WAIT, check, every=1.0):
-                raise StudioError("sign-in", "YouTube Studio didn't open after signing in. Sign in in Clip Radar's "
-                                             "browser window, then try again.")
-        elif first != "file":
-            raise StudioError("file box", "YouTube Studio's upload box didn't appear. If YouTube is asking something in "
-                                          "the window (to create a channel, for example), answer it and try again.")
-        step("Putting the video in")
-        page.call("DOM.getDocument", depth=0)          # the DOM agent needs a document before files can be set
-        node = page.call("Runtime.evaluate", expression=YT["file"])["result"]
-        if node.get("subtype") == "null" or "objectId" not in node:
-            raise StudioError("file box", "Couldn't find YouTube Studio's upload box. YouTube may have changed the page.")
-        page.call("DOM.setFileInputFiles", files=[os.path.abspath(path)], objectId=node["objectId"])
-        if not _wait(page, YT["title"], 120, check):
-            raise StudioError("details", "The video went in, but YouTube's title box didn't appear. Finish it in the "
-                                         "YouTube window.")
-        step("Typing the title")
-        time.sleep(0.5)                                # YouTube fills the title with the file's name first
-        typed = bool(title) and _yt_put(page, YT["title"], title)
-        wrote = False
-        if description.strip():
-            step("Typing the description")
-            wrote = _yt_put(page, YT["description"], description.strip())
-        page.call("Page.bringToFront")
-        return {"ready": True, "title": typed, "description": wrote}
-    except StudioError as e:
-        _record_failure("youtube", e, fingerprint(page, "youtube", private=(title, description, path)) if page else None)
-        raise
-    except (cdp.CDPError, OSError) as e:
-        if str(e).startswith(PAGE_SCRIPT):
-            err = StudioError("details", "YouTube Studio's page didn't respond as expected. YouTube may have changed "
-                                         "the page: finish it in the YouTube window.")
-            _record_failure("youtube", err, fingerprint(page, "youtube", private=(title, description, path)) if page else None)
-            raise err from None
-        err = StudioError("browser", f"Lost Clip Radar's browser window ({e}). Try again.")
-        _record_failure("youtube", err, None)
-        raise err from None
-    finally:
-        if page is not None:
-            page.close()
-        _one_at_a_time.release()
-
-
 # ---------------------------------------------------------------- what the page looked like (when a step fails)
 #
 # A failed upload is recorded in errors.jsonl with a fingerprint of the page: which of the selectors above it has
@@ -856,7 +738,7 @@ def _fingerprint_js(selectors: dict) -> str:
 
 def _site_selectors(site: str) -> dict:
     if site == "youtube":
-        return dict(YT)
+        return dict(youtube_auto.YT)
     return dict(SELECTORS, shown_caption=SHOWN_CAPTION, post_now=POST_NOW)
 
 
@@ -954,7 +836,7 @@ def check_page(site: str, url: str, file: str = "", wait: float = 60, step: Call
         raise ValueError("A test video is only put in on TikTok's page.")
     if file and not os.path.isfile(file):
         raise StudioError("file", f"{file} isn't there.")
-    sels = YT if site == "youtube" else SELECTORS
+    sels = youtube_auto.YT if site == "youtube" else SELECTORS
     if not _one_at_a_time.acquire(blocking=False):
         step("Waiting for the upload before it to finish")
         while not _one_at_a_time.acquire(timeout=1.0):
@@ -963,7 +845,7 @@ def check_page(site: str, url: str, file: str = "", wait: float = 60, step: Call
     try:
         step(f"Opening the {site} upload page")
         port = open_browser(url)
-        page = _yt_tab(port, url)[0] if site == "youtube" else _tab(port, url)
+        page = youtube_auto._yt_tab(port, url)[0] if site == "youtube" else _tab(port, url)
         _clear_dialog(page)
         page.call("Page.enable")
         _navigate(page, url, check)
@@ -1035,3 +917,10 @@ def save_settings(press_post: Optional[bool] = None) -> dict:
             d["press_post"] = bool(press_post)
         persist.write_json(settings_path(), d)
     return d
+
+
+# youtube_auto.py: re-exported, so studio_auto.<name> still works; code calls youtube_auto.<name>
+import youtube_auto  # noqa: E402
+from youtube_auto import (  # noqa: E402,F401
+    upload_youtube, youtube_title, YT, _yt_put, _yt_tab, YT_TITLE_MAX,
+)

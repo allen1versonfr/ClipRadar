@@ -208,12 +208,12 @@ def settings(prefs: Optional[dict] = None) -> dict:
 
 
 def describe(s: dict) -> str:
-    import engine
-    w, h = engine.SHAPES.get(s.get("aspect", "9:16"), (1080, 1920))
+    import render
+    w, h = render.SHAPES.get(s.get("aspect", "9:16"), (1080, 1920))
     k = float(s.get("scale", 1.0))
     if k < 0.999:
-        w, h = engine._even(w * k), engine._even(h * k)
-    dq = engine.SPEEDS.get(s.get("speed", "balanced"), engine.SPEEDS["balanced"])[1]
+        w, h = render._even(w * k), render._even(h * k)
+    dq = render.SPEEDS.get(s.get("speed", "balanced"), render.SPEEDS["balanced"])[1]
     q = f"{s['vbitrate'] / 1000:g} Mbps" if s.get("vbitrate") else "quality " + str(s.get("crf", 20) + dq)
     loud = f"{s['loudness']:g} LUFS" if s.get("loudness") else "volume as is"
     fps = f"{s['fps']} fps max" if s.get("fps") else "the stream's frame rate"

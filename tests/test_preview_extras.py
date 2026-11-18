@@ -35,6 +35,7 @@ import numpy as np  # noqa: E402
 
 import engine  # noqa: E402
 import server  # noqa: E402
+import previews  # noqa: E402
 
 failures = []
 
@@ -62,7 +63,7 @@ def fake_framing(p, a, b, ro, log=None):
     return dict(face)
 
 
-server._framing_for = fake_framing
+previews._framing_for = fake_framing
 server._preview_cache.clear()
 
 o = {"layout": "full", "track": "auto", "punch": "strong", "aspect": "9:16"}

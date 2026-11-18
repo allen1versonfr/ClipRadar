@@ -12,7 +12,7 @@ Export VOD: a whole video saved as one file, with the muting system and captions
     for laughter. Each stretch can have its music removed with the voices kept (voicekeep.py), be muted
     whole, or be left alone. It hears *music*, not which song: a safety net, not a guarantee.
   - Speed: when the picture isn't changed (no burned-in captions, the video's own size) it's copied as
-    it is and only the sound is made again. Otherwise it's engine.render_clip in a wide frame (16:9).
+    it is and only the sound is made again. Otherwise it's render.render_clip in a wide frame (16:9).
 """
 
 from __future__ import annotations
@@ -32,6 +32,8 @@ import numpy as np
 
 import audio_events
 import engine
+import render
+import whisper
 import exports
 import locations
 import outcome
@@ -39,8 +41,11 @@ import procjob
 import safety
 import studio
 import studio_auto
+import youtube_auto
 import ytextra
 import voicekeep
+import listening
+import render_queue
 
 CHUNK = 600.0            # seconds of sound heard at a time
 MUSIC_ON = 0.45          # music probability (smoothed) from which a second counts as music
@@ -277,7 +282,7 @@ def open_video(S, pid: str = "", path: str = "") -> str:
     os.makedirs(wd, exist_ok=True)
     pr = {"video": video, "workdir": wd, "title": title, "info": info, "duration": info["duration"],
           "tx_lock": threading.Lock(), "live": "", "light": True, "clips": [], "gems": []}
-    S._load_transcripts(pr)
+    listening._load_transcripts(pr)
     S.projects[pid] = pr
     if path and not engine._meta(wd):
         try:          # remembered like any opened file, so it's listed here (and on Home) next time
@@ -333,7 +338,7 @@ def clean_options(body: dict, duration: float) -> dict:
     }
 
 
-def render_opts(S, o: dict, info: dict) -> engine.RenderOpts:
+def render_opts(S, o: dict, info: dict) -> render.RenderOpts:
     """A wide frame showing the whole picture: as it is for a 16:9 video, on a blurred background otherwise,
     with the captions styled as chosen on the screen."""
     sw, sh = info.get("width") or 1920, info.get("height") or 1080
@@ -377,9 +382,9 @@ def hear_all(S, pr: dict, model: str, lang: str, a: float, b: float, progress, c
         check()
         x, y = a + k * CHUNK, min(b, a + (k + 1) * CHUNK)
         step(f"Listening for {what} ({engine.fmt_ts(x)} to {engine.fmt_ts(y)} of {engine.fmt_ts(total)})")
-        words += S.ensure_words(pr, x, y, model, lang, check)
+        words += listening.ensure_words(pr, x, y, model, lang, check)
         progress((k + 1) / n)
-    S._save_transcripts(pr)
+    listening._save_transcripts(pr)
     return words
 
 
@@ -442,7 +447,7 @@ def check_words(S, job: dict, pr: dict, model: str, lang: str) -> dict:
     """Hear the whole video and list what the content check flags in it."""
     if not (pr.get("info") or {}).get("has_audio", True):
         raise RuntimeError("This video has no sound.")
-    if not engine.whisper_available() and not (pr.get("yt") or {}).get("words"):
+    if not whisper.whisper_available() and not (pr.get("yt") or {}).get("words"):
         raise RuntimeError("Finding flagged words needs the speech model (Whisper). Get it in Settings › Downloads and tools.")
     dur = _duration(pr)
     words = hear_all(S, pr, model, lang, 0.0, dur, S.job_progress(job, 0, 0.98), S.job_check(job), S.job_step(job), "flagged words")
@@ -490,10 +495,10 @@ def _run_ffmpeg(cmd: list, cwd: str, length: float, progress, check) -> None:
         p.wait()
         reader.join(timeout=5)
     if p.returncode != 0:
-        raise RuntimeError("ffmpeg failed:\n" + engine._ffmpeg_reason("".join(err[-60:])))
+        raise RuntimeError("ffmpeg failed:\n" + render._ffmpeg_reason("".join(err[-60:])))
 
 
-def copy_video(video: str, out_path: str, info: dict, ro: engine.RenderOpts, spans: list, audio_src: str,
+def copy_video(video: str, out_path: str, info: dict, ro: render.RenderOpts, spans: list, audio_src: str,
                progress, check) -> None:
     """The export with the picture copied as it is and only the sound made again (muted spans, the sound with
     its music removed). Many times faster than encoding the picture: nothing is decoded but the sound."""
@@ -510,9 +515,9 @@ def copy_video(video: str, out_path: str, info: dict, ro: engine.RenderOpts, spa
         cmd += ["-tag:v", "hvc1"]
     try:
         if info.get("has_audio"):
-            tail = engine.audio_filter(ro)
+            tail = render.audio_filter(ro)
             if spans:
-                graph, commands = engine.mute_graph(spans, length, tail, ain, cmd_name)
+                graph, commands = render.mute_graph(spans, length, tail, ain, cmd_name)
                 if commands:
                     with open(os.path.join(work, cmd_name), "w", encoding="utf-8") as f:
                         f.write(commands)
@@ -565,7 +570,7 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     w_voice = (0.6 if copying else 0.25) * (1 - w_hear) if voice else 0.0
     words = [w for w in (words or []) if a <= w["start"] < b] if given and o["captions"] != "off" else []
     if need_words:
-        if not engine.whisper_available() and not (pr.get("yt") or {}).get("words"):
+        if not whisper.whisper_available() and not (pr.get("yt") or {}).get("words"):
             log("Captions skipped: the speech model (Whisper) isn't installed.")
             job["warning"] = "Exported without captions: the speech model (Whisper) isn't installed."
         else:
@@ -601,7 +606,7 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
         else:
             step("Rendering" if part else "Rendering the whole video" if whole else "Rendering the preview")
             burn = [dict(w, start=w["start"] - a, end=w["end"] - a) for w in words] if ro.captions else []
-            engine.render_clip(video, a, b, path, ro, title="", log=log, progress=prog, check=check,
+            render.render_clip(video, a, b, path, ro, title="", log=log, progress=prog, check=check,
                                words=burn, censor=spans, censor_mode="mute", audio_src=audio_src,
                                warn=lambda m: job.__setitem__("warning", m))
     finally:
@@ -626,7 +631,7 @@ def run_export(S, job: dict, pid: str, o: dict) -> dict:
     if dur <= 0:
         raise RuntimeError("Couldn't read the video's length.")
     outdir = locations.clips_dir(pr["workdir"])
-    S._validate_render({"id": job["id"], "start": 0.0, "end": dur}, pr, outdir)
+    render_queue._validate_render({"id": job["id"], "start": 0.0, "end": dur}, pr, outdir)
     if can_copy(o, info):
         try:
             need = os.path.getsize(video) + 200e6
@@ -635,7 +640,7 @@ def run_export(S, job: dict, pid: str, o: dict) -> dict:
         except FileNotFoundError:
             pass
     else:
-        S._check_space(outdir, dur * render_opts(S, o, info).scale * 0.5)   # a wide frame at stream bitrates
+        render_queue._check_space(outdir, dur * render_opts(S, o, info).scale * 0.5)   # a wide frame at stream bitrates
     name = output_name(pr, outdir)
     path = os.path.join(outdir, name)
     t0 = time.time()
@@ -643,7 +648,7 @@ def run_export(S, job: dict, pid: str, o: dict) -> dict:
     srt = ""
     if o["captions"] in ("srt", "both") and r["words"]:
         srt = os.path.splitext(path)[0] + ".srt"
-        engine.write_srt(r["words"], r["ro"], srt, dur)
+        render.write_srt(r["words"], r["ro"], srt, dur)
     took = time.time() - t0
     S.job_logger(job)(f"Saved {name} in {engine.fmt_ts(took)}.")
     pr["vod_out"] = path
@@ -685,7 +690,7 @@ def to_youtube(S, pid: str, body: dict) -> dict:
     path = pr.get("vod_out") or ""
     if not path or not os.path.isfile(path):
         raise RuntimeError("Export the video first: there's no exported file to upload yet.")
-    title = studio_auto.youtube_title(str(body.get("title") or pr.get("title") or ""))
+    title = youtube_auto.youtube_title(str(body.get("title") or pr.get("title") or ""))
     desc = str(body.get("description") or "")[:5000]
     if not body.get("auto"):
         shown = studio.reveal(path)
@@ -704,7 +709,7 @@ def to_youtube(S, pid: str, body: dict) -> dict:
 
     def go():
         try:
-            r = studio_auto.upload_youtube(path, title, desc, YT_UPLOAD_URL, S.job_step(job), S.job_check(job))
+            r = youtube_auto.upload_youtube(path, title, desc, YT_UPLOAD_URL, S.job_step(job), S.job_check(job))
         except studio_auto.StudioError as e:
             outcome.log("upload", "failed", site="youtube", step=e.step)
             studio.reveal(path)                 # finish it by hand: the file, shown
@@ -775,7 +780,7 @@ def start_hear(S, pid: str, body: dict) -> dict:
     b = min(_duration(pr) or a + 30.0, a + 30.0)
 
     def go(job):
-        if not engine.whisper_available():
+        if not whisper.whisper_available():
             raise RuntimeError("Captions need the speech model (Whisper). Get it in Settings › Downloads and tools.")
         words = hear_all(S, pr, model, lang, a, b, S.job_progress(job, 0, 1), S.job_check(job), S.job_step(job))
         return {"start": a, "end": b, "words": len(words)}
@@ -831,7 +836,7 @@ def view(S) -> dict:
     cfg = safety.load_config()
     return {"videos": vids, "library": library(S), "music_model": audio_events.available(),
             "voice_model": voicekeep.available(), "voice_model_mb": voicekeep.MODEL_MB,
-            "whisper": engine.whisper_available(), "browser": studio_auto.available(),
+            "whisper": whisper.whisper_available(), "browser": studio_auto.available(),
             "censor": cfg.get("censor", "off"), "censor_categories": [safety.CATEGORIES[c]["label"] for c in
                                                                       cfg.get("censor_categories", []) if c in safety.CATEGORIES]}
 

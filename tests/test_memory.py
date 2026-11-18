@@ -49,6 +49,7 @@ sys.modules["faster_whisper"] = types.SimpleNamespace(WhisperModel=FakeModel)
 
 import numpy as np  # noqa: E402
 import engine  # noqa: E402
+import whisper  # noqa: E402
 
 failures = []
 
@@ -119,9 +120,9 @@ for _ in range(50):
 timers = sum(1 for th in threading.enumerate() if isinstance(th, threading.Timer))
 check("one watching timer however many transcriptions", timers <= max(1, timers_before), f"{timers_before} -> {timers}")
 
-engine.WHISPER_IDLE = 0.4
+whisper.WHISPER_IDLE = 0.4
 engine._release_timer[0] and engine._release_timer[0].cancel()
-engine._release_timer[0] = None
+whisper._release_timer[0] = None
 engine.transcribe(quiet, "tiny", "en", log)
 deadline = time.time() + 5
 while engine._whisper_cache and time.time() < deadline:

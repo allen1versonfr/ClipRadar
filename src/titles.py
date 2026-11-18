@@ -106,7 +106,7 @@ VIBES = {
         "describe": "It was all going so well",
     },
     # 4.34: chat not getting it ("???", "huh", "wdym") and an awkward moment ("uhhh", "😬", "yikes") are told
-    # apart by engine.reaction_kind; "huh" and "???" used to count as shock
+    # apart by analysis.reaction_kind; "huh" and "???" used to count as shock
     "confused": {
         "emoji": "🤔",
         "tags": ["#confused"],
@@ -430,7 +430,7 @@ def _msg(m) -> tuple:
 
 def _vibe(chat_msgs: list, words: list) -> tuple:
     """How the clip went over: (vibe or None, {vibe: weight}, clip requests). Chat is read like detection reads
-    it (engine.reaction_kind, 4.36), each chatter once for how they reacted most, so a title's mood is the
+    it (analysis.reaction_kind, 4.36), each chatter once for how they reacted most, so a title's mood is the
     clip's: a laughing wave with some "L"s in it is funny, not a fail. What was said counts half a chatter
     a word."""
     counts = {k: 0.0 for k in VIBES}

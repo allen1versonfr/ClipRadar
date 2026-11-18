@@ -22,6 +22,8 @@ from typing import Optional
 import numpy as np
 
 import engine
+
+import analysis
 import titles
 
 PUNCH = re.compile(
@@ -87,7 +89,7 @@ def _shape(sent: dict) -> float:
     return s
 
 
-def score_sentences(an: engine.Analysis, sents: list) -> list:
+def score_sentences(an: analysis.Analysis, sents: list) -> list:
     n = len(an.audio_z)            # not an.score: YouTube captions are scored before the first combine
     laugh = an.event_level("laugh") if an.has_events else None
     loud = an.loud
@@ -119,7 +121,7 @@ def score_sentences(an: engine.Analysis, sents: list) -> list:
     return out
 
 
-def speech_curve(an: engine.Analysis, scored: list) -> np.ndarray:
+def speech_curve(an: analysis.Analysis, scored: list) -> np.ndarray:
     """Per-second 'how quotable' value, for learning and the timeline."""
     n = len(an.audio_z)
     sp = np.zeros(n, dtype=np.float32)
@@ -130,7 +132,7 @@ def speech_curve(an: engine.Analysis, scored: list) -> np.ndarray:
     return sp
 
 
-def find(an: engine.Analysis, words: list, taken: list, count: Optional[int] = None,
+def find(an: analysis.Analysis, words: list, taken: list, count: Optional[int] = None,
          chat: Optional[list] = None, chat_delay: float = 6.0) -> tuple:
     """(gem clips, per-second speech curve). taken: [(start, end)] of clips already suggested."""
     sents = sentences(words)
@@ -149,7 +151,7 @@ def find(an: engine.Analysis, words: list, taken: list, count: Optional[int] = N
             break
         a, e = int(s["start"]), int(s["end"])
         lo, hi = max(0, a - 2), min(n, e + 7)
-        if lo >= hi or float(an.score[lo:hi].max()) >= engine.GOOD:
+        if lo >= hi or float(an.score[lo:hi].max()) >= analysis.GOOD:
             continue                     # the hype finder already sees this stretch
         idx = s["i"]
         # setup: earlier sentences that run into this one (up to ~15 s)
@@ -168,11 +170,11 @@ def find(an: engine.Analysis, words: list, taken: list, count: Optional[int] = N
             while k < min(n, e + 8) and laugh[k] > 0.08:
                 k += 1
             en = max(en, k + 1.0)
-        if en - st < engine.MIN_LEN:
-            st = max(0.0, en - engine.MIN_LEN)
+        if en - st < analysis.MIN_LEN:
+            st = max(0.0, en - analysis.MIN_LEN)
         if en - st > 60:
             st = en - 60
-        st, en = engine.refine_with_words(st, en, s["start"], words, engine.MIN_LEN, 60.0)
+        st, en = analysis.refine_with_words(st, en, s["start"], words, analysis.MIN_LEN, 60.0)
         en = min(en, an.duration)
         if any(st < b - 2 and en > a2 + 2 for a2, b in used):
             continue
@@ -188,7 +190,7 @@ def find(an: engine.Analysis, words: list, taken: list, count: Optional[int] = N
         quote = quote if len(quote) <= 70 else quote[:67].rstrip() + "…"
         reason = f"Quiet gem: “{quote}”" + (f" ({', '.join(bits)})" if bits else "")
         peak = (s["start"] + s["end"]) / 2
-        c = engine.Clip(GEM_ID + len(gems) + 1, round(st, 2), round(en, 2), round(peak, 2), s["score"], reason,
-                        engine.clip_features(an, st, en, peak, chat, chat_t, chat_delay))
+        c = analysis.Clip(GEM_ID + len(gems) + 1, round(st, 2), round(en, 2), round(peak, 2), s["score"], reason,
+                        analysis.clip_features(an, st, en, peak, chat, chat_t, chat_delay))
         gems.append(c)
     return gems, curve

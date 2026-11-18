@@ -24,16 +24,20 @@ import uuid
 from typing import Optional
 
 import engine
+
+import render
+import whisper
 import exports
 import locations
 import paths
 import vodexport
+import render_queue
 
 MAX_LEN = 30 * 60.0      # seconds an export can be
 MIN_LEN = 0.5            # a segment (or what's left of it) shorter than this is nothing
 NAME_MAX = 80
 MAX_SEGMENTS = 200
-GAIN = (-12.0, 12.0)     # dB, as engine.audio_filter allows
+GAIN = (-12.0, 12.0)     # dB, as render.audio_filter allows
 
 _lock = threading.Lock()
 _edits: Optional[list] = None
@@ -284,7 +288,7 @@ def start_hear(S, eid: str, seg_id: str, body: dict) -> dict:
     a, b = seg["start"], seg["end"]
 
     def go(job):
-        if not engine.whisper_available() and not (pr.get("yt") or {}).get("words"):
+        if not whisper.whisper_available() and not (pr.get("yt") or {}).get("words"):
             raise RuntimeError("Captions need the speech model (Whisper). Get it in Settings › Downloads and tools.")
         words = vodexport.hear_all(S, pr, model, lang, a, b, S.job_progress(job, 0, 1), S.job_check(job), S.job_step(job))
         return {"start": a, "end": b, "words": len(words), "segment": seg_id}
@@ -307,7 +311,7 @@ def join(parts: list, out_path: str, check=lambda: None) -> None:
                                encoding="utf-8", errors="replace", creationflags=engine.CREATE_NO_WINDOW)
             if r.returncode == 0 and os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
                 return
-        raise RuntimeError("Couldn't join the segments:\n" + engine._ffmpeg_reason(r.stderr[-4000:]))
+        raise RuntimeError("Couldn't join the segments:\n" + render._ffmpeg_reason(r.stderr[-4000:]))
     finally:
         try:
             os.remove(lst)
@@ -340,7 +344,7 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
         o["music"], o["word_spans"] = vodexport.suggested(pr)
     outdir = locations.clips_dir(pr["workdir"])
     os.makedirs(outdir, exist_ok=True)
-    S._check_space(outdir, total * 0.6)
+    render_queue._check_space(outdir, total * 0.6)
     tmp = locations.temp_dir(os.path.basename(pr["workdir"]), "segments")
     log = S.job_logger(job)
     t0, made, words, ro, at = time.time(), [], [], None, 0.0
@@ -370,7 +374,7 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
     srt = ""
     if o["captions"] in ("srt", "both") and words and ro is not None:
         srt = os.path.splitext(path)[0] + ".srt"
-        engine.write_srt(words, ro, srt, total)
+        render.write_srt(words, ro, srt, total)
     took = time.time() - t0
     log(f"Saved {name}: {len(plan)} part{'s' if len(plan) != 1 else ''}, {engine.fmt_ts(total)}, in {engine.fmt_ts(took)}.")
     return {"path": path, "name": name, "folder": outdir, "srt": os.path.basename(srt) if srt else "",

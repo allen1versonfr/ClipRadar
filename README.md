@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.52.1" src="https://img.shields.io/badge/version-4.52.1-2fe36f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 4.53.0" src="https://img.shields.io/badge/version-4.53.0-2fe36f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -140,9 +140,17 @@ The installer is built from `installer/clipradar.iss` with [Inno Setup 6](https:
 ```
 src/
   app.py          desktop window (pywebview / WebView2) and --selftest
-  server.py       local HTTP API the UI talks to, render queue
-  engine.py       download, analysis, clip picking, rendering, captions
+  server.py       the state the app shares (projects, jobs, the queue, live sessions); starts the HTTP server
+  render_queue.py the render queue: workers, rendering a clip, its checks, why a render failed
+  listening.py    what's said in a video: transcripts, listening to clips, the deep scan
+  live_glue.py    a live session started, and its moments turned into clips; Home › Sources; the hotkey
+  previews.py     the preview copy of a video, Auto-frame, a clip's preview extras, the exact preview render
+  engine.py       helpers the parts below share (FFmpeg, tools, Cancelled); re-exports their names
+  analysis.py     finding the moments: chat, loudness, laughter scores, and picking the clips
   storage.py      what's on disk (VODs, clips) and deleting it, for Settings › Storage and cleanup
+  acquire.py      getting the video and its chat: yt-dlp, TwitchDownloader, chat replays
+  whisper.py      hearing what's said (faster-whisper) for captions and titles
+  render.py       a clip cut, framed, captioned and encoded (GPU or CPU)
   live.py         live recording (own HLS reader that skips ads), chat reader, moment detection
   autopilot.py    what runs on its own: events, steps, the shared hold gate, each clip's record of what happened
   autopilot_steps.py  the steps: hands-free titling and render, Discord, cleanup, Keep watching
@@ -152,6 +160,8 @@ src/
   learning.py     learns per streamer from what you keep, skip and post
   twitchauth.py   Twitch sign-in for ad-free live recording
   studio.py       TikTok Studio handoff (caption, file, upload page)
+  studio_auto.py  uploading to TikTok Studio in Clip Radar's own browser window, and the page fingerprint
+  youtube_auto.py uploading an exported VOD to YouTube Studio in that window
   watermarks.py   watermark layers, and watermark files to share and import
   campaigns.py    clipping campaigns: post rules, length limits, own watermark, Discord channel
   discordhook.py  sending clips to a Discord webhook, downloading shared files from a link
