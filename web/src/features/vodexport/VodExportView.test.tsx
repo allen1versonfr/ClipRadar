@@ -172,6 +172,10 @@ describe('Export VOD', () => {
     fireEvent.click(screen.getByTestId('vodx-export'))
     await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
     expect(sent(calls, '/api/vodexport/start')!.music).toEqual([[0, 30, 'voice'], [60, 240, 'voice'], [3600, 3660, 'mute']])
+    // kept on the server with the video, so Segments uses it too
+    await waitFor(() => expect(sent(calls, '/api/vodexport/music')).toMatchObject({ pid: 'p1', at: 1 }), { timeout: 2000 })
+    const saved = () => calls.filter(([p]) => p === '/api/vodexport/music').at(-1)?.[1] as { songs: Array<{ mine?: boolean }> } | undefined
+    await waitFor(() => expect(saved()?.songs.filter(s => s.mine)).toHaveLength(1), { timeout: 2000 })
     view = { ...VIEW, videos: [{ ...VIDEO, scan: { ...VIDEO.scan, at: 2 } }] }
     fireEvent(document, new Event('visibilitychange'))
     rerender(<ToastProvider><VodExportView /></ToastProvider>)

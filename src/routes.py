@@ -1144,6 +1144,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(str(e))
             if act == "scan":
                 return self._json({"job": vodexport.start_scan(S, pid)["id"]})
+            if act == "music":
+                # the music as you left it on the screen (moved, marked by hand), so Segments uses it too (5.0)
+                return self._json(vodexport.save_music(S.projects[pid], body))
             if act == "start":
                 return self._json({"job": vodexport.start_export(S, pid, body)["id"]})
             if act == "words":

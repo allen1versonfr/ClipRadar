@@ -223,6 +223,30 @@ check("the screen lists the open video with its scan", len(mine) == 1 and [s_["s
       == [s_["start"] for s_ in res["spans"]] and "suggest" in mine[0]["scan"]["spans"][0], v)
 
 
+# ---- the music as you left it on the screen (5.0): Segments uses it too
+pr = server.projects[PID]
+held, voicekeep.session_impl[0] = voicekeep.session_impl[0], None       # no remover here: Erase song falls back to muting
+sug = vodexport.suggested(pr)[0]
+want_ = [(s_["start"], s_["end"], s_["suggest"]) for s_ in vodexport._scan_view(vodexport.load_scan(pr))["spans"] if s_["suggest"] != "keep"]
+check("with nothing changed, Segments uses what the scan suggests", sug == want_, (sug, want_))
+vodexport.save_music(pr, {"at": res["at"], "songs": [{"start": 9.5, "end": 26, "act": "mute"}, {"start": 30, "end": 35, "act": "voice", "mine": True},
+                                                    {"start": 36, "end": 36.2, "act": "mute"}, {"start": "x", "end": 3}]})
+pr.pop("music_mine")
+got = vodexport.load_music(pr)
+check("what you set is kept with the video (a too-short or broken stretch isn't)", got and [s_["start"] for s_ in got["songs"]] == [9.5, 30], got)
+check("and Segments uses it instead of the scan's suggestions", vodexport.suggested(pr)[0] == [(9.5, 26, "mute"), (30, 35, "mute")],
+      vodexport.suggested(pr)[0])          # no eraser here, so Erase song falls back to muting
+pr["copyright"] = dict(pr["copyright"], at=res["at"] + 10)
+check("after a new scan, only the music you marked yourself is added to its suggestions",
+      (30, 35, "mute") in vodexport.suggested(pr)[0] and (9.5, 26, "mute") not in vodexport.suggested(pr)[0], vodexport.suggested(pr)[0])
+check("the screen gets it back", [x for x in vodexport.view(server)["videos"] if x["pid"] == PID][0]["music"]["songs"][1]["mine"])
+pr.pop("music_mine")
+os.remove(vodexport._music_file(pr))
+pr["music_mine"] = None
+pr["copyright"] = dict(pr["copyright"], at=res["at"])
+voicekeep.session_impl[0] = held
+
+
 def wait(job, s=180):
     end = time.time() + s
     while job["status"] == "running" and time.time() < end:

@@ -225,6 +225,50 @@ def music_curve(pr: dict, a: float, b: float) -> list:
     return curve[max(0, int(a)):max(0, int(math.ceil(b)))]
 
 
+def _music_file(pr: dict) -> str:
+    return os.path.join(pr["workdir"], "music.json")
+
+
+def save_music(pr: dict, body: dict) -> dict:
+    """The music as you left it on Export VOD (5.0): each stretch's edges and what to do with it, and the ones
+    you marked yourself (mine), made on the scan of `at`. Kept with the video, so Segments' "Deal with music"
+    and the screen next time (in any browser) use it."""
+    dur = _duration(pr) or math.inf
+    songs = []
+    for s in (body.get("songs") or [])[:500]:
+        if not isinstance(s, dict):
+            continue
+        try:
+            a, b = max(0.0, float(s.get("start"))), min(dur, float(s.get("end")))
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(a) and math.isfinite(b)) or b - a < 0.5:
+            continue
+        songs.append({"start": round(a, 2), "end": round(b, 2),
+                      "act": s.get("act") if s.get("act") in MUSIC_ACTIONS else "mute", "mine": bool(s.get("mine"))})
+    try:
+        at = float(body.get("at") or 0)
+    except (TypeError, ValueError):
+        at = 0.0
+    pr["music_mine"] = {"at": at, "songs": sorted(songs, key=lambda s: s["start"])}
+    _write_json(_music_file(pr), dict(pr["music_mine"], video=_sig(pr)))
+    return {"ok": True, "songs": len(songs)}
+
+
+def load_music(pr: dict) -> Optional[dict]:
+    """The music as you last left it on Export VOD ({"at", "songs"}), if the video hasn't changed since."""
+    if "music_mine" not in pr:
+        pr["music_mine"] = None
+        try:
+            with open(_music_file(pr), encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("video") == _sig(pr) and isinstance(data.get("songs"), list):
+                pr["music_mine"] = {"at": float(data.get("at") or 0), "songs": data["songs"]}
+        except (OSError, ValueError, TypeError):
+            pass
+    return pr["music_mine"]
+
+
 def _scan_view(scan: Optional[dict]) -> Optional[dict]:
     """The scan for the screen: each stretch with what Clip Radar would do with it to start with."""
     if not scan:
@@ -852,7 +896,7 @@ def view(S) -> dict:
             "has_yt_words": bool((pr.get("yt") or {}).get("words")),
             "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
             "copyable": info.get("vcodec") in COPY_CODECS, "light": bool(pr.get("light")),
-            "scan": _scan_view(load_scan(pr)), "scan_job": job("copyright_job"),
+            "scan": _scan_view(load_scan(pr)), "scan_job": job("copyright_job"), "music": load_music(pr),
             "flags": load_flags(pr), "words_job": job("vod_words_job"), "hear_job": job("vod_hear_job"),
             "preview_job": job("vod_preview_job"), "export_job": job("vodexport_job"),
             "exported": bool(out and os.path.isfile(out)), "youtube": pr.get("vod_yt"), "youtube_job": job("vod_yt_job"),
@@ -867,9 +911,15 @@ def view(S) -> dict:
 
 def suggested(pr: dict) -> tuple:
     """What Export VOD starts with for a video, for an export that has no screen of its own (Segments): each
-    music stretch as the copyright scan suggests, and the flagged words in the categories Settings › Content
+    music stretch as you left it on Export VOD (5.0), or as the copyright scan suggests, and the flagged words in the categories Settings › Content
     check mutes. ([(start, end, "voice" | "mute")], [(start, end)])"""
     scan = _scan_view(load_scan(pr))
     music = [(s["start"], s["end"], s["suggest"]) for s in (scan or {}).get("spans", []) if s["suggest"] != "keep"]
+    mine = load_music(pr)
+    if mine:          # what you set on Export VOD: all of it for this scan, only what you marked yourself for a newer one
+        same = abs(float(mine["at"]) - float((scan or {}).get("at") or 0)) < 1e-6
+        rows = [s for s in mine["songs"] if same or s.get("mine")]
+        music = ([] if same else music) + [(s["start"], s["end"], s["act"]) for s in rows if s["act"] != "keep"]
+        music = [(a, b, "mute" if m == "voice" and not can_erase() else m) for a, b, m in sorted(music)]
     flags = (load_flags(pr) or {}).get("flags") or []
     return music, [(max(0.0, f["start"] - 0.05), f["end"] + 0.05) for f in flags if f.get("on")]

@@ -124,13 +124,18 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   // (moved edges, stretches you marked yourself). A new scan starts over from what it found, keeping the ones you marked.
   const scanAt = v.scan?.at ?? 0
   const fromScan = (): Song[] => (v.scan?.spans ?? []).map(s => ({ start: s.start, end: s.end, act: s.suggest, confidence: s.confidence, speech: s.speech }))
-  const [songsFor, setSongsFor] = useState<{ at: number; songs: Song[] } | undefined>(() => getPref<Record<string, { at: number; songs: Song[] }>>('vodxSongs', {})[v.pid])
+  // kept on the server with the video (so Segments uses it too, and it's there in any window), and here until it's saved
+  const [songsFor, setSongsFor] = useState<{ at: number; songs: Song[] } | undefined>(
+    () => v.music ?? getPref<Record<string, { at: number; songs: Song[] }>>('vodxSongs', {})[v.pid])
+  const saveTimer = useRef(0)
   const listOf = (cur = songsFor): Song[] => (cur && cur.at === scanAt ? cur.songs : [...fromScan(), ...(cur?.songs.filter(s => s.mine) ?? [])].sort((a, b) => a.start - b.start))
   const songs: Song[] = listOf().map(s => (s.act === 'voice' && !canRemove ? { ...s, act: 'mute' as const } : s))
   const acts = songs.map(s => s.act)
   const setSongs = (fn: (s: Song[]) => Song[]) => setSongsFor(cur => {
     const n = { at: scanAt, songs: fn(listOf(cur)).sort((a, b) => a.start - b.start) }
     setPref('vodxSongs', { ...getPref<Record<string, unknown>>('vodxSongs', {}), [v.pid]: n })
+    clearTimeout(saveTimer.current)          // a drag changes it many times a second: saved once it settles
+    saveTimer.current = window.setTimeout(() => { void api(Ok, '/api/vodexport/music', { pid: v.pid, ...n }).catch(() => {}) }, 500)
     return n
   })
   const setAct = (i: number | 'all', a: MusicAction) => setSongs(ss => ss.map((s, k) => (i === 'all' || k === i ? { ...s, act: a } : s)))
