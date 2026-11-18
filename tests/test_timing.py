@@ -28,6 +28,7 @@ import engine  # noqa: E402
 import whisper  # noqa: E402
 import gpu  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 import timing  # noqa: E402
 
 failures = []
@@ -70,7 +71,7 @@ gpu.choose, real_choose = (lambda task, size, log=None: {"engine": "whisper", "w
 real = engine.extract_audio, engine.transcribe
 whisper.extract_audio = lambda v, a, n: np.zeros(int(16000 * n), dtype=np.float32)
 whisper.transcribe = lambda *a, **k: [{"start": 1.0, "end": 1.5, "word": "hi"}]
-server._vocab = lambda p: ""
+listening._vocab = lambda p: ""
 try:
     pr = {"tx_lock": threading.Lock(), "duration": 60.0, "video": "x.mp4"}
     t = timing.Timer("title")

@@ -59,6 +59,7 @@ import watermarks
 
 import render_queue
 import server as S
+import listening
 
 
 _ui_errors: list = []        # when the UI last reported errors (/api/client_error)
@@ -364,7 +365,7 @@ class Handler(BaseHTTPRequestHandler):
             if not pr:
                 return self._err("This session expired. Press Find clips again.", 404)
             lj = S.jobs.get(pr.get("listen_job", ""))
-            return self._json({"clips": pr["clips"], "gems": pr.get("gems", []), "deep": S.deep_status(pr),
+            return self._json({"clips": pr["clips"], "gems": pr.get("gems", []), "deep": listening.deep_status(pr),
                                "listening": bool(lj and lj["status"] == "running"),
                                "step": lj["step"] if lj else ""})
         if p == "/api/storage":
@@ -1234,7 +1235,7 @@ class Handler(BaseHTTPRequestHandler):
             pid = body.get("pid")
             if pid not in S.projects:
                 return self._err("This session expired. Press Find clips again.", 404)
-            job = S.start_listening(pid, [int(i) for i in body.get("order", [])],
+            job = listening.start_listening(pid, [int(i) for i in body.get("order", [])],
                                   body.get("model") or "small", body.get("language") or "")
             return self._json({"job": job["id"]})
 
@@ -1333,12 +1334,12 @@ class Handler(BaseHTTPRequestHandler):
                 j = S.jobs.get(S.projects[pid].get("deep_job", ""))
                 if j and j["status"] == "running":
                     j["cancel"] = True
-                return self._json(S.deep_status(S.projects[pid]))
+                return self._json(listening.deep_status(S.projects[pid]))
             try:
-                S.start_deep_scan(pid, body.get("model") or "auto", body.get("language") or "")
+                listening.start_deep_scan(pid, body.get("model") or "auto", body.get("language") or "")
             except RuntimeError as e:
                 return self._err(str(e))
-            return self._json(S.deep_status(S.projects[pid]))
+            return self._json(listening.deep_status(S.projects[pid]))
 
         if p == "/api/feedback":
             action = str(body.get("action") or "")

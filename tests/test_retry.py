@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import render_queue  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 
 failures = []
 
@@ -163,7 +164,7 @@ def broken(*a, **k):
     raise RuntimeError("Couldn't load Whisper. cpu: 403 Forbidden")
 
 
-server.ensure_words, whisper.whisper_available = broken, lambda: True
+listening.ensure_words, whisper.whisper_available = broken, lambda: True
 ro = engine.RenderOpts(captions=True)
 prw = {"info": {"has_audio": True}, "yt": {}, "chat": []}
 it = {"start": 10.0, "end": 20.0, "title": "T", "post": ""}
@@ -184,7 +185,7 @@ try:
 except RuntimeError as e:
     check("with censoring on, the render stops instead of skipping the bleeps", "censor" in str(e), str(e))
 safety.save_config({"censor": "off"})
-server.ensure_words, whisper.whisper_available = real_ew, real_wa
+listening.ensure_words, whisper.whisper_available = real_ew, real_wa
 
 # a layout whose crop FFmpeg can't build still gives a clip: the whole picture, with a warning
 long_err = "\n".join(["[Parsed_crop_1 @ 0x1] Invalid too big or non positive size for width '4000' or height '4000'",

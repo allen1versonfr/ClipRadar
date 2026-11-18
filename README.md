@@ -142,6 +142,7 @@ src/
   app.py          desktop window (pywebview / WebView2) and --selftest
   server.py       the state the app shares (projects, jobs, the queue, live sessions); starts the HTTP server
   render_queue.py the render queue: workers, rendering a clip, its checks, why a render failed
+  listening.py    what's said in a video: transcripts, listening to clips, the deep scan
   engine.py       helpers the parts below share (FFmpeg, tools, Cancelled); re-exports their names
   analysis.py     finding the moments: chat, loudness, laughter scores, and picking the clips
   storage.py      what's on disk (VODs, clips) and deleting it, for Settings › Storage and cleanup

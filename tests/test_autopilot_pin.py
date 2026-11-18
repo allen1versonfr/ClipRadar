@@ -56,6 +56,7 @@ import whisper  # noqa: E402
 import framing  # noqa: E402
 import safety  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 import render_queue  # noqa: E402
 
 failures = []
@@ -114,7 +115,7 @@ def fake_words(pr, a, b, model, lang, check=lambda: None, stats=None, task="capt
     return [{"start": round(t + i * 0.4, 2), "end": round(t + i * 0.4 + 0.35, 2), "word": w} for i, w in enumerate(SAY["words"])]
 
 
-server.ensure_words = fake_words
+listening.ensure_words = fake_words
 whisper.whisper_available = lambda: True
 engine.probe = lambda path: {"duration": 60.0, "has_audio": True, "fps": 30.0, "width": 1920, "height": 1080}
 analysis.make_thumb = lambda *a, **k: None

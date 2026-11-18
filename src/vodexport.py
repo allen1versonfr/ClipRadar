@@ -43,6 +43,7 @@ import studio
 import studio_auto
 import ytextra
 import voicekeep
+import listening
 import render_queue
 
 CHUNK = 600.0            # seconds of sound heard at a time
@@ -280,7 +281,7 @@ def open_video(S, pid: str = "", path: str = "") -> str:
     os.makedirs(wd, exist_ok=True)
     pr = {"video": video, "workdir": wd, "title": title, "info": info, "duration": info["duration"],
           "tx_lock": threading.Lock(), "live": "", "light": True, "clips": [], "gems": []}
-    S._load_transcripts(pr)
+    listening._load_transcripts(pr)
     S.projects[pid] = pr
     if path and not engine._meta(wd):
         try:          # remembered like any opened file, so it's listed here (and on Home) next time
@@ -380,9 +381,9 @@ def hear_all(S, pr: dict, model: str, lang: str, a: float, b: float, progress, c
         check()
         x, y = a + k * CHUNK, min(b, a + (k + 1) * CHUNK)
         step(f"Listening for {what} ({engine.fmt_ts(x)} to {engine.fmt_ts(y)} of {engine.fmt_ts(total)})")
-        words += S.ensure_words(pr, x, y, model, lang, check)
+        words += listening.ensure_words(pr, x, y, model, lang, check)
         progress((k + 1) / n)
-    S._save_transcripts(pr)
+    listening._save_transcripts(pr)
     return words
 
 

@@ -48,7 +48,9 @@ if "server" not in sys.modules:
     # and this copy steps aside (the import then gives back the copy server loaded in full)
     del sys.modules[__name__]
     import server  # noqa: E402,F401
+    import listening  # noqa: E402
 import server as S  # noqa: E402  shared state and helpers, read as S.<name> at call time
+import listening  # noqa: E402
 
 
 def queue_public(it: dict) -> dict:
@@ -161,7 +163,7 @@ def _render_project(it: dict) -> dict:
                   "title": it.get("source_title", ""), "info": info, "duration": info["duration"],
                   "tx_lock": threading.Lock(), "live": it.get("live", "")}
             if not pr["live"]:
-                S._load_transcripts(pr)
+                listening._load_transcripts(pr)
             _render_projects[it["pid"]] = pr
     return pr
 
@@ -291,7 +293,7 @@ def _prehear_one() -> bool:
             if it.get("cancel") or S.SHUTTING_DOWN[0] or not any(x is it for x in S.queue):
                 raise engine.Cancelled()
         timer = timing.Timer("captions ahead", it.get("title") or "")
-        S.ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check, timer=timer)
+        listening.ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check, timer=timer)
         timer.done()
     except engine.Cancelled:
         pass
@@ -342,7 +344,7 @@ def _render_inputs(it: dict, pr: dict, ro, check, timer: Optional[timing.Timer] 
         set_stage(it, "preparing", "Listening for captions")
         try:
             _wait_prehear(it, check, timer)
-            abs_words = S.ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check, timer=timer)
+            abs_words = listening.ensure_words(pr, it["start"], it["end"], ro.whisper_model, ro.language, check, timer=timer)
         except engine.Cancelled:
             raise
         except Exception as e:

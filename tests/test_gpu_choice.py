@@ -37,6 +37,7 @@ import engine  # noqa: E402
 import whisper  # noqa: E402
 import gpu  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 import whispercpp  # noqa: E402
 
 failures = []
@@ -308,7 +309,7 @@ try:
     # ------------------------------------------------------------ a title's words don't become a caption's
     pr = {"tx_lock": threading.Lock(), "duration": 60.0, "video": "x.mp4"}
     whisper.extract_audio = lambda v, a, n: np.zeros(int(16000 * n), dtype=np.float32)
-    server._vocab = lambda p: ""
+    listening._vocab = lambda p: ""
     ran.clear()
     words = server.ensure_words(pr, 10, 20, "small", "en", task="titles")
     check("a title is heard on the card", ran == ["card"] and [w["word"] for w in words] == ["card"], (ran, words))

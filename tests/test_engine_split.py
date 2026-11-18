@@ -94,6 +94,9 @@ SERVER_MOVED = {
                      "_CARD_WORDS", "classify_render_error", "friendly_render_error", "redact", "set_stage",
                      "HISTORY_KEEP", "_attempt_start", "_attempt_end", "_after_render", "MAX_WORKERS",
                      "apply_perf", "_workers", "queue_eta", "MEM_RESERVE", "_mem_short", "queue_worker"],
+    "listening": ["_deep_model", "deep_status", "_covered", "_update_gems", "start_deep_scan", "_tx_file",
+                  "_video_sig", "_load_transcripts", "_save_transcripts", "_tx", "_vocab", "_without",
+                  "ensure_words", "start_listening"],
 }
 HUBS = {"engine": MOVED, "server": SERVER_MOVED}
 

@@ -36,6 +36,7 @@ import numpy as np  # noqa: E402
 import engine  # noqa: E402
 import whisper  # noqa: E402
 import server  # noqa: E402
+import listening  # noqa: E402
 import vodexport  # noqa: E402
 import voicekeep  # noqa: E402
 
@@ -203,9 +204,9 @@ if shutil.which("ffmpeg"):
     def fake_words(pr, a, b, *x, **k):
         listened.append((a, b))
         return [w for w in said if a <= w["start"] < b]
-    server.ensure_words = fake_words
+    listening.ensure_words = fake_words
     whisper.whisper_available = lambda: True
-    server._save_transcripts = lambda pr: None
+    listening._save_transcripts = lambda pr: None
 
     def rms(path, at, ln=0.25):
         raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{at}", "-t", f"{ln}", "-i", path, "-ac", "1",

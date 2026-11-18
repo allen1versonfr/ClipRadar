@@ -23,9 +23,9 @@ def _live(ctx: Ctx) -> bool:
 
 def title_moment(ctx: Ctx):
     """Title the moment: Whisper, the cut refined to what was said, a title, the content check."""
-    import server
+    import listening
     extra = ctx.sess.extra
-    server.start_listening(ctx.pid, [ctx.d["id"]], extra.get("model") or "small", extra.get("language") or "")
+    listening.start_listening(ctx.pid, [ctx.d["id"]], extra.get("model") or "small", extra.get("language") or "")
 
 
 # ---------------------------------------------------------------- clip_titled
