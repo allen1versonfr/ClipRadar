@@ -12,6 +12,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `tests/test_ranking_corpus.py` (new), with Twitch and yt-dlp stood in for: the list's format, where every clip is known from the two ends of a VOD's list, the stretch the same every time, within 60 to 120 minutes and only where every clip is known, each clip once with its creator and ending at Twitch's offset, only clips inside the stretch, a video that comes down empty refused before the chat is read, a failed download resumed without asking Twitch for the clips again, a built VOD left alone, and the corpus refused inside the repository.
 - `tests/test_rankmetrics.py` (new): clips grouped into moments, a payoff just outside a clip is a miss, one moment found by two clips counts once, nothing to find, ties, and every number in the report; with FFmpeg, the score on a made-up 10-minute VOD where viewers also clipped a quiet stretch: the loud moments come first, the quiet one doesn't (it does when the viewers' clips are mixed in the way the app mixes them), and a git ref against itself changes nothing.
 
+## [4.52.1] - 2026-11-17
+
+Small fixes to how the app looks: links in empty screens, and the Settings tables in a narrow window.
+
+### Fixed
+- Links in empty screens (Exports, Review, Segments) were the browser's default blue, purple once visited. They're white and underlined like the app's other links, and turn green on hover.
+- Settings › Content check: in a narrow window the Censor column was pushed out of view. The category names now wrap so all three columns fit.
+- Settings › Downloads and tools: in a narrow window the tools table made the whole Settings page scroll sideways.
+
 ## [4.52.0] - 2026-11-17
 
 Pick parts of a long stream and edit them into one video of up to 30 minutes in the new Segments screen, and live clipping saves the whole stream as a VOD.
