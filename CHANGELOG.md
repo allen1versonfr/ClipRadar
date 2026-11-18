@@ -5,6 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+- **Turning Settings › TikTok › Press Post for me on or off could fail** with an error on Windows, when the settings file was being read at the same moment (an upload starting, or the page reading it back). The save now tries again the way the app's other files do, two saves at once no longer share one temporary file, and a read that meets a save tries again instead of reading Press Post for me as off.
+
+### Tests
+- `tests/test_studio_settings.py` (new, in CI): the setting saved and read back with the file held open for a moment, and saves and reads at the same time.
+
 ## [4.52.1] - 2026-11-17
 
 Small fixes to how the app looks: links in empty screens, and the Settings tables in a narrow window.

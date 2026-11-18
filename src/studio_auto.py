@@ -773,21 +773,35 @@ def settings_path() -> str:
     return os.path.join(str(paths.DATA_DIR), "studio.json")
 
 
+_settings_lock = threading.Lock()
+
+
 def load_settings() -> dict:
-    try:
-        with open(settings_path(), encoding="utf-8") as f:
-            d = json.load(f)
-    except (OSError, ValueError):
-        d = {}
+    """Settings › TikTok. A read that meets a save replacing the file (Windows: PermissionError) tries again
+    instead of falling back to the defaults, which would read Press Post for me as off."""
+    d = {}
+    for i in range(5):
+        try:
+            with open(settings_path(), encoding="utf-8") as f:
+                d = json.load(f)
+            break
+        except PermissionError:
+            if i == 4:
+                break
+            time.sleep(0.05 * (i + 1))
+        except (OSError, ValueError):
+            break
     return {"press_post": bool(d.get("press_post", False))}
 
 
 def save_settings(press_post: Optional[bool] = None) -> dict:
-    d = load_settings()
-    if press_post is not None:
-        d["press_post"] = bool(press_post)
-    tmp = settings_path() + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(d, f)
-    os.replace(tmp, settings_path())
+    """Saved the way the app's other files are (persist.write_json): atomically, and retried when Windows
+    has the file open for a moment. Before, one os.replace that met a read failed the save (a 500 from
+    /api/studio)."""
+    import persist
+    with _settings_lock:
+        d = load_settings()
+        if press_post is not None:
+            d["press_post"] = bool(press_post)
+        persist.write_json(settings_path(), d)
     return d
