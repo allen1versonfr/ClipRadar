@@ -908,6 +908,91 @@ def _record_failure(site: str, err: StudioError, fp: Optional[dict]) -> None:
         pass
 
 
+# ---------------------------------------------------------------- a check of the page that uploads nothing
+#
+# check_page() opens the upload page in Clip Radar's own browser window, waits for it, takes the fingerprint above
+# and says, selector by selector, whether the page still has what an upload looks for (scripts/studio_check.py prints
+# it). Nothing is typed and nothing is pressed. With a file (TikTok only: YouTube makes a draft on your channel as
+# soon as a file goes in), the video is also put in to see the caption box and Post show up; then the upload page is
+# opened again (answering "Leave site?"), so the video is left behind, never posted or saved as a draft.
+#
+# EXPECT: what an empty upload page shows ("page"), and once a video is in ("file"). True: must be there; False: must
+# not be. A selector left out isn't checked (TikTok's "posted" page, its error text, YouTube's title box before a file).
+EXPECT = {
+    "tiktok": {"page": {"file": True, "login": False, "upload_error": False, "posted": False},
+               "file": {"caption": True, "shown_caption": True, "post": True, "login": False, "upload_error": False}},
+    "youtube": {"page": {"file": True, "login": False}},
+}
+
+
+def check_fingerprint(fp: Optional[dict], site: str, stage: str = "page") -> list:
+    """[(selector, ok, what the page had)] for a fingerprint, against EXPECT[site][stage]."""
+    sel = (fp or {}).get("selectors", {})
+    out = []
+    for name, want in EXPECT[site][stage].items():
+        got = sel.get(name)
+        if got is None:
+            out.append((name, False, "not in the fingerprint"))
+            continue
+        ok = bool(got.get("match")) == want and not got.get("error")
+        said = "error" if got.get("error") else ("found" if got.get("match") else "not found")
+        if got.get("match") and "visible" in got:
+            said += (", visible" if got["visible"] else ", hidden") + ("" if got.get("enabled", True) else ", off")
+        out.append((name, ok, said))
+    return out
+
+
+def check_page(site: str, url: str, file: str = "", wait: float = 60, step: Callable[[str], None] = lambda s: None,
+               check: Callable[[], None] = lambda: None) -> dict:
+    """Open site's upload page (url) in Clip Radar's browser window and check it, uploading nothing. Returns
+    {"site", "url", "signed_in", "page": fingerprint, "results": [(selector, ok, said)], "file": fingerprint or None,
+    "file_results": [...], "ok": bool}. Raises StudioError if the window can't be opened or the page doesn't load."""
+    if site not in EXPECT:
+        raise ValueError(f"site is one of {', '.join(EXPECT)}")
+    if file and site != "tiktok":
+        # YouTube makes a draft video on your channel as soon as a file goes in: never for a check
+        raise ValueError("A test video is only put in on TikTok's page.")
+    if file and not os.path.isfile(file):
+        raise StudioError("file", f"{file} isn't there.")
+    sels = YT if site == "youtube" else SELECTORS
+    if not _one_at_a_time.acquire(blocking=False):
+        step("Waiting for the upload before it to finish")
+        while not _one_at_a_time.acquire(timeout=1.0):
+            check()
+    page = None
+    try:
+        step(f"Opening the {site} upload page")
+        port = open_browser(url)
+        page = _yt_tab(port, url)[0] if site == "youtube" else _tab(port, url)
+        _clear_dialog(page)
+        page.call("Page.enable")
+        _navigate(page, url, check)
+        page.call("Page.bringToFront")
+        first = _first(page, {"file": sels["file"], "login": sels["login"]}, wait, check)
+        out = {"site": site, "url": re.sub(r"[?#].*$", "", url), "signed_in": first != "login", "file": None,
+               "file_results": []}
+        out["page"] = fingerprint(page, site)
+        out["results"] = check_fingerprint(out["page"], site, "page")
+        if file and first == "file":
+            step("Putting the test video in")
+            try:
+                _set_file(page, file, check)
+            except StudioError:
+                pass                                # the fingerprint says what's missing
+            out["file"] = fingerprint(page, site, private=(file,))
+            out["file_results"] = check_fingerprint(out["file"], site, "file")
+            step("Leaving the video behind (the upload page again)")
+            _navigate(page, url, check)
+        out["ok"] = out["signed_in"] and all(ok for _, ok, _ in out["results"] + out["file_results"])
+        return out
+    except (cdp.CDPError, OSError) as e:
+        raise StudioError("browser", f"Couldn't check the page: {e}") from None
+    finally:
+        if page is not None:
+            page.close()
+        _one_at_a_time.release()
+
+
 def describe() -> dict:
     """For Settings and the Exports panel: whether a browser is there, and the window's state."""
     return {"available": available(), "open": bool(_state["port"] and cdp.alive(_state["port"]))}
