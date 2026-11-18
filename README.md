@@ -165,6 +165,7 @@ src/
   hotkey.py       Ctrl+Alt+C clip hotkey on Windows
   updater.py      in-app updates from GitHub releases
   errorlog.py     every failure, kept in errors.jsonl for fixing later
+  outcome.py      one clipradar.log line per upload, download, live start, render and Discord send
   spelling.py     common spelling fixes for titles and post captions
   tools_setup.py  downloads FFmpeg, yt-dlp and TwitchDownloader
   ui/             HTML/CSS/JS interface, Inter and caption fonts (OFL / Apache)

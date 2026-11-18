@@ -21,6 +21,7 @@ for _s in (sys.stdout, sys.stderr):
 import bisect
 import glob
 import hashlib
+import functools
 import json
 import math
 import mimetypes
@@ -62,6 +63,7 @@ import emotes
 import errorlog
 import exports
 import framing
+import outcome
 import sources
 import gems
 import hashtags
@@ -845,6 +847,14 @@ def _precut(body: dict, s, an) -> bool:
 ANALYZE_SHARES = (0.78, 0.97)
 
 
+def _platform(src: str) -> str:
+    """twitch, youtube, x, local (a file on this PC) or other: for the Outcome lines."""
+    try:
+        return sources.classify(src)["platform"] or "other"
+    except Exception:
+        return "other"
+
+
 def do_analyze(job, body: dict):
     log, step, check = job_logger(job), job_step(job), job_check(job)
     src = (body.get("source") or "").strip()
@@ -865,12 +875,21 @@ def do_analyze(job, body: dict):
             downloading[0] = True
         if downloading[0]:
             dl_bar(x)
-    with _download_slot(job, step, check), twitchauth.cookie_file() as cookie:
-        s = engine.acquire(src, WORKROOT, chat_file=body.get("chat_file") or "",
-                           max_height=int(body.get("max_height", 1080)),
-                           cookies_browser=body.get("cookies") or "", cookie_file=cookie,
-                           log=log, progress=dl_progress, step=step, check=check,
-                           early_sound=True, events=bool(body.get("events", True)))
+    platform = _platform(src)
+    try:
+        with _download_slot(job, step, check), twitchauth.cookie_file() as cookie:
+            s = engine.acquire(src, WORKROOT, chat_file=body.get("chat_file") or "",
+                               max_height=int(body.get("max_height", 1080)),
+                               cookies_browser=body.get("cookies") or "", cookie_file=cookie,
+                               log=log, progress=dl_progress, step=step, check=check,
+                               early_sound=True, events=bool(body.get("events", True)))
+    except Exception as e:
+        if platform != "local":         # a file on this PC isn't a download
+            outcome.log("download", "cancelled" if isinstance(e, engine.Cancelled) else "failed", platform=platform,
+                        step=outcome.step_name(job.get("step", "")))
+        raise
+    if platform != "local":
+        outcome.log("download", "ok", platform=platform, fresh=downloading[0])     # fresh: not downloaded before
     step("Finding the best moments")
     # a VOD you opened before keeps its own detection settings; otherwise use what was asked for
     saved = persist.load_project(os.path.join(s.workdir, "project.json"), _project_sig({"video": s.video}))
@@ -2643,9 +2662,11 @@ def queue_worker(idx: int = 0):
                 set_stage(it, "done", f"Done in {time.time() - t0:.0f}s")
                 _attempt_end(it, "done", diag=it.pop("_diag", None))
                 print(f"  Rendered {it.get('name') or 'the clip'} in {time.time() - t0:.0f} s.", flush=True)
+                outcome.log("render", "ok", live=bool(it.get("live")))
                 save_queue_soon(0)
                 autopilot.render_done(it)      # sound, Discord, cleanup, latency: autopilot_steps
             except engine.Cancelled:
+                outcome.log("render", "cancelled", live=bool(it.get("live")), closing=bool(SHUTTING_DOWN[0]))
                 with queue_lock:
                     _attempt_end(it, "interrupted" if SHUTTING_DOWN[0] else "cancelled", diag=it.pop("_diag", None))
                     if SHUTTING_DOWN[0]:
@@ -2665,6 +2686,7 @@ def queue_worker(idx: int = 0):
                 if kind == "stalled" and len(fails) == 1 and not it.get("cancel"):
                     # a stall is the one failure a second try usually gets past by itself: once
                     print(f"  Render stalled; trying once more ({detail[-200:]})", flush=True)
+                    outcome.log("render", "failed", kind=kind, live=bool(it.get("live")), retry=True)
                     errorlog.record("render:stalled", "Render stalled; trying once more", detail, clip=it.get("title", ""))
                     it.update(status="queued", progress=0.0, eta=None, stage="queued", step="Waiting to try again")
                     save_queue_soon(0)
@@ -2675,6 +2697,7 @@ def queue_worker(idx: int = 0):
                 it["error"], it["detail"] = msg, redact(detail)
                 it["error_kind"], it["retryable"] = kind, retryable
                 print(f"  Render failed [{kind}]: {it['error']} ({it['detail'][:300]})", flush=True)
+                outcome.log("render", "failed", kind=kind, live=bool(it.get("live")))
                 errorlog.record(f"render:{kind}", msg, detail, clip=it.get("title", ""), source=it.get("source_title", ""),
                                 attempt=it["attempts"], retryable=retryable)
                 if not isinstance(e, (RuntimeError, OSError, engine.RenderInputError)):
@@ -2855,6 +2878,21 @@ def live_vod_setting(body: dict) -> tuple:
     return True, ""
 
 
+def _live_outcome(start):
+    """An Outcome line for each live session start (outcome.py)."""
+    @functools.wraps(start)
+    def wrapped(src: str, body: dict):
+        try:
+            sess = start(src, body)
+        except Exception:
+            outcome.log("live", "failed", platform=_platform(src), step="start")
+            raise
+        outcome.log("live", "ok", platform=_platform(src), keep_watching=bool(body.get("keep_watching")))
+        return sess
+    return wrapped
+
+
+@_live_outcome
 def start_live_session(src: str, body: dict):
     """Create and start a live session. body holds every setting so 'keep watching' can start the next one."""
     sid = uuid.uuid4().hex[:8]
@@ -2892,7 +2930,6 @@ def start_live_session(src: str, body: dict):
     live_sessions[sid] = sess
     sess.start()
     return sess
-
 
 def live_view(sess) -> dict:
     v = sess.public()

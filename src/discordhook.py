@@ -18,6 +18,8 @@ import urllib.error
 import urllib.request
 import uuid
 
+import outcome
+
 UA = {"User-Agent": "ClipRadar (+https://github.com/allen1versonfr/ClipRadar)"}
 HOOK_RE = re.compile(r"https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/api(?:/v\d+)?/webhooks/\d{5,25}/[\w-]{20,100}")
 UPLOAD_LIMIT = 10 * 1024 * 1024        # what a server without boosts accepts per message
@@ -66,6 +68,16 @@ def send(webhook: str, content: str, file_path: str = "", limit: int = UPLOAD_LI
          timeout: float = 120.0) -> dict:
     """Post a message, with the video attached when it fits. Returns {"ok", "attached", "note"};
     raises RuntimeError with a plain message when Discord can't be reached or refuses it."""
+    try:
+        r = _send(webhook, content, file_path, limit, timeout)
+    except Exception:
+        outcome.log("discord", "failed", step="link" if not valid_webhook(webhook) else "send", file=bool(file_path))
+        raise
+    outcome.log("discord", "ok", attached=r["attached"])
+    return r
+
+
+def _send(webhook: str, content: str, file_path: str, limit: int, timeout: float) -> dict:
     if not valid_webhook(webhook):
         raise RuntimeError("That isn't a Discord webhook link. In Discord: Server settings › Integrations › Webhooks › Copy webhook URL.")
     content = (content or "").strip()[:2000]
