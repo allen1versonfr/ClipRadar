@@ -245,3 +245,43 @@ Each item would be its own pull request with `eval_ranking.py score --baseline m
    trying.
 4. **Loudness picks no moments here.** Its weight in choosing which moments (as opposed to their bounds) could go down,
    and a quiet stretch shouldn't subtract from a chat spike. That alone is worth 4 of 245 misses, so it's small.
+
+## Addendum, 2026-11-18: what fewer Automatic clips would cost
+
+A phase 5 candidate, measured and **not shipped**. Automatic suggests about 25 clips where viewers clipped about
+16 moments, and the later clips in its list are weaker. By place in Automatic's list, this is the share of clips that
+found a truth moment not already found:
+
+| Place | Clips | Found a new truth moment | Overlap anything viewers clipped |
+|---|---|---|---|
+| 1–5 | 95 | 36% | 71% |
+| 6–10 | 92 | 28% | 72% |
+| 11–15 | 88 | 19% | 65% |
+| 16–20 | 77 | 21% | 56% |
+| 21–30 | 109 | 9% | 47% |
+| 31+ | 19 | 5% | 47% |
+
+Settings tried on the 19 main VODs, with `main`'s code patched in memory and the cached analyses. `MAX_AUTO_CLIPS`
+is the cap; `rel` is how close a moment must come to the stream's best (`detect.SENSITIVITY["normal"]`):
+
+| Setting | Clips (mean, range) | Automatic's recall | Its clips that find a truth moment |
+|---|---|---|---|
+| Today: cap 40, rel 0.5 | 25.3 (7–38) | 0.401 | 23.0% |
+| Cap 30 | 24.3 (7–30) | 0.400 | 23.4% |
+| Cap 25 | 21.8 (7–25) | 0.379 | 23.7% |
+| Cap 20 | 18.5 (7–20) | 0.365 | 26.1% |
+| Cap 15 | 14.5 (7–15) | 0.308 | 27.2% |
+| rel 0.6 | 17.3 (6–24) | 0.350 | 28.6% |
+| rel 0.7 | 11.5 (4–16) | 0.270 | 29.1% |
+
+- **Every cut is a trade.** Fewer clips means a slightly larger share of good ones, but fewer of the moments found.
+  For example, cap 20 gives 27% fewer clips and finds 0.036 less.
+- **Cap 30 looked free on the main VODs** (0.401 → 0.400) and was the only candidate, so the held-out VODs were
+  checked once, for it alone. On the 8 held-out VODs that built, it cost 0.015 (0.354 → 0.339, one or two moments)
+  for 1.6 fewer clips. That's a trade too, so it wasn't shipped.
+- **The phase 4 rule can't judge this kind of change.** It looks at the top 10 of a fixed count, which the cap and
+  the standout bar don't touch, so any of these settings would "pass". How many clips Automatic should suggest is a
+  choice between finding more moments and reviewing fewer clips. It belongs to the owner, and the table above is the
+  data for it.
+
+The held-out VODs have now been looked at once, for this change.
