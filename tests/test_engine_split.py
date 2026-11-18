@@ -17,6 +17,7 @@ When a section moves, add its module and names to MOVED.
 
 from __future__ import annotations
 
+import ast
 import glob
 import importlib
 import os
@@ -67,7 +68,7 @@ MOVED = {
                "DARK_LUMA", "SEEN_LUMA", "SEEN_SHARE", "BLUR_SHARP", "picture_check", "audio_peak",
                "read_through", "_crop_failed", "_graph_failed", "LAYOUT_NAMES", "_first_reason", "_frame_luma",
                "_start_lumas", "black_start", "_ffmpeg_reason", "SPANS_INLINE", "mute_commands", "mute_graph",
-               "render_clip"],
+               "render_clip", "W", "H", "PUNCH_IN", "PUNCH_HOLD", "PUNCH_OUT", "WM_TOP", "WM_BOTTOM"],
 }
 
 failures = []
@@ -88,8 +89,25 @@ for p in files:
     with open(p, encoding="utf-8", errors="replace") as f:
         texts[os.path.relpath(p, ROOT)] = f.read()
 
+def defined(module: str) -> set:
+    """Every name the module defines at its top level: def, class, and assignments (plain, annotated, a, b = …)."""
+    with open(os.path.join(ROOT, "src", module + ".py"), encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    out = set()
+    for n in tree.body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(n.name)
+        targets = n.targets if isinstance(n, ast.Assign) else [n.target] if isinstance(n, ast.AnnAssign) else []
+        for t in targets:
+            out |= {e.id for e in ast.walk(t) if isinstance(e, ast.Name)}
+    return out
+
+
 for module, names in MOVED.items():
     mod = importlib.import_module(module)
+    have = defined(module)
+    check(f"MOVED lists every name {module}.py defines (none left out of engine's re-export)", have == set(names),
+          {"not listed": sorted(have - set(names)), "not defined": sorted(set(names) - have)})
     missing = [n for n in names if not hasattr(mod, n)]
     check(f"{module}.py has every name it took", not missing, missing)
     not_same = [n for n in names if getattr(engine, n, None) is not getattr(mod, n, object())]
