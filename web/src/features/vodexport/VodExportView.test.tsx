@@ -49,9 +49,9 @@ describe('Export VOD', () => {
     const calls: Array<[string, unknown]> = []
     vi.stubGlobal('fetch', server(calls))
     render(<ToastProvider><VodExportView /></ToastProvider>)
-    expect((await screen.findByTestId('vodx-music-summary')).textContent).toBe('2 music stretches, 4:00 in all. 1 with music removed, 1 muted.')
+    expect((await screen.findByTestId('vodx-music-summary')).textContent).toBe('2 music stretches, 4:00 in all. 1 erased, 1 muted.')
     fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Music at 1:00:00' })).getByRole('radio', { name: 'Keep' }))
-    expect(screen.getByTestId('vodx-music-summary').textContent).toBe('2 music stretches, 4:00 in all. 1 with music removed, 1 kept.')
+    expect(screen.getByTestId('vodx-music-summary').textContent).toBe('2 music stretches, 4:00 in all. 1 erased, 1 kept.')
     fireEvent.click(screen.getByTestId('vodx-export'))
     await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
     expect(sent(calls, '/api/vodexport/start')).toMatchObject({ pid: 'p1', music: [[60, 240, 'voice']] })
@@ -62,7 +62,7 @@ describe('Export VOD', () => {
     render(<ToastProvider><VodExportView /></ToastProvider>)
     expect((await screen.findByTestId('vodx-music-summary')).textContent).toMatch(/All muted/)
     expect(screen.getByTestId('vodx-no-remover')).toBeTruthy()
-    expect(screen.queryByRole('radio', { name: 'Remove music' })).toBeNull()
+    expect(screen.queryByRole('radio', { name: 'Erase song' })).toBeNull()
   })
 
   it('the flagged words queue: ticked ones are muted, untick or tick any', async () => {
@@ -155,6 +155,36 @@ describe('Export VOD', () => {
     view = { ...VIEW, videos: [{ ...VIDEO, scan: { ...VIDEO.scan, at: 2 } }] }
     fireEvent(document, new Event('visibilitychange'))
     rerender(<ToastProvider><VodExportView /></ToastProvider>)
-    await waitFor(() => expect(screen.getByTestId('vodx-music-summary').textContent).toMatch(/1 with music removed, 1 muted/), { timeout: 4000 })
+    await waitFor(() => expect(screen.getByTestId('vodx-music-summary').textContent).toMatch(/1 erased, 1 muted/), { timeout: 4000 })
+  })
+
+  it('music the scan missed can be marked, is erased in the export, and stays through a new scan', async () => {
+    const calls: Array<[string, unknown]> = []
+    let view: object = VIEW
+    vi.stubGlobal('fetch', vi.fn(async (p: string, init?: RequestInit) => {
+      calls.push([p, init?.body ? JSON.parse(String(init.body)) : undefined])
+      return new Response(JSON.stringify(p === '/api/vodexport' ? view : p.startsWith('/api/vodexport/words') ? { words: [], covered: [] } : { job: 'j1' }), { status: 200 })
+    }))
+    const { rerender } = render(<ToastProvider><VodExportView /></ToastProvider>)
+    fireEvent.click(await screen.findByTestId('vodx-add-song'))
+    expect(screen.getByTestId('vodx-music-summary').textContent).toBe('3 music stretches, 4:30 in all. 2 erased, 1 muted.')
+    expect(screen.getAllByTestId('vodx-span')[0]!.textContent).toMatch(/Marked by you/)
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    expect(sent(calls, '/api/vodexport/start')!.music).toEqual([[0, 30, 'voice'], [60, 240, 'voice'], [3600, 3660, 'mute']])
+    view = { ...VIEW, videos: [{ ...VIDEO, scan: { ...VIDEO.scan, at: 2 } }] }
+    fireEvent(document, new Event('visibilitychange'))
+    rerender(<ToastProvider><VodExportView /></ToastProvider>)
+    await waitFor(() => expect(screen.getAllByTestId('vodx-span')).toHaveLength(3), { timeout: 4000 })
+    fireEvent.click(within(screen.getAllByTestId('vodx-span')[0]!).getByRole('button', { name: /Remove the music you marked/ }))
+    expect(screen.getAllByTestId('vodx-span')).toHaveLength(2)
+  })
+
+  it('Hear it makes the exact preview from where that music starts', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    fireEvent.click((await screen.findAllByTestId('vodx-span-hear'))[1]!)
+    await waitFor(() => expect(sent(calls, '/api/vodexport/preview')).toMatchObject({ at: 3600, music: [[60, 240, 'voice'], [3600, 3660, 'mute']] }))
   })
 })

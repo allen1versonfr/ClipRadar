@@ -9,7 +9,8 @@ Segments: parts of a video picked on the Export VOD screen, edited together and 
     from Export VOD while the Segments screen had it open) isn't overwritten, the screen loads it again.
   - The export: each stretch that's kept is made the way Export VOD makes a video (music removed or muted
     as the copyright scan suggests, flagged words muted, captions burned in), then the stretches are joined
-    without being made again. At most MAX_LEN of video, so a six-hour stream becomes a 30-minute one.
+    without being made again. An edit can be as long as you like (5.0: it was capped at 30 minutes).
+  - Saved in Settings › Storage › Segment exports, a folder of its own, not with the clips (5.0).
 """
 
 from __future__ import annotations
@@ -33,7 +34,6 @@ import paths
 import vodexport
 import render_queue
 
-MAX_LEN = 30 * 60.0      # seconds an export can be
 MIN_LEN = 0.5            # a segment (or what's left of it) shorter than this is nothing
 NAME_MAX = 80
 MAX_SEGMENTS = 200
@@ -336,13 +336,10 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
     total = sum(b - a for _, a, b in plan)
     if not plan:
         raise RuntimeError("Nothing to export: tick at least one segment.")
-    if total > MAX_LEN + 0.5:
-        raise RuntimeError(f"This edit is {engine.fmt_ts(total)} long. An export can be {engine.fmt_ts(MAX_LEN)} at most: "
-                           "untick or trim some segments.")
     o = vodexport.clean_options(body, dur)
     if body.get("cleanup", True) is not False:
         o["music"], o["word_spans"] = vodexport.suggested(pr)
-    outdir = locations.clips_dir(pr["workdir"])
+    outdir = locations.segments_dir()      # Settings › Storage › Segment exports, apart from the clips (5.0)
     os.makedirs(outdir, exist_ok=True)
     render_queue._check_space(outdir, total * 0.6)
     tmp = locations.temp_dir(os.path.basename(pr["workdir"]), "segments")
@@ -395,4 +392,4 @@ def view(S) -> dict:
         out.append(dict(e, length=round(edit_len(e), 1), open=vodexport.usable(pr),
                         exists=os.path.isfile(e.get("video") or ""),
                         export_job=job("export"), hear_job=job("hear")))
-    return {"edits": out, "max": MAX_LEN}
+    return {"edits": out}

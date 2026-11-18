@@ -5,6 +5,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+Clip Radar 5.0, in progress: a turn toward YouTube, now that TikTok is in a good place.
+
+### Added
+- **Erase song, the way YouTube Studio does it.** Export VOD's "Remove music" kept every voice in a stretch, so a
+  song's singing stayed: measured on speech over a pop song with vocals, the song came out only 3.6 dB quieter,
+  which you can hardly hear. It's now **Erase song**, with a new model that tells talking, music and everything
+  else apart (TIGER, Divide and Remaster; Apache 2.0, 7 MB, `src/songerase.py`, credited in
+  `src/models/CREDITS-song-eraser.txt`). The whole song goes, singing too, and people talking, the game and alerts
+  stay. Stereo stays stereo. Get it in Settings › Downloads and tools › Song eraser. Without it, Erase song uses the
+  older music remover (voices only) as before. Nobody talking over confident music now starts as Erase song when
+  the song eraser is there, since muting would also lose the game's sound.
+- **Music you can see, move and mark yourself.** Export VOD's timeline shows how much each second sounded like music
+  to the scan, so songs it didn't list can be found. Drag a stretch's edges to where the song really starts and
+  ends, Shift and drag to mark one it missed, or press Mark music from here. Your changes are kept for the video,
+  and the stretches you marked survive a new scan. **Hear it** on any stretch makes ten seconds of the result.
+- **A Moments-style timeline in Export VOD and Segments.** Wheel to scroll along it, Ctrl and wheel to zoom, it
+  follows the playhead while the video plays, and Zoom in, Zoom out and Whole video buttons do the same without a
+  wheel. The strip of the whole video above it jumps the timeline to where you click. In Segments, drag the picked
+  segment's edges to trim it, drag a cut's edges, and Shift and drag to add a segment.
+- **The preview stays in view.** Export VOD and Segments put the player and timeline beside the settings on a wide
+  window, and they stay put while the settings scroll, as in Moments.
+
+### Changed
+- **Review is now called Moments.** Same screen and the same address (`#review` still works, and so does
+  `#moments`).
+- **Exported VODs and segment exports have folders of their own**, apart from your clips: "Exported VODs" and
+  "Segments", next to the project folders, each changeable in Settings › Storage. Before, they were saved with a
+  video's clips, so Settings › Storage › Delete all clips deleted them too. Files already exported stay where they
+  are.
+- **Segments has no length limit.** An edit was capped at 30 minutes; it can now be as long as you like.
+
+### Tests
+- `tests/test_vodexport.py`: the song eraser with a stand-in model (sound with no music comes through as it was,
+  stereo stays stereo, all-song is erased, strength pushes an unsure song down further), an export erasing one
+  stretch through it ahead of the older remover and only the blocks it touches, the new suggestions, and the export
+  saved in the Exported VODs folder.
+- `tests/test_segments.py`: no length limit, and the export saved in the Segments folder.
+- `tests/test_locations.py`: the two new folders, their defaults next to the projects, never taken for a project,
+  changeable and back to the default, and shown in Settings › Storage.
+- `web/src/features/vodexport/VodTimeline.test.ts` (new): the edge or stretch under the pointer, and a dragged edge
+  kept inside the video. `VodExportView.test.tsx`: music marked by hand is erased in the export and survives a new
+  scan, and Hear it makes the exact preview from that stretch.
+
 ## [4.53.0] - 2026-11-18
 
 The clips viewers made of a Twitch VOD now count where they really happened, and more of them are found. Turning Press Post for me on or off can't fail any more. Under the hood, the two biggest files are split into smaller ones with nothing working differently, and a failed upload now records what TikTok's or YouTube's page looked like.

@@ -9,8 +9,8 @@ describe('music stretches', () => {
     const two = [S(60, 240), S(3600, 3660)]
     expect(musicSummary([], [])).toBe('No music found.')
     expect(musicSummary(two, ['mute', 'mute'])).toBe('2 music stretches, 4:00 in all. All muted.')
-    expect(musicSummary(two, ['voice', 'voice'])).toBe('2 music stretches, 4:00 in all. All with music removed, voices kept.')
-    expect(musicSummary(two, ['voice', 'keep'])).toBe('2 music stretches, 4:00 in all. 1 with music removed, 1 kept.')
+    expect(musicSummary(two, ['voice', 'voice'])).toBe('2 music stretches, 4:00 in all. All erased.')
+    expect(musicSummary(two, ['voice', 'keep'])).toBe('2 music stretches, 4:00 in all. 1 erased, 1 kept.')
     expect(musicSummary([S(0, 30)], ['keep'])).toBe('1 music stretch, 0:30 in all. Kept.')
     expect(spanLabel(S(3730, 3940))).toBe('1:02:10 to 1:05:40 (3:30)')
   })

@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "src"))
 import numpy as np  # noqa: E402
 
 import engine  # noqa: E402
+import locations  # noqa: E402
 import paths  # noqa: E402
 import segments  # noqa: E402
 import server  # noqa: E402
@@ -102,7 +103,7 @@ except segments.Conflict:
 segments._edits = None
 check("edits come back after a restart", segments._find(e["id"])["name"] == "Best bits")
 v = segments.view(server)
-check("the screen lists it with its length", v["edits"][0]["length"] == 15.0 and v["max"] == 1800.0, v["edits"][0])
+check("the screen lists it with its length, and no longest an edit can be (5.0)", v["edits"][0]["length"] == 15.0 and "max" not in v, v)
 
 
 def wait(job, s=240):
@@ -153,11 +154,10 @@ if shutil.which("ffmpeg"):
         text = open(srt, encoding="utf-8").read() if srt and os.path.isfile(srt) else ""
         check("captions edited by hand are in the subtitle file", "edited" in text and "hand" in text, text[:200])
         check("named after the edit", res["name"].startswith("Best bits"), res)
-    cur = segments._find(e["id"])
-    segments.save({"id": cur["id"], "ver": cur["ver"], "name": "Too long",
-                   "segments": [{"id": "a", "start": 0, "end": 40}] * 46})
-    job = wait(segments.start_export(server, e["id"], {"captions": "off"}))
-    check("more than 30 minutes is refused, saying how long it is", job["status"] == "error" and "30:00" in (job.get("error") or ""), job.get("error"))
+        check("saved in the Segments folder, not with the clips (5.0)",
+              os.path.normcase(res["folder"]) == os.path.normcase(locations.segments_dir())
+              and os.path.normcase(res["folder"]) != os.path.normcase(locations.clips_dir(server.projects[e["pid"]]["workdir"])), res["folder"])
+    check("an edit over 30 minutes isn't refused any more (5.0)", not hasattr(segments, "MAX_LEN"))
 else:
     print("[skip] no ffmpeg here: the edit isn't rendered")
 

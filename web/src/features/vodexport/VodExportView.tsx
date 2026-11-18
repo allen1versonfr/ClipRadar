@@ -8,7 +8,8 @@ import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
 import { FONTS, fontCss } from '../watermark/geometry'
-import { ACTIONS, captionAt, heardAt, musicSummary, spanLabel, type MusicAction, type Word } from './spans'
+import { ACTIONS, captionAt, heardAt, musicSummary, spanLabel, type MusicAction, type Song, type Word } from './spans'
+import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from './VodTimeline'
 
 const loadView = () => api(VodExport, '/api/vodexport')
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -118,20 +119,27 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   const setS = (patch: Partial<Style>) => setStyle(cur => { const n = { ...cur, ...patch }; setPref('vodx_style', n); return n })
   const model = c.model || String(base.whisper_model || 'small'), language = c.language || String(base.language || '')
 
-  const spans = v.scan?.spans ?? []
   const canRemove = view.voice_model
-  // what you chose for each music stretch, kept with the scan it was made on: a new scan starts over
+  // the music: what the scan found, as it suggests, until you change any of it; then your list, kept for this video
+  // (moved edges, stretches you marked yourself). A new scan starts over from what it found, keeping the ones you marked.
   const scanAt = v.scan?.at ?? 0
-  const [actsFor, setActsFor] = useState<{ at: number; acts: Record<number, MusicAction> }>({ at: scanAt, acts: {} })
-  const chosen = actsFor.at === scanAt ? actsFor.acts : {}
-  const acts: MusicAction[] = spans.map((s, i) => {
-    const a = chosen[i] ?? s.suggest
-    return a === 'voice' && !canRemove ? 'mute' : a
+  const fromScan = (): Song[] => (v.scan?.spans ?? []).map(s => ({ start: s.start, end: s.end, act: s.suggest, confidence: s.confidence, speech: s.speech }))
+  const [songsFor, setSongsFor] = useState<{ at: number; songs: Song[] } | undefined>(() => getPref<Record<string, { at: number; songs: Song[] }>>('vodxSongs', {})[v.pid])
+  const listOf = (cur = songsFor): Song[] => (cur && cur.at === scanAt ? cur.songs : [...fromScan(), ...(cur?.songs.filter(s => s.mine) ?? [])].sort((a, b) => a.start - b.start))
+  const songs: Song[] = listOf().map(s => (s.act === 'voice' && !canRemove ? { ...s, act: 'mute' as const } : s))
+  const acts = songs.map(s => s.act)
+  const setSongs = (fn: (s: Song[]) => Song[]) => setSongsFor(cur => {
+    const n = { at: scanAt, songs: fn(listOf(cur)).sort((a, b) => a.start - b.start) }
+    setPref('vodxSongs', { ...getPref<Record<string, unknown>>('vodxSongs', {}), [v.pid]: n })
+    return n
   })
-  const setAct = (i: number | 'all', a: MusicAction) => setActsFor(cur => {
-    const prev = cur.at === scanAt ? cur.acts : {}
-    return { at: scanAt, acts: i === 'all' ? Object.fromEntries(spans.map((_, k) => [k, a])) : { ...prev, [i]: a } }
-  })
+  const setAct = (i: number | 'all', a: MusicAction) => setSongs(ss => ss.map((s, k) => (i === 'all' || k === i ? { ...s, act: a } : s)))
+  const [selSong, setSelSong] = useState(-1)
+  const addSong = (a: number, b: number) => {
+    const s: Song = { start: +a.toFixed(2), end: +Math.min(v.duration || b, b).toFixed(2), act: canRemove ? 'voice' : 'mute', mine: true }
+    setSongs(ss => [...ss, s])
+    setSelSong(songs.filter(x => x.start <= s.start).length)
+  }
 
   // the flagged words queue: each one ticked (muted) or not, kept with the check it came from
   const flags = v.flags?.flags ?? []
@@ -157,10 +165,10 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   const [now, setNow] = useState(0)
   const seek = useCallback((t: number) => { const el = vid.current; if (el) { el.currentTime = t; setNow(t) } }, [])
 
-  const options = () => ({
+  const options = (): Record<string, unknown> => ({
     pid: v.pid, captions, words: c.words, size: c.size, quality: c.quality, whisper_model: model, language,
     hw_encode: base.hw_encode, style,
-    music: spans.map((s, i) => [s.start, s.end, acts[i]] as const).filter(x => x[2] !== 'keep'),
+    music: songs.map(s => [s.start, s.end, s.act] as const).filter(x => x[2] !== 'keep'),
     word_spans: ticked.map(f => [Math.max(0, f.start - 0.05), f.end + 0.05]),
   })
   async function start(path: string, body: object, what: string) {
@@ -176,53 +184,71 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
     : <p className="hint">Needs the speech model (Whisper). Get it in {toolsLink}.</p>
   const nVoice = acts.filter(a => a === 'voice').length, nMute = acts.filter(a => a === 'mute').length
 
+  const tl = useRef<VodTimelineHandle>(null)
+  const exactAt = (t: number) => void start('/api/vodexport/preview', { ...options(), at: t }, '')
   return (
-    <div className="vodx-body">
-      {!v.exists && <p className="banner err" role="alert">This video's file was deleted, so it can't be exported.</p>}
+    <div className="vodx-body vodx-two">
+      {!v.exists && <p className="banner err vodx-wide" role="alert">This video's file was deleted, so it can't be exported.</p>}
 
-      <PreviewPanel v={v} vid={vid} now={now} setNow={setNow} seek={seek} spans={spans} acts={acts} flags={ticked}
-                    style={style} burn={burn} model={model} language={language} canHear={canHear}
-                    onExact={() => void start('/api/vodexport/preview', { ...options(), at: now }, '')}
-                    onHear={() => void start('/api/vodexport/hear', { pid: v.pid, whisper_model: model, language, at: now }, '')}
-                    cancel={cancel} />
+      <div className="vodx-stagecol">
+        <PreviewPanel v={v} vid={vid} now={now} setNow={setNow} seek={seek} songs={songs} setSongs={setSongs} addSong={addSong}
+                      sel={selSong} setSel={setSelSong} tl={tl} flags={ticked}
+                      style={style} burn={burn} model={model} language={language} canHear={canHear}
+                      onExact={() => exactAt(now)}
+                      onHear={() => void start('/api/vodexport/hear', { pid: v.pid, whisper_model: model, language, at: now }, '')}
+                      cancel={cancel} />
+      </div>
+      <div className="vodx-panels">
 
       <section className="panel set" aria-labelledby="vodx-cr" data-testid="vodx-copyright">
         <header className="row">
-          <h2 id="vodx-cr" className="grow">Copyright scan</h2>
+          <h2 id="vodx-cr" className="grow">Songs and music</h2>
           {v.scan_job?.status === 'running'
             ? <button className="btn ghost sm" onClick={() => void cancel(v.scan_job!.id)}>Stop</button>
             : <button className="btn" data-testid="vodx-scan" disabled={!v.has_audio || !v.exists}
                       onClick={() => void start('/api/vodexport/scan', { pid: v.pid }, 'Looking for music…')}>{v.scan ? 'Scan again' : 'Scan for music'}</button>}
         </header>
-        <p className="muted">Finds where music plays, the usual cause of copyright claims and muted VODs. <b>Remove music</b> takes the
-          music out and keeps people talking over it. <b>Mute all</b> silences the whole stretch. It hears that music is playing, not
-          which song, so treat it as a safety net.</p>
+        <p className="muted">Music is the usual cause of copyright claims and muted VODs. <b>Erase song</b> takes the song out, its singing
+          too, and keeps people talking and the game's sound, the way YouTube Studio's Erase song does. <b>Mute all sound</b> silences the
+          whole stretch. The scan hears that music is playing, not which song: check what it found, and mark any it missed
+          (Shift and drag on the timeline, or the button below).</p>
         {!view.music_model && !v.scan && <p className="hint">Needs the laughter detector (it also hears music). Get it in {toolsLink}.</p>}
-        {!canRemove && spans.length > 0 && <p className="hint" data-testid="vodx-no-remover">Remove music needs the music remover
+        {!canRemove && <p className="hint" data-testid="vodx-no-remover">Erase song needs the song eraser
           (about {view.voice_model_mb} MB). Get it in {toolsLink}. Until then, music can only be muted.</p>}
         {v.scan_job?.status === 'running' && <JobBar job={v.scan_job} label="Looking for music" />}
         {v.scan_job?.status === 'error' && <p className="banner err" role="alert">{v.scan_job.error}</p>}
-        {v.scan && v.scan_job?.status !== 'running' && (
-          spans.length === 0 ? <p data-testid="vodx-clean">No music found.</p> : <>
-            <p data-testid="vodx-music-summary">{musicSummary(spans, acts)}</p>
-            <div className="row wrap">
-              <span className="muted small">Set all to</span>
-              {ACTIONS.filter(([a]) => a !== 'voice' || canRemove).map(([a, l]) => (
-                <button key={a} className="btn sm ghost" onClick={() => setAct('all', a)}>{l}</button>
-              ))}
-            </div>
-            <ul className="vodx-spans" aria-label="Music found">
-              {spans.map((s, i) => (
-                <li key={i} className="vodx-span" data-testid="vodx-span">
-                  <button className="link tnum" onClick={() => seek(s.start)} title="Play from here in the preview">{spanLabel(s)}</button>
-                  <small className="muted">{talk(s)}</small>
-                  <Seg label={`Music at ${fmtTime(s.start)}`} value={acts[i]!} options={ACTIONS.filter(([a]) => a !== 'voice' || canRemove)}
-                       onChange={a => setAct(i, a as MusicAction)} />
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+        {v.scan && v.scan_job?.status !== 'running' && songs.length === 0 && <p data-testid="vodx-clean">No music found.</p>}
+        {songs.length > 0 && v.scan_job?.status !== 'running' && <>
+          <p data-testid="vodx-music-summary">{musicSummary(songs, acts)}</p>
+          <div className="row wrap">
+            <span className="muted small">Set all to</span>
+            {ACTIONS.filter(([a]) => a !== 'voice' || canRemove).map(([a, l]) => (
+              <button key={a} className="btn sm ghost" onClick={() => setAct('all', a)}>{l}</button>
+            ))}
+          </div>
+          <ul className="vodx-spans" aria-label="Music">
+            {songs.map((s, i) => (
+              <li key={`${s.start}-${i}`} className={`vodx-span${i === selSong ? ' on' : ''}`} data-testid="vodx-span">
+                <button className="link tnum" onClick={() => { setSelSong(i); seek(s.start); tl.current?.show(s.start, s.end) }}
+                        title="Show it on the timeline and play from its start">{spanLabel(s)}</button>
+                <small className="muted">{s.mine ? 'Marked by you' : talk(s)}</small>
+                <Seg label={`Music at ${fmtTime(s.start)}`} value={s.act} options={ACTIONS.filter(([a]) => a !== 'voice' || canRemove)}
+                     onChange={a => setAct(i, a as MusicAction)} />
+                <span className="row vodx-span-acts">
+                  <button className="btn sm ghost" disabled={!v.exists || v.preview_job?.status === 'running'} data-testid="vodx-span-hear"
+                          onClick={() => { setSelSong(i); exactAt(s.start) }}>Hear it</button>
+                  {s.mine && <button className="btn sm ghost" aria-label={`Remove the music you marked at ${fmtTime(s.start)}`}
+                                     onClick={() => { setSongs(ss => ss.filter((_, k) => k !== i)); setSelSong(-1) }}>Remove</button>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>}
+        <div className="row wrap">
+          <button className="btn sm" data-testid="vodx-add-song" disabled={!v.has_audio} onClick={() => addSong(now, now + 30)}>
+            Mark music from {fmtTime(now)}</button>
+          <span className="hint">Then drag its edges on the timeline to where the song starts and ends.</span>
+        </div>
       </section>
 
       <section className="panel set" aria-labelledby="vodx-mute" data-testid="vodx-flags">
@@ -302,7 +328,8 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
           ? 'The picture is copied as it is and only the sound is made again, so this is quick: a few minutes for a long stream.'
           : burn ? 'Burned-in captions mean every frame is made again, which takes a while on a long stream. A subtitle file and the Original size skip that.'
           : !v.copyable ? "This video's picture can't be copied into an .mp4 as it is, so every frame is made again."
-          : 'A new size means every frame is made again. Original skips that.'} Saved in your clips folder.</p>
+          : 'A new size means every frame is made again. Original skips that.'} Saved in the Exported VODs folder
+          (<a href="#settings/storage">Settings › Storage</a>), apart from your clips.</p>
       </section>
 
       <footer className="vodx-go">
@@ -310,19 +337,20 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
           ? <><JobBar job={v.export_job!} label="Exporting" /><button className="btn ghost" onClick={() => void cancel(v.export_job!.id)}>Cancel</button></>
           : <button className="btn primary" data-testid="vodx-export" disabled={!v.exists}
                     onClick={() => void start('/api/vodexport/start', options(), 'Exporting the whole video…')}>
-              Export {fmtTime(v.duration)}{[nVoice ? `music removed in ${nVoice}` : '', nMute ? `${nMute} muted` : '', ticked.length ? plural(ticked.length, 'word') + ' muted' : '']
+              Export {fmtTime(v.duration)}{[nVoice ? `${plural(nVoice, 'song')} erased` : '', nMute ? `${nMute} muted` : '', ticked.length ? plural(ticked.length, 'word') + ' muted' : '']
                 .filter(Boolean).map(x => ' · ' + x).join('')}
             </button>}
       </footer>
       {v.export_job && !exporting && <ExportResult job={v.export_job} />}
       {v.exported && !exporting && <YouTubePanel v={v} view={view} refresh={refresh} />}
+      </div>
     </div>
   )
 }
 
 /** "people talking over most of it" */
-function talk(s: MusicSpan): string {
-  const p = s.speech
+function talk(s: Pick<MusicSpan, 'speech'> | Song): string {
+  const p = s.speech ?? 0
   return p >= 0.6 ? 'People talking over most of it' : p >= 0.2 ? 'People talking over some of it' : p > 0 ? 'A little talking' : 'No talking heard'
 }
 
@@ -356,9 +384,11 @@ function CaptionStyle({ style, set }: { style: Style; set: (p: Partial<Style>) =
 
 /** The video with the captions drawn over it as they'll look, the music and flagged words marked on its timeline,
  *  and the exact preview: ten seconds from where you are, made the way the export will be. */
-function PreviewPanel({ v, vid, now, setNow, seek, spans, acts, flags, style, burn, model, language, canHear, onExact, onHear, cancel }: {
+function PreviewPanel({ v, vid, now, setNow, seek, songs, setSongs, addSong, sel, setSel, tl, flags, style, burn, model, language, canHear, onExact, onHear, cancel }: {
   v: VodExportVideo; vid: RefObject<HTMLVideoElement | null>; now: number; setNow: (t: number) => void; seek: (t: number) => void
-  spans: MusicSpan[]; acts: MusicAction[]; flags: VodFlag[]; style: Style; burn: boolean; model: string; language: string; canHear: boolean
+  songs: Song[]; setSongs: (fn: (s: Song[]) => Song[]) => void; addSong: (a: number, b: number) => void
+  sel: number; setSel: (i: number) => void; tl: RefObject<VodTimelineHandle | null>
+  flags: VodFlag[]; style: Style; burn: boolean; model: string; language: string; canHear: boolean
   onExact: () => void; onHear: () => void; cancel: (job: string) => void
 }) {
   const [playable, setPlayable] = useState<'yes' | 'no' | 'making'>('yes')
@@ -401,10 +431,21 @@ function PreviewPanel({ v, vid, now, setNow, seek, spans, acts, flags, style, bu
 
   const cap = burn ? captionAt(heard.words, now, style.words_per_line) : []
   const notHeard = burn && canHear && heard.a >= 0 && !heardAt(heard.covered, now)
-  const tryingMusic = spans.findIndex((s, i) => acts[i] !== 'keep' && now >= s.start && now < s.end)
+  const tryingMusic = songs.findIndex(s => s.act !== 'keep' && now >= s.start && now < s.end)
   const d = Math.max(1, v.duration)
   // the part picked to send to Segments: where it starts and ends (-1 = not set yet)
   const [mark, setMark] = useState<{ a: number; b: number }>({ a: -1, b: -1 })
+  const [what, setWhat] = useState<'music' | 'part'>('music')       // what Shift+drag marks on the timeline
+  const boxes: Box[] = [
+    ...songs.map((s, i): Box => ({ id: `m${i}`, start: s.start, end: s.end, lane: 0, kind: s.act, edit: true,
+      label: s.act === 'voice' ? 'Erase song' : s.act === 'mute' ? 'Mute all sound' : 'Keep' })),
+    ...(mark.a >= 0 && mark.b > mark.a ? [{ id: 'pick', start: mark.a, end: mark.b, lane: 1, kind: 'pick', edit: true, label: 'For Segments' } as Box] : []),
+  ]
+  const onBox = (id: string, a: number, b: number) => {
+    if (id === 'pick') return setMark({ a, b })
+    const i = Number(id.slice(1))
+    setSongs(ss => ss.map((s, k) => (k === i ? { ...s, start: a, end: b } : s)))
+  }
 
   return (
     <section className="panel set" aria-labelledby="vodx-pv" data-testid="vodx-preview">
@@ -428,10 +469,10 @@ function PreviewPanel({ v, vid, now, setNow, seek, spans, acts, flags, style, bu
               )}
             </>}
       </div>
-      <div className="vodx-strip" role="img" aria-label={`Timeline: ${plural(spans.length, 'music stretch', 'music stretches')}, ${plural(flags.length, 'muted word')}`}
-           onClick={e => { const r = e.currentTarget.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * d); setShowExact('') }}>
-        {spans.map((s, i) => (
-          <i key={i} className={`m ${acts[i]}`} title={spanLabel(s)} style={{ left: `${s.start / d * 100}%`, width: `${Math.max(0.3, (s.end - s.start) / d * 100)}%` }} />
+      <div className="vodx-strip" role="img" aria-label={`The whole video: ${plural(songs.length, 'music stretch', 'music stretches')}, ${plural(flags.length, 'muted word')}`}
+           onClick={e => { const r = e.currentTarget.getBoundingClientRect(), t = (e.clientX - r.left) / r.width * d; seek(t); tl.current?.show(Math.max(0, t - 60), t + 120); setShowExact('') }}>
+        {songs.map((s, i) => (
+          <i key={i} className={`m ${s.act}`} title={spanLabel(s)} style={{ left: `${s.start / d * 100}%`, width: `${Math.max(0.3, (s.end - s.start) / d * 100)}%` }} />
         ))}
         {flags.map(f => <i key={f.id} className="w" style={{ left: `${f.start / d * 100}%` }} />)}
         {mark.a >= 0 && mark.b > mark.a && (
@@ -439,11 +480,21 @@ function PreviewPanel({ v, vid, now, setNow, seek, spans, acts, flags, style, bu
         )}
         <b style={{ left: `${Math.min(100, now / d * 100)}%` }} />
       </div>
+      <VodTimeline ref={tl} pid={v.pid} dur={v.duration} video={() => vid.current} boxes={boxes} sel={sel >= 0 ? `m${sel}` : undefined}
+                   ticks={flags.map(f => ({ t: f.start, label: f.text }))} label="Timeline of the video: the music on it and the part picked for Segments"
+                   onSeek={t => { setNow(t); setShowExact('') }} onBox={onBox}
+                   onPick={id => setSel(id.startsWith('m') ? Number(id.slice(1)) : -1)}
+                   onCreate={(a, b) => (what === 'music' ? addSong(a, b) : setMark({ a, b }))} />
+      <div className="row wrap vodx-tl-bar">
+        <ZoomButtons tl={tl} />
+        <span className="small muted grow">Shift and drag marks</span>
+        <Seg label="What Shift and drag marks" value={what} options={[['music', 'Music'], ['part', 'A part for Segments']]} onChange={w => setWhat(w as 'music' | 'part')} />
+      </div>
       <SendToSegments v={v} now={now} seek={seek} mark={mark} setMark={setMark} />
       <p className="hint">
-        {tryingMusic >= 0 ? `Music here: ${acts[tryingMusic] === 'voice' ? 'it will be taken out, voices kept' : 'this stretch will be silent'}. ` : ''}
-        The video plays with its own sound; the captions are drawn as they'll look. <b>Exact preview</b> makes ten seconds from here the way
-        the export will, music removal and muting included.
+        {tryingMusic >= 0 ? `Music here: ${songs[tryingMusic]!.act === 'voice' ? 'the song will be erased, talking and game sound kept' : 'this stretch will be silent'}. ` : ''}
+        The video plays with its own sound; the captions are drawn as they'll look. <b>Exact preview</b> (or <b>Hear it</b> on a song) makes
+        ten seconds the way the export will, with the song erased and words muted, so you can hear the result.
       </p>
       {notHeard && (
         <p className="hint" data-testid="vodx-not-heard">Nothing has been listened to here yet, so there are no captions to show.{' '}
@@ -558,7 +609,7 @@ function ExportResult({ job }: { job: NonNullable<VodExportVideo['export_job']> 
   const toast = useToast()
   const r = (job.result ?? {}) as { name?: string; folder?: string; srt?: string; muted_words?: number; muted_music?: number; voice_music?: number; copied?: boolean; took?: number }
   const show = useCallback(() => {
-    api(Ok, '/api/open_folder', { folder: r.folder ?? 'clips' }).catch(e => toast(err(e), 'err'))
+    api(Ok, '/api/open_folder', { folder: r.folder ?? 'vods' }).catch(e => toast(err(e), 'err'))
   }, [r.folder, toast])
   if (job.status === 'error') return <p className="banner err" role="alert" data-testid="vodx-error">Export failed: {job.error}</p>
   if (job.status === 'cancelled') return <p className="muted">Export cancelled.</p>

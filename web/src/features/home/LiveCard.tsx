@@ -66,7 +66,7 @@ export function LiveCard({ status }: { status: Status | undefined }) {
         <Seg label="Mode" value={mode} options={MODES} onChange={save('liveMode', setMode)} />
         <span className="hint">{mode === 'hands'
           ? 'Every moment is titled, checked and rendered with your style on its own. Finished clips appear in Exports.'
-          : 'Moments wait in Review. You keep the ones you want.'}</span>
+          : 'Moments wait for you in Moments. You keep the ones you want.'}</span>
       </div>
       <div className="form-grid two">
         <div className="fld">How many clips<Seg label="How many clips" value={freq} options={FREQS} onChange={save('liveFreq', setFreq)} /></div>

@@ -110,6 +110,7 @@ export const Status = z.looseObject({
   whisper: z.boolean().optional(),
   laughter: z.boolean().optional(),
   music_remover: z.boolean().optional(),
+  song_eraser: z.boolean().optional(),
   twitchdownloader: z.boolean().optional(),
   can_download_tools: z.boolean().optional(),
   live: z.string().default(''),
@@ -586,6 +587,8 @@ export const Strip = z.looseObject({
   a: z.number(), b: z.number(), hz: z.number().default(10), start: z.number().default(0),
   wave: z.array(z.number()).default([]), events: z.record(z.string(), z.array(z.number())).default({}),
   chat: z.array(z.number()).default([]),
+  /** how much each second sounded like music in Export VOD's copyright scan (0..1), from `start` */
+  music: z.array(z.number()).default([]),
 })
 export type Strip = z.infer<typeof Strip>
 

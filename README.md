@@ -50,10 +50,10 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
   - Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> from any window to clip the last 30 seconds.
   - **No ads in your clips.** Ad breaks Twitch stitches into the stream are recognised and left out of the recording. Sign in to Twitch with Turbo (or a sub) and you get the ad-free stream.
 - **Content check and censoring.** Each clip's words, title and post caption are checked for things TikTok takes down: slurs, self-harm, threats, personal info, sexual terms, drugs, swearing, gambling and your own blocked words.
-- **Export VOD.** A whole video saved as one wide file with captions (burned in or a .srt), flagged words muted or bleeped, and a copyright scan that finds the music in it so those stretches can be muted.
+- **Export VOD.** A whole video saved as one wide file with captions (burned in or a .srt), flagged words muted or bleeped, and a copyright scan that finds the music in it. Erase song takes a song out, singing and all, and keeps talking and the game's sound, like YouTube Studio's; or mute the stretch. Saved in a folder of its own, apart from the clips.
   - Flagged words can be hidden in captions, muted or bleeped.
   - Hands-free holds risky clips back for you to look at first.
-- **Review in TikTok format.** Each suggestion plays in a phone-sized preview with its layout, title and word-by-word captions. Keep it with <kbd>Enter</kbd>, skip it with <kbd>X</kbd>, and move between clips with <kbd>↑</kbd> <kbd>↓</kbd>.
+- **Go through the moments in TikTok format.** Each suggestion plays in a phone-sized preview with its layout, title and word-by-word captions. Keep it with <kbd>Enter</kbd>, skip it with <kbd>X</kbd>, and move between clips with <kbd>↑</kbd> <kbd>↓</kbd>.
 - **Auto titles and captions.** Whisper transcribes each clip. The title is the best line said near the peak, what chat agreed on or was talking about ("Chat lost it over the haircut"), or one that fits the mood, and every clip of a stream gets its own. Each gets a post caption and hashtags: the streamer, the game being played, what chat talked about and the mood.
 - **Edit like CapCut.** Drag the title and captions anywhere on the frame, fix any caption line by typing over it, and add your own captions.
   - Five caption styles: Pop, Highlight, Karaoke, Glow and Clean.
@@ -110,7 +110,7 @@ Prefer not to install? Use [ClipRadar-portable.zip](https://github.com/allen1ver
 |---|---|
 | **Past broadcast** | Paste a VOD link (`twitch.tv/videos/…`) or browse to a recording on your PC, then press **Find clips**. |
 | **Live channel** | Enter a channel name or `twitch.tv/name`, pick **Hands-free** (clips render on their own) or **Review each clip**, choose how many clips you want, and press **Start live clipping**. It can start before the stream does. The first minute or two is spent learning what "normal" sounds like for the stream. |
-| **Review** | Keep (<kbd>Enter</kbd>) or skip (<kbd>X</kbd>) each suggestion. Trim it and edit the title (<kbd>T</kbd> cycles through ideas). Fix captions in the **Captions** tab, pick styles and fonts in **Text**, and set the layout in **Layout**. Drag the title or captions on the preview to move them. During a live session, <kbd>C</kbd> clips the last 30 seconds. |
+| **Moments** | Keep (<kbd>Enter</kbd>) or skip (<kbd>X</kbd>) each suggestion. Trim it and edit the title (<kbd>T</kbd> cycles through ideas). Fix captions in the **Captions** tab, pick styles and fonts in **Text**, and set the layout in **Layout**. Drag the title or captions on the preview to move them. During a live session, <kbd>C</kbd> clips the last 30 seconds. |
 | **Exports** | Kept clips render here, named after their titles, with the post caption saved next to them as `.txt`. Select one to watch it or post it. |
 
 Clips are saved to `Videos\Clip Radar`. The full guide ships with the app as `README.txt`, and you can also read it in [docs/user-guide.txt](docs/user-guide.txt).
@@ -172,6 +172,7 @@ src/
   titles.py       auto titles and post captions
   safety.py       content check (TOS scanner) and censoring
   vodexport.py    Export VOD: a whole video with muting and captions, and the copyright (music) scan
+  songerase.py    Erase song: takes a song out of the sound and keeps talking and game sound (TIGER)
   hotkey.py       Ctrl+Alt+C clip hotkey on Windows
   updater.py      in-app updates from GitHub releases
   errorlog.py     every failure, kept in errors.jsonl for fixing later

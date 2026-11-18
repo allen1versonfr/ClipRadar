@@ -549,6 +549,17 @@ video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offs
 .vodx-vid .t1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .vodx-vid .t2 { color: var(--tx2); font-size: 12px; }
 .vodx-body { display: flex; flex-direction: column; gap: 12px; padding: 16px; min-width: 0; max-width: 760px; }
+/* 5.0: the preview beside the settings, as in Moments: it stays in view while the panels scroll */
+.vodx-body.vodx-two { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr); align-items: start; max-width: none; }
+.vodx-two > .vodx-wide { grid-column: 1 / -1; }
+.vodx-stagecol { position: sticky; top: 0; z-index: 1; min-width: 0; }
+.vodx-panels { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+@media (max-width: 1150px) { .vodx-body.vodx-two { grid-template-columns: minmax(0, 1fr); } .vodx-stagecol { position: static; } }
+.vodx-timeline { width: 100%; height: 104px; display: block; border-radius: var(--r); border: 1px solid var(--line); touch-action: none; }
+.vodx-tl-bar { align-items: center; }
+.vodx-zoom { gap: 4px; }
+.vodx-span.on { background: var(--accent-soft); border-radius: var(--r); }
+.vodx-span-acts { grid-column: 1 / -1; gap: 4px; }
 .vodx-body h2 { font-size: 15px; font-weight: 650; margin: 0; }
 .vodx-side { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--line); }
 @media (max-width: 900px) { .vodx-side { border-right: 0; border-bottom: 1px solid var(--line); } }
@@ -625,3 +636,6 @@ video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offs
 .segv-lines li.on { background: var(--bg3); }
 .segv-lines li > span.grow { overflow-wrap: anywhere; }
 @media (pointer: coarse) { .segv-acts .ibtn, .segv-seg input[type=checkbox] { min-width: 44px; min-height: 44px; } }
+/* the music list sits in the narrower settings column (5.0): its choice goes under the times, not beside them */
+.vodx-panels .vodx-span { grid-template-columns: minmax(0, 1fr); padding: 4px 6px; }
+.vodx-panels .vodx-span .seg { grid-column: 1; grid-row: auto; justify-self: start; }

@@ -145,8 +145,8 @@ def _storage_all() -> dict:
 
 def _allowed_roots() -> list:
     out = list(locations.project_roots()) + [WORKROOT]
-    for k in ("downloads", "clips", "temp", "logs"):
-        p_ = locations.path(k)
+    for k in ("downloads", "clips", "vods", "segments", "temp", "logs"):
+        p_ = locations.folder(k)
         if p_:
             out.append(p_)
     return [os.path.realpath(x) for x in out if x]

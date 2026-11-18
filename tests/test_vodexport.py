@@ -34,11 +34,13 @@ sys.path.insert(0, os.path.join(HERE, "..", "src"))
 import numpy as np  # noqa: E402
 
 import engine  # noqa: E402
+import locations  # noqa: E402
 import whisper  # noqa: E402
 import server  # noqa: E402
 import listening  # noqa: E402
 import vodexport  # noqa: E402
 import voicekeep  # noqa: E402
+import songerase  # noqa: E402
 
 failures = []
 
@@ -75,6 +77,8 @@ for conf, spk in ((0.9, 0.0), (0.9, 0.8), (0.5, 0.3), (0.3, 1.0)):
 sa = vodexport.suggest_action
 check("talking over music: the music is removed", sa(0.9, 0.7, True) == "voice")
 check("no talking: muted (the same result, much quicker)", sa(0.9, 0.0, True) == "mute")
+check("no talking, with the song eraser: erased, so the game's sound stays (5.0)", sa(0.9, 0.0, True, True) == "voice")
+check("no talking, the song eraser, a weak detection: still kept", sa(0.4, 0.0, True, True) == "keep")
 check("no talking and a weak detection: kept", sa(0.4, 0.0, True) == "keep")
 check("without the remover, a stretch with lots of talking isn't silenced", sa(0.9, 0.8, False) == "keep")
 check("without the remover, a little talking is muted", sa(0.9, 0.3, False) == "mute")
@@ -164,6 +168,40 @@ m = voicekeep.blend(1000, 500, [(1200, 1400)], 50)
 check("the voice fades in and out at a stretch's edges", m[0] == 0 and m[225] == 0.5 and m[300] == 1 and m[-1] == 0, (m[225], m[300]))
 check("a block no stretch touches is left alone", voicekeep.blend(0, 500, [(1200, 1400)], 50) is None)
 
+
+# ---- the song eraser (5.0): a stand-in model that says how much of each moment is music
+class Stems:
+    """music: the share of the sound that's music (the rest is split between dialogue and effects)."""
+    calls = 0
+
+    def __init__(self, music=0.0):
+        self.music = music
+
+    def run(self, spec):
+        Stems.calls += 1
+        re, im = spec[0, 0], spec[0, 1]
+        k = [(1 - self.music) / 2, self.music, (1 - self.music) / 2]
+        return np.stack([x for s in k for x in (re * s, im * s)])[None].astype(np.float32)
+
+
+songerase.session_impl[0] = Stems(0.0)
+ctx = (rng.standard_normal((2, songerase.SEG)) * 0.1).astype(np.float32)
+got = songerase.erase_block(ctx)
+check("song eraser: sound with no music in it comes through as it was", float(np.abs(got - ctx[:, songerase.CTX:songerase.CTX + songerase.GEN]).max()) < 2e-3,
+      float(np.abs(got - ctx[:, songerase.CTX:songerase.CTX + songerase.GEN]).max()))
+st = np.r_[ctx[:1], ctx[:1] * 0.2]                         # quieter on the right: stereo is kept, not made mono
+got = songerase.erase_block(st)
+check("and stereo stays stereo", float(np.abs(got[1] - st[1, songerase.CTX:songerase.CTX + songerase.GEN]).max()) < 2e-3)
+songerase.session_impl[0] = Stems(1.0)
+check("sound that's all song is erased", float(np.abs(songerase.erase_block(ctx)).max()) < 1e-4)
+songerase.session_impl[0] = Stems(0.5)
+left = lambda k: float(np.sqrt((songerase.erase_block(ctx, k) ** 2).mean()) / np.sqrt((ctx ** 2).mean()))  # noqa: E731
+check("where the model is unsure, strength pushes the song down harder than the model's own share",
+      left(songerase.STRENGTH) < left(1.0) - 0.05, (left(songerase.STRENGTH), left(1.0)))
+m = songerase.keep_mask(np.ones((6, 3, 2), dtype=np.float32), strength=1.0)
+check("the mask keeps dialogue and effects, as the model shares them out", abs(float(m.mean()) - 2 / 3) < 1e-5, float(m.mean()))
+songerase.session_impl[0] = None
+
 # ---- the copyright scan from what opening the video heard
 PID = "vx1"
 work = tempfile.mkdtemp(prefix="vc_vx_")
@@ -233,6 +271,8 @@ if shutil.which("ffmpeg"):
     check("the whole video exports", job["status"] == "done", (job.get("error"), job["log"][-5:]))
     if job["status"] == "done":
         info = engine.probe(r["path"])
+        check("saved in the Exported VODs folder, apart from the clips (5.0)",
+              os.path.normcase(r["folder"]) == os.path.normcase(locations.vods_dir()), r["folder"])
         check("all of it, in a wide frame", abs(info["duration"] - 40) < 0.6 and info["width"] / info["height"] > 1.7, info)
         check("at the size asked", info["height"] == 480, info)
         check("with a subtitle file next to it", r["srt"] and os.path.isfile(os.path.join(r["folder"], r["srt"])), r)
@@ -286,8 +326,24 @@ if shutil.which("ffmpeg"):
         check("the working sound file is gone", not os.path.isdir(tmp) or not os.listdir(tmp))
     voicekeep.session_impl[0] = None
     job = wait(vodexport.start_export(server, PID, {"captions": "off", "music": [[10, 20, "voice"]]}))
-    check("without the music remover, Remove music says what to do", job["status"] == "error"
-          and "music remover" in (job.get("error") or ""), job.get("error"))
+    check("without a remover, Erase song says what to do", job["status"] == "error"
+          and "song eraser" in (job.get("error") or ""), job.get("error"))
+
+    # ---- a song through the song eraser: used ahead of the older remover, only that stretch
+    Stems.calls = 0
+    songerase.session_impl[0] = Stems(1.0)
+    voicekeep.session_impl[0] = Nothing()
+    Nothing.calls = 0
+    job = wait(vodexport.start_export(server, PID, {"captions": "off", "music": [[10, 20, "voice"]]}))
+    r = job.get("result") or {}
+    check("a stretch set to Erase song exports", job["status"] == "done" and r.get("voice_music") == 1, (job.get("error"), r))
+    if job["status"] == "done":
+        check("the song eraser erased it", rms(r["path"], 14) < 0.005, rms(r["path"], 14))
+        check("the sound around it is untouched", rms(r["path"], 5) > 0.05 and rms(r["path"], 28) > 0.05)
+        check("only the blocks the stretch touches went through it", 1 <= Stems.calls <= 3, Stems.calls)
+        check("the older remover wasn't used", Nothing.calls == 0, Nothing.calls)
+    songerase.session_impl[0] = None
+    voicekeep.session_impl[0] = None
 
     # ---- the exact preview: a few seconds made like the export
     voicekeep.session_impl[0] = Nothing()
