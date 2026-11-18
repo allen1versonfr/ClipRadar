@@ -144,6 +144,7 @@ src/
   render_queue.py the render queue: workers, rendering a clip, its checks, why a render failed
   listening.py    what's said in a video: transcripts, listening to clips, the deep scan
   live_glue.py    a live session started, and its moments turned into clips; Home › Sources; the hotkey
+  previews.py     the preview copy of a video, Auto-frame, a clip's preview extras, the exact preview render
   engine.py       helpers the parts below share (FFmpeg, tools, Cancelled); re-exports their names
   analysis.py     finding the moments: chat, loudness, laughter scores, and picking the clips
   storage.py      what's on disk (VODs, clips) and deleting it, for Settings › Storage and cleanup

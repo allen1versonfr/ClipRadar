@@ -50,6 +50,7 @@ import locations
 
 import autopilot  # noqa: E402
 import server as S  # noqa: E402  shared state and helpers, read as S.<name> at call time
+import previews  # noqa: E402
 import listening  # noqa: E402
 
 
@@ -78,7 +79,7 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
         raise RuntimeError("That clip is too short.")
     pr = S.projects.get(pid) or {}
     if pr and "layout" not in (opts or {}):
-        opts = dict(opts or {}, **S._auto_layout(pr))
+        opts = dict(opts or {}, **previews._auto_layout(pr))
     d = S._find_clip(pr, c.get("id")) if pr else None
     if d:
         why = checkflow.blocks_render(d)
@@ -250,6 +251,7 @@ class BrokenOutput(RuntimeError):
     pass
 
 
+# ---- captions heard ahead: the next kept clip's words while this one encodes ------------------------------------
 # A render used to hear its captions itself, then encode: the CPU sat idle while the GPU encoded, and the GPU while the
 # CPU listened. On the owner's PC that hearing was 79% of render time (efficiency audit 2026-11-08, F1, 188 min a week)
 # and clips waited behind it (F4, 56 min). Now, while one clip renders, the clips queued after it are heard in order,
@@ -476,7 +478,7 @@ def _render_item(it: dict):
     if render.effective_layout(ro) == "full" and ro.track == "auto":
         set_stage(it, "preparing", "Finding the face")
         timer.mark("finding the face")
-        fr = S._framing_for(pr, it["start"], it["end"], ro)
+        fr = previews._framing_for(pr, it["start"], it["end"], ro)
         check()
         if fr is not None:
             it["framing"] = {"followed": bool(fr.get("path")), "reason": fr.get("reason", ""), "confidence": fr.get("confidence", 0)}

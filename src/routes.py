@@ -59,6 +59,7 @@ import watermarks
 
 import render_queue
 import server as S
+import previews
 import live_glue
 import listening
 
@@ -387,8 +388,8 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/vod/(\w+)", p)
         if m and m.group(1) in S.projects:
             pr = S.projects[m.group(1)]
-            if q.get("preview") and os.path.isfile(S.preview_path(pr)):
-                return self._send_file(S.preview_path(pr), "video/mp4")   # the copy the window can play
+            if q.get("preview") and os.path.isfile(previews.preview_path(pr)):
+                return self._send_file(previews.preview_path(pr), "video/mp4")   # the copy the window can play
             return self._send_file(pr["video"])
         m = re.fullmatch(r"/api/frame/(\w+)", p)
         if m and m.group(1) in S.projects:
@@ -888,7 +889,7 @@ class Handler(BaseHTTPRequestHandler):
             pid = str(body.get("pid") or "")
             if pid not in S.projects:
                 return self._err("This session expired. Press Find clips again.", 404)
-            return self._json(S.start_preview(pid))
+            return self._json(previews.start_preview(pid))
 
         if p == "/api/studio":
             if "press_post" in body:
@@ -1148,7 +1149,7 @@ class Handler(BaseHTTPRequestHandler):
             if pid not in S.projects:
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
-                job = S.start_preview_render(pid, body.get("clip") or {}, body.get("opts") or {}, float(body.get("at", 0)))
+                job = previews.start_preview_render(pid, body.get("clip") or {}, body.get("opts") or {}, float(body.get("at", 0)))
             except RuntimeError as e:
                 return self._err(str(e))
             return self._json({"job": job["id"]})
@@ -1174,14 +1175,14 @@ class Handler(BaseHTTPRequestHandler):
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
             ro = S._ropts(dict(body.get("opts") or {}, track="auto"))
-            fr = S._framing_for(pr, a, b, ro) if b - a >= 1 else None
+            fr = previews._framing_for(pr, a, b, ro) if b - a >= 1 else None
             if fr is None:
                 return self._json({"path": [], "reason": "Follow face works with the Whole frame layout." if render.effective_layout(ro) != "full"
                                    else "Face finding isn't available in this copy.", "confidence": 0})
             return self._json(fr)
 
         if p == "/api/preview/extras":
-            # Review's live preview: the punch-in beats and the followed face for one clip (S.preview_extras)
+            # Review's live preview: the punch-in beats and the followed face for one clip (previews.preview_extras)
             pr = S.projects.get(body.get("pid"))
             if not pr:
                 return self._err("This session expired. Press Find clips again.", 404)
@@ -1191,7 +1192,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("Bad clip.")
             if not (math.isfinite(a) and math.isfinite(b)) or b <= a:
                 return self._err("Bad clip.")
-            return self._json(S.preview_extras(str(body.get("pid")), pr, a, b, dict(body.get("opts") or {})))
+            return self._json(previews.preview_extras(str(body.get("pid")), pr, a, b, dict(body.get("opts") or {})))
 
         if p == "/api/export":
             prefs = exports.save(body)

@@ -100,6 +100,9 @@ SERVER_MOVED = {
     "live_glue": ["LIVE_ON", "live_active", "live_list", "_same_source", "sources_view", "on_hotkey",
                   "PriorityGate", "live_gate", "_live_prio", "_live_rendered", "live_on_moment", "_live_delay",
                   "LIVE_VOD_CHECK", "live_vod_setting", "_live_outcome", "start_live_session", "live_view"],
+    "previews": ["preview_path", "start_preview", "_framing_dir", "_warm_framing", "_auto_layout",
+                 "_framing_for", "PREVIEW_KEYS", "_preview_cache", "_preview_lock", "PREVIEW_CACHE_MAX",
+                 "preview_extras", "_previews", "start_preview_render"],
 }
 HUBS = {"engine": MOVED, "server": SERVER_MOVED}
 
