@@ -534,7 +534,7 @@ def multi_source_checks(a, tmp):
 def storage_checks(ctx, tmp):
     """3.11: folders for each kind of file, checked before use, with temporary files safe to clear."""
     lv = get("/api/locations")
-    rec("storage lists each folder with free space", [x["key"] for x in lv["locations"]] == ["projects", "downloads", "clips", "temp", "logs"]
+    rec("storage lists each folder with free space", [x["key"] for x in lv["locations"]] == ["projects", "downloads", "clips", "vods", "segments", "temp", "logs"]
         and all(x["free"] for x in lv["locations"]), [(x["key"], x["where"]) for x in lv["locations"]])
     bad = post("/api/locations", {"clips": "not/a/full/path"})
     rec("a folder that can't be used is refused", "clips" in (bad.get("errors") or {}), bad.get("errors"))
