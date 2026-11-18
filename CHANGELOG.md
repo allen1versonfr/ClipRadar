@@ -11,7 +11,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Tests
 - `tests/test_engine_split.py` (new): `engine` re-exports every moved name as the same object, `engine.py` no longer defines them and imports the new file at its top level (so the app build finds it). No test, script or module replaces a moved name through `engine`, because a fake put there would no longer reach the code that calls it.
 - `tests/test_cleanup.py`: the two stand-ins for deleting files and listing project folders now replace `storage._remove` and `storage._project_dirs`.
-- `tests/test_web_settings.py`: Press Post for me waits for the setting to be saved (up to 10 s) instead of a fixed half second. The box changes at once and the save follows, so on a busy runner "and turned off again" read the setting before the save landed.
+- `tests/test_web_settings.py`: Press Post for me waits for the save's answer from the server, then reads the setting once. Before, it waited a fixed half second, and on a busy runner "and turned off again" read the setting before the save landed. Reading `studio.json` while the server replaces it also fails the save on Windows.
 
 ## [4.52.1] - 2026-11-17
 
