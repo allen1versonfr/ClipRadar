@@ -9,6 +9,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **A score for how well Clip Radar picks a VOD's moments** (`scripts/eval_ranking.py score`, docs/plans/ranking-eval.md, phase 1). On Twitch VODs, the clips viewers made are the answer key: clips of the same moment are grouped together, and a moment counts when two or more people clipped it or it has 500+ views. The score says how many of those moments are among Clip Radar's top 5, 10 and 20 clips (10 is the headline, also weighted so big moments count more), how many of the top 10 overlap anything viewers clipped, whether a clip that found a moment kept its reaction (the last 10 s of the most viewed clip), where the biggest moment came, and how many clips Automatic suggested against how many moments there were. It uses the app's default settings with nothing learned from what you kept, and the viewers' clips are never part of the ranking while it scores, so it doesn't read its own answers. `--baseline REF` compares a git ref with this checkout, and `--ablate` switches off each part of the score in turn (chat, sound, laughter, screams, cheering, emotes, chat speeding up, reactions after quiet, chat and sound together, chat that's just talking) to show which ones matter. It writes a report with the biggest misses and links to watch them. It measures the moments people noticed on Twitch, not what will do well on TikTok, and the report says so. A developer tool that doesn't ship; nothing in the app changed.
 - `tests/test_rankmetrics.py` (new): clips grouped into moments, a payoff just outside a clip is a miss, one moment found by two clips counts once, nothing to find, ties, and every number in the report; with FFmpeg, the score on a made-up 10-minute VOD where viewers also clipped a quiet stretch: the loud moments come first, the quiet one doesn't (it does when the viewers' clips are mixed in the way the app mixes them), and a git ref against itself changes nothing.
 
+## [4.52.1] - 2026-11-17
+
+Small fixes to how the app looks: links in empty screens, and the Settings tables in a narrow window.
+
+### Fixed
+- Links in empty screens (Exports, Review, Segments) were the browser's default blue, purple once visited. They're white and underlined like the app's other links, and turn green on hover.
+- Settings › Content check: in a narrow window the Censor column was pushed out of view. The category names now wrap so all three columns fit.
+- Settings › Downloads and tools: in a narrow window the tools table made the whole Settings page scroll sideways.
+
 ## [4.52.0] - 2026-11-17
 
 Pick parts of a long stream and edit them into one video of up to 30 minutes in the new Segments screen, and live clipping saves the whole stream as a VOD.
