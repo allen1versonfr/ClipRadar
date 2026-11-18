@@ -53,14 +53,27 @@ edges = [
 ]
 got = twitchclips.parse(edges, "42")
 check("clips from other VODs and without a place in the VOD are dropped", [c["title"] for c in got] == ["early", "MISSILE"], got)
-check("each keeps where it is and its views", got[1] == {"start": 900.0, "end": 940.0, "views": 8260, "title": "MISSILE"}, got[1])
+check("each ends where Twitch's offset says (the press of the clip button) and starts a clip-length before it",
+      got[1] == {"start": 860.0, "end": 900.0, "views": 8260, "title": "MISSILE"}, got[1])
+check("a clip longer than its offset starts at 0", twitchclips.parse(
+    [{"node": {"title": "x", "viewCount": 1, "durationSeconds": 30, "videoOffsetSeconds": 10, "video": {"id": "42"}}}], "42")[0]["start"] == 0.0)
 
 # ---------------------------------------------------------------- fetching (Twitch stood in for)
 asked = []
 
 
+vod_list = [edges[0],                                       # MISSILE again: counted once
+            {"node": {"id": "v1", "title": "only in the VOD's list", "viewCount": 4, "durationSeconds": 30,
+                      "videoOffsetSeconds": 1500, "video": {"id": "42"}}}]
+vod_list_works = [True]
+
+
 def fake_gql(query, timeout=8.0):
     asked.append(query)
+    if "video(id:" in query and "clips(" in query:
+        if not vod_list_works[0]:
+            return {"errors": [{"message": "failed integrity check"}]}
+        return {"data": {"video": {"clips": {"edges": vod_list}}}}
     if "video(id:" in query:
         return {"data": {"video": {"createdAt": iso(3600), "lengthSeconds": 3000, "owner": {"login": "somestreamer"}}}}
     return {"data": {"user": {"clips": {"edges": edges}}}}
@@ -70,8 +83,13 @@ real = twitchclips._gql
 twitchclips._gql = fake_gql
 wd = tempfile.mkdtemp(prefix="vc_vclips_")
 d = twitchclips.refresh(wd, "42")
-check("fetched: this VOD's clips, the last day's top 100 by views",
-      len(d["clips"]) == 2 and "LAST_DAY" in asked[-1] and "VIEWS_DESC" in asked[-1] and "first:100" in asked[-1], (d, asked[-1:]))
+day = [a for a in asked if "LAST_DAY" in a]
+check("fetched: the channel's top 100 of the last day by views",
+      len(day) == 1 and "VIEWS_DESC" in day[0] and "first:100" in day[0], asked)
+own = [a for a in asked if 'video(id:"42"){clips(' in a]
+check("and the VOD's own list from both ends", len(own) == 2 and "sort:ASC" in own[0] and "sort:DESC" in own[1], own)
+check("all of this VOD's clips, each once", [c["title"] for c in d["clips"]] == ["early", "MISSILE", "only in the VOD's list"], d["clips"])
+check("saved marked as the new format, so it isn't moved again", d.get("format") == twitchclips.FORMAT)
 
 # an older VOD: each period up to its age, and a clip in more than one list is counted once
 asked.clear()
@@ -82,7 +100,7 @@ twitchclips._period = real_period
 check("a VOD from weeks ago: the day's, the week's and the month's lists",
       [q for q in ("LAST_DAY", "LAST_WEEK", "LAST_MONTH") if any(q in a for a in asked)] == ["LAST_DAY", "LAST_WEEK", "LAST_MONTH"]
       and not any("ALL_TIME" in a for a in asked), asked)
-check("and a clip in all three counts once", len(d3["clips"]) == 2, d3["clips"])
+check("and a clip in all three lists and the VOD's own counts once", len(d3["clips"]) == 3, d3["clips"])
 check("and saved in the project", twitchclips.load(wd).get("clips") == d["clips"])
 n_asked = len(asked)
 twitchclips.refresh(wd, "42")
@@ -101,7 +119,26 @@ persist.write_json(os.path.join(wd, twitchclips.FILE), old)
 d2 = twitchclips.refresh(wd, "42")
 check("Twitch can't be reached: what was saved is kept", d2.get("clips") == d["clips"])
 check("a link that isn't a VOD id is never sent", twitchclips.fetch("abc") is None)
+twitchclips._gql = fake_gql
+vod_list_works[0] = False
+d4 = twitchclips.fetch("42")
+check("the VOD's own list refused: the channel's lists still count", [c["title"] for c in d4["clips"]] == ["early", "MISSILE"], d4)
+vod_list_works[0] = True
 twitchclips._gql = real
+
+# ---------------------------------------------------------------- lists saved before the clip times were fixed
+old_list = {"vod": "42", "fetched": 1.0, "period": "LAST_DAY",
+            "clips": [{"start": 900.0, "end": 940.0, "views": 8260, "title": "MISSILE"},
+                      {"start": 10.0, "end": 40.0, "views": 1, "title": "early"}]}
+persist.write_json(os.path.join(wd, twitchclips.FILE), old_list)
+up = twitchclips.load(wd)
+check("a list saved before the fix: each clip moved to end where it started", [(c["start"], c["end"], c["title"]) for c in up["clips"]]
+      == [(0.0, 10.0, "early"), (860.0, 900.0, "MISSILE")], up["clips"])
+check("and marked, so it's moved only once", up["format"] == twitchclips.FORMAT and twitchclips.upgrade(up) == up)
+check("a list already in the new format is left alone",
+      twitchclips.upgrade(dict(old_list, format=2))["clips"][0]["start"] == 900.0)
+check("eval_ranking's lists (offset_is end) are left alone",
+      twitchclips.upgrade(dict(old_list, offset_is="end"))["clips"][0]["start"] == 900.0)
 
 # ---------------------------------------------------------------- the signal
 heat, people = twitchclips.signal({"clips": [{"start": 100, "end": 130, "views": 10},

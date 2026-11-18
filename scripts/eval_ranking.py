@@ -528,8 +528,8 @@ def coverage(asc: list, desc: list, length: float, page: int = PAGE) -> list:
 def vod_clips(vod: str):
     """Every clip of the VOD that Twitch tells an anonymous client about, with who made it, and where that list is
     complete: {"vod", "fetched", "length", "complete", "clips": [{id, start, end, views, title, creator}]}. None when
-    Twitch couldn't be asked. twitchclips.fetch (what the app uses) reads the channel's most viewed clips instead,
-    which on most VODs is a small part of them."""
+    Twitch couldn't be asked. twitchclips.fetch (what the app uses) also mixes in the channel's most viewed clips,
+    which aren't complete for any stretch, so they can't be part of an answer key."""
     import title_corpus as tc
     pages, length = {}, 0
     for order in ("ASC", "DESC"):
@@ -542,7 +542,7 @@ def vod_clips(vod: str):
         pages[order] = [(e or {}).get("node") or {} for e in v["clips"]["edges"]]
     # where a clip is in the VOD: Twitch's videoOffsetSeconds is where it ENDS (the press of the clip button), not
     # where it starts. Measured 2026-11-17 by matching the sound of 22 clips from 5 channels against their VODs: every
-    # one started durationSeconds before videoOffsetSeconds (within 2 s, one 6 s). twitchclips.parse takes it as the start
+    # one started durationSeconds before videoOffsetSeconds (within 2 s, one 6 s). twitchclips.parse does the same now
     clips, seen = [], set()
     for n in pages["ASC"] + pages["DESC"]:
         off, dur = n.get("videoOffsetSeconds"), n.get("durationSeconds")
