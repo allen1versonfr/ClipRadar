@@ -95,6 +95,7 @@ jobs:
           python tests/test_safety.py
           python tests/test_signals.py
           python tests/test_persist.py
+          python tests/test_studio_settings.py
           python tests/test_checkflow.py
           python tests/test_editing.py
           python tests/test_detect.py
