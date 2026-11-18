@@ -142,6 +142,7 @@ src/
   app.py          desktop window (pywebview / WebView2) and --selftest
   server.py       local HTTP API the UI talks to, render queue
   engine.py       download, analysis, clip picking, rendering, captions
+  storage.py      what's on disk (VODs, clips) and deleting it, for Settings › Storage and cleanup
   live.py         live recording (own HLS reader that skips ads), chat reader, moment detection
   autopilot.py    what runs on its own: events, steps, the shared hold gate, each clip's record of what happened
   autopilot_steps.py  the steps: hands-free titling and render, Discord, cleanup, Keep watching
@@ -164,6 +165,7 @@ src/
   hotkey.py       Ctrl+Alt+C clip hotkey on Windows
   updater.py      in-app updates from GitHub releases
   errorlog.py     every failure, kept in errors.jsonl for fixing later
+  outcome.py      one clipradar.log line per upload, download, live start, render and Discord send
   spelling.py     common spelling fixes for titles and post captions
   tools_setup.py  downloads FFmpeg, yt-dlp and TwitchDownloader
   ui/             HTML/CSS/JS interface, Inter and caption fonts (OFL / Apache)

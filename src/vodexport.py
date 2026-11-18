@@ -34,6 +34,7 @@ import audio_events
 import engine
 import exports
 import locations
+import outcome
 import procjob
 import safety
 import studio
@@ -705,6 +706,7 @@ def to_youtube(S, pid: str, body: dict) -> dict:
         try:
             r = studio_auto.upload_youtube(path, title, desc, YT_UPLOAD_URL, S.job_step(job), S.job_check(job))
         except studio_auto.StudioError as e:
+            outcome.log("upload", "failed", site="youtube", step=e.step)
             studio.reveal(path)                 # finish it by hand: the file, shown
             where = "the YouTube window"
             if e.step == "browser":
@@ -713,8 +715,13 @@ def to_youtube(S, pid: str, body: dict) -> dict:
             pr["vod_yt"] = {"at": time.time(), "state": "failed", "error": str(e)}
             raise RuntimeError(f"{e} The video is selected in File Explorer, so you can finish in {where}.") from None
         except Exception as e:
+            if isinstance(e, engine.Cancelled):
+                outcome.log("upload", "cancelled", site="youtube")
+            else:
+                outcome.log("upload", "failed", site="youtube", step="error")
             pr["vod_yt"] = {"at": time.time(), "state": "failed", "error": str(e)[:300] or type(e).__name__}
             raise
+        outcome.log("upload", "ok", site="youtube", title=r.get("title"), description=r.get("description"))
         pr["vod_yt"] = {"at": time.time(), "state": "ready"}
         return r
     S.run_job(job, go)

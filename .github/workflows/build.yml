@@ -95,6 +95,7 @@ jobs:
           python tests/test_safety.py
           python tests/test_signals.py
           python tests/test_persist.py
+          python tests/test_studio_settings.py
           python tests/test_checkflow.py
           python tests/test_editing.py
           python tests/test_detect.py
@@ -121,6 +122,8 @@ jobs:
           python tests/test_ytextra.py
           python tests/test_download.py
           python tests/test_twitchclips.py
+          python tests/test_rankmetrics.py
+          python tests/test_ranking_corpus.py
           python tests/test_llm_prompts.py
           python tests/test_studio_retry.py
           python tests/test_chat_once.py
@@ -137,6 +140,9 @@ jobs:
           python tests/test_api_contract.py
           python tests/test_file_serving.py
           python tests/test_errorlog.py
+          python tests/test_engine_split.py
+          python tests/test_studio_fingerprints.py
+          python tests/test_reliability_report.py
           python tests/test_spelling.py
 
   render:
@@ -182,6 +188,7 @@ jobs:
           python tests/test_youtube_speed.py
           python tests/test_child_cleanup.py
           python tests/test_filelocks.py
+          python tests/test_rankmetrics.py
           python tests/test_web_exports.py
           python tests/test_web_home.py
           python tests/test_web_settings.py
@@ -190,6 +197,7 @@ jobs:
           python tests/test_web_live_moments.py
           python tests/test_web_a11y.py
           python tests/test_studio_auto.py
+          python tests/test_studio_check.py
           python tests/test_youtube_auto.py
           python tests/test_studio_handoff.py
           python tests/test_preview_fallback.py

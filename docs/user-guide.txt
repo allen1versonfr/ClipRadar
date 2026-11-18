@@ -610,6 +610,8 @@ TROUBLESHOOTING
   - Something else broke: send the log files at
     %LOCALAPPDATA%\ClipRadar\clipradar.log and errors.jsonl. errors.jsonl
     lists every failure with what Clip Radar was doing (Settings › About ›
-    Error log: Open logs folder, or Copy recent errors).
+    Error log: Open logs folder, or Copy recent errors). A TikTok or YouTube
+    upload that failed also says what the page looked like, with your
+    caption, title, file name and account left out.
 
 Only clip VODs you own or have permission to repost.

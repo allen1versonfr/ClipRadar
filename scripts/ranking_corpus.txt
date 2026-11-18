@@ -1,0 +1,56 @@
+# The VODs scripts/eval_ranking.py scores Clip Radar's ranking on (docs/plans/ranking-eval.md, section 5).
+#
+#   python scripts/eval_ranking.py build CORPUS --write-manifest     # download and freeze them (CORPUS outside the repo)
+#   python scripts/eval_ranking.py score CORPUS --out rank_out
+#
+# One VOD a line: VOD_ID[@START-END] [key=value ...] [holdout]  # note
+#   @START-END   the stretch, in seconds. Left out, build picks one at random (seeded by the VOD's id, so the same
+#                every time): the whole VOD when it's under 3 hours, otherwise 60 to 120 minutes, always where every
+#                clip viewers made is known. build --write-manifest fills it in, with the build date and the counts.
+#   cat=         chatting, variety (games other than shooters), irl, fps, events. From the VOD's own category.
+#   size=        small (under 2,000 watching), medium (2,000 to 15,000), big (over 15,000), live on 2026-11-17.
+#   lang=        the stream's language.
+#   holdout      a third of each category (at least one left in), picked at random (seed 97). score leaves these out unless --holdout:
+#                look at them only when a change is otherwise ready, so changes aren't tuned to the VODs they're
+#                checked on (section 8).
+#
+# Chosen 2026-11-17 from 1,523 public VODs surveyed across categories and languages: these are VODs that have at
+# least 8 moments two or more people clipped (or 500+ views) in their stretch, at most two per channel. That rule
+# leaves out most small streams and most shooter VODs, so they're under-represented: few people clip them. Also left
+# out: subscriber-only VODs, and VODs with parts Twitch muted for music (yt-dlp's sections come down empty from
+# those), which keeps out music-heavy streams. 8 of the first 30 picked were one or the other, so there's 1 shooter
+# VOD and 1 French one. The clips come from each VOD's own list (both ends of it, 100 each), not the channel's most
+# viewed clips that the app reads (twitchclips.fetch), which on most VODs is a small part of them. A clip ends at
+# Twitch's videoOffsetSeconds; it doesn't start there (measured on 22 clips, see eval_ranking.vod_clips).
+#
+# Twitch deletes VODs after 7 to 60 days, and with them the video and chat (not the clips). Build soon after a change
+# here; a VOD that's gone can't be built again, so keep the CORPUS folder.
+2929115707@0-5561 cat=chatting size=big lang=en holdout  # stableronaldo [built 2026-11-18: 195 clips, 35 moments, 25 truth]
+2922292514@0-7839 cat=chatting size=big lang=en  # stableronaldo [built 2026-11-18: 199 clips, 40 moments, 19 truth]
+2927850434@3248-7733 cat=chatting size=big lang=en  # hasanabi [built 2026-11-18: 59 clips, 24 moments, 12 truth]
+2930725553@1668-6052 cat=chatting size=big lang=en  # hasanabi [built 2026-11-18: 51 clips, 20 moments, 10 truth]
+2926394800@0-9848 cat=chatting size=medium lang=en  # plaqueboymax [built 2026-11-18: 194 clips, 67 moments, 37 truth]
+2922596094@0-5299 cat=chatting size=medium lang=en  # plaqueboymax [built 2026-11-18: 99 clips, 39 moments, 20 truth]
+2920994237@7715-12868 cat=chatting size=medium lang=en  # jinnytty [built 2026-11-18: 51 clips, 38 moments, 8 truth]
+2929376496@0-4296 cat=chatting size=medium lang=en  # realkatieb [built 2026-11-18: 66 clips, 28 moments, 13 truth]
+2925647366@0-9353 cat=chatting size=small lang=en holdout  # e11ysa [built 2026-11-18: 99 clips, 50 moments, 22 truth]
+2924393734@0-7924 cat=chatting size=small lang=en holdout  # itskreas [built 2026-11-18: 53 clips, 30 moments, 11 truth]
+2928001302@0-9579 cat=chatting size=small lang=en  # itskreas [built 2026-11-18: 40 clips, 25 moments, 8 truth]
+2928013414@0-9717 cat=chatting size=small lang=fr  # mirssadvm [built 2026-11-18: 46 clips, 32 moments, 11 truth]
+2930895806 cat=chatting size=big lang=es holdout  # peereira7 (not built 2026-11-18: a 25-hour VOD, its stretch took over 30 minutes to download; run build again)
+2927116113@0-8532 cat=chatting size=medium lang=pt  # bisteconee [built 2026-11-18: 187 clips, 58 moments, 35 truth]
+2917650484@8600-15741 cat=chatting size=big lang=de holdout  # papaplatte [built 2026-11-18: 40 clips, 21 moments, 9 truth]
+2921308640@1011-6102 cat=chatting size=medium lang=de  # coachlim [built 2026-11-18: 57 clips, 35 moments, 8 truth]
+2930661265@5185-12177 cat=variety size=small lang=en  # indoorscream, GTA RP [built 2026-11-18: 31 clips, 13 moments, 8 truth]
+2930726095@8806-14128 cat=variety size=small lang=en  # ster, GTA RP [built 2026-11-18: 49 clips, 18 moments, 10 truth]
+2921218131@2561-8306 cat=variety size=big lang=es  # peereira7, GTA San Andreas [built 2026-11-18: 57 clips, 27 moments, 15 truth]
+2915344033@0-8053 cat=variety size=medium lang=pt holdout  # bisteconee, Backrooms [built 2026-11-18: 198 clips, 45 moments, 22 truth]
+2923458661@0-6859 cat=variety size=medium lang=en holdout  # realkatieb, QSMP (Minecraft) [built 2026-11-18: 173 clips, 60 moments, 26 truth]
+2926795779@1427-6408 cat=variety size=small lang=es  # paache_, Rocket League [built 2026-11-18: 45 clips, 22 moments, 13 truth]
+2929771098@0-10353 cat=irl size=medium lang=de  # agaamuza [built 2026-11-18: 193 clips, 59 moments, 34 truth]
+2924165363@0-8712 cat=irl size=medium lang=de  # agaamuza [built 2026-11-18: 105 clips, 41 moments, 22 truth]
+2916372387@0-5836 cat=irl size=medium lang=en holdout  # ariathome [built 2026-11-18: 41 clips, 25 moments, 8 truth]
+2929595961@523-5492 cat=irl size=medium lang=de  # coachlim, a 36-hour stream in I'm Only Sleeping [built 2026-11-18: 61 clips, 21 moments, 12 truth]
+2930747792@7407-12864 cat=fps size=medium lang=en  # tarik, VALORANT [built 2026-11-18: 23 clips, 14 moments, 7 truth]
+2927424042@1426-8228 cat=events size=small lang=en  # blastpremier, Counter-Strike tournament broadcast [built 2026-11-18: 98 clips, 32 moments, 11 truth]
+2923224397@5079-10097 cat=events size=big lang=de holdout  # papaplatte, Special Events [built 2026-11-18: 50 clips, 26 moments, 10 truth]

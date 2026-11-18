@@ -1,0 +1,126 @@
+{
+ "taken": "2026-11-17 22:08",
+ "site": "tiktok",
+ "url": "fake_studio/tiktokstudio/upload",
+ "source": "tests/fake_studio.py (a stand-in, not TikTok)",
+ "signed_in": true,
+ "ok": true,
+ "page": {
+  "path": "/tiktokstudio/upload",
+  "lang": "en",
+  "window": [
+   780,
+   437
+  ],
+  "selectors": {
+   "file": {
+    "match": true,
+    "visible": false,
+    "enabled": true
+   },
+   "caption": {
+    "match": true,
+    "visible": false,
+    "enabled": true
+   },
+   "post": {
+    "match": true,
+    "visible": false,
+    "enabled": false
+   },
+   "login": {
+    "match": false
+   },
+   "posted": {
+    "match": false
+   },
+   "upload_error": {
+    "match": false
+   },
+   "shown_caption": {
+    "match": false
+   },
+   "post_now": {
+    "match": true,
+    "visible": false,
+    "enabled": true
+   }
+  },
+  "marks": [
+   "account-menu",
+   "caption_container",
+   "nav-profile",
+   "post_video_button",
+   "profile-nickname"
+  ],
+  "buttons": [
+   "…",
+   "… … ▾",
+   "Select video",
+   "Save draft",
+   "Post",
+   "Post now"
+  ],
+  "site": "tiktok",
+  "version": "4.52.0"
+ },
+ "file": {
+  "path": "/tiktokstudio/upload",
+  "lang": "en",
+  "window": [
+   780,
+   437
+  ],
+  "selectors": {
+   "file": {
+    "match": true,
+    "visible": false,
+    "enabled": true
+   },
+   "caption": {
+    "match": true,
+    "visible": true,
+    "enabled": true
+   },
+   "post": {
+    "match": true,
+    "visible": true,
+    "enabled": false
+   },
+   "login": {
+    "match": false
+   },
+   "posted": {
+    "match": false
+   },
+   "upload_error": {
+    "match": false
+   },
+   "shown_caption": {
+    "match": true
+   },
+   "post_now": {
+    "match": true,
+    "visible": false,
+    "enabled": true
+   }
+  },
+  "marks": [
+   "account-menu",
+   "caption_container",
+   "nav-profile",
+   "post_video_button",
+   "profile-nickname"
+  ],
+  "buttons": [
+   "…",
+   "… … ▾",
+   "Select video",
+   "Save draft",
+   "Post",
+   "Post now"
+  ],
+  "site": "tiktok",
+  "version": "4.52.0"
+ }
+}

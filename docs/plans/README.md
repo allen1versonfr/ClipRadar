@@ -10,6 +10,8 @@ tests, and the risks.
 | [Optional local LLM: titles, quiet gems, content-check context](issue-49-local-llm.md) | #49 | Closed: the model won 38–40% against the built-in titles |
 | [Titles v2: better built-in titles and post captions, no model](titles-v2.md) | — | Done in 4.48.0 (titles 63%, captions 85% in a blind test) |
 | [Efficiency and speed audit](efficiency-audit.md) | #47 | Planned |
+| [Score how well Clip Radar picks moments](ranking-eval.md) | — | Planned |
+| [Harden what's there before adding more](hardening.md) | — | Planned |
 
 ## Order
 

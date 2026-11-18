@@ -6,12 +6,15 @@ The first time, it waits for you to sign in, in its window, then carries on. The
 the clip's file; the caption replaces what TikTok starts with (the file name); Post is left for you
 unless "Press Post for me" is on, and then it confirms TikTok's "Post now" and only says posted once
 TikTok shows it. A page without the parts it needs (TikTok redesigned it) is a named step that failed.
+A failure is recorded in errors.jsonl with a fingerprint of the page (which selectors matched, TikTok's marks,
+its button words), and none of the caption, the file's name or the account is in it.
 
   python tests/test_studio_auto.py
 """
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -31,6 +34,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 import cdp  # noqa: E402
+import errorlog  # noqa: E402
 import fake_studio  # noqa: E402
 import studio_auto  # noqa: E402
 
@@ -41,6 +45,47 @@ def check(name, ok, detail=""):
     print(f"[{'ok' if ok else 'FAIL'}] {name}" + (f": {detail}" if detail and not ok else ""), flush=True)
     if not ok:
         failures.append(name)
+
+
+# ---------------------------------------------------------------- the page's fingerprint, without a browser
+def logged_uploads():
+    """The upload failures in errors.jsonl, newest first."""
+    return [e for e in errorlog.recent(100) if e.get("where") == "upload"]
+
+
+class _Page:
+    """A tab that answers eval with what it's given (or raises it), and notes the time limit asked for."""
+    def __init__(self, answer):
+        self.answer, self.limits = answer, []
+
+    def eval(self, expression, timeout=20.0):
+        self.limits.append(timeout)
+        if isinstance(self.answer, BaseException):
+            raise self.answer
+        return self.answer
+
+
+slow = _Page(cdp.CDPError("The browser didn't answer Runtime.evaluate in time."))
+check("a page that doesn't answer: no fingerprint, and no error", studio_auto.fingerprint(slow, "tiktok") is None)
+check("and it waits at most 2 s", slow.limits == [2.0], slow.limits)
+check("a script that throws: no fingerprint, and no error",
+      studio_auto.fingerprint(_Page(cdp.CDPError("Page script failed: TypeError")), "tiktok") is None)
+check("anything else going wrong: no fingerprint, and no error",
+      studio_auto.fingerprint(_Page(RuntimeError("socket gone")), "tiktok") is None)
+check("an answer that isn't a fingerprint: none", studio_auto.fingerprint(_Page("text"), "tiktok") is None)
+fp = studio_auto.fingerprint(_Page({"path": "/tiktokstudio/upload", "buttons": ["Post", "Ludicrous Zebra"],
+                                    "marks": ["zebra-ludicrous"]}), "tiktok",
+                             private=("Ludicrous play #zebra", os.path.join("x", "Ludicrous.mp4")))
+check("words that went in are blanked wherever they are", fp and fp["buttons"] == ["Post", "… …"]
+      and fp["marks"] == ["…-…"], fp)
+check("it says the site and Clip Radar's version", fp and fp["site"] == "tiktok" and fp.get("version"), fp)
+js = studio_auto._fingerprint_js(studio_auto._site_selectors("tiktok"))
+check("every TikTok selector is in the fingerprint", all(f'"{k}": ()' in js for k in studio_auto.SELECTORS), js[:200])
+js = studio_auto._fingerprint_js(studio_auto._site_selectors("youtube"))
+check("and every YouTube one in YouTube's", all(f'"{k}": ()' in js for k in studio_auto.YT))
+errorlog.record("upload", "too big", step="x", fingerprint={"marks": ["m" * 100] * 1000})
+check("a fingerprint too big for the log is left out, the failure kept", logged_uploads()[0]["message"] == "too big"
+      and "fingerprint" not in logged_uploads()[0], logged_uploads()[0].keys())
 
 
 if not studio_auto.find_browser():
@@ -150,6 +195,35 @@ try:
     finally:
         studio_auto._wait, studio_auto._first = orig, orig_first
     srv.shutdown()
+    rec = logged_uploads()[0] if logged_uploads() else {}
+    fp = rec.get("fingerprint") or {}
+    check("the failure is in the error log, with the step and the site",
+          rec.get("context", {}).get("step") == "file box" and rec.get("context", {}).get("site") == "tiktok", rec)
+    sel = fp.get("selectors", {})
+    check("with what the page looked like: no file box, no caption box, no Post",
+          sel.get("file") == {"match": False} and sel.get("caption") == {"match": False}
+          and sel.get("post") == {"match": False} and sel.get("login") == {"match": False}, sel)
+    check("every selector is in it", set(studio_auto.SELECTORS) <= set(sel), sorted(sel))
+    check("its path (no query), language and window size", fp.get("path") == "/tiktokstudio/upload" and fp.get("lang") == "en"
+          and len(fp.get("window", [])) == 2, fp)
+    check("TikTok's marks, sorted", "new_upload_button" in fp.get("marks", []) and fp["marks"] == sorted(fp["marks"]), fp.get("marks"))
+    check("the buttons' words", "Upload" in fp.get("buttons", []), fp.get("buttons"))
+
+    # 4b. the same page with a script that breaks what the fingerprint reads: the failure is still recorded
+    srv = fake_studio.start(mode="throws")
+    try:
+        studio_auto._wait = lambda page, what, seconds, check, every=0.5: orig(page, what, min(seconds, 3), check, every)
+        studio_auto._first = lambda page, whats, seconds, check, every=0.25: orig_first(page, whats, min(seconds, 3), check, every)
+        studio_auto.upload(clip, CAPTION, False, srv.url, steps.append)
+        check("a page whose script throws: a named failure", False, "no error")
+    except studio_auto.StudioError as e:
+        check("a page whose script throws: a named failure", e.step == "file box", e.step)
+    finally:
+        studio_auto._wait, studio_auto._first = orig, orig_first
+    srv.shutdown()
+    rec = logged_uploads()[0] if logged_uploads() else {}
+    check("and still recorded, without a fingerprint", rec.get("context", {}).get("step") == "file box"
+          and "fingerprint" not in rec, rec)
 
     # 6. a page that ignores the first file and drops the first typing: both done again, and it still works
     srv = fake_studio.start(mode="flaky")
@@ -252,6 +326,27 @@ try:
               e.step == "upload" and "format" in str(e), (e.step, str(e)))
     check("and is said within seconds", time.time() - t0 < 30, round(time.time() - t0, 1))
     srv.shutdown()
+    # the caption is in the box and the clip in the file box when this fails, and the account in the header
+    rec = logged_uploads()[0] if logged_uploads() else {}
+    fp = rec.get("fingerprint") or {}
+    sel = fp.get("selectors", {})
+    check("a refused upload is recorded with a fingerprint", rec.get("context", {}).get("step") == "upload" and fp, rec)
+    check("showing the caption box and a Post button that can't be pressed yet",
+          sel.get("caption") == {"match": True, "visible": True, "enabled": True}
+          and sel.get("post", {}).get("match") and sel["post"].get("enabled") is False
+          and sel.get("upload_error") == {"match": True}, sel)
+    check("and TikTok's marks", {"caption_container", "post_video_button"} <= set(fp.get("marks", [])), fp.get("marks"))
+    text = json.dumps(rec, ensure_ascii=False).lower()
+    fptext = json.dumps(fp, ensure_ascii=False).lower()
+    secret = [w for w in (CAPTION + " " + os.path.splitext(os.path.basename(clip))[0] + " " + fake_studio.ACCOUNT_NAME + " "
+                          + fake_studio.ACCOUNT_HANDLE).replace("#", " ").replace("@", " ").split() if len(w) >= 4]
+    check("no word of the caption, the file's name or the account is in the fingerprint",
+          not [w for w in secret if w.lower() in fptext], [w for w in secret if w.lower() in fptext])
+    check("nor the caption, the file's name or the account anywhere in the record",
+          "laughing" not in text and "kaicenat" not in text and "chat lost it" not in text and "okonkwo" not in text
+          and "miraclips" not in text and os.path.basename(clip).lower() not in text, text[:600])
+    check("the account's button is still listed, its words blanked", "… … ▾" in fp.get("buttons", []), fp.get("buttons"))
+    print("  fingerprint of a refused upload:", json.dumps(fp, ensure_ascii=False))
 
     # 12. a caption longer than TikTok takes: shortened to fit, keeping the hashtags, instead of failing
     srv = fake_studio.start(mode="short")

@@ -10,6 +10,8 @@ around its hashtags, so the box's text isn't exactly what was typed. "suggest" p
 the box is left with the caret right after a hashtag; "lines" drops line breaks from typed text (pasting keeps
 them); "nopaste" also ignores pasting, so only typing line by line works. "laggy" (4.50.2) learns about a select-all late, so
 Backspace straight after Ctrl+A deletes one letter instead of the caption TikTok started with ("suggest" does too).
+"changed" has no file box (TikTok redesigned the page); "throws" is that page with a script that breaks
+document.documentElement. Every page shows a signed-in account (ACCOUNT_NAME, ACCOUNT_HANDLE) in its header.
 
     srv = fake_studio.start()          # srv.url, srv.posted (what was posted), srv.shutdown()
 """
@@ -21,8 +23,13 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-UPLOAD = """<!doctype html><meta charset=utf-8><title>TikTok Studio</title>
-<body><h1>Upload video</h1>
+# the signed-in account, as TikTok's header shows it: a fingerprint of the page (studio_auto.fingerprint) must not have it
+ACCOUNT_NAME, ACCOUNT_HANDLE = "Mira Okonkwo", "@miraclips_77"
+HEADER = (f'<header data-e2e=nav-profile><img class=avatar alt="{ACCOUNT_NAME}" width=8 height=8>'
+          f'<span data-e2e=profile-nickname>{ACCOUNT_NAME}</span> <button data-e2e=account-menu>{ACCOUNT_HANDLE}</button></header>'
+          f'<button class=switcher>{ACCOUNT_NAME} ▾</button>')
+UPLOAD = """<!doctype html><html lang=en><meta charset=utf-8><title>TikTok Studio</title>
+<body>""" + HEADER + """<h1>Upload video</h1>
 <div id=pick><button onclick="document.getElementById('f').click()">Select video</button>
 <input id=f type=file accept="video/*" style="display:none"></div>
 <div id=editor hidden>
@@ -118,7 +125,11 @@ document.getElementById('postnow').onclick = async () => {
 LOGIN = """<!doctype html><meta charset=utf-8><title>Log in | TikTok</title>
 <div id=login-modal><button id=signin onclick="document.cookie='signed=1; path=/'; location.href='/tiktokstudio/upload'">Log in</button></div>"""
 CONTENT = "<!doctype html><meta charset=utf-8><title>Posts</title><p>Your video has been uploaded.</p>"
-CHANGED = "<!doctype html><meta charset=utf-8><title>TikTok Studio</title><p>A redesigned page with no file box.</p>"
+CHANGED = ("<!doctype html><html lang=en><meta charset=utf-8><title>TikTok Studio</title>" + HEADER +
+           "<p>A redesigned page with no file box.</p><button data-e2e=new_upload_button>Upload</button>")
+# a redesigned page whose own script breaks what a fingerprint reads first (document.documentElement)
+THROWS = CHANGED + ("<script>Object.defineProperty(document, 'documentElement', "
+                    "{ get() { throw new Error('page broke') } })</script>")
 
 
 class _H(BaseHTTPRequestHandler):
@@ -140,6 +151,8 @@ class _H(BaseHTTPRequestHandler):
         if u.path == "/tiktokstudio/upload":
             if srv.mode == "changed":
                 return self._send(CHANGED)
+            if srv.mode == "throws":
+                return self._send(THROWS)
             if (srv.mode == "login" or parse_qs(u.query).get("login")) and not signed:
                 self.send_response(302)
                 self.send_header("Location", "/login?redirect_url=/tiktokstudio/upload")

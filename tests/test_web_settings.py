@@ -17,6 +17,7 @@ import os
 import sys
 import tempfile
 import time
+from urllib.parse import urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 for _s in (sys.stdout, sys.stderr):
@@ -118,12 +119,18 @@ with sync_playwright() as pw:
     check("#settings/tiktok opens Settings at TikTok", 0 <= top < 200, top)
     page.wait_for_selector("[data-testid=set-press-post]", timeout=10000)
     if page.get_by_test_id("set-press-post").count():
-        page.get_by_test_id("set-press-post").check()
-        page.wait_for_timeout(500)
-        check("Press Post for me is saved from Settings", studio_auto.load_settings()["press_post"] is True)
-        page.get_by_test_id("set-press-post").uncheck()
-        page.wait_for_timeout(500)
-        check("and turned off again", studio_auto.load_settings()["press_post"] is False)
+        # the box changes at once and the save (POST /api/studio) follows: wait for the save's answer, then read the
+        # setting once. A fixed half second could read it before the save landed, and reading studio.json while the
+        # server replaces it fails the save on Windows (WinError 5)
+        def saved_press_post(action) -> dict:
+            with page.expect_response(lambda r: urlparse(r.url).path == "/api/studio" and r.request.method == "POST",
+                                      timeout=15000) as answer:
+                action()
+            return {"status": answer.value.status, "press_post": studio_auto.load_settings()["press_post"]}
+        got = saved_press_post(page.get_by_test_id("set-press-post").check)
+        check("Press Post for me is saved from Settings", got == {"status": 200, "press_post": True}, got)
+        got = saved_press_post(page.get_by_test_id("set-press-post").uncheck)
+        check("and turned off again", got == {"status": 200, "press_post": False}, got)
     else:
         check("without Edge or Chrome, TikTok says how posting works", "Open TikTok Studio" in page.get_by_test_id("set-tiktok").inner_text())
     page.goto(url + "/next/#settings")

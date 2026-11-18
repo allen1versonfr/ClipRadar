@@ -1,0 +1,74 @@
+{
+ "taken": "2026-11-17 22:39",
+ "site": "youtube",
+ "url": "https://www.youtube.com/upload",
+ "source": "studio_check",
+ "signed_in": true,
+ "ok": true,
+ "page": {
+  "path": "/channel/…/videos/upload",
+  "lang": "en",
+  "window": [
+   2552,
+   1356
+  ],
+  "selectors": {
+   "file": {
+    "match": true,
+    "visible": false,
+    "enabled": true
+   },
+   "login": {
+    "match": false
+   },
+   "title": {
+    "match": false
+   },
+   "description": {
+    "match": false
+   }
+  },
+  "marks": [],
+  "buttons": [
+   "Close",
+   "Collapse menu",
+   "Skip navigation",
+   "Clear",
+   "Search",
+   "Help",
+   "Notifications",
+   "Ask Studio",
+   "Create",
+   "…",
+   "",
+   "Settings",
+   "Send feedback",
+   "",
+   "",
+   "Edit",
+   "Edit",
+   "Add to playlist",
+   "Add to playlist",
+   "More actions",
+   "More actions",
+   "Close",
+   "Learn more",
+   "Date",
+   "Views",
+   "Learn more",
+   "Learn more",
+   "Retry",
+   "Retry",
+   "Send Feedback",
+   "Close",
+   "Select files",
+   "Retry",
+   "Back",
+   "Next",
+   "Save"
+  ],
+  "site": "youtube",
+  "version": "4.52.1"
+ },
+ "file": null
+}
