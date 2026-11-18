@@ -237,7 +237,7 @@ export function ToolsPanel({ status, refreshStatus }: { status: Status | undefin
           <span className="hint">Older way to reach subscriber-only VODs. Twitch sign-in above is easier and is used first.</span>
         </label>
       </div>
-      <table className="table compact static" data-testid="tool-table">
+      <div className="table-scroll"><table className="table compact static" data-testid="tool-table">
         <tbody>
           {TOOLS.map(([name, key, what, k]) => {
             const ok = !!status?.[key]
@@ -251,7 +251,7 @@ export function ToolsPanel({ status, refreshStatus }: { status: Status | undefin
             )
           })}
         </tbody>
-      </table>
+      </table></div>
       {setup.job && setup.job.status === 'running' && (
         <div className="job" aria-live="polite">
           <span className="small">{setup.job.step || 'Downloading tools'} {Math.round(setup.job.progress * 100)}%</span>

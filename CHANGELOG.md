@@ -13,6 +13,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `tests/test_youtube_auto.py`: the same for YouTube Studio's page asking to create a channel first.
 - `tests/test_errorlog.py`: a fingerprint is kept as JSON with secrets blanked, and one that can't be written doesn't stop the failure being recorded.
 
+## [4.52.1] - 2026-11-17
+
+Small fixes to how the app looks: links in empty screens, and the Settings tables in a narrow window.
+
+### Fixed
+- Links in empty screens (Exports, Review, Segments) were the browser's default blue, purple once visited. They're white and underlined like the app's other links, and turn green on hover.
+- Settings › Content check: in a narrow window the Censor column was pushed out of view. The category names now wrap so all three columns fit.
+- Settings › Downloads and tools: in a narrow window the tools table made the whole Settings page scroll sideways.
+
 ## [4.52.0] - 2026-11-17
 
 Pick parts of a long stream and edit them into one video of up to 30 minutes in the new Segments screen, and live clipping saves the whole stream as a VOD.
