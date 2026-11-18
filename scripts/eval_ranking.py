@@ -300,7 +300,8 @@ def _sd(x, pct: bool = True) -> str:
     return "–" if x is None else (f"±{x:.2f}" if pct else f"±{x:.1f}")
 
 
-HEAD = [("recall@10", "Recall@10 (headline)", True), ("wrecall@10", "Weighted recall@10", True),
+HEAD = [("recall@10", "Recall@10 (headline)", True), ("ceiling@10", "Recall@10 at best (10 clips, 10 different moments)", True),
+        ("wrecall@10", "Weighted recall@10", True),
         ("recall@5", "Recall@5", True), ("recall@20", "Recall@20", True), ("precision@10", "Precision@10", True),
         ("payoff_kept", "Payoff kept", True), ("first_hit", "First hit rank", False),
         ("auto_count", "Automatic: clips suggested", False), ("auto_recall", "Automatic: recall", True)]
@@ -354,12 +355,12 @@ def report(args, ev: dict, side: dict, base_ev=None) -> str:
             L.append(f"| {v['name']} | " + " | ".join(cells) + " |")
         L.append("")
     L += ["## Per VOD", "",
-          "| VOD | Category | Truth | R@5 | R@10 | R@20 | wR@10 | P@10 | Payoff kept | First hit | Automatic / truth |",
+          "| VOD | Category | Truth | R@5 | R@10 (best possible) | R@20 | wR@10 | P@10 | Payoff kept | First hit | Automatic / truth |",
           "|---|---|---|---|---|---|---|---|---|---|---|"]
     for v in per:
         name = v["name"] + (" (held out)" if v.get("holdout") else "") + ("" if v["scored"] else " (not scored: too few moments)")
         L.append(f"| {name} | {v['category'] or '–'} | {v['truth']}" + (f" (+{v['at_edge']} at edges)" if v["at_edge"] else "") +
-                 f" | {_f(v['recall@5'])} | {_f(v['recall@10'])} | {_f(v['recall@20'])} | {_f(v['wrecall@10'])} | "
+                 f" | {_f(v['recall@5'])} | {_f(v['recall@10'])} ({_f(v.get('ceiling@10'))}) | {_f(v['recall@20'])} | {_f(v['wrecall@10'])} | "
                  f"{_f(v['precision@10'])} | {_f(v['payoff_kept'])} | {v['first_hit'] or '–'} | "
                  f"{v.get('auto_count', '–')} / {v['truth']} |")
     L += ["", "## Biggest misses", "",

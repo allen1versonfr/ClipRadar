@@ -110,6 +110,9 @@ check("three truth moments of four", (s["truth"], s["moments"]) == (3, 4), s)
 check("recall@5: A and B of three", near(s["recall@5"], 2 / 3), s["recall@5"])
 check("one moment found by two clips counts once", near(s["recall@10"], 2 / 3), s["recall@10"])
 check("recall@n when fewer clips than n: all of them count", near(s["recall@20"], 2 / 3))
+check("the most recall@10 could be: 1 with 3 moments", s["ceiling@10"] == 1.0, s["ceiling@10"])
+many = [vc(1000 * i, 1000 * i + 30, 600, f"p{i}") for i in range(25)]
+check("and 0.4 with 25 (10 clips find 10 moments at most)", near(rm.score_vod([], many)["ceiling@10"], 0.4))
 w = [math.log2(1 + 1050), math.log2(1 + 3010), math.log2(1 + 600)]
 check("weighted recall weights each moment by log2(1 + views)", near(s["wrecall@10"], (w[0] + w[1]) / sum(w)), s["wrecall@10"])
 check("precision@10: clips overlapping any viewer clip, one-clipper ones too", near(s["precision@10"], 4 / 6), s["precision@10"])
@@ -132,8 +135,9 @@ check("misses, most viewed first, with where they came", [(m["views"], m["rank"]
 
 # ---------------------------------------------------------------- nothing to find
 s = rm.score_vod(ranked, [vc(900, 930, 3, "f")])
-check("an empty truth set: recall, payoff and first hit are None, not 0",
-      s["truth"] == 0 and s["recall@10"] is None and s["wrecall@10"] is None and s["payoff_kept"] is None and s["first_hit"] is None, s)
+check("an empty truth set: recall, its ceiling, payoff and first hit are None, not 0",
+      s["truth"] == 0 and s["recall@10"] is None and s["ceiling@10"] is None and s["wrecall@10"] is None and s["payoff_kept"] is None
+      and s["first_hit"] is None, s)
 check("precision is still measured", near(s["precision@10"], 1 / 6), s["precision@10"])
 s = rm.score_vod([], viewers)
 check("no clips at all: recall 0, precision None", s["recall@10"] == 0 and s["precision@10"] is None, s)
