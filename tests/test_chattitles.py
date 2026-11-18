@@ -113,7 +113,8 @@ import tempfile  # noqa: E402
 import persist  # noqa: E402
 import twitchclips  # noqa: E402
 vwd = tempfile.mkdtemp(prefix="ct_vclips_")
-persist.write_json(os.path.join(vwd, twitchclips.FILE), {"vod": "1", "fetched": 0, "clips": [
+# times where the clips really are (format 2), so loading doesn't move them as an old list (twitchclips.upgrade)
+persist.write_json(os.path.join(vwd, twitchclips.FILE), {"vod": "1", "fetched": 0, "format": twitchclips.FORMAT, "clips": [
     {"start": 96, "end": 112, "views": 80, "title": "DOG CAMEO"}, {"start": 97, "end": 113, "views": 5, "title": "t"}]})
 vpr = dict(pr, workdir=vwd)
 vused: set = set()
