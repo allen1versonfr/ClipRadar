@@ -29,6 +29,7 @@ os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_test_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
+import render_queue  # noqa: E402
 import server  # noqa: E402
 
 failures = []
@@ -72,7 +73,7 @@ def fake_render(it):
     it["path"] = os.path.join(it["folder"], it["name"])
 
 
-server._render_item = fake_render
+render_queue._render_item = fake_render
 srv, url = server.start(7991)
 
 

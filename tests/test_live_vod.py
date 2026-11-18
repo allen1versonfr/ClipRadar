@@ -138,13 +138,14 @@ def test_failed_join_keeps_the_pieces():
 
 def test_server_checks_for_room_first():
     import server
+    import render_queue
     assert server.live_vod_setting({"save_vod": False}) == (False, "")
     real = server._check_space
-    server._check_space = lambda d, secs: (_ for _ in ()).throw(OSError(28, "No space left on device (900 MB free, about 5600 MB needed)"))
+    render_queue._check_space = lambda d, secs: (_ for _ in ()).throw(OSError(28, "No space left on device (900 MB free, about 5600 MB needed)"))
     try:
         on, note = server.live_vod_setting({})
     finally:
-        server._check_space = real
+        render_queue._check_space = real
     assert on is False and note.startswith("Not saving the full stream: No space left on device (900 MB free")
     s = session(on, save_vod_note=note)
     assert s.public()["vod"] == dict(s.vod) and s.vod["state"] == "off" and s.vod["note"] == note

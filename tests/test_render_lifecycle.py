@@ -36,6 +36,7 @@ import render  # noqa: E402
 import exports  # noqa: E402
 import persist  # noqa: E402
 import server  # noqa: E402
+import render_queue  # noqa: E402
 
 failures = []
 
@@ -119,7 +120,7 @@ def spy_stage(it, stage, step):
     real_set_stage(it, stage, step)
 
 
-server.set_stage = spy_stage
+render_queue.set_stage = spy_stage
 srv, url = server.start(7993)
 
 

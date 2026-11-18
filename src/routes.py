@@ -3,8 +3,9 @@ Clip Radar's HTTP routes: the request handler for the local server.
 
 Moved out of server.py so routing and the app's work (projects, jobs, the render queue, live
 sessions) live apart. Everything the handler uses from server.py is read as S.<name> at request
-time, so tests that swap a server function or setting (server._render_item = ..., server.WEB_DIR
-= ...) still reach the handler. The full route list: docs/api-routes.md.
+time, so tests that swap a server function or setting (server.WEB_DIR = ...) still reach the handler;
+what moved out of server.py is called where it lives now (render_queue.queue_add, ...), so swapping
+render_queue.<name> reaches it too. The full route list: docs/api-routes.md.
 """
 
 from __future__ import annotations
@@ -56,6 +57,7 @@ import vodexport
 import voicekeep
 import watermarks
 
+import render_queue
 import server as S
 
 
@@ -274,8 +276,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(learning.explain((q.get("streamer") or [""])[0]))
         if p == "/api/queue":
             with S.queue_lock:
-                items = [S.queue_public(it) for it in S.queue]
-            return self._json({"items": items, "eta": S.queue_eta(), "workers": S.MAX_WORKERS[0]})
+                items = [render_queue.queue_public(it) for it in S.queue]
+            return self._json({"items": items, "eta": render_queue.queue_eta(), "workers": render_queue.MAX_WORKERS[0]})
         if p == "/api/export":
             return self._json(S.export_view())
         if p == "/api/spelling":
@@ -647,7 +649,7 @@ class Handler(BaseHTTPRequestHandler):
                 r = S.send_to_discord(it, with_file=body.get("file"))
             except RuntimeError as e:
                 return self._err(str(e))
-            return self._json(dict(r, item=S.queue_public(it)))
+            return self._json(dict(r, item=render_queue.queue_public(it)))
 
         if p == "/api/pick_file":
             kind = body.get("kind", "video")
@@ -1191,7 +1193,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/export":
             prefs = exports.save(body)
-            S.apply_perf(prefs)
+            render_queue.apply_perf(prefs)
             return self._json(S.export_view(body.get("sample")))
 
         if p == "/api/streamer":
@@ -1241,12 +1243,12 @@ class Handler(BaseHTTPRequestHandler):
             if pid not in S.projects:
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
-                it = S.queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=body.get("sound", True) is not False)
+                it = render_queue.queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=body.get("sound", True) is not False)
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
             except RuntimeError as e:
                 return self._err(str(e))
-            return self._json(S.queue_public(it))
+            return self._json(render_queue.queue_public(it))
 
         if p == "/api/queue/remove":
             with S.queue_lock:
@@ -1301,7 +1303,7 @@ class Handler(BaseHTTPRequestHandler):
         if p.startswith("/api/test/") and os.environ.get("CLIPRADAR_TEST") == "1":
             act = p[len("/api/test/"):]
             if act in ("fail_next_render", "break_next_output"):
-                S.TEST_HOOKS[act] = True
+                render_queue.TEST_HOOKS[act] = True
                 return self._json({"ok": True})
             if act == "hotkey":
                 return self._json({"ok": hotkey.simulate()})

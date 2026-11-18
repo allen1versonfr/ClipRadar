@@ -43,6 +43,7 @@ import studio
 import studio_auto
 import ytextra
 import voicekeep
+import render_queue
 
 CHUNK = 600.0            # seconds of sound heard at a time
 MUSIC_ON = 0.45          # music probability (smoothed) from which a second counts as music
@@ -628,7 +629,7 @@ def run_export(S, job: dict, pid: str, o: dict) -> dict:
     if dur <= 0:
         raise RuntimeError("Couldn't read the video's length.")
     outdir = locations.clips_dir(pr["workdir"])
-    S._validate_render({"id": job["id"], "start": 0.0, "end": dur}, pr, outdir)
+    render_queue._validate_render({"id": job["id"], "start": 0.0, "end": dur}, pr, outdir)
     if can_copy(o, info):
         try:
             need = os.path.getsize(video) + 200e6
@@ -637,7 +638,7 @@ def run_export(S, job: dict, pid: str, o: dict) -> dict:
         except FileNotFoundError:
             pass
     else:
-        S._check_space(outdir, dur * render_opts(S, o, info).scale * 0.5)   # a wide frame at stream bitrates
+        render_queue._check_space(outdir, dur * render_opts(S, o, info).scale * 0.5)   # a wide frame at stream bitrates
     name = output_name(pr, outdir)
     path = os.path.join(outdir, name)
     t0 = time.time()

@@ -56,6 +56,7 @@ import whisper  # noqa: E402
 import framing  # noqa: E402
 import safety  # noqa: E402
 import server  # noqa: E402
+import render_queue  # noqa: E402
 
 failures = []
 
@@ -129,7 +130,7 @@ def fake_send(webhook, content, file_path="", limit=0, timeout=0.0):
 
 
 discordhook.send = fake_send
-server.play_sound = lambda event, it: EVENTS.append(("sound", event))
+render_queue.play_sound = lambda event, it: EVENTS.append(("sound", event))
 cleanup.sweep = lambda *a, **k: EVENTS.append(("cleanup",))
 
 _real_live_rendered = server._live_rendered
@@ -159,7 +160,7 @@ def fake_render(it):
     it["path"], it["name"], it["folder"] = path, os.path.basename(path), OUT
 
 
-server._render_item = fake_render
+render_queue._render_item = fake_render
 
 
 class _StopWorker(Exception):

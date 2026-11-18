@@ -337,13 +337,14 @@ import json  # noqa: E402
 
 import discordhook  # noqa: E402
 import server  # noqa: E402
+import render_queue  # noqa: E402
 
 autopilot.reset()
 autopilot_steps.register()
 check("12: the server points the gate at its projects", autopilot.find_clip is autopilot_steps.find_clip)
 SENT: list = []
 discordhook.send = lambda hook, text, path="", *a, **k: (SENT.append(text), {"attached": False, "note": ""})[1]
-server.play_sound = lambda *a, **k: None
+render_queue.play_sound = lambda *a, **k: None
 
 
 class InlineThread:

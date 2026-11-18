@@ -45,6 +45,7 @@ def latency_title(ctx: Ctx):
 def hands_free_render(ctx: Ctx):
     """Hands-free: queue the moment for rendering, unless the content check holds it back for you."""
     import server
+    import render_queue
     d, sess, mid = ctx.d, ctx.sess, ctx.pid
     extra = sess.extra
     number = d.get("moment")
@@ -59,7 +60,7 @@ def hands_free_render(ctx: Ctx):
         return "held", hold.why
     c = dict(d, rank=number)
     c["post"] = d.get("post", "")
-    it = server.queue_add(mid, c, extra.get("opts") or {})
+    it = render_queue.queue_add(mid, c, extra.get("opts") or {})
     it["prio"] = server._live_prio(d)
     it["auto"] = True                      # rendered on its own (hands-free), not by you
     it["lat"], it["aired"] = dict(d["lat"]), ctx.aired
@@ -71,8 +72,8 @@ def hands_free_render(ctx: Ctx):
 
 def ready_sound(ctx: Ctx):
     """The 'ready' sound (play_sound checks Settings › Exports › sounds itself)."""
-    import server
-    server.play_sound("ready", ctx.it)
+    import render_queue
+    render_queue.play_sound("ready", ctx.it)
 
 
 def discord_on(ctx: Ctx) -> bool:
@@ -100,9 +101,9 @@ def find_clip(it: dict):
 def cleanup_vods(ctx: Ctx):
     """A finished VOD may now be cleaned up (Settings › Storage, off by default)."""
     import errorlog
-    import server
+    import render_queue
     try:
-        server._after_render(ctx.it)
+        render_queue._after_render(ctx.it)
     except Exception as e:
         errorlog.exc("after-render", clip=ctx.it.get("title", ""))      # as queue_worker logged it
         return "failed", f"{type(e).__name__}: {e}"

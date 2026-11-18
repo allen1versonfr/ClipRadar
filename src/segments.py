@@ -31,6 +31,7 @@ import exports
 import locations
 import paths
 import vodexport
+import render_queue
 
 MAX_LEN = 30 * 60.0      # seconds an export can be
 MIN_LEN = 0.5            # a segment (or what's left of it) shorter than this is nothing
@@ -343,7 +344,7 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
         o["music"], o["word_spans"] = vodexport.suggested(pr)
     outdir = locations.clips_dir(pr["workdir"])
     os.makedirs(outdir, exist_ok=True)
-    S._check_space(outdir, total * 0.6)
+    render_queue._check_space(outdir, total * 0.6)
     tmp = locations.temp_dir(os.path.basename(pr["workdir"]), "segments")
     log = S.job_logger(job)
     t0, made, words, ro, at = time.time(), [], [], None, 0.0

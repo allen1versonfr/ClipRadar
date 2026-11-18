@@ -36,6 +36,7 @@ import campaigns  # noqa: E402
 import discordhook  # noqa: E402
 import exports  # noqa: E402
 import server  # noqa: E402
+import render_queue  # noqa: E402
 import watermarks as WM  # noqa: E402
 
 failures = []
@@ -147,7 +148,7 @@ def fake_render(it):
     it["post"] = campaigns.apply_post(it.get("post", ""), it.get("campaign"), it["title"])
 
 
-server._render_item = fake_render
+render_queue._render_item = fake_render
 srv, url = server.start(7989)
 
 

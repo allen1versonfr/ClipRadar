@@ -7,6 +7,8 @@ so far kept their promises:
 - no test, script or module replaces a moved name through engine (engine.X = fake, setattr(engine, "X", …)): that
   stops working once the code calling X lives in the new module, which looks X up there. Patch the new module;
 - each new module can be imported on its own, before engine, and is then the same module engine re-exports;
+- the same for what moves out of server.py (phase 5, SERVER_MOVED), whose modules also read server's shared state as
+  S.<name> at call time and never copy it (from server import ...);
 - engine.py imports each new module at its top level, so PyInstaller's analysis (scripts/build_exe.bat and
   .github/workflows/build.yml, which freeze src/app.py) finds it without a --hidden-import.
 
@@ -34,7 +36,6 @@ for _s in (sys.stdout, sys.stderr):
         pass
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
-import engine  # noqa: E402
 
 # the sections moved out of engine.py so far: module -> the names it took
 MOVED = {
@@ -82,6 +83,20 @@ MOVED = {
                  "pick_clips", "_reason", "make_thumb", "MIN_LEN", "MAX_LEN", "STRONG", "GOOD"],
 }
 
+# the same for server.py (hardening phase 5): the moved modules read server's shared state as S.<name>, never a copy
+SERVER_MOVED = {
+    "render_queue": ["queue_public", "SOUND_LOG", "play_sound", "queue_add", "_render_projects",
+                     "_render_project", "_render_projects_lock", "queue_busy", "_file_name", "MB_PER_SECOND",
+                     "_check_space", "_check_output", "BrokenOutput", "_prehear", "_prehear_wake",
+                     "_prehear_started", "_needs_captions", "_prehear_one", "_prehear_loop", "start_prehear",
+                     "_wait_prehear", "_render_inputs", "_validate_render", "_render_item", "TEST_HOOKS",
+                     "_UNMEASURED", "_check_sound", "_picture_soon", "_check_picture", "RETRYABLE", "RAM_SHORT",
+                     "_CARD_WORDS", "classify_render_error", "friendly_render_error", "redact", "set_stage",
+                     "HISTORY_KEEP", "_attempt_start", "_attempt_end", "_after_render", "MAX_WORKERS",
+                     "apply_perf", "_workers", "queue_eta", "MEM_RESERVE", "_mem_short", "queue_worker"],
+}
+HUBS = {"engine": MOVED, "server": SERVER_MOVED}
+
 failures = []
 
 
@@ -114,30 +129,38 @@ def defined(module: str) -> set:
     return out
 
 
-for module, names in MOVED.items():
-    mod = importlib.import_module(module)
-    have = defined(module)
-    check(f"MOVED lists every name {module}.py defines (none left out of engine's re-export)", have == set(names),
-          {"not listed": sorted(have - set(names)), "not defined": sorted(set(names) - have)})
-    missing = [n for n in names if not hasattr(mod, n)]
-    check(f"{module}.py has every name it took", not missing, missing)
-    not_same = [n for n in names if getattr(engine, n, None) is not getattr(mod, n, object())]
-    check(f"engine re-exports {module}'s names, the same objects", not not_same, not_same)
-    still = [n for n in names if re.search(rf"^(def|class) {re.escape(n)}\b|^{re.escape(n)} *=", engine_src, re.M)]
-    check(f"engine.py doesn't define {module}'s names any more", not still, still)
-    check(f"engine.py imports {module} at its top level (PyInstaller finds it)",
-          re.search(rf"^(from {module} import|import {module}\b)", engine_src, re.M) is not None)
-    # imported on its own (a script, a test), before engine: the same module engine re-exports, not a half-loaded copy
-    alone = subprocess.run([sys.executable, "-c", f"import {module}, engine; "
-                            f"assert all(getattr(engine, n) is getattr({module}, n) for n in {names!r})"],
-                           cwd=os.path.join(ROOT, "src"), capture_output=True, text=True, timeout=120)
-    check(f"{module} imports on its own, before engine", alone.returncode == 0, alone.stderr[-600:])
-    alt = "|".join(re.escape(n) for n in names)
-    patch = re.compile(rf"\bengine\.({alt})\s*=(?!=)|setattr\(\s*engine\s*,\s*['\"]({alt})['\"]")
-    found = [f"{path}:{text.count(chr(10), 0, m.start()) + 1}: {m.group(0)}"
-             for path, text in texts.items() for m in patch.finditer(text)]
-    check(f"nothing replaces one of {module}'s names through engine (patch {module}.<name> instead)", not found,
-          "; ".join(found))
+for hub, moved in HUBS.items():
+    hub_mod = importlib.import_module(hub)
+    with open(os.path.join(ROOT, "src", hub + ".py"), encoding="utf-8") as f:
+        hub_src = f.read()
+    for module, names in moved.items():
+        mod = importlib.import_module(module)
+        have = defined(module)
+        check(f"the list for {module} has every name {module}.py defines (none left out of {hub}'s re-export)",
+              have == set(names), {"not listed": sorted(have - set(names)), "not defined": sorted(set(names) - have)})
+        missing = [n for n in names if not hasattr(mod, n)]
+        check(f"{module}.py has every name it took", not missing, missing)
+        not_same = [n for n in names if getattr(hub_mod, n, None) is not getattr(mod, n, object())]
+        check(f"{hub} re-exports {module}'s names, the same objects", not not_same, not_same)
+        still = [n for n in names if re.search(rf"^(def|class) {re.escape(n)}\b|^{re.escape(n)} *[:=]", hub_src, re.M)]
+        check(f"{hub}.py doesn't define {module}'s names any more", not still, still)
+        check(f"{hub}.py imports {module} at its top level (PyInstaller finds it)",
+              re.search(rf"^(from {module} import|import {module}\b)", hub_src, re.M) is not None)
+        # imported on its own (a script, a test), before the hub: the same module the hub re-exports, not a half-loaded copy
+        alone = subprocess.run([sys.executable, "-c", f"import {module}, {hub}; "
+                                f"assert all(getattr({hub}, n) is getattr({module}, n) for n in {names!r})"],
+                               cwd=os.path.join(ROOT, "src"), capture_output=True, text=True, timeout=180)
+        check(f"{module} imports on its own, before {hub}", alone.returncode == 0, alone.stderr[-600:])
+        alt = "|".join(re.escape(n) for n in names)
+        who = "engine" if hub == "engine" else "(?:server|S)"
+        patch = re.compile(rf"\b{who}\.({alt})\s*=(?!=)|setattr\(\s*{who}\s*,\s*['\"]({alt})['\"]")
+        found = [f"{path}:{text.count(chr(10), 0, m.start()) + 1}: {m.group(0)}"
+                 for path, text in texts.items() for m in patch.finditer(text)]
+        check(f"nothing replaces one of {module}'s names through {hub} (patch {module}.<name> instead)", not found,
+              "; ".join(found))
+        if hub == "server":
+            copies = re.findall(r"^\s*from server import .*$", texts[os.path.join("src", module + ".py")], re.M)
+            check(f"{module} reads server's state as S.<name>, never a copy (from server import ...)", not copies, copies)
 
 print("PASSED" if not failures else f"FAILED: {', '.join(failures)}")
 sys.exit(1 if failures else 0)
