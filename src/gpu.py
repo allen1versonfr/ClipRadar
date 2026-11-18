@@ -305,6 +305,7 @@ def forget() -> None:
 def status() -> dict:
     """For Settings › Performance: the card, and what runs on it."""
     import engine
+    import whisper
     enc = engine._encoder_cache.get("hw")
     c = card()
     nv = nvidia_gpu()
@@ -314,7 +315,7 @@ def status() -> dict:
         "whisper_gpu": whisper_gpu_ok(),
         "cuda_libs": cuda_libs(),
         "pack": installed() or whispercpp.installed(),
-        "whisper_device": engine.whisper_device(),
+        "whisper_device": whisper.whisper_device(),
         "encoder": (enc[0] if enc else "CPU") if "hw" in engine._encoder_cache else "",
         "hw_decode": bool(engine._encoder_cache.get("hwdec", True)),
         "download_mb": 1300 if nv else whispercpp.DOWNLOAD_MB,

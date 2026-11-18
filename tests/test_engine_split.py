@@ -46,6 +46,11 @@ MOVED = {
                 "_reusable", "_download_bytes", "_join_progress", "kill_tree", "_ytdlp_module",
                 "_clean_ytdlp_error", "_download_chat", "_with_info", "_early_sound", "_hand_over",
                 "_sidecar_chat", "load_chat", "_chat_games", "game_at", "_yt_chat", "_yt_emoji", "chat_times"],
+    "whisper": ["_whisper_lock", "_whisper_used", "_whisper_busy", "_busy_lock", "WHISPER_IDLE", "WHISPER_KEEP",
+                "whisper_cpu_threads", "release_whisper", "_release_timer", "_release_later",
+                "whisper_available", "_load_whisper", "CARD_REST", "_card_rest", "_CARD_ERROR",
+                "whisper_device", "FEW_WORDS", "CARD_GAIN", "REHEAR_FROM", "_HALLUCINATION", "transcribe",
+                "_transcribe", "_hear", "extract_audio", "_whisper_cache", "_whisper_device", "_whisper_said"],
 }
 
 failures = []

@@ -32,6 +32,7 @@ import numpy as np
 
 import audio_events
 import engine
+import whisper
 import exports
 import locations
 import outcome
@@ -442,7 +443,7 @@ def check_words(S, job: dict, pr: dict, model: str, lang: str) -> dict:
     """Hear the whole video and list what the content check flags in it."""
     if not (pr.get("info") or {}).get("has_audio", True):
         raise RuntimeError("This video has no sound.")
-    if not engine.whisper_available() and not (pr.get("yt") or {}).get("words"):
+    if not whisper.whisper_available() and not (pr.get("yt") or {}).get("words"):
         raise RuntimeError("Finding flagged words needs the speech model (Whisper). Get it in Settings › Downloads and tools.")
     dur = _duration(pr)
     words = hear_all(S, pr, model, lang, 0.0, dur, S.job_progress(job, 0, 0.98), S.job_check(job), S.job_step(job), "flagged words")
@@ -565,7 +566,7 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     w_voice = (0.6 if copying else 0.25) * (1 - w_hear) if voice else 0.0
     words = [w for w in (words or []) if a <= w["start"] < b] if given and o["captions"] != "off" else []
     if need_words:
-        if not engine.whisper_available() and not (pr.get("yt") or {}).get("words"):
+        if not whisper.whisper_available() and not (pr.get("yt") or {}).get("words"):
             log("Captions skipped: the speech model (Whisper) isn't installed.")
             job["warning"] = "Exported without captions: the speech model (Whisper) isn't installed."
         else:
@@ -775,7 +776,7 @@ def start_hear(S, pid: str, body: dict) -> dict:
     b = min(_duration(pr) or a + 30.0, a + 30.0)
 
     def go(job):
-        if not engine.whisper_available():
+        if not whisper.whisper_available():
             raise RuntimeError("Captions need the speech model (Whisper). Get it in Settings › Downloads and tools.")
         words = hear_all(S, pr, model, lang, a, b, S.job_progress(job, 0, 1), S.job_check(job), S.job_step(job))
         return {"start": a, "end": b, "words": len(words)}
@@ -831,7 +832,7 @@ def view(S) -> dict:
     cfg = safety.load_config()
     return {"videos": vids, "library": library(S), "music_model": audio_events.available(),
             "voice_model": voicekeep.available(), "voice_model_mb": voicekeep.MODEL_MB,
-            "whisper": engine.whisper_available(), "browser": studio_auto.available(),
+            "whisper": whisper.whisper_available(), "browser": studio_auto.available(),
             "censor": cfg.get("censor", "off"), "censor_categories": [safety.CATEGORIES[c]["label"] for c in
                                                                       cfg.get("censor_categories", []) if c in safety.CATEGORIES]}
 

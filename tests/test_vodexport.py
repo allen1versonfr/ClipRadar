@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "src"))
 import numpy as np  # noqa: E402
 
 import engine  # noqa: E402
+import whisper  # noqa: E402
 import server  # noqa: E402
 import vodexport  # noqa: E402
 import voicekeep  # noqa: E402
@@ -203,7 +204,7 @@ if shutil.which("ffmpeg"):
         listened.append((a, b))
         return [w for w in said if a <= w["start"] < b]
     server.ensure_words = fake_words
-    engine.whisper_available = lambda: True
+    whisper.whisper_available = lambda: True
     server._save_transcripts = lambda pr: None
 
     def rms(path, at, ln=0.25):

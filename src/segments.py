@@ -24,6 +24,7 @@ import uuid
 from typing import Optional
 
 import engine
+import whisper
 import exports
 import locations
 import paths
@@ -284,7 +285,7 @@ def start_hear(S, eid: str, seg_id: str, body: dict) -> dict:
     a, b = seg["start"], seg["end"]
 
     def go(job):
-        if not engine.whisper_available() and not (pr.get("yt") or {}).get("words"):
+        if not whisper.whisper_available() and not (pr.get("yt") or {}).get("words"):
             raise RuntimeError("Captions need the speech model (Whisper). Get it in Settings › Downloads and tools.")
         words = vodexport.hear_all(S, pr, model, lang, a, b, S.job_progress(job, 0, 1), S.job_check(job), S.job_step(job))
         return {"start": a, "end": b, "words": len(words), "segment": seg_id}

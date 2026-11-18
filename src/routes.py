@@ -32,6 +32,7 @@ import errorlog
 import detect
 import discordhook
 import engine
+import whisper
 import exports
 import framing
 import hashtags
@@ -530,14 +531,14 @@ class Handler(BaseHTTPRequestHandler):
             def go_gpu():
                 S.job_step(job)("Downloading GPU support for Whisper")
                 res = gpu.install(progress=S.job_progress(job, 0, 1), log=S.job_logger(job), check=S.job_check(job))
-                engine.release_whisper()          # loaded on the CPU: the next one loads on the GPU
+                whisper.release_whisper()          # loaded on the CPU: the next one loads on the GPU
                 return res
             S.run_job(job, go_gpu)
             return self._json({"job": job["id"]})
 
         if p == "/api/gpu/remove":
             import gpu
-            engine.release_whisper()
+            whisper.release_whisper()
             return self._json(gpu.remove())
 
         if p == "/api/gpu/mode":

@@ -55,6 +55,7 @@ if not shutil.which("ffmpeg"):
 import numpy as np  # noqa: E402
 
 import engine  # noqa: E402
+import whisper  # noqa: E402
 import server  # noqa: E402
 
 if not (server.WEB_DIR / "index.html").is_file():
@@ -63,7 +64,7 @@ if not (server.WEB_DIR / "index.html").is_file():
 
 from browser import launch  # noqa: E402
 
-engine.whisper_available = lambda: False          # captions aren't what this checks; the flagged words check is put in
+whisper.whisper_available = lambda: False          # captions aren't what this checks; the flagged words check is put in
 srv, url = server.start(7994)
 
 

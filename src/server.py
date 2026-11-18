@@ -43,6 +43,7 @@ import numpy as np
 import autopilot
 import autopilot_steps
 import engine
+import whisper
 import live
 import paths
 import studio
@@ -1009,7 +1010,7 @@ def _deep_model(choice: str) -> str:
 def deep_status(pr: dict) -> dict:
     j = jobs.get(pr.get("deep_job", ""))
     st = {"state": "none", "progress": 0.0, "step": "", "model": pr.get("deep_model", ""), "error": "",
-          "gems": len(pr.get("gems", [])), "can": engine.whisper_available() and pr["info"].get("has_audio", False)}
+          "gems": len(pr.get("gems", [])), "can": whisper.whisper_available() and pr["info"].get("has_audio", False)}
     if pr.get("deep_done"):
         st["state"] = "done"
         st["progress"] = 1.0
@@ -1067,7 +1068,7 @@ def _update_gems(pid: str, model: str, lang: str):
 
 def start_deep_scan(pid: str, model: str, lang: str):
     pr = projects[pid]
-    if not engine.whisper_available():
+    if not whisper.whisper_available():
         raise RuntimeError("Deep scan needs Whisper, which isn't available in this install.")
     if not pr["info"].get("has_audio"):
         raise RuntimeError("This video has no sound to transcribe.")
@@ -1222,7 +1223,7 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
         check()
         pad_a, pad_b = max(0.0, ga - 1.0), gb + 1.0   # a little overlap so edge words aren't cut
         t0 = time.time()
-        audio = engine.extract_audio(pr["video"], pad_a, pad_b - pad_a)
+        audio = whisper.extract_audio(pr["video"], pad_a, pad_b - pad_a)
         timer.add("reading the sound", time.time() - t0)
         if audio is None:
             if stats is not None:
@@ -1231,7 +1232,7 @@ def ensure_words(pr: dict, a: float, b: float, model: str, lang: str, check=lamb
         new = []
         if audio.size >= 1600:
             t0 = time.time()
-            found = engine.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr), pick=pick, check=check)
+            found = whisper.transcribe(audio, model, lang, lambda m: None, prompt=_vocab(pr), pick=pick, check=check)
             timer.add(heard, time.time() - t0)
             new = [{"start": round(w["start"] + pad_a, 3), "end": round(w["end"] + pad_a, 3), "word": w["word"]} for w in found]
         with pr["tx_lock"]:
@@ -1262,7 +1263,7 @@ def start_listening(pid: str, order: list, model: str, lang: str):
     job = new_job("listen")
     pr["listen_job"] = job["id"]
     yt_words = bool((pr.get("yt") or {}).get("words"))
-    can_listen = (engine.whisper_available() and pr["info"]["has_audio"]) or yt_words
+    can_listen = (whisper.whisper_available() and pr["info"]["has_audio"]) or yt_words
 
     def go():
         check = job_check(job)
@@ -1878,7 +1879,7 @@ def _needs_captions(it: dict, pr: dict, ro) -> bool:
     cfg = safety.load_config()
     censoring = cfg.get("enabled", True) and cfg.get("censor", "off") != "off"
     return (it.get("words") is None and bool(ro.captions or censoring) and bool(pr["info"].get("has_audio"))
-            and engine.whisper_available())
+            and whisper.whisper_available())
 
 
 def _prehear_one() -> bool:
@@ -1949,7 +1950,7 @@ def _render_inputs(it: dict, pr: dict, ro, check, timer: Optional[timing.Timer] 
         # captions corrected by hand in the app
         words = [dict(w, start=w["start"] - it["start"], end=w["end"] - it["start"])
                  for w in it["words"] if it["start"] - 0.2 <= w["start"] < it["end"]]
-    elif (ro.captions or censoring) and pr["info"]["has_audio"] and engine.whisper_available():
+    elif (ro.captions or censoring) and pr["info"]["has_audio"] and whisper.whisper_available():
         set_stage(it, "preparing", "Listening for captions")
         try:
             _wait_prehear(it, check, timer)

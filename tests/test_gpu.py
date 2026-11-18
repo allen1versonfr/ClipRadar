@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "src"))
 import numpy as np  # noqa: E402
 
 import engine  # noqa: E402
+import whisper  # noqa: E402
 import gpu  # noqa: E402
 
 failures = []
@@ -197,7 +198,7 @@ try:
     FakeModel.fails = {}
     FakeModel.oom_mid_clip = True
     engine._whisper_cache.clear()
-    engine._card_rest[0] = 0.0
+    whisper._card_rest[0] = 0.0
     loaded.clear()
     logs = []
     got = engine._transcribe(np.zeros(16000 * 20, dtype=np.float32), "small", "en", logs.append, "")
@@ -209,7 +210,7 @@ try:
     engine._transcribe(np.zeros(16000 * 20, dtype=np.float32), "small", "en", lambda m: None, "")
     check("the next clips stay on the CPU for a while, not failing on the card again", loaded == [("cpu", "int8")], loaded)
     FakeModel.oom_mid_clip = False
-    engine._card_rest[0] = 0.0
+    whisper._card_rest[0] = 0.0
 finally:
     gpu.nvidia_gpu, gpu.cuda_libs = real
     engine._whisper_cache.clear()

@@ -211,6 +211,7 @@ def selftest(out_json: str, media: str = "") -> int:
     import subprocess
     import traceback
     import engine
+    import whisper
 
     checks = []
 
@@ -300,14 +301,14 @@ def selftest(out_json: str, media: str = "") -> int:
                                                         or c.end - c.start >= info["duration"] - 1 for c in auto),
                 f"{[round(c.end - c.start, 1) for c in auto]} s; estimate {est}")
             heard, heard_words, rlog = [], [], []
-            real = engine.transcribe
+            real = whisper.transcribe
 
             def spy(*a, **k):
                 w = real(*a, **k)
                 heard.extend(x["word"] for x in w)
                 heard_words.extend(w)
                 return w
-            engine.transcribe = spy
+            whisper.transcribe = spy
             out = os.path.join(os.path.dirname(out_json), "selftest_clip.mp4")
             start = 26.0
             engine.render_clip(media, start, start + 14, out,
