@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Changed
+- **Live mode's glue moved out of server.py into its own file, with no changes** (`src/live_glue.py`: starting a live session, turning its moments into clips, Home › Sources, and the clip hotkey). `server.py` is now 1,818 lines.
 - **Listening moved out of server.py into its own file, with no changes** (`src/listening.py`: the transcripts of a video, `ensure_words`, listening to clips for titles and captions, and the deep scan). `server.py` is now 2,041 lines.
 - **The render queue moved out of server.py into its own file, with no changes** (`src/render_queue.py`: adding clips to the queue, the workers that render them, hearing the next clips' captions ahead, the checks of a finished file, and why a render failed). This is the first step of splitting `server.py`, which is now 2,384 lines (3,160 before). The state the app shares (projects, jobs, the queue itself, live sessions, the projects folder) stays in `server.py`, written down at its top. The new file reads that state from `server` each time, so it never works on an old copy.
 - **The analysis and clip-picking code moved out of engine.py into its own file, with no changes** (`src/analysis.py`: `analyze`, `Analysis`, `pick_clips`, `smart_bounds`, `measure_audio`, how chat reacts and the thumbnails). That completes the split of `engine.py`, which went from 4,805 lines to 296: the helpers every part shares (running FFmpeg, finding the tools, `Cancelled`), and the names it re-exports so `engine.analyze` and the rest still work. The app's own code now calls `analysis.analyze` and the rest directly.
@@ -23,6 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Tests
 - `tests/test_engine_split.py` (new): `engine` re-exports every moved name as the same object, `engine.py` no longer defines them and imports the new file at its top level (so the app build finds it). No test, script or module replaces a moved name through `engine`, because a fake put there would no longer reach the code that calls it.
+- Tests that stand in for starting a live session or a live moment's render (`test_autopilot`, `test_autopilot_pin`) now replace `live_glue.<name>`.
 - Tests that stand in for hearing words or saving transcripts (`test_deepscan`, `test_captions_ahead`, `test_retry`, `test_timing`, `test_vodexport`, `test_segments`, `test_gpu_choice`, `test_autopilot_pin`, `test_web_review`, `test_web_a11y`, and `scripts/readme_shots.py`) now replace `listening.<name>`.
 - `tests/test_engine_split.py` also checks what moves out of `server.py`, and that it reads the shared state from `server` instead of copying it. Tests that stand in for rendering a clip, a render stage, a sound or the free-space check (`test_autopilot`, `test_autopilot_pin`, `test_campaigns`, `test_captions_ahead`, `test_live_vod`, `test_render_lifecycle`, `test_retry`) now replace `render_queue.<name>`.
 - `tests/test_autopilot_pin.py`: the thumbnail stand-in now replaces `analysis.make_thumb`, and `tests/test_engine_split.py` checks the analysis names too.

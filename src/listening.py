@@ -14,6 +14,11 @@ Everything shared (projects, jobs, the job helpers…) stays in server.py and is
 from __future__ import annotations
 
 import sys
+if "server" not in sys.modules:
+    # imported before server: server imports this module itself (at its end), so server is imported first
+    # and this copy steps aside (the import then gives back the copy server loaded in full)
+    del sys.modules[__name__]
+    import server  # noqa: E402,F401
 import json
 import os
 import time
@@ -27,12 +32,9 @@ import gems
 import persist
 import timing
 
-if "server" not in sys.modules:
-    # imported before server: server imports this module itself (at its end), so server is imported first
-    # and this copy steps aside (the import then gives back the copy server loaded in full)
-    del sys.modules[__name__]
-    import server  # noqa: E402,F401
+import autopilot  # noqa: E402
 import server as S  # noqa: E402  shared state and helpers, read as S.<name> at call time
+import live_glue  # noqa: E402
 
 
 # ---- deep scan: transcribe the whole VOD, then find quiet gems
@@ -328,9 +330,9 @@ def start_listening(pid: str, order: list, model: str, lang: str):
                 gated = bool(pr.get("live"))
                 try:
                     if gated:
-                        job["step"] = "Waiting for other moments to be listened to" if S.live_gate.queued() or S.live_gate.busy else job["step"]
+                        job["step"] = "Waiting for other moments to be listened to" if live_glue.live_gate.queued() or live_glue.live_gate.busy else job["step"]
                         t0 = time.time()
-                        S.live_gate.acquire(S._live_prio(d), check)
+                        live_glue.live_gate.acquire(live_glue._live_prio(d), check)
                         timer.add("waiting for other moments", time.time() - t0)
                         job["step"] = f"Listening to clip {n + 1} of {len(todo)}"
                     try:
@@ -342,7 +344,7 @@ def start_listening(pid: str, order: list, model: str, lang: str):
                                                  timer=timer)
                     finally:
                         if gated:
-                            S.live_gate.release()
+                            live_glue.live_gate.release()
                 except engine.Cancelled:
                     raise
                 except Exception as e:
@@ -370,7 +372,7 @@ def start_listening(pid: str, order: list, model: str, lang: str):
             S._title_clip(pr, d, words, used)
             timer.add("writing the title", time.time() - t0)
             d["listened"] = True
-            S.autopilot.clip_titled(pid, d)
+            autopilot.clip_titled(pid, d)
             job["progress"] = (n + 1) / max(1, len(todo))
             if not pr.get("live"):
                 S.save_project_soon(pid, 3.0)

@@ -97,6 +97,9 @@ SERVER_MOVED = {
     "listening": ["_deep_model", "deep_status", "_covered", "_update_gems", "start_deep_scan", "_tx_file",
                   "_video_sig", "_load_transcripts", "_save_transcripts", "_tx", "_vocab", "_without",
                   "ensure_words", "start_listening"],
+    "live_glue": ["LIVE_ON", "live_active", "live_list", "_same_source", "sources_view", "on_hotkey",
+                  "PriorityGate", "live_gate", "_live_prio", "_live_rendered", "live_on_moment", "_live_delay",
+                  "LIVE_VOD_CHECK", "live_vod_setting", "_live_outcome", "start_live_session", "live_view"],
 }
 HUBS = {"engine": MOVED, "server": SERVER_MOVED}
 

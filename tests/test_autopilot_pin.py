@@ -56,6 +56,7 @@ import whisper  # noqa: E402
 import framing  # noqa: E402
 import safety  # noqa: E402
 import server  # noqa: E402
+import live_glue  # noqa: E402
 import listening  # noqa: E402
 import render_queue  # noqa: E402
 
@@ -142,7 +143,7 @@ def live_rendered(it):
     _real_live_rendered(it)
 
 
-server._live_rendered = live_rendered
+live_glue._live_rendered = live_rendered
 
 OUT = tempfile.mkdtemp(prefix="vc_out_")
 RENDER = {"mode": "ok"}
@@ -416,7 +417,7 @@ def fake_start(src, body):
     return types.SimpleNamespace(id="next1")
 
 
-server.start_live_session = fake_start
+live_glue.start_live_session = fake_start
 try:
     reset()
     sess = FakeSession(hands_free=True, keep_watching=True, opts={"layout": "full"}, model="medium", language="en",
@@ -445,7 +446,7 @@ try:
         autopilot.session_ended(sess)       # was server._watch_for_next(sess), before issue 50 phase 5
         check(f"10: a session that {'was stopped' if status == 'stopped' else 'failed'}: no next session", STARTED == [], STARTED)
 finally:
-    server.start_live_session = _real_start
+    live_glue.start_live_session = _real_start
 
 # 11. shutting down mid-render --------------------------------------------------------------------
 reset()

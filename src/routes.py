@@ -59,6 +59,7 @@ import watermarks
 
 import render_queue
 import server as S
+import live_glue
 import listening
 
 
@@ -239,8 +240,8 @@ class Handler(BaseHTTPRequestHandler):
                 "api": S.API_VERSION,
                 "ui": S.ui_mode(), "next": S.web_available(),
                 "running": S.busy(),
-                "live": (S.live_active().id if S.live_active() else ""),
-                "lives": [{"id": x.id, "title": x.title, "status": x.status} for x in S.live_list()],
+                "live": (live_glue.live_active().id if live_glue.live_active() else ""),
+                "lives": [{"id": x.id, "title": x.title, "status": x.status} for x in live_glue.live_list()],
                 "hotkey": hotkey.status(),
             })
         if p == "/api/update":
@@ -262,7 +263,7 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/api/live/(\w+)", p)
         if m:
             sess = S.live_sessions.get(m.group(1))
-            return self._json(S.live_view(sess)) if sess else self._err("That live session is gone.", 404)
+            return self._json(live_glue.live_view(sess)) if sess else self._err("That live session is gone.", 404)
         if p == "/api/twitch":
             return self._json(twitchauth.status(refresh="refresh" in q))
         if p == "/api/learning":
@@ -290,7 +291,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/campaigns":
             return self._json(S.campaigns_view())
         if p == "/api/sources":
-            return self._json(S.sources_view())
+            return self._json(live_glue.sources_view())
         if p == "/api/locations":
             return self._json(locations.view())
         m = re.fullmatch(r"/api/framing/(\w+)", p)
@@ -453,7 +454,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/analyze":
             src = (body.get("source") or "").strip()
             dup = next((j for j in S.jobs.values() if j["kind"] == "analyze" and j["status"] == "running"
-                        and S._same_source((j.get("body") or {}).get("source", ""), src)), None)
+                        and live_glue._same_source((j.get("body") or {}).get("source", ""), src)), None)
             if dup:
                 return self._json({"job": dup["id"], "already": True})     # opening it already
             job = S.new_job("analyze")
@@ -462,14 +463,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"job": job["id"]})
 
         if p == "/api/locations":
-            if S.live_list() or S.busy():
+            if live_glue.live_list() or S.busy():
                 return self._err("Wait for downloads, renders and live clipping to finish, then change folders.", 409)
             res = locations.save(body or {})
             S._set_workroot()
             return self._json(dict(locations.view(), errors=res["errors"]))
 
         if p == "/api/storage/clear_cache":
-            keep = [os.path.dirname(sess.seg_dir) for sess in S.live_list()]
+            keep = [os.path.dirname(sess.seg_dir) for sess in live_glue.live_list()]
             res = locations.clear_temp(keep=tuple(keep))
             part = locations.stale_partials([locations.path("downloads")] + locations.project_roots())
             freed2, _ = engine._remove(part)
@@ -481,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
             if job and job["kind"] == "analyze" and job["status"] == "running":
                 job["pause"] = job["cancel"] = True
                 job["step"] = "Pausing"
-            return self._json(S.sources_view())
+            return self._json(live_glue.sources_view())
 
         if p == "/api/sources/resume":
             old = S.jobs.get(body.get("job", ""))
@@ -498,9 +499,9 @@ class Handler(BaseHTTPRequestHandler):
             if job and job["status"] != "running":
                 S.jobs.pop(job["id"], None)
             sess = S.live_sessions.get(body.get("live", ""))
-            if sess and sess.status not in S.LIVE_ON:
+            if sess and sess.status not in live_glue.LIVE_ON:
                 sess.started = 0                    # drops out of the list
-            return self._json(S.sources_view())
+            return self._json(live_glue.sources_view())
 
         if p == "/api/setup_tools":
             want = [w for w in body.get("want", []) if w in ("ffmpeg", "twitchdownloader", "ytdlp", "laughter", "music_remover")]
@@ -701,7 +702,7 @@ class Handler(BaseHTTPRequestHandler):
             what = body.get("what")
             if what not in ("vods", "clips"):
                 return self._err("Unknown delete request.")
-            if S.live_active():
+            if live_glue.live_active():
                 return self._err("Stop live clipping first, then delete.", 409)
             if S.busy():
                 return self._err("Wait for the current download or render to finish (or cancel it), then try again.", 409)
@@ -761,8 +762,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/live/start":
             src = (body.get("source") or "").strip()
-            on = S.live_list()
-            if any(S._same_source(sess.source, src) for sess in on):
+            on = live_glue.live_list()
+            if any(live_glue._same_source(sess.source, src) for sess in on):
                 return self._err("That stream is already being clipped.", 409)
             limit = exports.load()["lives"]
             if len(on) >= limit:
@@ -771,10 +772,10 @@ class Handler(BaseHTTPRequestHandler):
             if not engine.which("ffmpeg"):
                 return self._err("ffmpeg is missing. Download the tools first.")
             try:
-                sess = S.start_live_session(src, dict(body))
+                sess = live_glue.start_live_session(src, dict(body))
             except ValueError as e:
                 return self._err(str(e))
-            return self._json(S.live_view(sess))
+            return self._json(live_glue.live_view(sess))
 
         m = re.fullmatch(r"/api/live/(\w+)/(stop|clip|settings)", p)
         if m:
@@ -812,7 +813,7 @@ class Handler(BaseHTTPRequestHandler):
                 for k in ("model", "language"):
                     if k in body:
                         sess.extra[k] = body[k]
-            return self._json(S.live_view(sess))
+            return self._json(live_glue.live_view(sess))
 
         if p == "/api/handoff":
             # TikTok Studio: copy the caption (in the window), show the file, open the upload page

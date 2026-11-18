@@ -44,7 +44,7 @@ def latency_title(ctx: Ctx):
 
 def hands_free_render(ctx: Ctx):
     """Hands-free: queue the moment for rendering, unless the content check holds it back for you."""
-    import server
+    import live_glue
     import render_queue
     d, sess, mid = ctx.d, ctx.sess, ctx.pid
     extra = sess.extra
@@ -61,7 +61,7 @@ def hands_free_render(ctx: Ctx):
     c = dict(d, rank=number)
     c["post"] = d.get("post", "")
     it = render_queue.queue_add(mid, c, extra.get("opts") or {})
-    it["prio"] = server._live_prio(d)
+    it["prio"] = live_glue._live_prio(d)
     it["auto"] = True                      # rendered on its own (hands-free), not by you
     it["lat"], it["aired"] = dict(d["lat"]), ctx.aired
     d["auto_queued"] = True
@@ -111,8 +111,8 @@ def cleanup_vods(ctx: Ctx):
 
 def latency_render(ctx: Ctx):
     """Hands-free: how long rendering took, and the whole way from the moment on stream to the file."""
-    import server
-    server._live_rendered(ctx.it)
+    import live_glue
+    live_glue._live_rendered(ctx.it)
 
 
 # ---------------------------------------------------------------- clip_skipped
@@ -151,14 +151,14 @@ def keep_watching_on(ctx: Ctx) -> bool:
 
 def keep_watching(ctx: Ctx):
     """Start the next session on the same channel, with the same settings, waiting for it to go live."""
-    import server
+    import live_glue
     sess = ctx.sess
     params = dict(sess.extra["params"])
     params.update(wait_for_live=True, opts=sess.extra.get("opts"),
                   hands_free=sess.extra.get("auto_render"), frequency=sess.frequency, min_quality=sess.min_quality,
                   model=sess.extra.get("model"), language=sess.extra.get("language"))
     try:
-        nxt = server.start_live_session(params["source"], params)
+        nxt = live_glue.start_live_session(params["source"], params)
         sess.extra["next"] = nxt.id
         sess.log("Waiting for the next stream.")
     except Exception as e:

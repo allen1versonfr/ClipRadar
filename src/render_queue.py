@@ -16,6 +16,11 @@ that swaps a name defined here swaps render_queue.<name>.
 from __future__ import annotations
 
 import sys
+if "server" not in sys.modules:
+    # imported before server: server imports this module itself (at its end), so server is imported first
+    # and this copy steps aside (the import then gives back the copy server loaded in full)
+    del sys.modules[__name__]
+    import server  # noqa: E402,F401
 import json
 import os
 import re
@@ -43,12 +48,7 @@ import persist
 import timing
 import locations
 
-if "server" not in sys.modules:
-    # imported before server: server imports this module itself (at its end), so server is imported first
-    # and this copy steps aside (the import then gives back the copy server loaded in full)
-    del sys.modules[__name__]
-    import server  # noqa: E402,F401
-    import listening  # noqa: E402
+import autopilot  # noqa: E402
 import server as S  # noqa: E402  shared state and helpers, read as S.<name> at call time
 import listening  # noqa: E402
 
@@ -820,7 +820,7 @@ def queue_worker(idx: int = 0):
                 print(f"  Rendered {it.get('name') or 'the clip'} in {time.time() - t0:.0f} s.", flush=True)
                 outcome.log("render", "ok", live=bool(it.get("live")))
                 S.save_queue_soon(0)
-                S.autopilot.render_done(it)      # sound, Discord, cleanup, latency: autopilot_steps
+                autopilot.render_done(it)      # sound, Discord, cleanup, latency: autopilot_steps
             except engine.Cancelled:
                 outcome.log("render", "cancelled", live=bool(it.get("live")), closing=bool(S.SHUTTING_DOWN[0]))
                 with S.queue_lock:
@@ -859,5 +859,5 @@ def queue_worker(idx: int = 0):
                 if not isinstance(e, (RuntimeError, OSError, engine.RenderInputError)):
                     traceback.print_exc()
                 S.save_queue_soon(0)
-                S.autopilot.render_failed(it, kind)
+                autopilot.render_failed(it, kind)
                 continue
