@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "src"))
 import numpy as np  # noqa: E402
 
 import engine  # noqa: E402
-import render  # noqa: E402
+import render as render_mod  # noqa: E402  (this file has a render() of its own)
 import whisper  # noqa: E402
 import gpu  # noqa: E402
 
@@ -66,7 +66,7 @@ check("two in a row do", engine.hw_failed("h264_nvenc", "Error while opening enc
 real_run = engine.run
 engine._encoder_cache.clear()
 engine._encoder_cache["listing"] = " V....D hevc_nvenc  NVIDIA NVENC hevc encoder\n V....D h264_nvenc ..."
-engine.run = render.run = lambda cmd, *a, **k: subprocess.CompletedProcess(cmd, 0, "", "")   # engine's helper, and render's reference
+engine.run = render_mod.run = lambda cmd, *a, **k: subprocess.CompletedProcess(cmd, 0, "", "")   # engine's helper, and render.py's reference
 try:
     name, args = engine.video_encoder(engine.RenderOpts(vcodec="hevc", hw_encode=True))
     check("H.265 encodes on the GPU when it can", name == "hevc_nvenc" and "hvc1" in args, (name, args))
@@ -74,7 +74,7 @@ try:
     check("with a bitrate, the GPU's quality setting is swapped for it", "-cq" not in args and "8000k" in args, args)
     check("and on the CPU when told to", engine.video_encoder(engine.RenderOpts(vcodec="hevc", hw_encode=False))[0] == "libx265")
 finally:
-    engine.run = render.run = real_run
+    engine.run = render_mod.run = real_run
 engine._encoder_cache.clear()
 engine._encoder_cache.update(listing="", hw=None, hevc=None)
 check("no GPU encoder: x265 and x264, as before", engine.video_encoder(engine.RenderOpts(vcodec="hevc"))[0] == "libx265"
@@ -132,7 +132,7 @@ if engine.which("ffmpeg"):
             engine._hw_slots.release()
 
     old = engine.HW_DECODE
-    render.HW_DECODE = ["-hwaccel", "no_such_hwaccel"]
+    render_mod.HW_DECODE = ["-hwaccel", "no_such_hwaccel"]
     try:
         out, diag, logs = render("dec_fail.mp4", {"hw": STANDIN})
         check("decoding on the GPU fails: decoded on the CPU, same encoder", os.path.exists(out) and diag["hw_decode"] is False
@@ -140,7 +140,7 @@ if engine.which("ffmpeg"):
         render("dec_fail2.mp4", {"hw": STANDIN, "hwdec_fails": 1})
         check("twice: GPU decoding isn't tried again this session", engine._encoder_cache.get("hwdec") is False)
     finally:
-        render.HW_DECODE = old
+        render_mod.HW_DECODE = old
     engine._encoder_cache.clear()
     o_cpu = engine.RenderOpts(layout="blur", captions=False, hw_encode=False, speed="fast")
     d = {}
