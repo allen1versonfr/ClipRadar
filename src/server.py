@@ -20,14 +20,6 @@ from __future__ import annotations
 
 import sys
 
-# listening.py: re-exported, so server.<name> still works; code calls listening.<name>
-import listening  # noqa: E402
-from listening import (  # noqa: E402,F401
-    _covered, _deep_model, deep_status, ensure_words, _load_transcripts, _save_transcripts, start_deep_scan,
-    start_listening, _tx, _tx_file, _update_gems, _video_sig, _vocab, _without,
-)
-
-
 if __name__ == "__main__":
     # routes.py does `import server`: make that this module, not a second copy with its own state
     sys.modules["server"] = sys.modules[__name__]
@@ -2034,6 +2026,14 @@ from render_queue import (  # noqa: E402,F401
     queue_public, queue_worker, RAM_SHORT, redact, _render_inputs, _render_item, _render_project, _render_projects,
     _render_projects_lock, RETRYABLE, set_stage, SOUND_LOG, start_prehear, TEST_HOOKS, _UNMEASURED,
     _validate_render, _wait_prehear, _workers,
+)
+
+
+# listening.py: re-exported, so server.<name> still works; code calls listening.<name>
+import listening  # noqa: E402
+from listening import (  # noqa: E402,F401
+    _covered, _deep_model, deep_status, ensure_words, _load_transcripts, _save_transcripts, start_deep_scan,
+    start_listening, _tx, _tx_file, _update_gems, _video_sig, _vocab, _without,
 )
 
 
