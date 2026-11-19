@@ -100,82 +100,91 @@ def write(path: str, x: np.ndarray) -> None:
     assert p.returncode == 0, p.stderr
 
 
-tmp = tempfile.mkdtemp(prefix="songref_")
-try:
-    # the song as released, and the stream: 40 s of talking, the song from 4 s in (it started 3.7 s before the stream's 0
-    # in its own time: the stream picks it up partway)
-    rec = song(1, 60)
-    voice, on = talking(40)
-    played = through_setup(rec[:, int(3.7 * SR):], 4.0)[:, :voice.shape[1]]
-    music = np.zeros_like(voice)
-    music[:, :played.shape[1]] = played
-    mix = voice + music
-    ref_file = os.path.join(tmp, "the song.flac")
-    write(ref_file, rec)
-    stream = os.path.join(tmp, "stream.flac")
-    write(stream, mix)
-
-    cache = os.path.join(tmp, "songs")
-    got = songref.fetch(ref_file, cache)
-    check("a song file on this PC is read and kept", os.path.isfile(got) and got.startswith(cache))
-    check("asked again, the kept copy is used", songref.fetch(ref_file, cache) == got)
+def have_ffmpeg() -> bool:
     try:
-        songref.fetch(os.path.join(tmp, "nope.mp3"), cache)
-        check("a missing file says so", False)
-    except RuntimeError as e:
-        check("a missing file says so", "isn't there" in str(e), str(e))
+        engine.ffmpeg()
+        return True
+    except RuntimeError:
+        return False
 
-    ref = songref.read(got)
-    out, rep = songref.clean(mix.copy(), ref)
-    inside = slice(int(5 * SR), int(39 * SR))
-    pauses = ~on[inside]
-    res = (out - voice)[:, inside]
-    mus = music[:, inside]
-    drop_pause = db(res[:, pauses]) - db(mus[:, pauses])
-    drop_talk = db(res[:, ~pauses]) - db(mus[:, ~pauses])
-    a = voice[:, inside][:, ~pauses].ravel()
-    b = out[:, inside][:, ~pauses].ravel()
-    al = (a @ b) / (a @ a)
-    sisdr = db(al * a) - db(b - al * a)
-    print(f"    song {drop_pause:+.1f} dB between sentences, {drop_talk:+.1f} dB under talking, talking SI-SDR {sisdr:.1f} dB, "
-          f"found {rep['found']} s, missed {rep['missed']}")
-    check("the song is found", rep["found"] >= 30 and not [m for m in rep["missed"] if m[0] >= 5], str(rep))
-    check("the song is far quieter between sentences (at least 18 dB)", drop_pause <= -18, f"{drop_pause:.1f}")
-    check("and under the talking (at least 10 dB)", drop_talk <= -10, f"{drop_talk:.1f}")
-    check("the talking is kept (SI-SDR at least 15 dB)", sisdr >= 15, f"{sisdr:.1f}")
 
-    other = song(2, 60)
-    out2, rep2 = songref.clean(mix.copy(), other)
-    check("a different song isn't found and nothing is changed",
-          rep2["found"] == 0 and float(np.abs(out2 - mix).max()) < 1e-6, str(rep2))
+# the song as released, and the stream: 40 s of talking, the song from 4 s in (it started 3.7 s before the stream's 0
+# in its own time: the stream picks it up partway)
+rec = song(1, 60)
+voice, on = talking(40)
+played = through_setup(rec[:, int(3.7 * SR):], 4.0)[:, :voice.shape[1]]
+music = np.zeros_like(voice)
+music[:, :played.shape[1]] = played
+mix = voice + music
 
-    # in an export: only the stretch (10 s to 30 s) changes, from a start of 2 s for 36 s
-    done = os.path.join(tmp, "done.flac")
-    r = songref.erase_known(stream, [(10.0, 30.0, ref_file)], done, 2.0, 36.0, cache)
-    y = songref.read(done)
-    x = songref.read(stream, 2.0, 36.0)
-    check("the export's sound is as long as asked", abs(y.shape[1] - 36 * SR) <= SR // 100, str(y.shape))
-    n = min(x.shape[1], y.shape[1])
-    before, after = slice(0, int(7.9 * SR)), slice(int(28.1 * SR), n)
-    check("outside the stretch the sound is untouched",
-          float(np.abs(y[:, before] - x[:, before]).max()) < 2e-4 and float(np.abs(y[:, after] - x[:, after]).max()) < 2e-4)
-    mid = slice(int(9 * SR), int(27 * SR))                  # 11 s to 29 s of the video
-    v_mid = voice[:, int(11 * SR):int(29 * SR)]
-    m_mid = music[:, int(11 * SR):int(29 * SR)]
-    drop = db(y[:, mid] - v_mid) - db(m_mid)
-    check("inside it the song is taken out", drop <= -10, f"{drop:.1f}")
-    check("the report says how much was found", r["found"] >= 15 and not r["missed"], str(r))
+out, rep = songref.clean(mix.copy(), rec)
+inside = slice(int(5 * SR), int(39 * SR))
+pauses = ~on[inside]
+res = (out - voice)[:, inside]
+mus = music[:, inside]
+drop_pause = db(res[:, pauses]) - db(mus[:, pauses])
+drop_talk = db(res[:, ~pauses]) - db(mus[:, ~pauses])
+a = voice[:, inside][:, ~pauses].ravel()
+b = out[:, inside][:, ~pauses].ravel()
+al = (a @ b) / (a @ a)
+sisdr = db(al * a) - db(b - al * a)
+print(f"    song {drop_pause:+.1f} dB between sentences, {drop_talk:+.1f} dB under talking, talking SI-SDR {sisdr:.1f} dB, "
+      f"found {rep['found']} s, missed {rep['missed']}")
+check("the song is found", rep["found"] >= 30 and not [m for m in rep["missed"] if m[0] >= 5], str(rep))
+check("the song is far quieter between sentences (at least 18 dB)", drop_pause <= -18, f"{drop_pause:.1f}")
+check("and under the talking (at least 10 dB)", drop_talk <= -10, f"{drop_talk:.1f}")
+check("the talking is kept (SI-SDR at least 15 dB)", sisdr >= 15, f"{sisdr:.1f}")
 
-    # Export VOD's options: which song each Erase song stretch is
-    o = vodexport.clean_options({"music": [[10, 30, "voice", "https://www.youtube.com/watch?v=abc"],
-                                           [40, 50, "voice", "relative/song.mp3"],
-                                           [60, 70, "mute", "https://www.youtube.com/watch?v=x"],
-                                           [80, 90, "voice"]]}, 100.0)
-    check("a link is read as the song of its stretch", o["songs"] == [(10.0, 30.0, "https://www.youtube.com/watch?v=abc")], str(o["songs"]))
-    check("every stretch keeps what to do with it", [m for _, _, m in o["music"]] == ["voice", "voice", "mute", "voice"], str(o["music"]))
-    check("a full path is a song file", vodexport.song_source(ref_file) == ref_file and vodexport.song_source("song.mp3") == "")
-finally:
-    shutil.rmtree(tmp, ignore_errors=True)
+other = song(2, 60)
+out2, rep2 = songref.clean(mix.copy(), other)
+check("a different song isn't found and nothing is changed",
+      rep2["found"] == 0 and float(np.abs(out2 - mix).max()) < 1e-6, str(rep2))
+
+# Export VOD's options: which song each Erase song stretch is
+o = vodexport.clean_options({"music": [[10, 30, "voice", "https://www.youtube.com/watch?v=abc"],
+                                       [40, 50, "voice", "relative/song.mp3"],
+                                       [60, 70, "mute", "https://www.youtube.com/watch?v=x"],
+                                       [80, 90, "voice"]]}, 100.0)
+check("a link is read as the song of its stretch", o["songs"] == [(10.0, 30.0, "https://www.youtube.com/watch?v=abc")], str(o["songs"]))
+check("every stretch keeps what to do with it", [m for _, _, m in o["music"]] == ["voice", "voice", "mute", "voice"], str(o["music"]))
+check("a full path is a song file", vodexport.song_source(os.path.abspath(__file__)) == os.path.abspath(__file__)
+      and vodexport.song_source("song.mp3") == "")
+
+if not have_ffmpeg():
+    print("[skip] no ffmpeg here: the song file and the export's sound aren't made (the render job runs them)")
+else:
+    tmp = tempfile.mkdtemp(prefix="songref_")
+    try:
+        ref_file = os.path.join(tmp, "the song.flac")
+        write(ref_file, rec)
+        stream = os.path.join(tmp, "stream.flac")
+        write(stream, mix)
+        cache = os.path.join(tmp, "songs")
+        got = songref.fetch(ref_file, cache)
+        check("a song file on this PC is read and kept", os.path.isfile(got) and got.startswith(cache))
+        check("asked again, the kept copy is used", songref.fetch(ref_file, cache) == got)
+        try:
+            songref.fetch(os.path.join(tmp, "nope.mp3"), cache)
+            check("a missing file says so", False)
+        except RuntimeError as e:
+            check("a missing file says so", "isn't there" in str(e), str(e))
+
+        # in an export: only the stretch (10 s to 30 s) changes, from a start of 2 s for 36 s
+        done = os.path.join(tmp, "done.flac")
+        r = songref.erase_known(stream, [(10.0, 30.0, ref_file)], done, 2.0, 36.0, cache)
+        y = songref.read(done)
+        x = songref.read(stream, 2.0, 36.0)
+        check("the export's sound is as long as asked", abs(y.shape[1] - 36 * SR) <= SR // 100, str(y.shape))
+        n = min(x.shape[1], y.shape[1])
+        before, after = slice(0, int(7.9 * SR)), slice(int(28.1 * SR), n)
+        check("outside the stretch the sound is untouched",
+              float(np.abs(y[:, before] - x[:, before]).max()) < 2e-4 and float(np.abs(y[:, after] - x[:, after]).max()) < 2e-4)
+        mid = slice(int(9 * SR), int(27 * SR))                  # 11 s to 29 s of the video
+        drop = db(y[:, mid] - voice[:, int(11 * SR):int(29 * SR)]) - db(music[:, int(11 * SR):int(29 * SR)])
+        check("inside it the song is taken out", drop <= -10, f"{drop:.1f}")
+        check("the report says how much was found", r["found"] >= 15 and not r["missed"], str(r))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 print(f"\n{len(failures)} failed" if failures else "\nall ok")
 sys.exit(1 if failures else 0)
