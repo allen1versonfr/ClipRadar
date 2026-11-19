@@ -12,6 +12,7 @@ import { TitlesPanel } from './TitlesPanel'
 import { AboutPanel, HotkeyPanel, PerformancePanel, ToolsPanel } from './SystemPanels'
 import { TikTokPanel } from './TikTokPanel'
 import { YouTubePanel } from './YouTubePanel'
+import { ServerModePanel } from './ServerModePanel'
 import { TwitchPanel } from './TwitchPanel'
 import { UpdatesPanel } from './UpdatesPanel'
 import { SECTIONS, GROUPS, matches } from './sections'
@@ -43,6 +44,7 @@ export function SettingsView({ status, refreshStatus, section }: { status: Statu
     perf: <PerformancePanel />,
     tools: <ToolsPanel status={status} refreshStatus={refreshStatus} />,
     storage: <StoragePanel refreshStatus={refreshStatus} />,
+    server: <ServerModePanel />,
     updates: <UpdatesPanel version={status?.version} />,
     about: <AboutPanel />,
   }

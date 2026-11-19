@@ -57,6 +57,7 @@ import vodexport
 import voicekeep
 import songerase
 import ytclips
+import remote
 import session
 import watermarks
 
@@ -116,7 +117,32 @@ class Handler(BaseHTTPRequestHandler):
             errorlog.record("request", msg, path=urlparse(self.path).path, status=code)
         self._json({"error": msg}, code)
 
+    def _remote_ok(self) -> bool:
+        """Server mode's listener (5.2, remote.py): from another device on the network. Only Clip Radar's own page may
+        send (Origin is the address it was opened at), and only a device signed in with the access code gets anything
+        but the sign-in page."""
+        u = urlparse(self.path)
+        if self.command == "POST":
+            origin = self.headers.get("Origin") or ""
+            if origin and origin != f"http://{self.headers.get('Host') or ''}":
+                self._err("forbidden", 403)
+                return False
+        if u.path in ("/remote-login", "/api/remote/login", "/favicon.ico"):
+            return True
+        if remote.signed_in(self.headers.get("Cookie") or ""):
+            return True
+        if self.command == "GET" and not u.path.startswith(("/api/", "/vod/", "/files/", "/export/", "/thumb")):
+            self.send_response(303)
+            self.send_header("Location", "/remote-login")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return False
+        self._err("Sign in with the access code first.", 401)
+        return False
+
     def _local_only(self) -> bool:
+        if getattr(self.server, "remote", False):
+            return self._remote_ok()
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         if host not in ("127.0.0.1", "localhost", "::1"):
             self._err("forbidden", 403)
@@ -193,6 +219,20 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         p = unquote(u.path)
         q = parse_qs(u.query)
+        if p == "/remote-login":
+            data = remote.LOGIN_PAGE.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if p == "/api/remote":
+            v = remote.view()
+            if getattr(self.server, "remote", False):
+                v = {k: v[k] for k in ("on", "running")}       # the code and addresses only on this PC
+            return self._json(dict(v, here=not getattr(self.server, "remote", False)))
 
         built = S.web_available()
         if p in ("/", "/index.html", "/next", "/next/", "/next/index.html") or (p.startswith("/next/") and "." not in p.rsplit("/", 1)[-1]):
@@ -247,7 +287,8 @@ class Handler(BaseHTTPRequestHandler):
                 "laughter": S._has("onnxruntime", load=False) and audio_events.model_path() is not None,
                 "music_remover": S._has("onnxruntime", load=False) and voicekeep.model_path() is not None,
                 "song_eraser": S._has("onnxruntime", load=False) and songerase.model_path() is not None,
-                "restoring": session.state["restoring"],        # videos still being opened where you left off (5.0.2)
+                "restoring": session.state["restoring"],
+                "remote": bool(getattr(self.server, "remote", False)),   # opened from another device (server mode, 5.2)        # videos still being opened where you left off (5.0.2)
                 "twitchdownloader": ts["twitchdownloader"],
                 "can_download_tools": ts["can_download"],
                 "workroot": S.WORKROOT,
@@ -454,6 +495,33 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._local_only():
             return
+        if urlparse(self.path).path == "/api/remote/login":
+            try:
+                code = str(self._body().get("code") or "")
+            except (ValueError, json.JSONDecodeError):
+                return self._err("bad request")
+            try:
+                token = remote.check_code(self.client_address[0], code)
+            except PermissionError as e:
+                return self._err(str(e), 429)
+            if not token:
+                return self._err("That code is wrong.", 401)
+            data = b'{"ok": true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Set-Cookie", f"{remote.COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={remote.SESSION_DAYS * 86400}")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if urlparse(self.path).path == "/api/remote":
+            if getattr(self.server, "remote", False):
+                return self._err("Turn server mode on or off on the PC itself.", 403)
+            try:
+                v = remote.save(self._body(), S.make_server)
+            except ValueError as e:
+                return self._err(str(e))
+            return self._json(dict(v, here=True))
         p = urlparse(self.path).path
         try:
             body = self._body()
@@ -724,6 +792,8 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=S._install_update, daemon=True).start()
             return self._json(updater.view())
 
+        if p == "/api/quit" and getattr(self.server, "remote", False):
+            return self._err("Quit Clip Radar on the PC itself.", 403)
         if p == "/api/quit":
             self._json({"ok": True})
             threading.Timer(0.3, lambda: S.shutdown_hook[0]()).start()

@@ -130,6 +130,8 @@ export const Status = z.looseObject({
   song_eraser: z.boolean().optional(),
   /** videos still being opened again where you left off (5.0.2) */
   restoring: z.number().optional(),
+  /** 5.2: this page was opened from another device, through server mode */
+  remote: z.boolean().optional(),
   twitchdownloader: z.boolean().optional(),
   can_download_tools: z.boolean().optional(),
   live: z.string().default(''),
