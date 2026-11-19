@@ -46,6 +46,7 @@ import studio_auto
 import youtube_auto
 import ytextra
 import voicekeep
+import session
 import songerase
 import listening
 import render_queue
@@ -338,8 +339,16 @@ def open_video(S, pid: str = "", path: str = "") -> str:
         wd, video, title = _library[pid]
         if not os.path.isfile(video):
             raise RuntimeError("That video's file was deleted.")
+    return open_known(S, wd, video, title)
+
+
+def open_known(S, wd: str, video: str, title: str, remember: bool = True) -> str:
+    """Open a video for export in its own project folder (its scan, flagged words and music are kept there).
+    Used by open_video, and when Clip Radar opens again where it left off (session.py)."""
     pid = S._pid_for(wd)
     if usable(S.projects.get(pid)):
+        if remember:
+            session.remember_light(wd, video, title)
         return pid
     try:
         info = engine.probe(video)
@@ -350,11 +359,14 @@ def open_video(S, pid: str = "", path: str = "") -> str:
           "tx_lock": threading.Lock(), "live": "", "light": True, "clips": [], "gems": []}
     listening._load_transcripts(pr)
     S.projects[pid] = pr
-    if path and not engine._meta(wd):
+    if not engine._meta(wd) and os.path.normcase(os.path.abspath(wd)) == os.path.normcase(os.path.abspath(
+            engine.local_workdir(S.WORKROOT, video))):
         try:          # remembered like any opened file, so it's listed here (and on Home) next time
             engine._save_meta(wd, source=video, local=True, title=title, duration=info["duration"])
         except OSError:
             pass
+    if remember:
+        session.remember_light(wd, video, title)      # open again next time Clip Radar starts (5.0.2)
     return pid
 
 

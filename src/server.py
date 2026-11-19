@@ -83,6 +83,7 @@ import sources
 import hashtags
 import learning
 import persist
+import session
 import timing
 import twitchauth
 import watermarks
@@ -971,6 +972,7 @@ def do_analyze(job, body: dict):
             log(f"Deep scan skipped: {e}")
     timer.name = s.title
     timer.done()
+    session.remember_vod(body, s.video, s.workdir)        # opened again next time Clip Radar starts (5.0.2)
     return project_view(pid)
 
 
@@ -1533,6 +1535,7 @@ def start(port: int = PORT):
         _forget_tiktok_api()
         _clean_leftovers()
         load_queue()
+        session.start(sys.modules[__name__])   # the videos open when Clip Radar closed come back (5.0.2)
         autopilot.app_started()          # the start-up cleanup sweep: autopilot_steps.cleanup_start
         render_queue.apply_perf()
         updater.start_background(log=_say)

@@ -4,7 +4,7 @@ import { App } from './App'
 import { ConfirmProvider } from './components/Confirm'
 import { ToastProvider } from './components/Toasts'
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); location.hash = '' })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); location.hash = ''; localStorage.clear() })
 
 function serve(running: boolean, calls: string[]) {
   vi.stubGlobal('fetch', vi.fn(async (path: string) => {
@@ -69,5 +69,16 @@ describe('the app frame', () => {
     expect(calls.filter(p => p === '/api/project/p1')).toHaveLength(1)                 // not opened again
     expect(posts.filter(([p, b]) => p === '/api/clip_state' && ['skipped', 'kept'].includes((b as { state: string }).state))).toEqual([])
     expect(posts.some(([p]) => p === '/api/queue/add')).toBe(false)
+  })
+
+  it('opens on the screen you were on when Clip Radar closed (5.0.2), but never on a live session', async () => {
+    serve(false, [])
+    localStorage.setItem('vc_lastHash', JSON.stringify('#exports'))
+    app()
+    await waitFor(() => expect(screen.getByTestId('nav-exports').getAttribute('aria-current')).toBe('page'))
+    cleanup(); location.hash = ''
+    localStorage.setItem('vc_lastHash', JSON.stringify('#review/live/s1'))
+    app()
+    await waitFor(() => expect(screen.getByTestId('nav-home').getAttribute('aria-current')).toBe('page'))
   })
 })

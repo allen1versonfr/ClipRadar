@@ -439,7 +439,9 @@ function PreviewPanel({ v, vid, now, setNow, seek, songs, setSongs, addSong, sel
   const tryingMusic = songs.findIndex(s => s.act !== 'keep' && now >= s.start && now < s.end)
   const d = Math.max(1, v.duration)
   // the part picked to send to Segments: where it starts and ends (-1 = not set yet)
-  const [mark, setMark] = useState<{ a: number; b: number }>({ a: -1, b: -1 })
+  // kept for this video, so a part marked before Clip Radar closed is still there (5.0.2)
+  const [mark, setMarkNow] = useState<{ a: number; b: number }>(() => getPref<Record<string, { a: number; b: number }>>('vodxMark', {})[v.pid] ?? { a: -1, b: -1 })
+  const setMark = (m: { a: number; b: number }) => { setMarkNow(m); setPref('vodxMark', { ...getPref<Record<string, unknown>>('vodxMark', {}), [v.pid]: m }) }
   const [what, setWhat] = useState<'music' | 'part'>('music')       // what Shift+drag marks on the timeline
   const boxes: Box[] = [
     ...songs.map((s, i): Box => ({ id: `m${i}`, start: s.start, end: s.end, lane: 0, kind: s.act, edit: true,

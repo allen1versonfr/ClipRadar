@@ -7,11 +7,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [5.0.2] - 2026-11-19
 
+### Added
+- **Clip Radar opens where you left off.** Close it and open it again, and:
+  - the videos you had open in Moments are opened again in the background, your review with them (kept, skipped,
+    trims, titles), from the analysis already saved, so it's quick. The newest 3 come back;
+  - the videos you had open in Export VOD are back, with their copyright scan, flagged words and the music you set;
+  - it opens on the screen you were on, with the same video picked, and a part you'd marked for Segments is still
+    marked.
+
+  Only videos still on your PC are opened: one you've deleted is never downloaded again. While they're being opened,
+  Moments says so and waits instead of saying the session expired (`src/session.py`, kept in `session.json`).
+
 ### Fixed
 - **Exporting a segment failed when the Segments folder was on another drive** than Clip Radar's temporary folder
   (for example D:\Segments), with "The system cannot move the file to a different disk drive". A segment made in
   one piece was renamed into place, which Windows can't do across drives; it's moved now, copied when it has to be.
   Checked by `tests/test_segments.py` with the rename across drives refused, as Windows does.
+
+### Tests
+- `tests/test_session.py` (new, in CI): a VOD opened for Moments with a clip kept and two videos opened in Export
+  VOD; then Clip Radar "closes" and opens again: the VOD is back under the same id with the clip still kept, the
+  export video is back, and the one deleted in between isn't opened.
+- `web/src/App.test.tsx`: the app opens on the screen it was on, but never on a live session.
 
 ## [5.0.1] - 2026-11-19
 

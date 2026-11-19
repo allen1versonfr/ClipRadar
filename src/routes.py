@@ -56,6 +56,7 @@ import segments
 import vodexport
 import voicekeep
 import songerase
+import session
 import watermarks
 
 import render_queue
@@ -233,6 +234,7 @@ class Handler(BaseHTTPRequestHandler):
                 "laughter": S._has("onnxruntime", load=False) and audio_events.model_path() is not None,
                 "music_remover": S._has("onnxruntime", load=False) and voicekeep.model_path() is not None,
                 "song_eraser": S._has("onnxruntime", load=False) and songerase.model_path() is not None,
+                "restoring": session.state["restoring"],        # videos still being opened where you left off (5.0.2)
                 "twitchdownloader": ts["twitchdownloader"],
                 "can_download_tools": ts["can_download"],
                 "workroot": S.WORKROOT,

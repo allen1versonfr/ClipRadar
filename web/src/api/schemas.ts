@@ -111,6 +111,8 @@ export const Status = z.looseObject({
   laughter: z.boolean().optional(),
   music_remover: z.boolean().optional(),
   song_eraser: z.boolean().optional(),
+  /** videos still being opened again where you left off (5.0.2) */
+  restoring: z.number().optional(),
   twitchdownloader: z.boolean().optional(),
   can_download_tools: z.boolean().optional(),
   live: z.string().default(''),

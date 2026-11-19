@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../../api/client'
-import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, FramingSuggest, Job, JobStarted, LiveView, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, TitlePrefs, TrackPath, PreviewExtras } from '../../api/schemas'
+import { api, ApiError } from '../../api/client'
+import { Campaigns, Clip, ClipsUpdate, Compared, DeepStatus, FramingSuggest, Job, JobStarted, LiveView, StreamerSet, Rechecked, Restored, ExportFormat, type Mark, Ok, Project, Queue, type QueueItem, Safety, Sources, Status, TitlePrefs, TrackPath, PreviewExtras } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
@@ -114,6 +114,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   const confirm = useConfirm()
   const [meta, setMeta] = useState<Project>()
   const [failed, setFailed] = useState('')
+  const [reopening, setReopening] = useState(false)
   const [clips, setClips] = useState<Clip[]>([])
   const [cur, setCur] = useState<string>()
   const [filter, setFilter] = useState<Filter>('todo')
@@ -236,7 +237,11 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
 
   useEffect(() => {                                  // open the video, and start writing titles
     if (isLive) return
-    api(Project, `/api/project/${pid}`).then(p => {
+    let gone = false, timer = 0
+    // 5.0.2: just after Clip Radar starts, the video you had open is still being opened again where you left off:
+    // wait for it (up to 3 minutes) instead of saying it expired
+    const load = (tries: number): void => { api(Project, `/api/project/${pid}`).then(p => {
+      if (gone) return
       const cs = p.clips.concat(p.gems).map(prep)
       setMeta(p)
       setClips(cs)
@@ -259,7 +264,17 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
       }
       api(Ok, '/api/listen', { pid, order: cs.map(c => c.id), model: o.whisper_model, language: o.language })
         .then(() => setListening(true)).catch(() => {})
-    }).catch(e => setFailed(err(e)))
+    }).catch(e => {
+      if (gone) return
+      const msg = err(e)
+      if (!(e instanceof ApiError && e.status === 404) || tries >= 90) return setFailed(msg)
+      api(Status, '/api/status').then(s => {
+        if (gone) return
+        if ((s.restoring ?? 0) > 0) { setReopening(true); timer = window.setTimeout(() => load(tries + 1), 2000) } else setFailed(msg)
+      }).catch(() => { if (!gone) setFailed(msg) })
+    }) }
+    load(0)
+    return () => { gone = true; clearTimeout(timer) }
   }, [pid, isLive, toast, setOpts])
 
   const deepRunning = deep?.state === 'running'
@@ -803,7 +818,8 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
     <section className="rv-pick"><h1>Moments</h1><p className="banner err" role="alert">{failed}</p>
       <p className="muted">Open the video again from <a href="#home">Home › Recent</a>: your keeps, skips and edits come back with it.</p></section>
   )
-  if (!meta) return <section className="rv-pick"><h1>Moments</h1><p className="muted">Opening…</p></section>
+  if (!meta) return <section className="rv-pick"><h1>Moments</h1><p className="muted" data-testid="rv-opening">
+    {reopening ? 'Opening this video again where you left off…' : 'Opening…'}</p></section>
 
   // a fix being tried shows in the preview: the title as it would be, the words masked where they would be
   const shown = c && proposal?.playing ? {
