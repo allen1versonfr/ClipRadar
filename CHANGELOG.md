@@ -5,7 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-Clip Radar 5.0, in progress: a turn toward YouTube, now that TikTok is in a good place.
+## [5.0.0] - 2026-11-19
+
+Clip Radar 5.0 turns toward YouTube, now that TikTok is in a good place. Erase song takes a song out of a VOD and keeps
+the talking and game sound, music can be moved and marked on a new timeline, Export VOD and Segments get a bigger
+preview you can scroll and zoom like Moments (Review's new name), exported VODs and segments get folders of their
+own, and Segments has no length limit.
 
 ### Added
 - **Erase song, the way YouTube Studio does it.** Export VOD's "Remove music" kept every voice in a stretch, so a

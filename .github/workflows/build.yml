@@ -561,7 +561,7 @@ jobs:
           Remove-Item Env:CLIPRADAR_WORK, Env:VODCLIPPER_WORK -ErrorAction SilentlyContinue
           $app = "$env:LOCALAPPDATA\Programs\Clip Radar"; $data = "$env:LOCALAPPDATA\ClipRadar"
           $cur = (Select-String -Path src/version.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
-          $old = @(gh release list --limit 30 --json tagName --jq '.[].tagName' | Where-Object { $_ -match '^v4\.\d+\.\d+$' -and $_ -ne "v$cur" })[0]
+          $old = @(gh release list --limit 30 --json tagName --jq '.[].tagName' | Where-Object { $_ -match '^v([4-9]|[1-9]\d)\.\d+\.\d+$' -and $_ -ne "v$cur" })[0]
           Check "found the previous release" $old "$old (building $cur)"
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\prev" | Out-Null
           gh release download $old -p ClipRadar-Setup.exe -D "$env:RUNNER_TEMP\prev" --clobber
