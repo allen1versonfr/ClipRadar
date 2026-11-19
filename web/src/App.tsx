@@ -107,7 +107,8 @@ export function App() {
       <header className="top">
         <span className="brand">Clip Radar</span>
         <span className="top-acts">
-          <button className="btn ghost sm" onClick={() => void quit(busy.current)} data-testid="quit">Quit</button>
+          {/* from another device (server mode) Quit would stop Clip Radar on the PC: it's only offered there */}
+          {!status.data?.remote && <button className="btn ghost sm" onClick={() => void quit(busy.current)} data-testid="quit">Quit</button>}
         </span>
       </header>
       <nav className="rail" aria-label="Screens">

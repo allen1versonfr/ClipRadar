@@ -513,6 +513,16 @@ YOUTUBE (5.1)
   description templates ({title}, {caption}, {streamer}, {source},
   {hashtags}), tags and Publish for me.
 
+SERVER MODE (5.2): CLIP RADAR IN SAFARI
+  Settings > Server mode lets you use Clip Radar from Safari on an iPhone,
+  iPad or another computer on the same Wi-Fi, while it runs on your PC.
+  Turn it on, open the address it shows on the other device, and type the
+  access code once (it stays signed in for 30 days; Make a new code signs
+  every device out). Only the PC can turn it on or off, see the code, or
+  quit Clip Radar. It's plain http: use it at home, not on public Wi-Fi.
+  Windows may ask once whether Clip Radar can use the network: allow it on
+  private networks.
+
 EXPORT VOD (A WHOLE VIDEO)
   Export VOD saves a whole video as one wide (16:9) file. Videos open on Home
   are listed on the left. Under them, On this PC lists the VODs Clip Radar

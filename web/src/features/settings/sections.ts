@@ -20,6 +20,7 @@ export const SECTIONS: Section[] = [
   { id: 'perf', title: 'Performance', group: 'App', words: 'renders downloads at once speed gpu encoder nvenc priority responsive faster' },
   { id: 'tools', title: 'Downloads and tools', group: 'App', words: 'ffmpeg yt-dlp twitchdownloader whisper laughter download quality cookies browser' },
   { id: 'storage', title: 'Storage', group: 'App', words: 'folders disk space cleanup delete vods clips projects' },
+  { id: 'server', title: 'Server mode', group: 'App', words: 'server mode safari iphone ipad phone mac browser network wifi remote access code lan' },
   { id: 'updates', title: 'Updates', group: 'App', words: 'update version new release automatic token' },
   { id: 'about', title: 'About', group: 'App', words: 'about version log error errors crash bug report uninstall' },
 ]

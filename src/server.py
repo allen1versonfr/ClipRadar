@@ -1515,6 +1515,12 @@ class _Server(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def make_server(host: str, port: int):
+    """A server on host:port answering as the app does (server mode's network listener, remote.py)."""
+    import routes
+    return _Server((host, port), routes.Handler)
+
+
 def _bind(start: int):
     import routes      # here, not at the top: routes.py imports this module
     for port in range(start, start + 20):
@@ -1536,6 +1542,8 @@ def start(port: int = PORT):
         _clean_leftovers()
         load_queue()
         session.start(sys.modules[__name__])   # the videos open when Clip Radar closed come back (5.0.2)
+        import remote
+        remote.apply(make_server)              # server mode, when it's on (5.2): the network listener
         autopilot.app_started()          # the start-up cleanup sweep: autopilot_steps.cleanup_start
         render_queue.apply_perf()
         updater.start_background(log=_say)

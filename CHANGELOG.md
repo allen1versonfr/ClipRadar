@@ -5,6 +5,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-11-19
+
+### Added
+- **Server mode: Clip Radar in Safari.** Settings › Server mode lets you use Clip Radar from Safari (or any browser) on an
+  iPhone, iPad or another computer on the same Wi-Fi, while it keeps running on your PC. Turn it on and Settings shows
+  the address to open (like http://192.168.1.20:7870) and an eight-digit access code.
+  - The first time, the other device asks for the code; it then stays signed in for 30 days. **Make a new code** signs
+    every device out.
+  - Five wrong codes in a minute from one device and it has to wait a minute.
+  - Only Clip Radar's own page can use a signed-in device's sign-in: another site open in Safari can't.
+  - Turning it on or off, the code and the port are only on the PC itself, and so is Quit (it would stop Clip Radar
+    on the PC); a device on the network never sees the code.
+  - Off by default, and nothing changes for Clip Radar's own window either way. It's plain http, for your home network:
+    Settings says not to use it on public Wi-Fi. Windows may ask once whether Clip Radar can use the network.
+
+### Tests
+- `tests/test_remote.py` (new, in CI): off by default; on, the network sends you to sign in and nothing else answers
+  (no video either); a wrong code refused, the right one signing in with an HttpOnly, SameSite=Strict cookie; another
+  site refused; the switch, the code and Quit not reachable from the network; five wrong codes make the address wait;
+  a new code signs everyone out; this PC's window unchanged; turned off, the listener gone; a port under 1024 refused.
+
 ## [5.1.3] - 2026-11-19
 
 ### Added
