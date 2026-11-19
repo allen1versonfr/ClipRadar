@@ -456,6 +456,29 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
             "warning": job.get("warning", "")}
 
 
+_yt: dict = {}            # an exported segment's file -> what was done with it on YouTube (5.1.3)
+
+
+def to_youtube(S, eid: str, body: dict) -> dict:
+    """An exported segment to YouTube (5.1.3), as Exports sends clips: Upload to YouTube (Clip Radar's own browser
+    window, with Settings › YouTube's choices) or Open YouTube Studio (the pass-through). body: {file: the exported
+    file's path, title, description, auto}. Only a file Segments saved is sent."""
+    import ytclips
+    _find(eid)
+    path = os.path.abspath(str(body.get("file") or ""))
+    root = os.path.abspath(locations.segments_dir())
+    if not (os.path.normcase(path).startswith(os.path.normcase(root) + os.sep) and os.path.isfile(path)):
+        raise RuntimeError("That segment's file isn't there any more. Export it again first.")
+    it = _yt.setdefault(path, {"path": path, "title": os.path.splitext(os.path.basename(path))[0]})
+    it["yt_text"] = {"title": str(body.get("title") or it["title"])[:200], "description": str(body.get("description") or "")[:5000]}
+    return ytclips.start_upload(S, it) if body.get("auto") else ytclips.pass_through(it)
+
+
+def youtube_states() -> dict:
+    """What was done on YouTube with each exported segment file: {path: {"at", "url", "auto", "error", "left"}}."""
+    return {p: it["yt"] for p, it in _yt.items() if it.get("yt")}
+
+
 def start_export(S, eid: str, body: dict) -> dict:
     _find(eid)
     return _start(S, eid, "export", "segexport", lambda job: run_export(S, job, eid, body))
@@ -470,4 +493,4 @@ def view(S) -> dict:
         out.append(dict(e, length=round(edit_len(e), 1), open=vodexport.usable(pr),
                         exists=os.path.isfile(e.get("video") or ""),
                         export_job=job("export"), hear_job=job("hear")))
-    return {"edits": out}
+    return {"edits": out, "youtube": youtube_states()}

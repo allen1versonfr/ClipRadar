@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from '../../api/client'
-import { JobStarted, Ok, SegSaved, Segments, type SegEdit } from '../../api/schemas'
+import { JobStarted, Ok, SegSaved, Segments, type SegEdit, YtHandoff } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
@@ -8,6 +8,7 @@ import { usePoll } from '../../hooks/usePoll'
 import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
+import { YouTubeBox } from '../exports/Posting'
 import { DEFAULTS, JobBar, QUALITY, SIZES, type Choices } from '../vodexport/VodExportView'
 import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from '../vodexport/VodTimeline'
 import { addCut, editLen, gainToVolume, kept, move, pastCut, playlist, segLen, step, type Segment } from './model'
@@ -46,14 +47,14 @@ export function SegmentsView({ open }: { open: string | undefined }) {
               </li>
             ))}
           </ul>
-          <Editor key={sel.id} edit={sel} refresh={poll.refresh} />
+          <Editor key={sel.id} edit={sel} refresh={poll.refresh} yt={poll.data} />
         </div>
       )}
     </section>
   )
 }
 
-function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void> }) {
+function Editor({ edit, refresh, yt }: { edit: SegEdit; refresh: () => Promise<void>; yt: Segments | undefined }) {
   const toast = useToast()
   const confirm = useConfirm()
 
@@ -321,7 +322,7 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
                 {c.mode === 'each' ? `Export ${plural(ticked.length, 'video')} · ${fmtTime(total)}`
                   : `Export one video · ${fmtTime(total)}${segs.some(s => s.on) ? ` · ${plural(list.length, 'part')}` : ''}`}</button>}
         </footer>
-        <ExportDone job={edit.export_job} />
+        <ExportDone job={edit.export_job} edit={edit} yt={yt} refresh={refresh} />
       </section>
       </div>
     </div>
@@ -400,15 +401,17 @@ function Trim({ label, at, set, now, seek }: { label: string; at: number; set: (
   )
 }
 
-function ExportDone({ job }: { job: SegEdit['export_job'] }) {
+function ExportDone({ job, edit, yt, refresh }: {
+  job: SegEdit['export_job']; edit: SegEdit; yt: Segments | undefined; refresh: () => Promise<void>
+}) {
   const toast = useToast()
   if (!job || job.status === 'running') return null
   if (job.status === 'error') return <p className="banner err" role="alert" data-testid="segv-error">Export failed: {job.error}</p>
   if (job.status === 'cancelled') return <p className="muted">Export cancelled.</p>
   if (job.status !== 'done') return null
   const r = (job.result ?? {}) as { name?: string; folder?: string; srt?: string; length?: number; parts?: number; took?: number
-    files?: Array<{ name: string; length: number; srt?: string }> }
-  const files = r.files ?? [{ name: r.name ?? '', length: r.length ?? 0, srt: r.srt }]
+    files?: Array<{ name: string; length: number; srt?: string; path?: string | undefined }> }
+  const files: Array<{ name: string; length: number; path?: string | undefined }> = r.files ?? [{ name: r.name ?? '', length: r.length ?? 0, path: (r as { path?: string }).path }]
   return (
     <div className="vodx-done" data-testid="segv-done">
       {files.length === 1
@@ -420,6 +423,13 @@ function ExportDone({ job }: { job: SegEdit['export_job'] }) {
       {r.took != null && <p className="hint">Made from {plural(r.parts ?? 0, 'part')} in {fmtTime(r.took)}.</p>}
       {job.warning && <p className="hint">{job.warning}</p>}
       <button className="btn" onClick={() => void api(Ok, '/api/open_folder', { folder: r.folder ?? 'segments' }).catch(e => toast(err(e), 'err'))}>Show in folder</button>
+      {/* 5.1.3: each exported segment to YouTube */}
+      {files.filter(f => f.path).map(f => (
+        <YouTubeBox key={f.path} id={f.path!} label={files.length > 1 ? `YouTube: ${f.name}` : 'YouTube'}
+                    title0={f.name.replace(/\.[^.]+$/, '').replace(/ \(\d+\)$/, '')} desc0="" state={yt?.youtube[f.path!]}
+                    can={yt?.uploads?.youtube ?? true} publish={yt?.uploads?.publish ?? false} onDone={refresh}
+                    send={(auto, title, description) => api(YtHandoff, '/api/segments/youtube', { id: edit.id, file: f.path, title, description, auto })} />
+      ))}
     </div>
   )
 }

@@ -200,6 +200,21 @@ if shutil.which("ffmpeg"):
         check("Late's cut stretch is left out", abs(luma(late, 2.5) - 34 * 6 % 256) < 30, luma(late, 2.5))
         check("no subtitle file, even when asked for (5.1.2: YouTube makes its own captions)",
               not os.path.isfile(os.path.splitext(early)[0] + ".srt"))
+    # ---- 5.1.3: an exported segment to YouTube (Open YouTube Studio: the file shown, the upload page opened)
+    import studio  # noqa: E402
+    import ytclips  # noqa: E402
+    os.environ["CLIPRADAR_NO_BROWSER"] = "1"
+    del studio.opened[:]
+    r = segments.to_youtube(server, e["id"], {"file": early, "title": "Early <bit>", "description": "From the stream"})
+    check("an exported segment goes to YouTube Studio: the file shown, the upload page opened",
+          ("url", ytclips.UPLOAD_URL) in studio.opened and ("reveal", early) in studio.opened, studio.opened)
+    check("with the title and description given, made a title YouTube takes", r["title"] == "Early bit" and r["description"] == "From the stream", r)
+    check("and the screen shows it was sent", segments.view(server)["youtube"].get(os.path.abspath(early), {}).get("url") == ytclips.UPLOAD_URL)
+    try:
+        segments.to_youtube(server, e["id"], {"file": video})
+        check("a file Segments didn't save is refused", False)
+    except RuntimeError:
+        check("a file Segments didn't save is refused", True)
     # the Segments folder on another drive than the temporary folder: a rename across drives fails (WinError 17)
     real_rename, real_replace = os.rename, os.replace
 

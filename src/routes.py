@@ -344,7 +344,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/vodexport":
             return self._json(vodexport.view(S))
         if p == "/api/segments":
-            return self._json(segments.view(S))
+            return self._json(dict(segments.view(S), uploads=_uploads_now()))
         if p == "/api/vodexport/words":
             # the words already heard around the preview's playhead (nothing is listened to here)
             pr = S.projects.get(q.get("pid", [""])[0])
@@ -1161,6 +1161,9 @@ class Handler(BaseHTTPRequestHandler):
                     e = segments.add_many(S, str(body.get("pid") or ""), body.get("parts") or [],
                                           str(body.get("edit") or ""), str(body.get("name") or ""))
                     return self._json({"id": e["id"], "name": e["name"], "added": len(e["segments"])})
+                if act == "youtube":
+                    # an exported segment to YouTube: Upload to YouTube or Open YouTube Studio (5.1.3)
+                    return self._json(segments.to_youtube(S, eid, body))
                 if act == "save":
                     return self._json({"ver": segments.save(body)["ver"]})
                 if act == "delete":

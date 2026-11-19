@@ -57,9 +57,10 @@ import listening  # noqa: E402
 def queue_public(it: dict) -> dict:
     d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path", "words", "sig", "_diag")}
     d["duration"] = round(it["end"] - it["start"], 2)
-    if it.get("platform") == "youtube":
+    if it.get("status") == "done":
         import ytclips
-        d["yt_texts"] = ytclips.texts(it)          # the title and description it goes to YouTube with (5.1)
+        # the title and description it goes to YouTube with (5.1; every clip since 5.1.3: a TikTok clip goes up as a Short)
+        d["yt_texts"] = ytclips.texts(it)
     return d
 
 

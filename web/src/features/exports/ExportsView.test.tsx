@@ -205,4 +205,22 @@ describe('Exports', () => {
     expect(screen.getAllByTestId('export-row').map(r => r.dataset.id)).toEqual(['t1'])
     expect(screen.getByTestId('tt-panel')).toBeTruthy()
   })
+
+  it('5.1.3: a TikTok clip has Upload to YouTube too (as a Short)', async () => {
+    const calls: Array<[string, unknown]> = []
+    const one = [{ id: 't1', status: 'done', stage: 'done', title: 'Big moment', duration: 12, name: 'Big moment.mp4', url: '/export/t1', history: [],
+      platform: 'tiktok', yt_texts: { title: 'Big moment', description: 'From the stream' } }]
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      calls.push([path, init?.body ? JSON.parse(String(init.body)) : undefined])
+      const body = path === '/api/queue' ? { items: one, eta: null, workers: 1, uploads: { tiktok: true, youtube: true, press_post: false, publish: false } }
+        : path === '/api/yt_handoff' ? { job: 'j7' } : path === '/api/job/j7' ? { id: 'j7', status: 'done', result: { published: false } } : { ok: true }
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    render(<ToastProvider><ExportsView /></ToastProvider>)
+    expect(await screen.findByTestId('tt-panel')).toBeTruthy()
+    const box = screen.getByTestId('yt-box')
+    expect((within(box).getByTestId('ytb-desc') as HTMLTextAreaElement).value).toBe('From the stream')
+    fireEvent.click(within(box).getByTestId('ytb-auto'))
+    await waitFor(() => expect(calls.find(([p]) => p === '/api/yt_handoff')?.[1]).toMatchObject({ item: 't1', title: 'Big moment', auto: true }))
+  })
 })
