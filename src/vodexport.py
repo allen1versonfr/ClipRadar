@@ -842,6 +842,64 @@ def start_scan(S, pid: str) -> dict:
     return _start(S, pid, "copyright_job", "copyright", go)
 
 
+def _segfind_file(pr: dict) -> str:
+    return os.path.join(pr["workdir"], "segfind.json")
+
+
+def load_found(pr: dict) -> Optional[dict]:
+    """The last Find segments of this video ({"parts", "at", "length", "heard"}), if the video hasn't changed since."""
+    if "vod_found" not in pr:
+        pr["vod_found"] = None
+        try:
+            with open(_segfind_file(pr), encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("video") == _sig(pr) and isinstance(data.get("parts"), list):
+                pr["vod_found"] = {k: data.get(k) for k in ("parts", "at", "length", "heard")}
+        except (OSError, ValueError, TypeError):
+            pass
+    return pr["vod_found"]
+
+
+def find_segments(S, job: dict, pr: dict, body: dict) -> dict:
+    """Find segments (5.0.3, segfind.py): split the video into its parts, by topic, pauses and games.
+    The whole video is listened to first when it can be (the same transcript captions and flagged words use);
+    without the speech model, what's been heard already is used, and pauses and games do the rest."""
+    import segfind
+    dur = _duration(pr)
+    if dur <= 0:
+        raise RuntimeError("Couldn't read the video's length.")
+    model, lang = str(body.get("whisper_model") or "small")[:40], str(body.get("language") or "")[:10]
+    length = body.get("length") if body.get("length") in segfind.LENGTHS else "medium"
+    has_audio = (pr.get("info") or {}).get("has_audio", True)
+    if has_audio and (whisper.whisper_available() or (pr.get("yt") or {}).get("words")):
+        words = hear_all(S, pr, model, lang, 0.0, dur, S.job_progress(job, 0, 0.95), S.job_check(job), S.job_step(job), "the topics")
+        got = "all"
+    else:
+        words = heard(pr, model, lang, 0.0, dur)["words"] if has_audio else []
+        got = "some" if words else "none"
+    S.job_step(job)("Finding where the topic changes")
+    meta = engine._meta(pr["workdir"])
+    games = [{"start": float(g.get("start", 0)), "game": str(g.get("game") or "")} for g in meta.get("games") or []
+             if float(g.get("start", 0)) > 0]
+    games += [{"start": float(a), "game": str(title)} for a, b, title in ((pr.get("yt") or {}).get("chapters") or []) if float(a) > 0]
+    an = pr.get("analysis")
+    parts = segfind.find(words, dur, length, score=getattr(an, "score", None), games=games)
+    for i, p in enumerate(parts):            # a part that starts with a game or chapter takes its name
+        g = next((x["game"] for x in games if abs(x["start"] - p["start"]) <= 60 and x["game"]), "")
+        p["name"] = (f"{g}: {p['name']}" if g and p["name"] else g) or p["name"] or f"Part {i + 1}"
+        p["on"] = not p["quiet"]
+    pr["vod_found"] = {"parts": parts, "at": time.time(), "length": length, "heard": got}
+    _write_json(_segfind_file(pr), dict(pr["vod_found"], video=_sig(pr)))
+    S.job_logger(job)(f"Found {len(parts)} part{'s' if len(parts) != 1 else ''}"
+                      + ("" if got == "all" else " (without the whole video heard: from pauses and games)") + ".")
+    return {"parts": len(parts)}
+
+
+def start_segfind(S, pid: str, body: dict) -> dict:
+    pr = S.projects[pid]
+    return _start(S, pid, "vod_found_job", "segfind", lambda job: find_segments(S, job, pr, body))
+
+
 def start_words(S, pid: str, body: dict) -> dict:
     pr = S.projects[pid]
     model, lang = str(body.get("whisper_model") or "small")[:40], str(body.get("language") or "")[:10]
@@ -909,6 +967,7 @@ def view(S) -> dict:
             "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
             "copyable": info.get("vcodec") in COPY_CODECS, "light": bool(pr.get("light")),
             "scan": _scan_view(load_scan(pr)), "scan_job": job("copyright_job"), "music": load_music(pr),
+            "found": load_found(pr), "found_job": job("vod_found_job"),
             "flags": load_flags(pr), "words_job": job("vod_words_job"), "hear_job": job("vod_hear_job"),
             "preview_job": job("vod_preview_job"), "export_job": job("vodexport_job"),
             "exported": bool(out and os.path.isfile(out)), "youtube": pr.get("vod_yt"), "youtube_job": job("vod_yt_job"),

@@ -549,6 +549,14 @@ EXPORT VOD (A WHOLE VIDEO)
   Open YouTube Studio opens the upload page in your browser with the file
   selected in File Explorer.
 
+  Find segments: splits the stream into the parts it's made of, where the
+  topic changes (from what was said: the whole video is listened to
+  first), at long pauses and when the game changes. Choose how long the
+  parts are (Short 2 to 8 min, Medium 5 to 15, Long 10 to 30). Each part is
+  named from its own words; rename any, untick the ones you don't want
+  (quiet parts start unticked), and press Send to Segments: they become a
+  new edit there, each part a video of its own.
+
 SEGMENTS (PARTS OF A STREAM, EDITED TOGETHER)
   Pick the parts of a long stream you want and export each one as a video of
   its own (or all of them joined into one), as long as you like.

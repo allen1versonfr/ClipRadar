@@ -5,6 +5,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.0.3] - 2026-11-19
+
+### Added
+- **Find segments, in Export VOD.** It splits a stream into the parts it's made of, so each can be a video of its own
+  in Segments:
+  - where the topic changes, from what was said (the same transcript captions and the flagged words check use;
+    the whole video is listened to first, reusing what's been heard);
+  - at long pauses (a break, BRB), and wherever the game changed (Twitch's chapters) or a YouTube chapter starts;
+  - into parts of the length you choose: Short (2 to 8 min), Medium (5 to 15) or Long (10 to 30). Each edge sits in
+    a pause, so no part starts or ends mid-sentence.
+
+  Each part is named from the words that set it apart ("nyc · trip · pizza", or the game's name), and you can rename
+  it. Parts that are mostly quiet start unticked. Send the ticked ones to Segments in one go: they become a new edit,
+  one segment each, and Export there saves each as its own video. The parts are drawn on the timeline under the
+  preview. Without the speech model, pauses and game changes still split it (`src/segfind.py`).
+
+### Tests
+- `tests/test_segfind.py` (new, in CI): a made-up 45-minute stream (life, a trip, a break, a game) split where each
+  starts, every part within the length asked for, edges in pauses, parts named from their own words and never
+  filler, a break marked quiet, a game change always a cut, and a video with nothing heard still split.
+- `tests/test_segments.py`: Find segments listens to the whole video once, splits it at the topic change, names the
+  parts, keeps them with the video, and the ticked ones go to a new edit together.
+- `VodExportView.test.tsx`: the parts are listed as found, renamed, unticked and sent together; the length chosen is
+  asked for.
+
 ## [5.0.2] - 2026-11-19
 
 ### Added

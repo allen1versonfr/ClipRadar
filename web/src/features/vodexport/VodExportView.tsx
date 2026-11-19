@@ -204,6 +204,9 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
                       cancel={cancel} />
       </div>
       <div className="vodx-panels">
+      <FindSegments v={v} view={view} model={model} language={language} seek={seek} tl={tl} cancel={cancel}
+                    start={start} toolsLink={toolsLink} />
+
 
       <section className="panel set" aria-labelledby="vodx-cr" data-testid="vodx-copyright">
         <header className="row">
@@ -353,6 +356,85 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   )
 }
 
+const LENGTHS: Array<[string, string]> = [['short', 'Short (2 to 8 min)'], ['medium', 'Medium (5 to 15 min)'], ['long', 'Long (10 to 30 min)']]
+type Part = NonNullable<VodExportVideo['found']>['parts'][number]
+
+/** Find segments (5.0.3): the video split into the parts it's made of (where the topic changes, long pauses, a new
+ *  game), each named from its own words, to tick and send to Segments, where each is a video of its own. */
+function FindSegments({ v, view, model, language, seek, tl, cancel, start, toolsLink }: {
+  v: VodExportVideo; view: VodExport; model: string; language: string; seek: (t: number) => void
+  tl: RefObject<VodTimelineHandle | null>; cancel: (job: string) => void
+  start: (path: string, body: object, what: string) => Promise<void>; toolsLink: React.ReactNode
+}) {
+  const toast = useToast()
+  const [length, setLength] = useState(() => getPref('segLen', 'medium'))
+  const found = v.found, job = v.found_job, running = job?.status === 'running'
+  const at = found?.at ?? 0
+  // ticks and names you changed, kept with the search they were made on: a new search starts over
+  const [mineFor, setMineFor] = useState<{ at: number; on: Record<number, boolean>; names: Record<number, string> }>({ at, on: {}, names: {} })
+  const mine = mineFor.at === at ? mineFor : { at, on: {}, names: {} }
+  const parts = (found?.parts ?? []).map((p, i): Part & { i: number } => ({ ...p, i, on: mine.on[i] ?? p.on, name: mine.names[i] ?? p.name }))
+  const ticked = parts.filter(p => p.on)
+  const change = (i: number, patch: { on?: boolean; name?: string }) => setMineFor({ at, on: { ...mine.on, ...(patch.on != null ? { [i]: patch.on } : {}) },
+    names: { ...mine.names, ...(patch.name != null ? { [i]: patch.name } : {}) } })
+  const [sending, setSending] = useState(false)
+  async function send() {
+    setSending(true)
+    try {
+      const r = await api(SegAdded, '/api/segments/add_many', { pid: v.pid, name: `${v.title || 'Stream'} segments`,
+        parts: ticked.map(p => ({ start: p.start, end: p.end, name: p.name })) })
+      toast(`Sent ${plural(ticked.length, 'segment')} to ${r.name}. Each exports as a video of its own.`, '',
+        [{ label: 'Open Segments', fn: () => { location.hash = `#segments/${r.id}` } }])
+    } catch (e) { toast(err(e), 'err') }
+    setSending(false)
+  }
+  const canHear = v.has_audio && (view.whisper || v.has_yt_words)
+  return (
+    <section className="panel set" aria-labelledby="vodx-find" data-testid="vodx-find">
+      <header className="row">
+        <h2 id="vodx-find" className="grow">Find segments</h2>
+        {running
+          ? <button className="btn ghost sm" onClick={() => cancel(job!.id)}>Stop</button>
+          : <button className="btn" data-testid="vodx-find-btn" disabled={!v.exists}
+                    onClick={() => void start('/api/vodexport/segfind', { pid: v.pid, length, whisper_model: model, language }, 'Finding the segments…')}>
+              {found ? 'Find again' : 'Find segments'}</button>}
+      </header>
+      <p className="muted">Splits the stream into the parts it's made of: where the topic changes, at long pauses and when the game
+        changes. Each part is named from what was said in it. Send the ones you want to Segments, where each is a video of its own.</p>
+      <div className="row wrap"><span className="muted">Length</span>
+        <Seg label="How long the segments are" value={length} options={LENGTHS} onChange={x => { setLength(x); setPref('segLen', x) }} /></div>
+      {!canHear && <p className="hint">Without the speech model (Whisper) only pauses and game changes split it, not topics. Get it in {toolsLink}.</p>}
+      {canHear && !found && <p className="hint">The whole video is listened to first, which takes a while on a long stream. What's
+        already been heard (captions, the flagged words check) is reused.</p>}
+      {running && <JobBar job={job!} label="Finding the segments" />}
+      {job?.status === 'error' && <p className="banner err" role="alert">{job.error}</p>}
+      {found && !running && (parts.length === 0 ? <p>No parts found.</p> : <>
+        <div className="row wrap">
+          <span data-testid="vodx-found-summary">{plural(parts.length, 'part')}, {ticked.length} ticked.</span>
+          <button className="btn sm ghost" onClick={() => setMineFor({ at, on: Object.fromEntries(parts.map(p => [p.i, true])), names: mine.names })}>Tick all</button>
+          <button className="btn sm ghost" onClick={() => setMineFor({ at, on: Object.fromEntries(parts.map(p => [p.i, false])), names: mine.names })}>Untick all</button>
+        </div>
+        {found.heard !== 'all' && <p className="hint">Split by pauses and game changes only: the whole video hasn't been listened to.</p>}
+        <ul className="vodx-found" aria-label="Parts found">
+          {parts.map(p => (
+            <li key={p.i} className="vodx-part" data-testid="vodx-part">
+              <input type="checkbox" checked={p.on} aria-label={`Send part ${p.i + 1} to Segments`} onChange={e => change(p.i, { on: e.target.checked })} />
+              <span className="vodx-part-main">
+                <input className="input" value={p.name} maxLength={80} aria-label={`Name of part ${p.i + 1}`} onChange={e => change(p.i, { name: e.target.value })} />
+                <span className="small muted">
+                  <button className="link tnum" onClick={() => { seek(p.start); tl.current?.show(p.start, p.end) }}>{spanLabel(p)}</button>
+                  {p.why ? ` · ${p.why}` : ''}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <button className="btn primary" data-testid="vodx-found-send" disabled={!ticked.length || sending} onClick={() => void send()}>
+          {sending ? 'Sending…' : `Send ${plural(ticked.length, 'part')} to Segments`}</button>
+      </>)}
+    </section>
+  )
+}
+
 /** "people talking over most of it" */
 function talk(s: Pick<MusicSpan, 'speech'> | Song): string {
   const p = s.speech ?? 0
@@ -446,6 +528,7 @@ function PreviewPanel({ v, vid, now, setNow, seek, songs, setSongs, addSong, sel
   const boxes: Box[] = [
     ...songs.map((s, i): Box => ({ id: `m${i}`, start: s.start, end: s.end, lane: 0, kind: s.act, edit: true,
       label: s.act === 'voice' ? 'Erase song' : s.act === 'mute' ? 'Mute all sound' : 'Keep' })),
+    ...(v.found?.parts ?? []).map((p, i): Box => ({ id: `f${i}`, start: p.start, end: p.end, lane: 1, kind: p.quiet ? 'off' : 'seg', label: p.name })),
     ...(mark.a >= 0 && mark.b > mark.a ? [{ id: 'pick', start: mark.a, end: mark.b, lane: 1, kind: 'pick', edit: true, label: 'For Segments' } as Box] : []),
   ]
   const onBox = (id: string, a: number, b: number) => {

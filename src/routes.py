@@ -1112,6 +1112,11 @@ class Handler(BaseHTTPRequestHandler):
                     e = segments.add(S, str(body.get("pid") or ""), body.get("start"), body.get("end"),
                                      str(body.get("name") or ""), str(body.get("edit") or ""))
                     return self._json({"id": e["id"], "name": e["name"]})
+                if act == "add_many":
+                    # Find segments: the parts ticked, each a segment, into one new edit (or the one named) (5.0.3)
+                    e = segments.add_many(S, str(body.get("pid") or ""), body.get("parts") or [],
+                                          str(body.get("edit") or ""), str(body.get("name") or ""))
+                    return self._json({"id": e["id"], "name": e["name"], "added": len(e["segments"])})
                 if act == "save":
                     return self._json({"ver": segments.save(body)["ver"]})
                 if act == "delete":
@@ -1146,6 +1151,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(str(e))
             if act == "scan":
                 return self._json({"job": vodexport.start_scan(S, pid)["id"]})
+            if act == "segfind":
+                # Find segments: the video split into its parts, by topic, pauses and games (5.0.3)
+                return self._json({"job": vodexport.start_segfind(S, pid, body)["id"]})
             if act == "music":
                 # the music as you left it on the screen (moved, marked by hand), so Segments uses it too (5.0)
                 return self._json(vodexport.save_music(S.projects[pid], body))

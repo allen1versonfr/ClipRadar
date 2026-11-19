@@ -106,6 +106,7 @@ jobs:
           python tests/test_framing.py
           python tests/test_sources.py
           python tests/test_locations.py
+          python tests/test_segfind.py
           python tests/test_rename.py
           python tests/test_versions.py
           python tests/test_release_assets.py
