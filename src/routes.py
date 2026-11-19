@@ -1390,7 +1390,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
                 it = render_queue.queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=body.get("sound", True) is not False)
-                if body.get("youtube"):
+                y = body.get("youtube")
+                if isinstance(y, dict):
+                    # 5.4: the YouTube edit as you made it in Moments: its own cut, title, description, captions and style
+                    render_queue.queue_add(pid, y.get("clip") or body.get("clip") or {}, y.get("opts") or body.get("opts") or {},
+                                           sound=False, platform="youtube", made=True, yt_text=y.get("text"))
+                elif y:
                     # 5.1, Moments' "YouTube too": a second edit of the same moment for YouTube (16:9, full picture)
                     render_queue.queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=False, platform="youtube")
             except (KeyError, TypeError, ValueError):

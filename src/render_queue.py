@@ -86,8 +86,11 @@ def youtube_opts(opts: dict, info: Optional[dict] = None) -> dict:
     return dict(opts or {}, aspect="16:9", layout="full" if wide else "blur", track="off", punch="off")
 
 
-def queue_add(pid: str, c: dict, opts: dict, sound: bool = False, platform: str = "tiktok") -> dict:
-    """platform: "tiktok" (the clip as set in Moments) or "youtube" (5.1: its YouTube edit, youtube_opts)."""
+def queue_add(pid: str, c: dict, opts: dict, sound: bool = False, platform: str = "tiktok", made: bool = False,
+              yt_text: Optional[dict] = None) -> dict:
+    """platform: "tiktok" (the clip as set in Moments) or "youtube" (5.1: its YouTube edit, youtube_opts).
+    made (5.4): the YouTube edit as you made it in Moments, its settings used as they are (always 16:9);
+    yt_text: its YouTube title and description, when you wrote them there."""
     start_, end_ = float(c["start"]), float(c["end"])
     if end_ - start_ < 1:
         raise RuntimeError("That clip is too short.")
@@ -95,7 +98,7 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False, platform: str 
     if pr and "layout" not in (opts or {}):
         opts = dict(opts or {}, **previews._auto_layout(pr))
     if platform == "youtube":
-        opts = youtube_opts(opts, pr.get("info"))
+        opts = dict(opts or {}, aspect="16:9") if made else youtube_opts(opts, pr.get("info"))
     d = S._find_clip(pr, c.get("id")) if pr else None
     if d:
         why = checkflow.blocks_render(d)
@@ -131,6 +134,11 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False, platform: str 
     # the YouTube edit is made with the YouTube export settings (1920 x 1080), whatever Settings › Export format says
     ex = exports.settings(dict(prefs, preset="youtube", custom={}) if platform == "youtube" else prefs)
     it["platform"] = "youtube" if platform == "youtube" else "tiktok"
+    if platform == "youtube" and isinstance(yt_text, dict):
+        # what you wrote for YouTube in Moments: used as Exports' own YouTube text (ytclips.texts)
+        t = {k: str(yt_text[k])[:5000 if k == "description" else 100] for k in ("title", "description") if isinstance(yt_text.get(k), str)}
+        if t:
+            it["yt_text"] = t
     camp = campaigns.active()
     if camp:
         # Settings › Campaigns: the active campaign's watermark and post rules go with the clip

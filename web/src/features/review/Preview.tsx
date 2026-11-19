@@ -132,7 +132,7 @@ export function Preview({ clip, video, thumb, opts, marks, safety, replace, trac
     else onOpts({}, true)
   }
   return (
-    <div className="rv-phone" style={{ aspectRatio: `${ow} / ${oh}` }}>
+    <div className={`rv-phone${ow > oh ? ' wide' : ''}`} style={{ aspectRatio: `${ow} / ${oh}` }}>
       <canvas ref={cv} width={W} height={H} data-testid="clip-preview" aria-label="Clip preview, as it will render. Drag the title, captions or watermark to move them."
               onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
               onPointerEnter={() => { inside.current = true }} onPointerLeave={() => { inside.current = false; hover.current = null }} />

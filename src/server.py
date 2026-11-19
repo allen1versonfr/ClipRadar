@@ -1042,7 +1042,45 @@ def _apply_clip_state(pr: dict, d: dict, b: dict):
             d["words_edit"] = ws
     if not d.get("wordsEdited"):
         d.pop("words_edit", None)
+    if "yt" in b:
+        y = _clean_yt(pr, b["yt"])
+        if y:
+            d["yt"] = y
+        else:
+            d.pop("yt", None)
     checkflow.mark_changed(d)
+
+
+def _clean_yt(pr: dict, y) -> Optional[dict]:
+    """A moment's YouTube edit (5.4, Moments › YouTube too), checked: only what was changed for YouTube, each with
+    its flag. None when nothing was."""
+    if not isinstance(y, dict):
+        return None
+    out: dict = {}
+    if y.get("userTrim"):
+        try:
+            st, en = float(y["start"]), float(y["end"])
+        except (KeyError, TypeError, ValueError):
+            st = en = 0.0
+        dur = _media_end(pr)
+        if dur:
+            st, en = max(0.0, st), min(dur, en)
+        if en - st >= 1:
+            out.update(start=round(st, 3), end=round(en, 3), userTrim=True)
+    if y.get("userTitle") and isinstance(y.get("title"), str):
+        out.update(title=y["title"][:100], userTitle=True)
+    if y.get("userPost") and isinstance(y.get("postText"), str):
+        out.update(postText=y["postText"][:5000], userPost=True)
+    if y.get("userGain"):
+        try:
+            out.update(gain=max(-12.0, min(12.0, float(y.get("gain") or 0))), userGain=True)
+        except (TypeError, ValueError):
+            pass
+    if y.get("wordsEdited"):
+        ws = _clean_words(y.get("words_edit"))
+        if ws is not None:
+            out.update(words_edit=ws, wordsEdited=True)
+    return out or None
 
 
 def _check_view(d: dict) -> dict:

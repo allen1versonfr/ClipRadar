@@ -31,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  localStorage.clear()
 })
 
 const renderReview = () => render(<ToastProvider><ConfirmProvider><ReviewView pid="p1" /></ConfirmProvider></ToastProvider>)
@@ -50,6 +51,37 @@ describe('Review', () => {
     await waitFor(() => expect(posted('/api/clip_state')).toContainEqual(expect.objectContaining({ id: 2, state: 'skipped' })))
     fireEvent.click(within(screen.getByTestId('toasts')).getByRole('button', { name: 'Duplicate' }))
     expect(posted('/api/feedback')).toContainEqual({ pid: 'p1', clip: 2, action: 'reason', reason: 'duplicate' })
+  })
+
+  it('with YouTube too on, the YouTube edit is worked on the same way: its own cut, title and description', async () => {
+    localStorage.setItem('vc_ytToo', 'true')
+    renderReview()
+    await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Clip 1'))
+    fireEvent.click(screen.getByTestId('rv-edition-youtube'))
+    expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Clip 1')     // follows the TikTok title until changed
+    fireEvent.change(screen.getByTestId('rv-title-input'), { target: { value: 'For YouTube' } })
+    fireEvent.change(screen.getByTestId('rv-yt-desc'), { target: { value: 'Long description' } })
+    fireEvent.click(screen.getByRole('button', { name: /^End: 1 second later/ }))
+    expect(screen.getByTestId('rv-end').textContent).toMatch(/0:36/)
+    // the TikTok edit is as it was
+    fireEvent.click(screen.getByTestId('rv-edition-tiktok'))
+    expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Clip 1')
+    expect(screen.getByTestId('rv-end').textContent).toMatch(/0:35/)
+    await waitFor(() => expect(posted('/api/clip_state').some(b => b.id === 1 && b.yt?.userTitle && b.yt.title === 'For YouTube'
+      && b.yt.userTrim && b.yt.end === 36 && b.end === 35)).toBe(true), { timeout: 2000 })
+    fireEvent.click(screen.getByTestId('rv-keep'))
+    await waitFor(() => expect(posted('/api/queue/add')).toHaveLength(1))
+    const sent = posted('/api/queue/add')[0]!
+    expect(sent.clip).toMatchObject({ title: 'Clip 1', start: 20, end: 35 })
+    expect(sent.youtube.clip).toMatchObject({ title: 'For YouTube', start: 20, end: 36 })
+    expect(sent.youtube.text).toEqual({ title: 'For YouTube', description: 'Long description' })
+    expect(sent.youtube.opts.aspect).toBe('16:9')
+  })
+
+  it('without YouTube too there is only the one edit', async () => {
+    renderReview()
+    await screen.findAllByTestId('rv-row')
+    expect(screen.queryByTestId('rv-edition')).toBeNull()
   })
 
   it('an edit saved after a pause never undoes a keep made in the meantime', async () => {

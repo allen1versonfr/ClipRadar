@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Clip } from '../../api/schemas'
 import { RENDER_DEFAULTS } from '../../prefs'
-import { checkStatus, gate, keepBody, merge, nextTodo, postFor, prep, qClass, queueFor, visible } from './model'
+import { checkStatus, fromYtView, gate, keepBody, merge, nextTodo, postFor, prep, qClass, queueFor, snapshot, visible, ytOpts, ytView } from './model'
 
 const clip = (over: object) => Clip.parse({ id: 1, pid: 'p', start: 10, end: 30, title: 'Chat lost it', ...over })
 
@@ -71,5 +71,46 @@ describe('Review rules', () => {
     const yt = { pid: c.pid, clip_id: c.id, platform: 'youtube', id: 'y' }, tt = { pid: c.pid, clip_id: c.id, platform: 'tiktok', id: 't' }
     expect(queueFor(c, [yt, tt] as never)?.id).toBe('t')
     expect(queueFor(c, [yt] as never)?.id).toBe('y')
+  })
+})
+
+describe('the YouTube edit (5.4)', () => {
+  const base = Clip.parse({ id: 1, pid: 'p', start: 10, end: 20, title: 'TikTok title', postText: '', gain: 0,
+    words: [{ start: 11, end: 11.5, word: 'hey' }] })
+  it('starts as the TikTok edit, and follows it until changed', () => {
+    const v = ytView(base)
+    expect(v).toMatchObject({ start: 10, end: 20, title: 'TikTok title', userTrim: false, userTitle: false, postText: '' })
+    expect(ytView({ ...base, title: 'New', start: 12 })).toMatchObject({ title: 'New', start: 12 })
+  })
+  it('an edit made to it stays its own, and the TikTok edit is untouched', () => {
+    const c = fromYtView(base, { ...ytView(base), start: 8, end: 25, userTrim: true, title: 'YT', userTitle: true, gain: 3 })
+    expect(c).toMatchObject({ start: 10, end: 20, title: 'TikTok title', gain: 0 })
+    expect(ytView(c)).toMatchObject({ start: 8, end: 25, title: 'YT', gain: 3 })
+    expect(ytView({ ...c, start: 0, title: 'Other' })).toMatchObject({ start: 8, title: 'YT' })
+  })
+  it('what belongs to the moment (kept, the content check) goes to the moment, and a round trip changes nothing', () => {
+    const c = fromYtView(base, { ...ytView(base), state: 'kept' })
+    expect(c.state).toBe('kept')
+    expect(ytView(fromYtView(c, ytView(c)))).toEqual(ytView(c))
+    expect(c.yt).toMatchObject({ userTrim: false, userTitle: false })
+  })
+  it('its captions can be fixed on their own', () => {
+    const fixed = [{ start: 11, end: 11.5, word: 'hello' }]
+    const c = fromYtView(base, { ...ytView(base), words: fixed })
+    expect(c.words).toEqual(base.words)
+    expect(ytView(c).words).toEqual(fixed)
+    expect(snapshot(c).yt?.words_edit).toEqual([{ start: 11, end: 11.5, word: 'hello', g: undefined, edited: false }])
+  })
+  it('Keep sends both edits, each as made', () => {
+    const c = fromYtView(base, { ...ytView(base), end: 30, userTrim: true, postText: 'desc', userPost: true })
+    const b = keepBody(c, 'post', { aspect: '9:16' } as never, true, { opts: { aspect: '16:9' } as never }) as Record<string, any>
+    expect(b.clip).toMatchObject({ start: 10, end: 20 })
+    expect(b.youtube.clip).toMatchObject({ start: 10, end: 30 })
+    expect(b.youtube.text).toEqual({ description: 'desc' })
+  })
+  it('its settings are YouTube-shaped, with what was changed for it over them', () => {
+    const o = ytOpts({ aspect: '9:16', layout: 'split', track: 'auto', punch: 'beat', caption_size: 90 } as never, { caption_size: 60 }, false)
+    expect(o).toMatchObject({ aspect: '16:9', layout: 'blur', track: 'off', punch: 'off', caption_size: 60 })
+    expect(ytOpts({} as never, { layout: 'full', aspect: '9:16' } as never, false)).toMatchObject({ layout: 'full', aspect: '16:9' })
   })
 })

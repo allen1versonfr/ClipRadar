@@ -520,6 +520,16 @@ export const Flag = z.looseObject({ label: z.string().default(''), text: z.strin
 export const Word = z.looseObject({ start: z.number(), end: z.number(), word: z.string().default('') })
 
 /** A suggested clip, as /api/project and /api/clips send it (server.py; what you did to it is saved with the VOD). */
+/** A moment's YouTube edit (5.4, Moments › YouTube too): only what was changed for it differs from the TikTok edit.
+ *  Each part is used when its flag is set (userTrim, userTitle, userPost, userGain, wordsEdited). */
+export const YtEdit = z.looseObject({
+  start: z.number().optional(), end: z.number().optional(), userTrim: z.boolean().optional(),
+  title: z.string().optional(), userTitle: z.boolean().optional(),
+  postText: z.string().optional(), userPost: z.boolean().optional(),
+  gain: z.number().optional(), userGain: z.boolean().optional(),
+  wordsEdited: z.boolean().optional(), words: z.array(Word).optional(), words_edit: z.array(Word).optional(),
+})
+export type YtEdit = z.infer<typeof YtEdit>
 export const Clip = z.looseObject({
   id: z.number(), pid: z.string(), start: z.number(), end: z.number(),
   kind: z.string().default('hype'), state: z.enum(['todo', 'kept', 'skipped']).catch('todo'),
@@ -538,6 +548,7 @@ export const Clip = z.looseObject({
     flags: z.array(Flag).default([]), open: z.number().default(0) }).optional(),
   check: z.looseObject({ excluded: z.boolean().default(false), fixes: z.array(z.unknown()).default([]) }).optional(),
   auto_log: z.array(AutoEntry).optional(),
+  yt: YtEdit.optional().catch(undefined),
 })
 export type Clip = z.infer<typeof Clip>
 

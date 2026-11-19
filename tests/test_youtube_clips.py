@@ -120,6 +120,41 @@ else:
         check("with the title and description to paste", r.get("title") == "Typed title" and r.get("description") == "Typed description", r)
         yt = next(x for x in api("/api/queue")["items"] if x["id"] == by["youtube"]["id"])
         check("and the clip says YouTube Studio was opened", (yt.get("yt") or {}).get("url") == ytclips.UPLOAD_URL, yt.get("yt"))
+    # 5.4: the YouTube edit worked on in Moments like the TikTok one: its own cut, title, description and settings
+    api("/api/queue/clear", {})
+    r = api("/api/clip_state", {"pid": pid, "id": 1, "yt": {"start": 2, "end": 14, "userTrim": True, "title": "YouTube <title>",
+                                                            "userTitle": True, "postText": "For YouTube", "userPost": True,
+                                                            "gain": 3, "userGain": True, "title_junk": 1}})
+    saved = next((x for x in api(f"/api/project/{pid}").get("clips", []) if x.get("id") == 1), {})
+    check("the YouTube edit is kept with the clip", (saved.get("yt") or {}).get("start") == 2 and saved["yt"].get("end") == 14
+          and saved["yt"].get("title") == "YouTube <title>" and saved["yt"].get("userGain") and "title_junk" not in saved["yt"], saved.get("yt"))
+    api("/api/clip_state", {"pid": pid, "id": 1, "yt": {"userTrim": True, "start": 3, "end": 3.5}})
+    saved = next((x for x in api(f"/api/project/{pid}").get("clips", []) if x.get("id") == 1), {})
+    check("a YouTube cut under a second isn't kept, and nothing changed means no YouTube edit", "yt" not in saved, saved.get("yt"))
+    ytclip = dict(clip, start=2, end=14, title="YouTube <title>")
+    r = api("/api/queue/add", {"pid": pid, "clip": clip, "opts": {"layout": "full", "captions": False, "hw_encode": False},
+                               "youtube": {"clip": ytclip, "opts": {"layout": "blur", "captions": False, "hw_encode": False, "aspect": "9:16"},
+                                           "text": {"title": "YouTube <title>", "description": "For YouTube"}}})
+    end = time.time() + 240
+    items = []
+    while time.time() < end:
+        items = api("/api/queue")["items"]
+        if len(items) == 2 and all(x["status"] in ("done", "error") for x in items):
+            break
+        time.sleep(0.5)
+    by = {x.get("platform"): x for x in items}
+    check("both edits rendered", sorted(by) == ["tiktok", "youtube"] and all(x["status"] == "done" for x in items),
+          [(x.get("platform"), x["status"], x.get("error")) for x in items])
+    if len(by) == 2 and all(x["status"] == "done" for x in items):
+        import engine  # noqa: E402
+        a, b = (engine.probe(os.path.join(by[k]["folder"], by[k]["name"])) for k in ("tiktok", "youtube"))
+        check("each edit has its own cut (6 s for TikTok, 12 s for YouTube)",
+              abs(a["duration"] - 6) < 0.6 and abs(b["duration"] - 12) < 0.6, (a["duration"], b["duration"]))
+        check("the YouTube edit is 16:9 whatever its settings said", (b["width"], b["height"]) == (1920, 1080), (b["width"], b["height"]))
+        inner = next(x for x in server.queue if x["id"] == by["youtube"]["id"])
+        check("its settings are the ones made for it (blurred background)", inner["opts"].get("layout") == "blur", inner["opts"])
+        check("its title and description are the ones written for it",
+              ytclips.texts(inner) == {"title": "YouTube title", "description": "For YouTube"}, ytclips.texts(inner))
     check("a clip that isn't rendered can't go", api("/api/yt_handoff", {"item": "nope"}).get("status") == 400)
     r = api("/api/youtube", {"visibility": "private"})
     check("Settings › YouTube is saved through the app", r.get("visibility") == "private" and api("/api/youtube")["visibility"] == "private", r)

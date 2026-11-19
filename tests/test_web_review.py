@@ -276,6 +276,28 @@ with sync_playwright() as pw:
     check("the Layout tab sets the layout", vc_opts().get("layout") == "blur", vc_opts().get("layout"))
     page.get_by_role("tab", name="Clip", exact=True).click()
 
+    # 5.4: YouTube too on, the YouTube edit is worked on the same way: a 16:9 preview, its own layout and title
+    page.get_by_test_id("rv-yt-too").check()
+    page.get_by_test_id("rv-edition-youtube").click()
+
+    def phone_ratio():
+        return page.evaluate("(() => { const r = document.querySelector('.rv-phone').getBoundingClientRect(); return r.width / r.height })()")
+    check("the YouTube edit's preview is 16:9", wait_until(lambda: abs(phone_ratio() - 16 / 9) < 0.05, 5), phone_ratio())
+    page.get_by_role("tab", name="Layout", exact=True).click()
+    check("its Layout tab has no shape to pick (always 16:9)", page.get_by_test_id("rv-yt-shape").is_visible())
+    page.get_by_role("radio", name="Whole frame").click()
+    yt_opts = json.loads(page.evaluate("localStorage.getItem('vc_ytOpts')") or "{}")
+    check("its layout is its own: the TikTok edit's is unchanged", yt_opts.get("layout") == "full" and vc_opts().get("layout") == "blur",
+          (yt_opts, vc_opts().get("layout")))
+    page.get_by_role("tab", name="Clip", exact=True).click()
+    page.get_by_test_id("rv-title-input").fill("Only on YouTube")
+    page.get_by_test_id("rv-edition-tiktok").click()
+    check("back on the TikTok edit: 9:16 and its own title", wait_until(lambda: abs(phone_ratio() - 9 / 16) < 0.05, 5)
+          and page.get_by_test_id("rv-title-input").input_value() != "Only on YouTube", (phone_ratio(), page.get_by_test_id("rv-title-input").input_value()))
+    check("the YouTube title is kept with the clip", wait_until(lambda: any((d.get("yt") or {}).get("title") == "Only on YouTube"
+                                                                          for d in server.projects[pid]["clips"]), 5))
+    page.get_by_test_id("rv-yt-too").uncheck()
+
     # Captions tab: add a line at the playhead, fix it, saved with the VOD; Undo all edits
     page.get_by_role("tab", name="Text", exact=True).click()
     page.get_by_label("Captions on the video").check()
