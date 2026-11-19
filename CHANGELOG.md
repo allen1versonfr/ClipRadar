@@ -20,19 +20,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   it. Parts that are mostly quiet start unticked. Send the ticked ones to Segments in one go: they become a new edit,
   one segment each, and Export there saves each as its own video. The parts are drawn on the timeline under the
   preview. Without the speech model, pauses and game changes still split it (`src/segfind.py`).
-
-### Tests
-- `tests/test_segfind.py` (new, in CI): a made-up 45-minute stream (life, a trip, a break, a game) split where each
-  starts, every part within the length asked for, edges in pauses, parts named from their own words and never
-  filler, a break marked quiet, a game change always a cut, and a video with nothing heard still split.
-- `tests/test_segments.py`: Find segments listens to the whole video once, splits it at the topic change, names the
-  parts, keeps them with the video, and the ticked ones go to a new edit together.
-- `VodExportView.test.tsx`: the parts are listed as found, renamed, unticked and sent together; the length chosen is
-  asked for.
-
-## [5.0.2] - 2026-11-19
-
-### Added
 - **Clip Radar opens where you left off.** Close it and open it again, and:
   - the videos you had open in Moments are opened again in the background, your review with them (kept, skipped,
     trims, titles), from the analysis already saved, so it's quick. The newest 3 come back;
@@ -50,6 +37,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   Checked by `tests/test_segments.py` with the rename across drives refused, as Windows does.
 
 ### Tests
+- `tests/test_segfind.py` (new, in CI): a made-up 45-minute stream (life, a trip, a break, a game) split where each
+  starts, every part within the length asked for, edges in pauses, parts named from their own words and never
+  filler, a break marked quiet, a game change always a cut, and a video with nothing heard still split.
+- `tests/test_segments.py`: Find segments listens to the whole video once, splits it at the topic change, names the
+  parts, keeps them with the video, and the ticked ones go to a new edit together.
+- `VodExportView.test.tsx`: the parts are listed as found, renamed, unticked and sent together; the length chosen is
+  asked for.
 - `tests/test_session.py` (new, in CI): a VOD opened for Moments with a clip kept and two videos opened in Export
   VOD; then Clip Radar "closes" and opens again: the VOD is back under the same id with the clip still kept, the
   export video is back, and the one deleted in between isn't opened.
