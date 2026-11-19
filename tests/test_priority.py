@@ -34,7 +34,11 @@ if sys.platform != "win32":
     check("elsewhere it changes nothing and doesn't fail", render_queue._lowered[0] is False)
 else:
     import ctypes
-    k = ctypes.windll.kernel32
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.GetCurrentProcess.restype = wintypes.HANDLE
+    k.GetPriorityClass.argtypes = (wintypes.HANDLE,)
+    k.GetPriorityClass.restype = wintypes.DWORD
     prio = lambda: k.GetPriorityClass(k.GetCurrentProcess())      # noqa: E731
     BELOW, NORMAL = 0x00004000, 0x00000020
     render_queue.apply_perf({"renders": 1, "priority": "responsive"})

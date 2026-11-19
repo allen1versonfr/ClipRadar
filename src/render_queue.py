@@ -784,7 +784,12 @@ def _set_priority(cls: int) -> bool:
         return False
     try:
         import ctypes
-        k = ctypes.windll.kernel32
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        # the handle is pointer-sized: left to ctypes' default (a 32-bit int) it's cut short, and the call fails
+        k.GetCurrentProcess.restype = wintypes.HANDLE
+        k.SetPriorityClass.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        k.SetPriorityClass.restype = wintypes.BOOL
         return bool(k.SetPriorityClass(k.GetCurrentProcess(), cls))
     except Exception:
         return False
