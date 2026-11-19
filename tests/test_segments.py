@@ -140,7 +140,28 @@ if shutil.which("ffmpeg"):
             {"id": "y", "name": "Early", "start": 5, "end": 9, "lines": [{"start": 6, "end": 8, "text": "edited by hand"}]},
             {"id": "z", "name": "Not used", "start": 15, "end": 20, "on": False}]
     segments.save({"id": cur["id"], "ver": cur["ver"], "name": "Best bits", "segments": segs})
-    job = wait(segments.start_export(server, e["id"], {"captions": "srt", "size": "source", "quality": "fast", "hw_encode": False}))
+    opts = {"captions": "srt", "size": "source", "quality": "fast", "hw_encode": False}
+    # 5.0.1: each segment is a video of its own (the default)
+    job = wait(segments.start_export(server, e["id"], opts))
+    res = job.get("result") or {}
+    check("each ticked segment exports as its own video", job["status"] == "done" and [f["name"] for f in res.get("files", [])]
+          == ["Late.mp4", "Early.mp4"], (job.get("error"), res.get("files")))
+    if job["status"] == "done":
+        late, early = (f["path"] for f in res["files"])
+        check("in a folder named after the edit, in the Segments folder",
+              os.path.normcase(res["folder"]) == os.path.normcase(os.path.join(locations.segments_dir(), "Best bits")), res["folder"])
+        check("each only as long as what it keeps (Late: 6 s with 2 cut out)", abs(engine.probe(late)["duration"] - 4.0) < 0.35
+              and abs(engine.probe(early)["duration"] - 4.0) < 0.35, (engine.probe(late)["duration"], engine.probe(early)["duration"]))
+        check("Late's cut stretch is left out", abs(luma(late, 2.5) - 34 * 6 % 256) < 30, luma(late, 2.5))
+        check("each with its own subtitle file, edited lines included", os.path.isfile(os.path.splitext(early)[0] + ".srt")
+              and "edited" in open(os.path.splitext(early)[0] + ".srt", encoding="utf-8").read())
+    job = wait(segments.start_export(server, e["id"], dict(opts, segment="z")))
+    res = job.get("result") or {}
+    check("one segment exports on its own, even unticked, straight into the Segments folder", job["status"] == "done"
+          and [f["name"] for f in res["files"]] == ["Not used.mp4"]
+          and os.path.normcase(res["folder"]) == os.path.normcase(locations.segments_dir()), (job.get("error"), res))
+    # and joined into one video, as before 5.0.1
+    job = wait(segments.start_export(server, e["id"], dict(opts, mode="join")))
     res = job.get("result") or {}
     check("the edit exports", job["status"] == "done" and os.path.isfile(res.get("path", "")), job.get("error"))
     if job["status"] == "done":

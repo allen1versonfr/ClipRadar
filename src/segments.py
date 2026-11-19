@@ -7,9 +7,10 @@ Segments: parts of a video picked on the Export VOD screen, edited together and 
   - Edits are kept in segments.json in Clip Radar's data folder, so an unfinished one is there next time.
     Every save carries the version it was made from: an edit changed somewhere else since (a segment sent
     from Export VOD while the Segments screen had it open) isn't overwritten, the screen loads it again.
-  - The export: each stretch that's kept is made the way Export VOD makes a video (music removed or muted
-    as the copyright scan suggests, flagged words muted, captions burned in), then the stretches are joined
-    without being made again. An edit can be as long as you like (5.0: it was capped at 30 minutes).
+  - The export: each segment is a video of its own (5.0.1), or the ticked ones can be joined into one. Each
+    stretch that's kept is made the way Export VOD makes a video (music erased or muted as set there, flagged
+    words muted, captions burned in), then a segment's stretches are joined without being made again. No
+    length limit (5.0: it was capped at 30 minutes).
   - Saved in Settings › Storage › Segment exports, a folder of its own, not with the clips (5.0).
 """
 
@@ -328,40 +329,30 @@ def _out_name(name: str, outdir: str) -> str:
     return out
 
 
-def run_export(S, job: dict, eid: str, body: dict) -> dict:
-    e = _find(eid)
-    pr = ensure_open(S, e)
-    dur = vodexport._duration(pr)
-    plan = [(s, a, b) for s in e["segments"] if s.get("on", True) for a, b in kept(s)]
+def _make(S, job: dict, pr: dict, o: dict, plan: list, path: str, tmp: str, band: tuple, label) -> dict:
+    """The stretches in plan [(segment, start, end)], one after another, in one file at path. Each is made the way
+    Export VOD makes a video, then they're joined without being made again. A subtitle file goes next to it when
+    asked for. band: the share of the job's bar this takes; label(i): what each step says first."""
     total = sum(b - a for _, a, b in plan)
-    if not plan:
-        raise RuntimeError("Nothing to export: tick at least one segment.")
-    o = vodexport.clean_options(body, dur)
-    if body.get("cleanup", True) is not False:
-        o["music"], o["word_spans"] = vodexport.suggested(pr)
-    outdir = locations.segments_dir()      # Settings › Storage › Segment exports, apart from the clips (5.0)
-    os.makedirs(outdir, exist_ok=True)
-    render_queue._check_space(outdir, total * 0.6)
-    tmp = locations.temp_dir(os.path.basename(pr["workdir"]), "segments")
-    log = S.job_logger(job)
-    t0, made, words, ro, at = time.time(), [], [], None, 0.0
+    lo, hi = band
+    made, words, ro, at = [], [], None, 0.0
     try:
         for i, (s, a, b) in enumerate(plan):
             S.job_check(job)()
-            part = os.path.join(tmp, f"part_{job['id']}_{i:03d}.mp4")
+            part = os.path.join(tmp, f"part_{job['id']}_{uuid.uuid4().hex[:6]}_{i:03d}.mp4")
             done = sum(y - x for _, x, y in plan[:i])
             r = vodexport.render_range(S, job, pr, dict(o, gain_db=s["gain_db"]), a, b, part, whole=True, part=True,
-                                       band=(0.95 * done / total, 0.95 * (done + b - a) / total),
-                                       label=f"{s['name'] or 'Segment'} ({i + 1} of {len(plan)}): ",
-                                       words=caption_words(s))
+                                       band=(lo + (hi - lo) * 0.97 * done / total, lo + (hi - lo) * 0.97 * (done + b - a) / total),
+                                       label=label(i), words=caption_words(s))
             made.append(part)
             ro = r["ro"]
             words += [dict(w, start=w["start"] - a + at, end=w["end"] - a + at) for w in r["words"]]
             at += b - a
-        S.job_step(job)("Joining the segments")
-        name = _out_name(e["name"], outdir)
-        path = os.path.join(outdir, name)
-        join(made, path, S.job_check(job))
+        if len(made) == 1:
+            os.replace(made[0], path)
+        else:
+            S.job_step(job)("Joining " + os.path.basename(path))
+            join(made, path, S.job_check(job))
     finally:
         for p in made:
             try:
@@ -372,10 +363,58 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
     if o["captions"] in ("srt", "both") and words and ro is not None:
         srt = os.path.splitext(path)[0] + ".srt"
         render.write_srt(words, ro, srt, total)
+    return {"path": path, "name": os.path.basename(path), "srt": os.path.basename(srt) if srt else "", "length": round(total, 1)}
+
+
+def run_export(S, job: dict, eid: str, body: dict) -> dict:
+    """Export an edit (5.0.1): each segment as a video of its own (mode "each", the default), or only the one
+    named in body["segment"], or the ticked segments joined into one video (mode "join", as before).
+    Segments are saved in Settings › Storage › Segment exports: one segment's video straight there, an edit's in
+    a folder named after the edit."""
+    e = _find(eid)
+    pr = ensure_open(S, e)
+    dur = vodexport._duration(pr)
+    one = str(body.get("segment") or "")
+    mode = "join" if body.get("mode") == "join" and not one else "each"
+    segs = [s for s in e["segments"] if (s["id"] == one if one else s.get("on", True))]
+    if one and not segs:
+        raise RuntimeError("That segment isn't in this edit any more.")
+    groups = [(s, [(s, a, b) for a, b in kept(s)]) for s in segs]
+    groups = [(s, g) for s, g in groups if g]
+    if not groups:
+        raise RuntimeError("Nothing to export: tick at least one segment." if not one else "This segment is all cut out.")
+    total = sum(b - a for _, g in groups for _, a, b in g)
+    o = vodexport.clean_options(body, dur)
+    if body.get("cleanup", True) is not False:
+        o["music"], o["word_spans"] = vodexport.suggested(pr)
+    outdir = locations.segments_dir()      # Settings › Storage › Segment exports, apart from the clips (5.0)
+    if mode == "each" and not one:
+        outdir = os.path.join(outdir, exports.safe(e["name"] or "Segments"))   # an edit's segments kept together
+    os.makedirs(outdir, exist_ok=True)
+    render_queue._check_space(outdir, total * 0.6)
+    tmp = locations.temp_dir(os.path.basename(pr["workdir"]), "segments")
+    log = S.job_logger(job)
+    t0, files = time.time(), []
+    if mode == "join":
+        plan = [row for _, g in groups for row in g]
+        path = os.path.join(outdir, _out_name(e["name"], outdir))
+        files.append(_make(S, job, pr, o, plan, path, tmp, (0.0, 1.0),
+                           lambda i: f"{plan[i][0]['name'] or 'Segment'} ({i + 1} of {len(plan)}): "))
+    else:
+        done = 0.0
+        for k, (s, g) in enumerate(groups):
+            length = sum(b - a for _, a, b in g)
+            name = s["name"] or f"Segment {e['segments'].index(s) + 1}"
+            path = os.path.join(outdir, _out_name(name, outdir))
+            files.append(_make(S, job, pr, o, g, path, tmp, (done / total, (done + length) / total),
+                               lambda i, n=name: f"{n} ({k + 1} of {len(groups)}): "))
+            done += length
     took = time.time() - t0
-    log(f"Saved {name}: {len(plan)} part{'s' if len(plan) != 1 else ''}, {engine.fmt_ts(total)}, in {engine.fmt_ts(took)}.")
-    return {"path": path, "name": name, "folder": outdir, "srt": os.path.basename(srt) if srt else "",
-            "length": round(total, 1), "parts": len(plan), "took": round(took, 1), "warning": job.get("warning", "")}
+    log(f"Saved {len(files)} video{'s' if len(files) != 1 else ''} ({engine.fmt_ts(total)} in all) in {engine.fmt_ts(took)}.")
+    first = files[0]
+    return {"path": first["path"], "name": first["name"], "srt": first["srt"], "folder": outdir, "files": files,
+            "mode": mode, "length": round(total, 1), "parts": sum(len(g) for _, g in groups), "took": round(took, 1),
+            "warning": job.get("warning", "")}
 
 
 def start_export(S, eid: str, body: dict) -> dict:
