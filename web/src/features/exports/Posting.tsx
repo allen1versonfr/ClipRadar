@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { type Campaigns, DiscordSent, Job, JobStarted, Ok, type QueueItem, Studio } from '../../api/schemas'
+import { type Campaigns, DiscordSent, Job, JobStarted, Ok, type QueueItem, Studio, YtHandoff } from '../../api/schemas'
 import { useToast } from '../../components/Toasts'
 import { SpellHint } from '../spelling/SpellHint'
 import { discordStatus, handoffStatus, submission } from './postStatus'
@@ -15,19 +15,26 @@ export function useCopy() {
 
 // uploads running, per clip: the step they're on (kept while you look at another clip)
 const uploading: Record<string, string> = {}
+// what the last answer said, for a panel shown before its own answer comes
+let lastStudio: Studio = { available: false, press_post: false }
 
 /** TikTok: Open TikTok Studio (the caption copied, the file shown, the upload page opened), or Upload to TikTok
  *  (Clip Radar's own browser window puts the video in and types the caption; Press Post for me presses Post). */
-export function TikTokPanel({ q, onChanged, children }: { q: QueueItem; onChanged: () => Promise<void>; children?: ReactNode }) {
+export function TikTokPanel({ q, onChanged, children, uploads }: {
+  q: QueueItem; onChanged: () => Promise<void>; children?: ReactNode
+  /** 5.1: whether Clip Radar can upload for you, from the list's own answer: the buttons are right from the first
+   *  frame (before, Upload to TikTok appeared a moment later and Open TikTok Studio got pressed in its place) */
+  uploads?: { tiktok: boolean; press_post: boolean } | undefined
+}) {
   const toast = useToast()
   const copy = useCopy()
   const [caption, setCaption] = useState(q.post || q.title)
-  const [studio, setStudio] = useState<Studio>({ available: false, press_post: false })
+  const [studio, setStudio] = useState<Studio>(() => uploads ? { available: uploads.tiktok, press_post: uploads.press_post } : lastStudio)
   const [step, setStep] = useState(uploading[q.id])
   const [error, setError] = useState('')
   const shown = useRef(q.id)               // the clip on screen: an upload's steps only show on its own clip
   useEffect(() => { shown.current = q.id; setCaption(q.post || q.title); setError(''); setStep(uploading[q.id]) }, [q.id])
-  useEffect(() => { api(Studio, '/api/studio').then(setStudio).catch(() => {}) }, [])
+  useEffect(() => { api(Studio, '/api/studio').then(s => { lastStudio = s; setStudio(s) }).catch(() => {}) }, [])
   const status = handoffStatus(q, step)
 
   async function openStudio() {
@@ -81,7 +88,7 @@ export function TikTokPanel({ q, onChanged, children }: { q: QueueItem; onChange
   }
   async function press(on: boolean) {
     setStudio(s => ({ ...s, press_post: on }))            // shown at once; the server's answer follows
-    try { setStudio(await api(Studio, '/api/studio', { press_post: on })) } catch (e) { toast(err(e), 'err') }
+    try { const s = await api(Studio, '/api/studio', { press_post: on }); lastStudio = s; setStudio(s) } catch (e) { toast(err(e), 'err') }
   }
   const actions = (
     <section className="post-panel tt-top" aria-labelledby={`tt-${q.id}`} data-testid="tt-panel">
@@ -171,4 +178,101 @@ export function SubmitPanel({ q, campaigns, onChanged }: { q: QueueItem; campaig
       {sent && <div className="post-status" data-testid="submit-status"><span className={sent.tone === 'err' ? 'err-tx' : ''}>{sent.text}</span>{sent.note && <span className="muted">{sent.note}</span>}</div>}
     </section>
   )
+}
+
+// YouTube uploads running, per clip: the step they're on
+const ytUploading: Record<string, string> = {}
+
+/** YouTube (5.1), for a clip's YouTube edit: Open YouTube Studio (the pass-through: title and description copied, the
+ *  file shown, YouTube's upload page opened), or Upload to YouTube (Clip Radar's own browser window puts it in and fills
+ *  in Settings › YouTube's choices; Publish is pressed only when Publish for me is on there). */
+export function YouTubePanel({ q, onChanged, children, uploads }: {
+  q: QueueItem; onChanged: () => Promise<void>; children?: ReactNode
+  uploads?: { youtube: boolean; publish: boolean } | undefined
+}) {
+  const toast = useToast()
+  const copy = useCopy()
+  const [title, setTitle] = useState(q.yt_texts?.title ?? q.title)
+  const [desc, setDesc] = useState(q.yt_texts?.description ?? '')
+  const [step, setStep] = useState(ytUploading[q.id])
+  const [error, setError] = useState('')
+  const shown = useRef(q.id)
+  useEffect(() => { shown.current = q.id; setTitle(q.yt_texts?.title ?? q.title); setDesc(q.yt_texts?.description ?? ''); setError(''); setStep(ytUploading[q.id]) }, [q.id])
+  const can = uploads?.youtube ?? true
+  const yt = q.yt
+  const status = step ? '' : !yt ? '' : yt.auto === 'published' ? 'Published on YouTube.'
+    : yt.auto === 'ready' ? (yt.left || 'The video is in YouTube Studio. Finish it there.')
+    : yt.auto === 'failed' ? (yt.error || "The upload didn't finish.")
+    : yt.auto === 'working' ? 'Uploading…' : 'YouTube Studio was opened. Upload the video there.'
+
+  async function openStudio() {
+    setError('')
+    void copy(`${title.trim()}\n\n${desc.trim()}`.trim(), 'Title and description')
+    try {
+      await api(YtHandoff, '/api/yt_handoff', { item: q.id, title: title.trim(), description: desc })
+      toast('YouTube Studio is opening. The title and description are copied and the video is selected in File Explorer.')
+      await onChanged()
+    } catch (e) { setError(err(e)) }
+  }
+  async function upload() {
+    const id = q.id
+    if (ytUploading[id]) return
+    setError('')
+    const set = (s?: string) => {
+      if (s) ytUploading[id] = s; else delete ytUploading[id]
+      if (shown.current === id) setStep(s)
+    }
+    set('Opening YouTube Studio')
+    let job: string
+    try { job = (await api(YtHandoff, '/api/yt_handoff', { item: id, title: title.trim(), description: desc, auto: true })).job ?? '' }
+    catch (e) { set(undefined); if (shown.current === id) setError(err(e)); return }
+    let j
+    for (let misses = 0; ;) {
+      try { j = await api(Job, `/api/job/${job}`); misses = 0 } catch (e) {
+        if (++misses >= 40) { toast(err(e), 'err'); break }
+        await new Promise(r => setTimeout(r, 250)); continue
+      }
+      if (j.status !== 'running') break
+      set(j.step || 'Working in YouTube Studio')
+      await new Promise(r => setTimeout(r, 250))
+    }
+    set(undefined)
+    await onChanged()
+    const r = j?.result as { published?: boolean; left?: string } | undefined
+    if (j?.status === 'done') toast(r?.published ? 'Published on YouTube.' : r?.left || 'The video is in YouTube Studio. Finish it there.')
+    else if (j?.error) toast(j.error, 'err')
+  }
+  const actions = (
+    <section className="post-panel tt-top" aria-label="YouTube" data-testid="yt-panel">
+      <div className="row wrap">
+        {can && <button className="btn primary" disabled={!!step} onClick={() => void upload()} data-testid="yt-auto">Upload to YouTube</button>}
+        <button className={`btn${can ? '' : ' primary'}`} onClick={() => void openStudio()} data-testid="yt-studio"
+                title="Copies the title and description, selects the video in File Explorer and opens YouTube's upload page in your browser">Open YouTube Studio</button>
+        <button className="btn ghost" onClick={() => void copy(title, 'Title')}>Copy title</button>
+      </div>
+      {error && <p className="err-tx" role="alert">{error}</p>}
+      {(step || status) && (
+        <div className="post-status" aria-live="polite" data-testid="yt-status">
+          {step ? <span className="row"><span className="meter busy" role="progressbar" aria-label={step}><i /></span>{step}</span>
+            : <span className={yt?.auto === 'failed' ? 'err-tx' : ''}>{status}</span>}
+        </div>
+      )}
+      {can && <span className="hint" data-testid="yt-settings-hint">{uploads?.publish
+        ? 'Publish for me is on: Clip Radar presses Publish once the details are in. '
+        : 'You press Publish in YouTube Studio yourself. '}Visibility, who it’s for, tags and Publish for me are in{' '}
+        <a href="#settings/youtube">Settings › YouTube</a>.</span>}
+    </section>
+  )
+  const fields = (
+    <section className="post-panel" aria-label="YouTube title and description">
+      <label className="fld">Title for YouTube
+        <input className="input" maxLength={100} value={title} onChange={e => setTitle(e.target.value)} data-testid="yt-title" />
+        <span className="hint tnum">{title.length} / 100</span>
+      </label>
+      <label className="fld">Description
+        <textarea className="input" rows={4} maxLength={5000} value={desc} spellCheck onChange={e => setDesc(e.target.value)} data-testid="yt-desc" />
+      </label>
+    </section>
+  )
+  return <>{actions}{children}{fields}</>
 }

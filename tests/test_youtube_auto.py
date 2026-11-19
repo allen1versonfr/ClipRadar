@@ -48,11 +48,24 @@ UPLOAD = """<!doctype html><meta charset=utf-8><title>Channel content - YouTube 
 <div id=details hidden>
   <div id=title-textarea><div id=textbox contenteditable=true aria-label="Add a title that describes your video"></div></div>
   <div id=description-textarea><div id=textbox contenteditable=true aria-label="Tell viewers about your video"></div></div>
-  <div id=audience>Is this video made for kids? <input type=radio name=kids id=kids-yes> <input type=radio name=kids id=kids-no></div>
+  <div id=audience>Is this video made for kids? <input type=radio name=kids id=kids-yes> <input type=radio name=kids id=kids-no>
+    <tp-yt-paper-radio-button name=VIDEO_MADE_FOR_KIDS_MFK onclick="window.__kids = 'yes'">Yes, it's made for kids</tp-yt-paper-radio-button>
+    <tp-yt-paper-radio-button name=VIDEO_MADE_FOR_KIDS_NOT_MFK onclick="window.__kids = 'no'">No, it's not made for kids</tp-yt-paper-radio-button></div>
+  <button id=toggle-button onclick="document.getElementById('tags-container').hidden = false">Show more</button>
+  <div id=tags-container hidden><input id=text-input aria-label=Tags></div>
   <button id=publish onclick="window.__published = true">Publish</button>
 </div>
+<ytcp-uploads-dialog>
+  <button id=next-button onclick="window.__step++; if (window.__step >= 3) { this.hidden = true; document.getElementById('vis').hidden = false }">Next</button>
+  <div id=vis hidden>
+    <tp-yt-paper-radio-button name=PRIVATE onclick="window.__vis = 'PRIVATE'">Private</tp-yt-paper-radio-button>
+    <tp-yt-paper-radio-button name=UNLISTED onclick="window.__vis = 'UNLISTED'">Unlisted</tp-yt-paper-radio-button>
+    <tp-yt-paper-radio-button name=PUBLIC onclick="window.__vis = 'PUBLIC'">Public</tp-yt-paper-radio-button>
+    <button id=done-button onclick="window.__published = true; this.remove(); document.body.append(document.createElement('ytcp-video-share-dialog'))">Publish</button>
+  </div>
+</ytcp-uploads-dialog>
 <script>
-window.__published = false;
+window.__published = false; window.__step = 0; window.__kids = ''; window.__vis = '';
 const f = document.getElementById('f');
 f.addEventListener('change', () => {
   if (MODE === 'nodetails') return;
@@ -170,6 +183,36 @@ try:
     page.close()
     t.join(60)
     check("and carries on once you're in", (done.get("r") or {}).get("ready") is True, (done, steps))
+    srv.shutdown()
+
+    # ---- 5.1, a clip: Settings › YouTube's choices made in the dialog, and Publish pressed only when asked
+    srv = start()
+    del steps[:]
+    r = youtube_auto.upload_youtube(video, "Clip", "Desc", srv.url, steps.append,
+                                    opts={"kids": False, "tags": "stream, funny", "visibility": "unlisted", "publish": False})
+    page = youtube_auto._yt_tab(studio_auto._state["port"], srv.url)[0]
+    try:
+        got = page.eval("JSON.stringify({kids: window.__kids, vis: window.__vis, pub: window.__published, "
+                        "tags: document.getElementById('text-input').value})")
+    finally:
+        page.close()
+    got = __import__("json").loads(got)
+    check("a clip: not made for kids, as set", got["kids"] == "no" and r["audience"], (got, r))
+    check("its tags typed", got["tags"].startswith("stream, funny") and r["tags"], got)
+    check("Next to the visibility step, and the visibility set", got["vis"] == "UNLISTED" and r["visibility"], (got, r))
+    check("Publish left to you when Publish for me is off", got["pub"] is False and r["published"] is False and "Publish" in r["left"], r)
+    srv.shutdown()
+
+    srv = start()
+    r = youtube_auto.upload_youtube(video, "Clip", "", srv.url, lambda s: None,
+                                    opts={"kids": True, "tags": "", "visibility": "public", "publish": True})
+    page = youtube_auto._yt_tab(studio_auto._state["port"], srv.url)[0]
+    try:
+        got = __import__("json").loads(page.eval("JSON.stringify({kids: window.__kids, vis: window.__vis, pub: window.__published})"))
+    finally:
+        page.close()
+    check("with Publish for me on: made for kids when set, public, and published", got == {"kids": "yes", "vis": "PUBLIC", "pub": True}
+          and r["published"] is True and not r["left"], (got, r))
     srv.shutdown()
 
     srv = start("channel")

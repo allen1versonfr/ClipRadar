@@ -11,6 +11,7 @@ import { StoragePanel } from './StoragePanel'
 import { TitlesPanel } from './TitlesPanel'
 import { AboutPanel, HotkeyPanel, PerformancePanel, ToolsPanel } from './SystemPanels'
 import { TikTokPanel } from './TikTokPanel'
+import { YouTubePanel } from './YouTubePanel'
 import { TwitchPanel } from './TwitchPanel'
 import { UpdatesPanel } from './UpdatesPanel'
 import { SECTIONS, GROUPS, matches } from './sections'
@@ -34,6 +35,7 @@ export function SettingsView({ status, refreshStatus, section }: { status: Statu
     tags: <HashtagsPanel reloadKey={tagsKey} />,
     safety: <ContentCheckPanel />,
     tiktok: <TikTokPanel />,
+    youtube: <YouTubePanel />,
     campaigns: <CampaignsPanel reloadKey={cpKey} onChange={() => setWmKey(k => k + 1)} />,
     learn: <LearningPanel />,
     twitch: <TwitchPanel />,

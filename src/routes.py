@@ -56,6 +56,7 @@ import segments
 import vodexport
 import voicekeep
 import songerase
+import ytclips
 import session
 import watermarks
 
@@ -67,6 +68,18 @@ import listening
 
 
 _ui_errors: list = []        # when the UI last reported errors (/api/client_error)
+
+
+_uploads_cache = {"at": 0.0, "v": {}}
+
+
+def _uploads_now() -> dict:
+    """Whether Clip Radar can upload for you (a browser it can drive), checked at most every 30 s."""
+    if time.time() - _uploads_cache["at"] > 30:
+        ok = studio_auto.available()
+        _uploads_cache.update(at=time.time(), v={"tiktok": ok, "youtube": ok, "press_post": studio_auto.load_settings()["press_post"],
+                                                  "publish": ytclips.load()["publish"]})
+    return _uploads_cache["v"]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -284,9 +297,14 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/queue":
             with S.queue_lock:
                 items = [render_queue.queue_public(it) for it in S.queue]
-            return self._json({"items": items, "eta": render_queue.queue_eta(), "workers": render_queue.MAX_WORKERS[0]})
+            # 5.1: whether Clip Radar can upload for you, with the list, so Exports' buttons are right from the start
+            # (they used to appear a moment after the list, and "Open TikTok Studio" got pressed in their place)
+            return self._json({"items": items, "eta": render_queue.queue_eta(), "workers": render_queue.MAX_WORKERS[0],
+                               "uploads": _uploads_now()})
         if p == "/api/export":
             return self._json(S.export_view())
+        if p == "/api/youtube":
+            return self._json(dict(ytclips.load(), tokens=list(ytclips.TOKENS), defaults=ytclips.DEFAULTS))
         if p == "/api/spelling":
             # the spelling fixes (spelling.py), for suggestions as you type a title or post caption
             return self._json(spelling.view())
@@ -828,6 +846,31 @@ class Handler(BaseHTTPRequestHandler):
                         sess.extra[k] = body[k]
             return self._json(live_glue.live_view(sess))
 
+        if p == "/api/youtube":
+            # Settings › YouTube: how clips go to YouTube (5.1)
+            cfg = ytclips.save(body) if body else ytclips.load()
+            _uploads_cache["at"] = 0.0
+            return self._json(dict(cfg, tokens=list(ytclips.TOKENS), defaults=ytclips.DEFAULTS))
+
+        if p == "/api/yt_handoff":
+            # a clip's YouTube version to YouTube: Open YouTube Studio (pass-through), or Upload to YouTube (auto)
+            with S.queue_lock:
+                it = next((x for x in S.queue if x["id"] == body.get("item")), None)
+            if not it or it["status"] != "done":
+                return self._err("That clip isn't rendered yet.")
+            if isinstance(body.get("title"), str) or isinstance(body.get("description"), str):
+                it["yt_text"] = {"title": str(body.get("title") or "")[:200], "description": str(body.get("description") or "")[:5000]}
+            try:
+                r = ytclips.start_upload(S, it) if body.get("auto") else ytclips.pass_through(it)
+            except RuntimeError as e:
+                return self._err(str(e))
+            S.save_queue_soon()
+            try:
+                S.record_feedback(it["pid"], it.get("clip_id"), "post")
+            except Exception:
+                pass
+            return self._json(r)
+
         if p == "/api/handoff":
             # TikTok Studio: copy the caption (in the window), show the file, open the upload page
             with S.queue_lock:
@@ -906,6 +949,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/studio":
             if "press_post" in body:
                 studio_auto.save_settings(press_post=bool(body["press_post"]))
+                _uploads_cache["at"] = 0.0
             return self._json(dict(studio_auto.describe(), **studio_auto.load_settings()))
 
         if p == "/api/open_url":
@@ -1270,6 +1314,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
                 it = render_queue.queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=body.get("sound", True) is not False)
+                if body.get("youtube"):
+                    # 5.1, Moments' "YouTube too": a second edit of the same moment for YouTube (16:9, full picture)
+                    render_queue.queue_add(pid, body.get("clip") or {}, body.get("opts") or {}, sound=False, platform="youtube")
             except (KeyError, TypeError, ValueError):
                 return self._err("Bad clip.")
             except RuntimeError as e:

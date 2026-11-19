@@ -47,13 +47,16 @@ export function postFor(c: Clip, hashtagsOn: boolean): string {
   return hashtagsOn && tags ? `${desc}\n\n${tags}` : desc
 }
 
-export const queueFor = (c: Clip, items: QueueItem[]) => items.find(q => q.pid === c.pid && q.clip_id === c.id)
+/** The clip's render in the queue: its TikTok edit (5.1: a moment kept with YouTube too also has a YouTube edit) */
+export const queueFor = (c: Clip, items: QueueItem[]) =>
+  items.find(q => q.pid === c.pid && q.clip_id === c.id && q.platform !== 'youtube') ?? items.find(q => q.pid === c.pid && q.clip_id === c.id)
 
 /** What /api/queue/add is sent to keep a clip: rendered with your render style, as you left it. */
-export function keepBody(c: Clip, post: string, opts: RenderOpts, sound = true) {
+export function keepBody(c: Clip, post: string, opts: RenderOpts, sound = true, youtube = false) {
   const clip: Record<string, unknown> = { id: c.id, rank: c.id, start: c.start, end: c.end, title: c.title.trim(), post, thumb: c.thumb, gain: c.gain }
   if (c.wordsEdited) clip.words = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end)    // your caption fixes
-  return { pid: c.pid, clip, opts, sound }
+  // youtube (5.1, Moments › YouTube too): a second edit of the same moment, 16:9 for YouTube
+  return youtube ? { pid: c.pid, clip, opts, sound, youtube } : { pid: c.pid, clip, opts, sound }
 }
 
 /** What /api/clip_state is sent: everything you did to a clip, saved with the VOD. */
