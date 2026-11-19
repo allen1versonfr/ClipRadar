@@ -20,7 +20,6 @@ import json
 import math
 import os
 import shutil
-import subprocess
 import threading
 import time
 import uuid
@@ -314,23 +313,33 @@ def start_hear(S, eid: str, seg_id: str, body: dict) -> dict:
     return _start(S, eid, "hear", "seghear", go)
 
 
-def join(parts: list, out_path: str, check=lambda: None) -> None:
+def join(parts: list, out_path: str, check=lambda: None, length: float = 0.0, progress=lambda f: None,
+         step=lambda m: None) -> None:
     """The parts, one after another, in one file. They were all made with the same settings, so they're joined
-    as they are; if FFmpeg won't (an encoder fell back partway), they're made again into one."""
+    as they are; if FFmpeg won't (an encoder fell back partway), they're made again into one. With the bar moving
+    and Stop working throughout (5.4: before, both ran blind, and the re-making could sit at 100% for as long as the
+    whole export took, every core busy)."""
     work = os.path.dirname(os.path.abspath(out_path))
     lst = os.path.join(work, f"seg_{uuid.uuid4().hex[:8]}.txt")
     with open(lst, "w", encoding="utf-8") as f:
         for p in parts:
             f.write("file '" + os.path.abspath(p).replace("\\", "/").replace("'", r"'\''") + "'\n")
-    base = [engine.ffmpeg(), "-v", "error", "-y", "-nostdin", "-f", "concat", "-safe", "0", "-i", lst]
+    base = [engine.ffmpeg(), "-v", "error", "-y", "-nostdin", "-progress", "pipe:1", "-nostats", "-f", "concat", "-safe", "0", "-i", lst]
+    err = ""
     try:
-        for codec in (["-c", "copy"], ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "192k"]):
+        for i, codec in enumerate((["-c", "copy"], ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "192k",
+                                                    *render.RENDER_THREADS])):
             check()
-            r = subprocess.run(base + codec + ["-movflags", "+faststart", out_path], capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", creationflags=engine.CREATE_NO_WINDOW)
-            if r.returncode == 0 and os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+            if i:
+                step("The parts wouldn't join as they are: making them into one video again")
+            try:
+                vodexport._run_ffmpeg(base + codec + [*vodexport.movflags(length or 1e9), out_path], work, length or 1.0, progress, check)
+            except RuntimeError as e:
+                err = str(e)
+                continue
+            if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
                 return
-        raise RuntimeError("Couldn't join the segments:\n" + render._ffmpeg_reason(r.stderr[-4000:]))
+        raise RuntimeError("Couldn't join the segments:\n" + err.replace("ffmpeg failed:\n", ""))
     finally:
         try:
             os.remove(lst)
@@ -367,12 +376,12 @@ def _make(S, job: dict, pr: dict, o: dict, plan: list, path: str, tmp: str, band
             words += [dict(w, start=w["start"] - a + at, end=w["end"] - a + at) for w in r["words"]]
             at += b - a
         if len(made) == 1:
-            # moved, not renamed: the temporary folder and the Segments folder can be on different drives (5.0.2:
-            # "The system cannot move the file to a different disk drive" when Segments was on D: and temp on C:)
+            # the parts are made in the Segments folder itself (5.4), so this is a rename; shutil.move still copies
+            # if it ever has to cross drives (5.0.2: "The system cannot move the file to a different disk drive")
             shutil.move(made[0], path)
         else:
             S.job_step(job)("Joining " + os.path.basename(path))
-            join(made, path, S.job_check(job))
+            join(made, path, S.job_check(job), total, S.job_progress(job, lo + (hi - lo) * 0.97, hi), S.job_step(job))
     finally:
         for p in made:
             try:
@@ -431,23 +440,33 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
         outdir = os.path.join(outdir, exports.safe(e["name"] or "Segments"))   # an edit's segments kept together
     os.makedirs(outdir, exist_ok=True)
     render_queue._check_space(outdir, total * 0.6)
-    tmp = locations.temp_dir(os.path.basename(pr["workdir"]), "segments")
+    # the parts are made next to where they end up (a hidden folder in it), not in the temp folder: putting the finished
+    # video in place is then a rename, never a copy of gigabytes across drives with the bar at 100% (5.4)
+    tmp = os.path.join(outdir, f".parts-{job['id']}")
+    for old in os.listdir(outdir):          # parts left by an export Clip Radar was closed in the middle of
+        d = os.path.join(outdir, old)
+        if old.startswith(".parts-") and d != tmp and time.time() - os.path.getmtime(d) > 6 * 3600:
+            shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(tmp, exist_ok=True)
     log = S.job_logger(job)
-    t0, files = time.time(), []
-    if mode == "join":
-        plan = [row for _, g in groups for row in g]
-        path = os.path.join(outdir, _out_name(e["name"], outdir))
-        files.append(_make(S, job, pr, o, plan, path, tmp, (0.0, 1.0),
-                           lambda i: f"{plan[i][0]['name'] or 'Segment'} ({i + 1} of {len(plan)}): ", copy=bool(copied)))
-    else:
-        done = 0.0
-        for k, (s, g) in enumerate(groups):
-            length = sum(b - a for _, a, b in g)
-            name = s["name"] or f"Segment {e['segments'].index(s) + 1}"
-            path = os.path.join(outdir, _out_name(name, outdir))
-            files.append(_make(S, job, pr, o, g, path, tmp, (done / total, (done + length) / total),
-                               lambda i, n=name: f"{n} ({k + 1} of {len(groups)}): ", copy=s["id"] in copied))
-            done += length
+    try:
+        t0, files = time.time(), []
+        if mode == "join":
+            plan = [row for _, g in groups for row in g]
+            path = os.path.join(outdir, _out_name(e["name"], outdir))
+            files.append(_make(S, job, pr, o, plan, path, tmp, (0.0, 1.0),
+                               lambda i: f"{plan[i][0]['name'] or 'Segment'} ({i + 1} of {len(plan)}): ", copy=bool(copied)))
+        else:
+            done = 0.0
+            for k, (s, g) in enumerate(groups):
+                length = sum(b - a for _, a, b in g)
+                name = s["name"] or f"Segment {e['segments'].index(s) + 1}"
+                path = os.path.join(outdir, _out_name(name, outdir))
+                files.append(_make(S, job, pr, o, g, path, tmp, (done / total, (done + length) / total),
+                                   lambda i, n=name: f"{n} ({k + 1} of {len(groups)}): ", copy=s["id"] in copied))
+                done += length
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     took = time.time() - t0
     log(f"Saved {len(files)} video{'s' if len(files) != 1 else ''} ({engine.fmt_ts(total)} in all) in {engine.fmt_ts(took)}"
         + (", the picture copied as it is" if copied else "") + ".")

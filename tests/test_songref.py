@@ -219,6 +219,20 @@ else:
         check("inside it the song is taken out", drop <= -10, f"{drop:.1f}")
         check("the report says how much was found", r["found"] >= 15 and not r["missed"], str(r))
 
+        # a long stretch is cleaned a few minutes at a time (5.4): here one piece a block, so the stretch is several
+        # blocks, and the result is the same as in one go
+        real_block = songref.BLOCK
+        songref.BLOCK = songref.PIECE - songref.OVERLAP
+        try:
+            done2 = os.path.join(tmp, "done_blocks.flac")
+            r2 = songref.erase_known(stream, [(10.0, 30.0, ref_file)], done2, 2.0, 36.0, cache)
+        finally:
+            songref.BLOCK = real_block
+        y2 = songref.read(done2)
+        drop2 = db(y2[:, mid] - voice[:, int(11 * SR):int(29 * SR)]) - db(music[:, int(11 * SR):int(29 * SR)])
+        check("in blocks, the song is taken out as well as in one go", abs(drop2 - drop) <= 1.0 and r2["found"] >= 15, f"{drop2:.1f} vs {drop:.1f}, {r2}")
+        check("and its temporary files are gone", not [f for f in os.listdir(tmp) if f.endswith(".f32")], os.listdir(tmp))
+
         # the recording found for a recognised song must be the one in the stream: a wrong upload ranked first is passed over
         wrong_file = os.path.join(tmp, "wrong.flac")
         write(wrong_file, song(2, 60))

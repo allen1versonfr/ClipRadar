@@ -125,6 +125,10 @@ def _load():
                 raise RuntimeError("the music remover model isn't installed")
             so = ort.SessionOptions()
             so.intra_op_num_threads = max(1, (os.cpu_count() or 2) - 1)
+            # threads wait for work without spinning: spinning kept every core but one at 100% even between blocks,
+            # and the PC crawled through a long Erase song (5.4)
+            so.add_session_config_entry("session.intra_op.allow_spinning", "0")
+            so.add_session_config_entry("session.inter_op.allow_spinning", "0")
             so.log_severity_level = 3
             _session = _Model(ort.InferenceSession(str(p), so, providers=["CPUExecutionProvider"]))
         return _session

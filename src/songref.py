@@ -278,6 +278,64 @@ def _merge(spans: list) -> list:
 # ---------------------------------------------------------------- in an export
 
 PAD = 1.0        # seconds read either side of a stretch, so its edges are fitted too
+BLOCK = 13 * (PIECE - OVERLAP)   # 234 s of a stretch cleaned at a time (never all of it in memory), on the
+                                 # pieces' own grid, so the result is the same as cleaning it in one go
+
+
+class _Raw:
+    """Cleaned sound kept on disk (float32, frames of 2 channels), read back a range at a time. Plain reads, no
+    memory-mapping: Windows won't delete a file that's still mapped."""
+
+    def __init__(self, path: str, n: int):
+        self.path, self.n = path, n
+
+    @property
+    def shape(self) -> tuple:
+        return (2, self.n)
+
+    def read(self, lo: int, hi: int) -> np.ndarray:
+        lo, hi = max(0, lo), min(self.n, hi)
+        if hi <= lo:
+            return np.zeros((2, 0), dtype=np.float32)
+        with open(self.path, "rb") as f:
+            f.seek(lo * 8)
+            a = np.frombuffer(f.read((hi - lo) * 8), dtype="<f4")
+        return a[: a.size // 2 * 2].reshape(-1, 2).T
+
+
+def _clean_stretch(video: str, x0: float, x1: float, ref: np.ndarray, raw: str, check: Callable, progress: Callable) -> tuple:
+    """The video's sound from x0 to x1 with ref taken out, BLOCK seconds at a time, written to raw on disk: about
+    200 MB of memory at most, however long the stretch (5.4: a 30-minute stretch had needed gigabytes, and the PC
+    ground to a halt). Returns (_Raw, {"found", "missed"} in the video's seconds)."""
+    total = x1 - x0
+    n = int(round(total * SR))
+    ovn = int(OVERLAP * SR)
+    found, missed, pos, written = 0.0, [], 0.0, 0
+    tail = None                         # the seconds the next block shares, held back to be crossfaded
+    with open(raw, "wb") as f:
+        while pos < total - 1e-6 and written < n:
+            check()
+            span = min(BLOCK + OVERLAP, total - pos)
+            mix = read(video, x0 + pos, span)
+            cleaned, rep = clean(mix, ref, check=check, progress=lambda q, pos=pos: progress(min(1.0, (pos + q * span) / total)))
+            cleaned = cleaned[:, :n - written]          # it starts where what's written ends
+            if tail is not None:
+                k = min(tail.shape[1], cleaned.shape[1])
+                w = np.linspace(0, 1, k, dtype=np.float32)
+                cleaned[:, :k] = tail[:, :k] * (1 - w) + cleaned[:, :k] * w
+            last = pos + BLOCK >= total - 1e-6
+            keep = cleaned if last else cleaned[:, :max(0, cleaned.shape[1] - ovn)]
+            tail = None if last else cleaned[:, keep.shape[1]:].copy()
+            f.write(np.ascontiguousarray(keep.T, dtype="<f4").tobytes())
+            written += keep.shape[1]
+            found += rep["found"]
+            missed += [(round(x0 + pos + p, 2), round(x0 + pos + q, 2)) for p, q in rep["missed"]]
+            del mix, cleaned, keep
+            pos += BLOCK
+        if tail is not None:
+            f.write(np.ascontiguousarray(tail.T, dtype="<f4").tobytes())
+            written += tail.shape[1]
+    return _Raw(raw, written), {"found": found, "missed": _merge(missed)}
 
 
 def erase_known(video: str, songs: list, out_path: str, start: float, length: float, folder: str,
@@ -287,7 +345,7 @@ def erase_known(video: str, songs: list, out_path: str, start: float, length: fl
     Returns {"found": seconds taken out, "missed": [(a, b)] in the video's seconds where the song wasn't found}."""
     import engine
     import procjob
-    pieces, found, missed = [], 0.0, []
+    pieces, found, missed, raws = [], 0.0, [], []
     for i, (a, b, source) in enumerate(songs):
         check()
         x0 = max(start, a - PAD)
@@ -300,14 +358,17 @@ def erase_known(video: str, songs: list, out_path: str, start: float, length: fl
             log(f"Couldn't get the song for {engine.fmt_ts(a)} to {engine.fmt_ts(b)}: {e}")
             missed.append((round(max(a, x0), 2), round(min(b, x1), 2)))
             continue
-        mix = read(video, x0, x1 - x0)
-        cleaned, rep = clean(mix, ref, check=check,
-                             progress=lambda f, i=i: progress((i + f) / len(songs) * 0.9))
+        raw = os.path.join(os.path.dirname(os.path.abspath(out_path)), f"known_{os.getpid()}_{i}.f32")
+        raws.append(raw)
+        cleaned, rep = _clean_stretch(video, x0, x1, ref, raw, check,
+                                      lambda f, i=i: progress((i + f) / len(songs) * 0.9))
+        del ref
         # only the stretch itself is replaced; the padding was there to fit its edges
         s, e = int(round((a - x0) * SR)), int(round((min(b, x1) - x0) * SR))
-        pieces.append((int(round((max(a, x0) - start) * SR)), cleaned[:, max(0, s):e]))
+        s = max(0, s)
+        pieces.append((int(round((max(a, x0) - start) * SR)), cleaned, s, max(0, min(e, cleaned.n) - s)))
         found += rep["found"]
-        missed += [(round(x0 + p, 2), round(x0 + q, 2)) for p, q in rep["missed"]]
+        missed += rep["missed"]
         log(f"Song taken out of {engine.fmt_ts(a)} to {engine.fmt_ts(b)}"
             + (f", not found from {', '.join(engine.fmt_ts(p) + '-' + engine.fmt_ts(q) for p, q in rep['missed'])}" if rep["missed"] else "") + ".")
     # the video's sound, the pieces put in where they go (a 50 ms crossfade at each edge, so nothing clicks)
@@ -332,14 +393,16 @@ def erase_known(video: str, songs: list, out_path: str, start: float, length: fl
                 break
             blk = np.frombuffer(raw[: len(raw) // 8 * 8], dtype="<f4").reshape(-1, 2).T.copy()
             n = blk.shape[1]
-            for p0, arr in pieces:
-                p1 = p0 + arr.shape[1]
+            for p0, src, off, ln in pieces:
+                p1 = p0 + ln
                 lo, hi = max(p0, pos), min(p1, pos + n)
                 if hi <= lo:
                     continue
                 t = np.arange(lo, hi)
                 w = np.minimum(np.clip((t - p0) / ramp, 0, 1), np.clip((p1 - t) / ramp, 0, 1)).astype(np.float32)
-                blk[:, lo - pos:hi - pos] = w * arr[:, lo - p0:hi - p0] + (1 - w) * blk[:, lo - pos:hi - pos]
+                got = src.read(off + lo - p0, off + hi - p0)
+                m = got.shape[1]
+                blk[:, lo - pos:lo - pos + m] = w[:m] * got + (1 - w[:m]) * blk[:, lo - pos:lo - pos + m]
             enc.stdin.write(np.ascontiguousarray(np.clip(blk, -1, 1).T, dtype="<f4").tobytes())
             pos += n
         enc.stdin.close()
@@ -351,5 +414,10 @@ def erase_known(video: str, songs: list, out_path: str, start: float, length: fl
             if p.poll() is None:
                 p.kill()
             p.wait()
+        for f in raws:
+            try:
+                os.remove(f)
+            except OSError:
+                pass
     progress(1.0)
     return {"found": round(found, 1), "missed": missed}

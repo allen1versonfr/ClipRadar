@@ -586,10 +586,22 @@ def mask_spoken(words: list, spans: list) -> list:
 
 # ---------------------------------------------------------------- the export
 
+FASTSTART_MAX = 600.0     # seconds: a longer export isn't written a second time to put its index at the front
+
+
+def movflags(length: float) -> list:
+    """+faststart (the file's index at the front) costs FFmpeg a second pass over the whole file once it's made. For a
+    clip that's a moment; for a VOD it was minutes of the disk flat out, with the bar at 100% and the PC crawling
+    (5.4). YouTube and players take the file either way, so a long export goes without."""
+    return ["-movflags", "+faststart"] if length <= FASTSTART_MAX else []
+
+
 def _run_ffmpeg(cmd: list, cwd: str, length: float, progress, check) -> None:
-    """Run FFmpeg (asked for -progress pipe:1), moving the bar and stopping when the job is cancelled."""
+    """Run FFmpeg (asked for -progress pipe:1), moving the bar and stopping when the job is cancelled. At the render
+    priority (Settings › Performance: below normal, so the PC stays usable)."""
     p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
-                         text=True, encoding="utf-8", errors="replace", creationflags=engine.CREATE_NO_WINDOW)
+                         text=True, encoding="utf-8", errors="replace",
+                         creationflags=engine.CREATE_NO_WINDOW | render.RENDER_PRIORITY[0])
     procjob.adopt(p)
     err: list = []
     reader = threading.Thread(target=lambda: err.extend(p.stderr), daemon=True)
@@ -686,7 +698,7 @@ def copy_video(video: str, out_path: str, info: dict, ro: render.RenderOpts, spa
             else:
                 cmd += ["-map", ain, "-af", tail]
             cmd += ["-c:a", "aac", "-b:a", f"{int(ro.abitrate)}k", "-ar", "48000"]
-        cmd += ["-movflags", "+faststart", "-avoid_negative_ts", "make_zero", tmp]
+        cmd += [*movflags(length), "-avoid_negative_ts", "make_zero", tmp]
         _run_ffmpeg(cmd, work, length, progress, check)
         os.replace(os.path.join(work, tmp), out_path)
     finally:
@@ -803,7 +815,7 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             burn = [dict(w, start=w["start"] - a, end=w["end"] - a) for w in words] if ro.captions else []
             render.render_clip(video, a, b, path, ro, title="", log=log, progress=prog, check=check,
                                words=burn, censor=spans, censor_mode="mute", audio_src=audio_src,
-                               warn=lambda m: job.__setitem__("warning", m))
+                               warn=lambda m: job.__setitem__("warning", m), faststart=length <= FASTSTART_MAX)
     finally:
         for f in {audio_src, known_src} - {""}:
             try:
