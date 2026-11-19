@@ -106,6 +106,7 @@ jobs:
           python tests/test_framing.py
           python tests/test_sources.py
           python tests/test_locations.py
+          python tests/test_segfind.py
           python tests/test_rename.py
           python tests/test_versions.py
           python tests/test_release_assets.py
@@ -204,6 +205,7 @@ jobs:
           python tests/test_live_switch.py
           python tests/test_live_vod.py        # joins the recorded pieces with FFmpeg
           python tests/test_segments.py        # renders and joins an edit's segments with FFmpeg
+          python tests/test_session.py         # opens videos again where you left off (needs FFmpeg)
           python tests/test_quality.py
 
   build:

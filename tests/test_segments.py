@@ -113,6 +113,51 @@ def wait(job, s=240):
     return job
 
 
+# ---- Find segments (5.0.3): the video split into parts, and the ticked ones sent to a new edit together
+import vodexport  # noqa: E402
+import whisper  # noqa: E402
+FPID = "sgf"
+fwork = tempfile.mkdtemp(prefix="vc_sgf_")
+fvideo = os.path.join(fwork, "long.mp4")
+open(fvideo, "wb").close()
+said = []
+for k in range(0, 1800 * 2):          # half an hour: a story about a trip, then a game, two words a second
+    t_ = k * 0.5
+    topic = "nyc trip flight hotel subway pizza" if t_ < 900 else "boss sword dungeon dragon potion armor"
+    said.append({"start": t_, "end": t_ + 0.3, "word": topic.split()[k % 6] if k % 3 == 0 else "and"})
+server.projects[FPID] = {"workdir": fwork, "video": fvideo, "title": "Big stream", "light": True, "live": "",
+                         "info": {"has_audio": True, "duration": 1800.0}, "duration": 1800.0, "tx_lock": threading.Lock()}
+heard_ranges = []
+real_hear, real_avail = vodexport.hear_all, whisper.whisper_available
+vodexport.hear_all = lambda S, pr, m, l, a, b, *x, **k: heard_ranges.append((a, b)) or said
+whisper.whisper_available = lambda: True
+job = vodexport.start_segfind(server, FPID, {"length": "short"})
+end = time.time() + 30
+while job["status"] == "running" and time.time() < end:
+    time.sleep(0.05)
+vodexport.hear_all, whisper.whisper_available = real_hear, real_avail
+found = vodexport.load_found(server.projects[FPID]) or {}
+fparts = found.get("parts") or []
+check("Find segments listens to the whole video once", heard_ranges == [(0.0, 1800.0)], heard_ranges)
+check("and splits it where the topic changes (15:00)", job["status"] == "done" and any(abs(p_["start"] - 900) <= 45 for p_ in fparts),
+      (job.get("error"), [(p_["start"], p_["end"], p_["name"]) for p_ in fparts]))
+check("each part named from its words", any("trip" in p_["name"] or "nyc" in p_["name"] for p_ in fparts)
+      and any("dragon" in p_["name"] or "sword" in p_["name"] or "boss" in p_["name"] for p_ in fparts), [p_["name"] for p_ in fparts])
+server.projects[FPID].pop("vod_found")
+check("kept with the video, and shown on the screen", (vodexport.load_found(server.projects[FPID]) or {}).get("parts") == fparts
+      and [x for x in vodexport.view(server)["videos"] if x["pid"] == FPID][0]["found"]["parts"] == fparts)
+ed = segments.add_many(server, FPID, [{"start": p_["start"], "end": p_["end"], "name": p_["name"]} for p_ in fparts[:2]],
+                       name="Big stream segments")
+check("the ticked parts go to a new edit together, each a segment, in order", ed["name"] == "Big stream segments"
+      and [s_["start"] for s_ in ed["segments"]] == [p_["start"] for p_ in fparts[:2]]
+      and [s_["name"] for s_ in ed["segments"]] == [p_["name"] for p_ in fparts[:2]], ed)
+try:
+    segments.add_many(server, FPID, [])
+    check("sending nothing is refused", False)
+except ValueError:
+    check("sending nothing is refused", True)
+segments.delete(ed["id"])
+
 if shutil.which("ffmpeg"):
     os.remove(video)
     # a picture whose brightness says the second it is (so the order can be checked), and a steady tone
@@ -155,6 +200,22 @@ if shutil.which("ffmpeg"):
         check("Late's cut stretch is left out", abs(luma(late, 2.5) - 34 * 6 % 256) < 30, luma(late, 2.5))
         check("each with its own subtitle file, edited lines included", os.path.isfile(os.path.splitext(early)[0] + ".srt")
               and "edited" in open(os.path.splitext(early)[0] + ".srt", encoding="utf-8").read())
+    # the Segments folder on another drive than the temporary folder: a rename across drives fails (WinError 17)
+    real_rename, real_replace = os.rename, os.replace
+
+    def other_drive(real):
+        def go(a, b, *x, **k):
+            if "part_" in os.path.basename(str(a)):
+                raise OSError(18, "The system cannot move the file to a different disk drive")
+            return real(a, b, *x, **k)
+        return go
+    os.rename, os.replace = other_drive(real_rename), other_drive(real_replace)
+    try:
+        job = wait(segments.start_export(server, e["id"], dict(opts, segment="y")))
+    finally:
+        os.rename, os.replace = real_rename, real_replace
+    check("a segment exports when the Segments folder is on another drive (5.0.2)", job["status"] == "done"
+          and os.path.isfile((job.get("result") or {}).get("path", "")), job.get("error"))
     job = wait(segments.start_export(server, e["id"], dict(opts, segment="z")))
     res = job.get("result") or {}
     check("one segment exports on its own, even unticked, straight into the Segments folder", job["status"] == "done"

@@ -111,6 +111,8 @@ export const Status = z.looseObject({
   laughter: z.boolean().optional(),
   music_remover: z.boolean().optional(),
   song_eraser: z.boolean().optional(),
+  /** videos still being opened again where you left off (5.0.2) */
+  restoring: z.number().optional(),
   twitchdownloader: z.boolean().optional(),
   can_download_tools: z.boolean().optional(),
   live: z.string().default(''),
@@ -639,6 +641,11 @@ export type VodFlag = z.infer<typeof VodFlag>
 const VodJob = Job.extend({ warning: z.string().default('') }).nullable().optional()
 export const VodExportVideo = z.looseObject({
   pid: z.string(),
+  /** Find segments (5.0.3): the video split into its parts, by topic, pauses and games */
+  found: z.object({ at: z.number().default(0), length: z.string().default('medium'), heard: z.string().default('all'),
+    parts: z.array(z.object({ start: z.number(), end: z.number(), name: z.string().default(''), score: z.number().default(0),
+      talk: z.number().default(0), quiet: z.boolean().default(false), why: z.string().default(''), on: z.boolean().default(true) })).default([]) }).nullish(),
+  found_job: VodJob,
   /** the music as you last left it on the screen (5.0): moved edges, what to do, the stretches you marked */
   music: z.object({ at: z.number().default(0), songs: z.array(z.object({ start: z.number(), end: z.number(),
     act: z.enum(['voice', 'mute', 'keep']).catch('mute'), mine: z.boolean().default(false) })).default([]) }).nullish(),

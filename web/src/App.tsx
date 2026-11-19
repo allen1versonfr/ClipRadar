@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api/client'
 import { Ok, Queue, Status } from './api/schemas'
 import { useConfirm } from './components/Confirm'
+import { getPref, setPref } from './prefs'
 import { StatusBar } from './components/StatusBar'
 import { useReviewTodo } from './shell'
 import { usePoll } from './hooks/usePoll'
@@ -35,17 +36,28 @@ function routeFromHash(): { view: ViewId; pid: string | undefined; live: boolean
 const loadStatus = () => api(Status, '/api/status')
 const loadQueue = () => api(Queue, '/api/queue')
 
+/** 5.0.2: Clip Radar opens on the screen you were on when it closed (not a live session: those end with the app). */
+function restoreScreen(): void {
+  const last = getPref<string>('lastHash', '')
+  if ((!location.hash || location.hash === '#') && last && !last.includes('/live/')) history.replaceState(null, '', last)
+}
+
 export function App() {
-  const [route, setRoute] = useState(routeFromHash)
+  const [route, setRoute] = useState(() => { restoreScreen(); return routeFromHash() })
   const view = route.view
   const status = usePoll(loadStatus, 5000)
   const queue = usePoll(loadQueue, 3000)
   const todo = useReviewTodo()
   const confirm = useConfirm()
   const [stopped, setStopped] = useState(false)
-  const [lastReview, setLastReview] = useState<{ pid: string; live: boolean }>()
+  // the video last open in Moments, kept for next time (5.0.2): the server opens it again where you left off
+  const [lastReview, setLastReview] = useState<{ pid: string; live: boolean } | undefined>(() => {
+    const r = getPref<{ pid: string; live: boolean } | null>('lastReview', null)
+    return r && !r.live ? r : undefined
+  })
   useEffect(() => {
-    if (route.view === 'review' && route.pid) setLastReview({ pid: route.pid, live: route.live })
+    if (route.view === 'review' && route.pid) { setLastReview({ pid: route.pid, live: route.live }); setPref('lastReview', { pid: route.pid, live: route.live }) }
+    setPref('lastHash', location.hash)
   }, [route])
   const busy = useRef(false)
   busy.current = !!status.data?.running

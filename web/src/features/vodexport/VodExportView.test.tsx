@@ -191,4 +191,29 @@ describe('Export VOD', () => {
     fireEvent.click((await screen.findAllByTestId('vodx-span-hear'))[1]!)
     await waitFor(() => expect(sent(calls, '/api/vodexport/preview')).toMatchObject({ at: 3600, music: [[60, 240, 'voice'], [3600, 3660, 'mute']] }))
   })
+
+  it('Find segments: the parts found are listed, ticked as found, renamed and sent to Segments together', async () => {
+    const calls: Array<[string, unknown]> = []
+    const found = { at: 3, length: 'medium', heard: 'all', parts: [
+      { start: 0, end: 870, name: 'friends · sister', on: true, why: 'Talking' },
+      { start: 870, end: 1560, name: 'nyc · trip', on: true, why: 'Talking' },
+      { start: 1560, end: 1650, name: 'Part 3', on: false, quiet: true, why: 'Mostly quiet (a break?)' }] }
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [{ ...VIDEO, found }] }))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    expect((await screen.findByTestId('vodx-found-summary')).textContent).toBe('3 parts, 2 ticked.')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name of part 2' }), { target: { value: 'emily talks abt her nyc trip' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Send part 1 to Segments' }))
+    fireEvent.click(screen.getByTestId('vodx-found-send'))
+    await waitFor(() => expect(sent(calls, '/api/segments/add_many')).toMatchObject({ pid: 'p1', name: 'Friday stream segments',
+      parts: [{ start: 870, end: 1560, name: 'emily talks abt her nyc trip' }] }))
+  })
+
+  it('Find segments asks for the length chosen', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    fireEvent.click(within(await screen.findByTestId('vodx-find')).getByRole('radio', { name: 'Long (10 to 30 min)' }))
+    fireEvent.click(screen.getByTestId('vodx-find-btn'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/segfind')).toMatchObject({ pid: 'p1', length: 'long' }))
+  })
 })

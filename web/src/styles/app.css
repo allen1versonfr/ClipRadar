@@ -639,3 +639,8 @@ video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offs
 /* the music list sits in the narrower settings column (5.0): its choice goes under the times, not beside them */
 .vodx-panels .vodx-span { grid-template-columns: minmax(0, 1fr); padding: 4px 6px; }
 .vodx-panels .vodx-span .seg { grid-column: 1; grid-row: auto; justify-self: start; }
+/* Find segments (5.0.3): the parts found, each to tick, rename and send to Segments */
+.vodx-found { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }
+.vodx-part { display: flex; gap: 10px; align-items: flex-start; }
+.vodx-part > input[type=checkbox] { margin-top: 10px; }
+.vodx-part-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }

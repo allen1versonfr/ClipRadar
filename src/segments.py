@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -215,6 +216,23 @@ def add(S, pid: str, start: float, end: float, name: str = "", edit_id: str = ""
         return e
 
 
+def add_many(S, pid: str, parts: list, edit_id: str = "", name: str = "") -> dict:
+    """Parts found by Export VOD's Find segments (5.0.3), each a segment, added in order to a new edit named `name`
+    (or to edit_id). Returns the edit."""
+    rows = [p for p in parts if isinstance(p, dict)][:MAX_SEGMENTS]
+    if not rows:
+        raise ValueError("Tick at least one part to send.")
+    e = None
+    for p in rows:
+        e = add(S, pid, p.get("start"), p.get("end"), str(p.get("name") or ""), edit_id or (e["id"] if e else ""))
+    if name and not edit_id:
+        with _lock:
+            e["name"] = " ".join(str(name).split())[:NAME_MAX] or e["name"]
+            e["ver"] += 1
+            _save()
+    return e
+
+
 def save(body: dict) -> dict:
     """The edit as the Segments screen has it now: its name and segments (order, trims, cuts, volume,
     captions). ver: the version it was loaded at; if the edit has moved on since, nothing is saved (Conflict)."""
@@ -349,7 +367,9 @@ def _make(S, job: dict, pr: dict, o: dict, plan: list, path: str, tmp: str, band
             words += [dict(w, start=w["start"] - a + at, end=w["end"] - a + at) for w in r["words"]]
             at += b - a
         if len(made) == 1:
-            os.replace(made[0], path)
+            # moved, not renamed: the temporary folder and the Segments folder can be on different drives (5.0.2:
+            # "The system cannot move the file to a different disk drive" when Segments was on D: and temp on C:)
+            shutil.move(made[0], path)
         else:
             S.job_step(job)("Joining " + os.path.basename(path))
             join(made, path, S.job_check(job))
