@@ -667,7 +667,8 @@ export const VodExportVideo = z.looseObject({
   found_job: VodJob,
   /** the music as you last left it on the screen (5.0): moved edges, what to do, the stretches you marked */
   music: z.object({ at: z.number().default(0), songs: z.array(z.object({ start: z.number(), end: z.number(),
-    act: z.enum(['voice', 'mute', 'keep']).catch('mute'), mine: z.boolean().default(false) })).default([]) }).nullish(),
+    act: z.enum(['voice', 'mute', 'keep']).catch('mute'), mine: z.boolean().default(false),
+    song: z.string().default('') })).default([]) }).nullish(),
   title: z.string().default(''),
   duration: z.number().default(0),
   exists: z.boolean().default(true),

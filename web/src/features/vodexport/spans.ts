@@ -9,7 +9,12 @@ export const ACTIONS: Array<[MusicAction, string]> = [['voice', 'Erase song'], [
 
 /** A stretch of music on Export VOD: one the scan found (with how sure it was and how much talking it heard), or
  *  one you marked yourself (mine). Its edges can be moved on the timeline. */
-export interface Song { start: number; end: number; act: MusicAction; confidence?: number; speech?: number; mine?: boolean }
+export interface Song { start: number; end: number; act: MusicAction; confidence?: number; speech?: number; mine?: boolean
+  /** which song it is (5.3): a YouTube link or a song file on the PC. Erase song then takes that exact recording out */
+  song?: string }
+
+/** A link (http or https) or a full path to a file: what the server accepts as "which song". */
+export const isSongSource = (v: string | undefined) => !!v && (/^https?:\/\/\S+$/i.test(v.trim()) || /^([a-z]:[\\/]|[\\/])/i.test(v.trim()))
 
 /** "1:02:10 to 1:05:40 (3:30)" */
 export const spanLabel = (s: Pick<MusicSpan, 'start' | 'end'>) => `${fmtTime(s.start)} to ${fmtTime(s.end)} (${fmtTime(s.end - s.start)})`

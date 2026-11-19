@@ -138,6 +138,7 @@ jobs:
           python tests/test_campaigns.py
           python tests/test_captions_anim.py
           python tests/test_vodexport.py
+          python tests/test_songref.py
           python tests/test_sounds.py
           python tests/test_api_contract.py
           python tests/test_file_serving.py

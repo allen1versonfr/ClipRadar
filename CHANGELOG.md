@@ -5,6 +5,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.3.0] - 2026-11-19
+
+### Added
+- **Erase song, the YouTube Studio way: name the song.** YouTube's Erase song works so well because it knows which song
+  it is and has the recording. Now Clip Radar can too: on Export VOD, each stretch set to **Erase song** has a
+  **Which song?** box. Paste the song's YouTube link (or the path of the song file on your PC) and that exact recording
+  is found in the stream and taken out, instead of being guessed at by the eraser model.
+  - It follows how the stream changed the song: where it is (to the sample, a piece at a time, so a song that's
+    skipped, paused or started from the middle is followed), the streamer's EQ, and its volume moment to moment.
+  - Measured on talking over a song with singing, the song put through a delay, an EQ, a compressor and AAC like a
+    stream: the song **28 to 30 dB quieter between sentences** and **17 dB quieter under the talking**, the talking
+    almost untouched. The eraser model alone managed 11 dB and 6 dB on the same audio.
+  - About 15 times faster than real time, and no download needed: it works even without the song eraser model.
+  - A part where that recording isn't there (another song, a remix, a live version) is left exactly as it was, and the
+    export says where, so you can check it's the right song or erase that part without naming it.
+  - The song is fetched once and kept; it's saved with the video, so Segments uses it too.
+
+### Tests
+- `tests/test_songref.py` (new, in CI): a made-up song under made-up talking, the song delayed, EQ'd and its volume
+  riding: found and taken out (at least 18 dB between sentences, 10 dB under the talking, the talking kept); a
+  different song left untouched sample for sample; in an export only the stretch changes; a song file read and kept;
+  Export VOD's options reading which song each stretch is.
+- Export VOD's screen: the song's link sent with its stretch and saved with the video; without the eraser model, a
+  stretch can still be erased once its song is named.
+
 ## [5.2.0] - 2026-11-19
 
 ### Added

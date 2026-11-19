@@ -7,7 +7,7 @@ import { usePoll } from '../../hooks/usePoll'
 import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
-import { ACTIONS, musicSummary, spanLabel, type MusicAction, type Song } from './spans'
+import { ACTIONS, isSongSource, musicSummary, spanLabel, type MusicAction, type Song } from './spans'
 import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from './VodTimeline'
 
 const loadView = () => api(VodExport, '/api/vodexport')
@@ -114,7 +114,9 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
     () => v.music ?? getPref<Record<string, { at: number; songs: Song[] }>>('vodxSongs', {})[v.pid])
   const saveTimer = useRef(0)
   const listOf = (cur = songsFor): Song[] => (cur && cur.at === scanAt ? cur.songs : [...fromScan(), ...(cur?.songs.filter(s => s.mine) ?? [])].sort((a, b) => a.start - b.start))
-  const songs: Song[] = listOf().map(s => (s.act === 'voice' && !canRemove ? { ...s, act: 'mute' as const } : s))
+  // Erase song needs the eraser model, or the song named (that needs no model)
+  const canErase = (s: Song) => canRemove || isSongSource(s.song)
+  const songs: Song[] = listOf().map(s => (s.act === 'voice' && !canErase(s) ? { ...s, act: 'mute' as const } : s))
   const acts = songs.map(s => s.act)
   const setSongs = (fn: (s: Song[]) => Song[]) => setSongsFor(cur => {
     const n = { at: scanAt, songs: fn(listOf(cur)).sort((a, b) => a.start - b.start) }
@@ -123,7 +125,8 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
     saveTimer.current = window.setTimeout(() => { void api(Ok, '/api/vodexport/music', { pid: v.pid, ...n }).catch(() => {}) }, 500)
     return n
   })
-  const setAct = (i: number | 'all', a: MusicAction) => setSongs(ss => ss.map((s, k) => (i === 'all' || k === i ? { ...s, act: a } : s)))
+  const setAct = (i: number | 'all', a: MusicAction) => setSongs(ss => ss.map((s, k) => (i === 'all' || k === i ? { ...s, act: a === 'voice' && !canErase(s) ? s.act : a } : s)))
+  const setSongOf = (i: number, song: string) => setSongs(ss => ss.map((s, k) => (k === i ? { ...s, song } : s)))
   const [selSong, setSelSong] = useState(-1)
   const addSong = (a: number, b: number) => {
     const s: Song = { start: +a.toFixed(2), end: +Math.min(v.duration || b, b).toFixed(2), act: canRemove ? 'voice' : 'mute', mine: true }
@@ -157,7 +160,7 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   const options = (): Record<string, unknown> => ({
     pid: v.pid, captions: 'off', words: c.words, size: c.size, quality: c.quality, whisper_model: model, language,
     hw_encode: base.hw_encode,
-    music: songs.map(s => [s.start, s.end, s.act] as const).filter(x => x[2] !== 'keep'),
+    music: songs.filter(s => s.act !== 'keep').map(s => (s.act === 'voice' && isSongSource(s.song) ? [s.start, s.end, s.act, s.song!.trim()] : [s.start, s.end, s.act])),
     word_spans: ticked.map(f => [Math.max(0, f.start - 0.05), f.end + 0.05]),
   })
   async function start(path: string, body: object, what: string) {
@@ -221,8 +224,19 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
                 <button className="link tnum" onClick={() => { setSelSong(i); seek(s.start); tl.current?.show(s.start, s.end) }}
                         title="Show it on the timeline and play from its start">{spanLabel(s)}</button>
                 <small className="muted">{s.mine ? 'Marked by you' : talk(s)}</small>
-                <Seg label={`Music at ${fmtTime(s.start)}`} value={s.act} options={ACTIONS.filter(([a]) => a !== 'voice' || canRemove)}
+                <Seg label={`Music at ${fmtTime(s.start)}`} value={s.act} options={ACTIONS.filter(([a]) => a !== 'voice' || canErase(s))}
                      onChange={a => setAct(i, a as MusicAction)} />
+                {(s.act === 'voice' || !canRemove) && s.act !== 'keep' && (
+                  <label className="vodx-song-ref">
+                    <span className="small">Which song? <span className="muted">(optional)</span></span>
+                    <input type="text" data-testid="vodx-song-ref" value={s.song ?? ''} placeholder="YouTube link or song file"
+                           aria-invalid={!!s.song?.trim() && !isSongSource(s.song)}
+                           aria-label={`Which song plays at ${fmtTime(s.start)}: a YouTube link or the path of a song file`}
+                           onChange={e => setSongOf(i, e.target.value)} />
+                    <small className="muted">{s.song?.trim() && !isSongSource(s.song) ? 'Paste a link (https://…) or the full path of a song file.'
+                      : isSongSource(s.song) ? 'That exact recording is taken out, so the talking stays nearly untouched.'
+                      : 'Name it and that exact recording is taken out, like YouTube Studio\'s Erase song: much cleaner.'}</small>
+                  </label>)}
                 <span className="row vodx-span-acts">
                   <button className="btn sm ghost" disabled={!v.exists || v.preview_job?.status === 'running'} data-testid="vodx-span-hear"
                           onClick={() => { setSelSong(i); exactAt(s.start) }}>Hear it</button>

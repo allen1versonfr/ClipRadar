@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -246,7 +247,8 @@ def save_music(pr: dict, body: dict) -> dict:
         if not (math.isfinite(a) and math.isfinite(b)) or b - a < 0.5:
             continue
         songs.append({"start": round(a, 2), "end": round(b, 2),
-                      "act": s.get("act") if s.get("act") in MUSIC_ACTIONS else "mute", "mine": bool(s.get("mine"))})
+                      "act": s.get("act") if s.get("act") in MUSIC_ACTIONS else "mute", "mine": bool(s.get("mine")),
+                      "song": song_source(s.get("song"))})
     try:
         at = float(body.get("at") or 0)
     except (TypeError, ValueError):
@@ -395,6 +397,25 @@ def _pairs(rows, duration: float, extra=None) -> list:
     return sorted(out)
 
 
+def song_source(v) -> str:
+    """Which song a stretch is (5.3): a YouTube (or other web) link, or a sound or video file on this PC. "" if neither."""
+    v = str(v or "").strip()[:2000]
+    if not v:
+        return ""
+    if re.match(r"^https?://", v, re.I):
+        return v
+    return v if os.path.isabs(v) else ""
+
+
+def _songs(rows, duration: float) -> list:
+    """[(start, end, source)] for the "Erase song" stretches you said the song of."""
+    out = []
+    for a, b, (m, src) in _pairs(rows, duration, lambda sp: (sp[2] if len(sp) > 2 else "", song_source(sp[3] if len(sp) > 3 else ""))):
+        if m == "voice" and src:
+            out.append((a, b, src))
+    return out
+
+
 def clean_options(body: dict, duration: float) -> dict:
     """What the Export VOD screen asked for, checked: unknown values fall back to the defaults, and
     spans are numbers inside the video, in order."""
@@ -408,6 +429,8 @@ def clean_options(body: dict, duration: float) -> dict:
         # music stretches: [(start, end, "voice" | "mute")]
         "music": _pairs(body.get("music"), duration,
                         lambda sp: sp[2] if len(sp) > 2 and sp[2] in ("voice", "mute") else "mute"),
+        # 5.3: the song in an "Erase song" stretch, when you said which (a YouTube link or a file): [(start, end, source)]
+        "songs": _songs(body.get("music"), duration),
         "quality": body.get("quality") if body.get("quality") in QUALITY else "balanced",
         "size": str(body.get("size")) if str(body.get("size")) in SIZES else "source",
         "whisper_model": str(body.get("whisper_model") or "small")[:40],
@@ -683,6 +706,10 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
         ro = replace(ro, speed="fast", crf=28, scale=min(ro.scale, SIZES["720"]))
     has_audio = bool(info.get("has_audio"))
     voice = [(x, y) for x, y, m in o["music"] if m == "voice" and y > a and x < b] if has_audio else []
+    # 5.3: the stretches whose song you named: that song is taken out exactly (YouTube Studio's Erase song works the
+    # same way, knowing the song); the eraser model only does the ones left
+    known = [(x, y, src) for x, y, src in o.get("songs") or [] if y > a and x < b] if has_audio else []
+    voice = [(x, y) for x, y in voice if not any(p <= x + 0.01 and y - 0.01 <= q for p, q, _ in known)]
     hush = [(x, y) for x, y, m in o["music"] if m == "mute" and y > a and x < b] if has_audio else []
     told = [(x, y) for x, y in o["word_spans"] if y > a and x < b] if has_audio else []
     if voice and not can_erase():
@@ -694,7 +721,7 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     # a Segments part is copied too when its start was moved onto a keyframe for it (copy=True, 5.1.1)
     copying = whole and can_copy(o, info) and (not part or copy)
     w_hear = 0.45 if need_words else 0.0
-    w_voice = (0.6 if copying else 0.25) * (1 - w_hear) if voice else 0.0
+    w_voice = (0.6 if copying else 0.25) * (1 - w_hear) if voice or known else 0.0
     words = [w for w in (words or []) if a <= w["start"] < b] if given and o["captions"] != "off" else []
     if need_words:
         if not whisper.whisper_available() and not (pr.get("yt") or {}).get("words"):
@@ -714,7 +741,24 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     tmpdir = locations.temp_dir(os.path.basename(pr["workdir"]), "vodexport")
     os.makedirs(tmpdir, exist_ok=True)
     audio_src = ""
+    known_src = ""
     try:
+        if known:
+            import songref
+            total = sum(min(y, b) - max(x, a) for x, y, _ in known)
+            step(f"Taking the songs you named out of {engine.fmt_ts(total)}")
+            known_src = os.path.join(tmpdir, f"known_{uuid.uuid4().hex[:8]}.flac")
+            t0 = time.time()
+            share = w_voice * (0.5 if voice else 1.0)
+            got = songref.erase_known(video, known, known_src, a, length, locations.temp_dir("songs"),
+                                      progress=bar(w_hear, w_hear + share), check=check, log=log)
+            log(f"Named songs taken out in {engine.fmt_ts(time.time() - t0)}.")
+            if got["missed"]:
+                job["warning"] = ("The song you named wasn't heard in " + ", ".join(f"{engine.fmt_ts(p)}-{engine.fmt_ts(q)}" for p, q in got["missed"][:4])
+                                  + ". Those parts are left as they were: check it's the right song, or erase them without naming it.")
+            audio_src = known_src
+            w_hear += share
+            w_voice -= share
         if voice:
             total = sum(y - x for x, y in voice)
             eraser = songerase.available()
@@ -722,8 +766,12 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             audio_src = os.path.join(tmpdir, f"voice_{uuid.uuid4().hex[:8]}.flac")
             t0 = time.time()
             fn = songerase.erase if eraser else voicekeep.keep_voice
-            got = fn(video, [rel(x, y) for x, y in voice], audio_src, start=a, length=0.0 if whole and not part else length,
-                     progress=bar(w_hear, w_hear + w_voice), check=check)
+            if known_src:       # on top of the sound the named songs were already taken out of
+                got = fn(known_src, [rel(x, y) for x, y in voice], audio_src, start=0.0, length=0.0,
+                         progress=bar(w_hear, w_hear + w_voice), check=check)
+            else:
+                got = fn(video, [rel(x, y) for x, y in voice], audio_src, start=a, length=0.0 if whole and not part else length,
+                         progress=bar(w_hear, w_hear + w_voice), check=check)
             log(f"{'Songs erased' if eraser else 'Music removed, voices kept,'} in {len(voice)} stretch{'es' if len(voice) != 1 else ''} "
                 f"({engine.fmt_ts(total)}) in {engine.fmt_ts(time.time() - t0)}, {got['blocks']} blocks through the model.")
         prog = bar(w_hear + w_voice, 1.0)
@@ -739,16 +787,16 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                                words=burn, censor=spans, censor_mode="mute", audio_src=audio_src,
                                warn=lambda m: job.__setitem__("warning", m))
     finally:
-        if audio_src:
+        for f in {audio_src, known_src} - {""}:
             try:
-                os.remove(audio_src)
+                os.remove(f)
             except OSError:
                 pass
         if voice:
             voicekeep.release()
             songerase.release()
     return {"words": words, "ro": ro, "copied": copying, "muted_words": len(told), "muted_music": len(hush),
-            "voice_music": len(voice)}
+            "voice_music": len(voice), "known_songs": len(known)}
 
 
 def run_export(S, job: dict, pid: str, o: dict) -> dict:
@@ -1030,6 +1078,17 @@ def view(S) -> dict:
                                                                       cfg.get("censor_categories", []) if c in safety.CATEGORIES]}
 
 
+def suggested_songs(pr: dict) -> list:
+    """The songs you named on Export VOD's Erase song stretches (5.3), for Segments: [(start, end, source)]."""
+    mine = load_music(pr)
+    if not mine:
+        return []
+    scan = load_scan(pr)
+    same = abs(float(mine["at"]) - float((scan or {}).get("at") or 0)) < 1e-6
+    return [(s["start"], s["end"], s["song"]) for s in mine["songs"]
+            if s.get("act") == "voice" and song_source(s.get("song")) and (same or s.get("mine"))]
+
+
 def suggested(pr: dict) -> tuple:
     """What Export VOD starts with for a video, for an export that has no screen of its own (Segments): each
     music stretch as you left it on Export VOD (5.0), or as the copyright scan suggests, and the flagged words in the categories Settings › Content
@@ -1041,6 +1100,8 @@ def suggested(pr: dict) -> tuple:
         same = abs(float(mine["at"]) - float((scan or {}).get("at") or 0)) < 1e-6
         rows = [s for s in mine["songs"] if same or s.get("mine")]
         music = ([] if same else music) + [(s["start"], s["end"], s["act"]) for s in rows if s["act"] != "keep"]
-        music = [(a, b, "mute" if m == "voice" and not can_erase() else m) for a, b, m in sorted(music)]
+        named = {(s["start"], s["end"]) for s in rows if s["act"] == "voice" and s.get("song")}
+        # without the song eraser, an Erase song stretch is muted, unless you said which song it is (that needs no model)
+        music = [(a, b, "mute" if m == "voice" and not can_erase() and (a, b) not in named else m) for a, b, m in sorted(music)]
     flags = (load_flags(pr) or {}).get("flags") or []
     return music, [(max(0.0, f["start"] - 0.05), f["end"] + 0.05) for f in flags if f.get("on")]

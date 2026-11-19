@@ -65,6 +65,40 @@ describe('Export VOD', () => {
     expect(screen.queryByRole('radio', { name: 'Erase song' })).toBeNull()
   })
 
+  it('naming the song (a YouTube link) sends it with its stretch and keeps it with the video', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    await screen.findByTestId('vodx-music-summary')
+    const fields = screen.getAllByTestId('vodx-song-ref') as HTMLInputElement[]
+    expect(fields).toHaveLength(1)                     // only on the stretch set to Erase song
+    fireEvent.change(fields[0]!, { target: { value: 'not a link' } })
+    expect(fields[0]!.getAttribute('aria-invalid')).toBe('true')
+    fireEvent.change(fields[0]!, { target: { value: 'https://www.youtube.com/watch?v=abc123' } })
+    expect(fields[0]!.getAttribute('aria-invalid')).toBe('false')
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    expect((sent(calls, '/api/vodexport/start')!.music as unknown[])[0]).toEqual([60, 240, 'voice', 'https://www.youtube.com/watch?v=abc123'])
+    // saved with the video (a save timer from the test before can land here too: any save with the song counts)
+    const named = () => calls.some(([q, b]) => q === '/api/vodexport/music'
+      && ((b as { songs: Array<{ song?: string }> }).songs).some(x => x.song === 'https://www.youtube.com/watch?v=abc123'))
+    await waitFor(() => expect(named()).toBe(true), { timeout: 2000 })
+  })
+
+  it('without the song eraser, a stretch can still be erased once its song is named', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, voice_model: false }))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    await screen.findByTestId('vodx-music-summary')
+    const group = () => screen.getByRole('radiogroup', { name: 'Music at 1:00' })
+    expect(within(group()).queryByRole('radio', { name: 'Erase song' })).toBeNull()
+    fireEvent.change(screen.getAllByTestId('vodx-song-ref')[0]!, { target: { value: 'C:\\Music\\song.mp3' } })
+    fireEvent.click(within(group()).getByRole('radio', { name: 'Erase song' }))
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    expect((sent(calls, '/api/vodexport/start')!.music as unknown[])[0]).toEqual([60, 240, 'voice', 'C:\\Music\\song.mp3'])
+  })
+
   it('the flagged words queue: ticked ones are muted, untick or tick any', async () => {
     const calls: Array<[string, unknown]> = []
     vi.stubGlobal('fetch', server(calls))
