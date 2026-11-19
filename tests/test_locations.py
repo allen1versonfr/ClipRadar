@@ -114,6 +114,44 @@ fresh = os.path.join(part, "vod.f1.mp4.part")
 open(fresh, "wb").write(b"x")
 check("old half-finished downloads are found, recent ones left", L.stale_partials([dl]) == [pf], L.stale_partials([dl]))
 
+# exported VODs and segment exports: folders of their own, next to the project folders unless chosen (5.0)
+proj = L.path("projects")
+check("exported VODs go to their own folder next to the projects", L.vods_dir() == os.path.join(proj, "Exported VODs"), L.vods_dir())
+check("segment exports go to their own folder next to the projects", L.segments_dir() == os.path.join(proj, "Segments"), L.segments_dir())
+check("neither is a clips folder", L.vods_dir() != L.clips_dir(os.path.join(proj, "x")) and L.segments_dir() != L.vods_dir())
+os.makedirs(L.vods_dir(), exist_ok=True)
+open(os.path.join(L.vods_dir(), "Stream (full VOD).mp4"), "wb").write(b"\0" * 100)
+check("the Exported VODs folder isn't taken for a project", all(os.path.basename(p_) != "Exported VODs" for p_ in __import__("storage")._project_dirs(proj)))
+mine = os.path.join(BASE, "my_vods")
+r = L.save({"vods": mine})
+check("Exported VODs can be moved in Settings › Storage", r["ok"] and L.vods_dir() == mine, (r, L.vods_dir()))
+L.save({"vods": ""})
+check("and put back to the default", L.vods_dir() == os.path.join(proj, "Exported VODs"))
+vv = {x["key"]: x for x in L.view(sizes=False)["locations"]}
+check("Storage shows where they are even when not chosen", vv["vods"]["path"] == L.vods_dir() and not vv["vods"]["set"]
+      and vv["segments"]["path"] == L.segments_dir(), vv["vods"])
+
+# a read while a save replaces the file (Windows refuses it for a moment) is tried again, not taken as nothing chosen
+L.save({"vods": mine})
+import builtins  # noqa: E402
+real_open, refused = builtins.open, [0]
+
+
+def busy_open(f, *a, **k):
+    if str(f).endswith("locations.json") and refused[0] < 2:
+        refused[0] += 1
+        raise PermissionError(13, "Access is denied")
+    return real_open(f, *a, **k)
+
+
+builtins.open = busy_open
+try:
+    got = L.vods_dir()
+finally:
+    builtins.open = real_open
+check("a read refused for a moment is tried again", got == mine and refused[0] == 2, (got, refused))
+L.save({"vods": ""})
+
 v = L.view(sizes=True)
 check("storage view lists every folder with free space", [x["key"] for x in v["locations"]] == list(L.KEYS)
       and all(x["free"] for x in v["locations"]))

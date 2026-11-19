@@ -16,7 +16,7 @@ import { VodExportView } from './features/vodexport/VodExportView'
 // at /) and at / (CLIPRADAR_UI=web), and a reload keeps the screen.
 const VIEWS = [
   { id: 'home', label: 'Home' },
-  { id: 'review', label: 'Review' },
+  { id: 'review', label: 'Moments' },   // called Review before 5.0; #review stays its address
   { id: 'exports', label: 'Exports' },
   { id: 'vod', label: 'Export VOD' },
   { id: 'segments', label: 'Segments' },
@@ -28,7 +28,8 @@ type ViewId = (typeof VIEWS)[number]['id']
 function routeFromHash(): { view: ViewId; pid: string | undefined; live: boolean } {
   const parts = location.hash.replace(/^#\/?/, '').split('/')
   const live = parts[1] === 'live', pid = live ? parts[2] : parts[1]
-  return { view: VIEWS.find(v => v.id === parts[0])?.id ?? 'home', pid: pid && /^\w+$/.test(pid) ? pid : undefined, live }
+  const id = parts[0] === 'moments' ? 'review' : parts[0]          // #moments is the same screen
+  return { view: VIEWS.find(v => v.id === id)?.id ?? 'home', pid: pid && /^\w+$/.test(pid) ? pid : undefined, live }
 }
 
 const loadStatus = () => api(Status, '/api/status')
@@ -102,7 +103,7 @@ export function App() {
           <a key={v.id} href={v.id === 'review' ? reviewHref : `#${v.id}`} data-testid={`nav-${v.id}`} aria-current={v.id === view ? 'page' : undefined}
              className={v.id === view ? 'on' : ''}>
             {v.label}
-            {badge(v.id) > 0 && <b className="badge" aria-label={v.id === 'review' ? `${badge(v.id)} to review` : `${badge(v.id)} rendering`}>{badge(v.id)}</b>}
+            {badge(v.id) > 0 && <b className="badge" aria-label={v.id === 'review' ? `${badge(v.id)} moments to go through` : `${badge(v.id)} rendering`}>{badge(v.id)}</b>}
           </a>
         ))}
       </nav>

@@ -9,8 +9,10 @@ Export VOD: a whole video saved as one file, with the muting system and captions
   - Flagged words: "Check for flagged words" hears the video and lists what the content check flags.
     Each one is ticked or left, and the ticked ones are muted or bleeped (and masked in the captions).
   - Copyright scan: finds the stretches where music plays with the sound model Clip Radar already uses
-    for laughter. Each stretch can have its music removed with the voices kept (voicekeep.py), be muted
-    whole, or be left alone. It hears *music*, not which song: a safety net, not a guarantee.
+    for laughter. Each stretch can have its song erased (songerase.py, 5.0: the song goes, singing and all, and
+    talking and game sound stay; voicekeep.py's older "keep the voices" when only that model is installed), be
+    muted whole, or be left alone. Stretches can be moved and added by hand on the screen. It hears *music*,
+    not which song: a safety net, not a guarantee.
   - Speed: when the picture isn't changed (no burned-in captions, the video's own size) it's copied as
     it is and only the sound is made again. Otherwise it's render.render_clip in a wide frame (16:9).
 """
@@ -44,6 +46,7 @@ import studio_auto
 import youtube_auto
 import ytextra
 import voicekeep
+import songerase
 import listening
 import render_queue
 
@@ -118,12 +121,18 @@ def music_spans(music, duration: float, threshold: float = MUSIC_ON, min_len: fl
     return out
 
 
-def suggest_action(confidence: float, speech: float, can_remove: bool) -> str:
+def can_erase() -> bool:
+    """Whether "Erase song" can run: the song eraser, or the older music remover that keeps only voices."""
+    return songerase.available() or voicekeep.available()
+
+
+def suggest_action(confidence: float, speech: float, can_remove: bool, keeps_rest: bool = False) -> str:
     """What a music stretch starts as on the screen, before you change it: "voice" (take the music out,
     keep the voices), "mute" (silence the whole stretch) or "keep" (leave it alone).
 
     confidence: how sure the scan is that it's music (0..1). speech: the part of the stretch where someone
-    is talking (0..1). can_remove: whether the music remover is installed ("voice" needs it).
+    is talking (0..1). can_remove: whether a remover is installed ("voice" needs it). keeps_rest: it's the song
+    eraser, which keeps the game's sound too, so it's better than muting even where nobody talks (5.0).
     """
     talking = speech >= 0.2           # someone talks over at least a fifth of it
     if talking:
@@ -131,9 +140,11 @@ def suggest_action(confidence: float, speech: float, can_remove: bool) -> str:
             return "voice"            # the music goes, the talking stays: what the stretch is for
         # without the remover, muting would silence the talking too: only when there's little of it
         return "keep" if speech >= SPEECH_ON else "mute"
-    # nobody talking: muting does what removal would, in no time. A weak detection is left alone, so game
-    # sound the scan half-took for music isn't silenced
-    return "mute" if confidence >= 0.5 else "keep"
+    # nobody talking: muting does what the voice-only remover would, in no time; the song eraser keeps the game's
+    # sound, which muting would lose. A weak detection is left alone, so game sound half-taken for music is kept
+    if confidence < 0.5:
+        return "keep"
+    return "voice" if can_remove and keeps_rest else "mute"
 
 
 def _scan_file(pr: dict) -> str:
@@ -148,7 +159,8 @@ def load_scan(pr: dict) -> Optional[dict]:
         with open(_scan_file(pr), encoding="utf-8") as f:
             data = json.load(f)
         if data.get("video") == _sig(pr):
-            pr["copyright"] = {"spans": data["spans"], "at": data.get("at", 0), "how": data.get("how", "")}
+            pr["copyright"] = {"spans": data["spans"], "at": data.get("at", 0), "how": data.get("how", ""),
+                               "curve": data.get("curve") or []}
             return pr["copyright"]
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -197,21 +209,75 @@ def scan_copyright(pr: dict, progress=lambda x: None, check=lambda: None, log=la
         log("Listening to the whole video for music...")
         ev, how = audio_events.scan_file(pr["video"], dur, progress=progress, check=check), "heard now"
     spans = music_spans(ev.get("music"), dur, speech=ev.get("speech"))
-    pr["copyright"] = {"spans": spans, "at": time.time(), "how": how}
+    # how much it sounded like music, second by second: the timeline draws it, so music the scan didn't list
+    # (too short, too quiet under talking) can be found and marked by hand (5.0)
+    curve = [round(float(x), 2) for x in np.nan_to_num(np.asarray(ev.get("music") if ev.get("music") is not None else [], dtype=np.float32))]
+    pr["copyright"] = {"spans": spans, "at": time.time(), "how": how, "curve": curve}
     _write_json(_scan_file(pr), dict(pr["copyright"], video=_sig(pr)))
     total = sum(s["end"] - s["start"] for s in spans)
     log(f"Found {len(spans)} stretch{'es' if len(spans) != 1 else ''} with music ({engine.fmt_ts(total)} in all).")
     return pr["copyright"]
 
 
+def music_curve(pr: dict, a: float, b: float) -> list:
+    """How much each second from a to b sounded like music in the last copyright scan (0..1), for the timeline."""
+    curve = (load_scan(pr) or {}).get("curve") or []
+    return curve[max(0, int(a)):max(0, int(math.ceil(b)))]
+
+
+def _music_file(pr: dict) -> str:
+    return os.path.join(pr["workdir"], "music.json")
+
+
+def save_music(pr: dict, body: dict) -> dict:
+    """The music as you left it on Export VOD (5.0): each stretch's edges and what to do with it, and the ones
+    you marked yourself (mine), made on the scan of `at`. Kept with the video, so Segments' "Deal with music"
+    and the screen next time (in any browser) use it."""
+    dur = _duration(pr) or math.inf
+    songs = []
+    for s in (body.get("songs") or [])[:500]:
+        if not isinstance(s, dict):
+            continue
+        try:
+            a, b = max(0.0, float(s.get("start"))), min(dur, float(s.get("end")))
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(a) and math.isfinite(b)) or b - a < 0.5:
+            continue
+        songs.append({"start": round(a, 2), "end": round(b, 2),
+                      "act": s.get("act") if s.get("act") in MUSIC_ACTIONS else "mute", "mine": bool(s.get("mine"))})
+    try:
+        at = float(body.get("at") or 0)
+    except (TypeError, ValueError):
+        at = 0.0
+    pr["music_mine"] = {"at": at, "songs": sorted(songs, key=lambda s: s["start"])}
+    _write_json(_music_file(pr), dict(pr["music_mine"], video=_sig(pr)))
+    return {"ok": True, "songs": len(songs)}
+
+
+def load_music(pr: dict) -> Optional[dict]:
+    """The music as you last left it on Export VOD ({"at", "songs"}), if the video hasn't changed since."""
+    if "music_mine" not in pr:
+        pr["music_mine"] = None
+        try:
+            with open(_music_file(pr), encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("video") == _sig(pr) and isinstance(data.get("songs"), list):
+                pr["music_mine"] = {"at": float(data.get("at") or 0), "songs": data["songs"]}
+        except (OSError, ValueError, TypeError):
+            pass
+    return pr["music_mine"]
+
+
 def _scan_view(scan: Optional[dict]) -> Optional[dict]:
     """The scan for the screen: each stretch with what Clip Radar would do with it to start with."""
     if not scan:
         return None
-    can = voicekeep.available()
+    scan = {k: v for k, v in scan.items() if k != "curve"}      # the timeline asks for it a stretch at a time
+    can, rest = can_erase(), songerase.available()
     spans = []
     for s in scan["spans"]:
-        act = suggest_action(float(s.get("confidence", 0)), float(s.get("speech", 0)), can)
+        act = suggest_action(float(s.get("confidence", 0)), float(s.get("speech", 0)), can, rest)
         spans.append(dict(s, speech=s.get("speech", 0), suggest=act if act in MUSIC_ACTIONS and (can or act != "voice") else "mute"))
     return dict(scan, spans=spans)
 
@@ -559,9 +625,9 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     voice = [(x, y) for x, y, m in o["music"] if m == "voice" and y > a and x < b] if has_audio else []
     hush = [(x, y) for x, y, m in o["music"] if m == "mute" and y > a and x < b] if has_audio else []
     told = [(x, y) for x, y in o["word_spans"] if y > a and x < b] if has_audio else []
-    if voice and not voicekeep.available():
-        raise RuntimeError("Removing music needs the music remover. Get it in Settings › Downloads and tools, "
-                           "or set those stretches to Mute everything.")
+    if voice and not can_erase():
+        raise RuntimeError("Erase song needs the song eraser. Get it in Settings › Downloads and tools, "
+                           "or set those stretches to Mute all sound.")
     # the bar: listening (only when captions are on), taking the music out, then the picture
     given = words is not None
     need_words = o["captions"] != "off" and has_audio and not given
@@ -590,14 +656,15 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     try:
         if voice:
             total = sum(y - x for x, y in voice)
-            step(f"Taking the music out of {engine.fmt_ts(total)} (voices stay)")
+            eraser = songerase.available()
+            step(f"Erasing songs from {engine.fmt_ts(total)}" if eraser else f"Taking the music out of {engine.fmt_ts(total)} (voices stay)")
             audio_src = os.path.join(tmpdir, f"voice_{uuid.uuid4().hex[:8]}.flac")
             t0 = time.time()
-            got = voicekeep.keep_voice(video, [rel(x, y) for x, y in voice], audio_src, start=a,
-                                       length=0.0 if whole and not part else length,
-                                       progress=bar(w_hear, w_hear + w_voice), check=check)
-            log(f"Music removed from {len(voice)} stretch{'es' if len(voice) != 1 else ''} ({engine.fmt_ts(total)}) in "
-                f"{engine.fmt_ts(time.time() - t0)}, {got['blocks']} blocks through the model.")
+            fn = songerase.erase if eraser else voicekeep.keep_voice
+            got = fn(video, [rel(x, y) for x, y in voice], audio_src, start=a, length=0.0 if whole and not part else length,
+                     progress=bar(w_hear, w_hear + w_voice), check=check)
+            log(f"{'Songs erased' if eraser else 'Music removed, voices kept,'} in {len(voice)} stretch{'es' if len(voice) != 1 else ''} "
+                f"({engine.fmt_ts(total)}) in {engine.fmt_ts(time.time() - t0)}, {got['blocks']} blocks through the model.")
         prog = bar(w_hear + w_voice, 1.0)
         if copying:
             step("Copying the picture, making the sound")
@@ -617,6 +684,7 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                 pass
         if voice:
             voicekeep.release()
+            songerase.release()
     return {"words": words, "ro": ro, "copied": copying, "muted_words": len(told), "muted_music": len(hush),
             "voice_music": len(voice)}
 
@@ -630,7 +698,7 @@ def run_export(S, job: dict, pid: str, o: dict) -> dict:
     dur = float(info.get("duration") or _duration(pr))
     if dur <= 0:
         raise RuntimeError("Couldn't read the video's length.")
-    outdir = locations.clips_dir(pr["workdir"])
+    outdir = locations.vods_dir()          # Settings › Storage › Exported VODs, apart from the clips (5.0)
     render_queue._validate_render({"id": job["id"], "start": 0.0, "end": dur}, pr, outdir)
     if can_copy(o, info):
         try:
@@ -828,14 +896,14 @@ def view(S) -> dict:
             "has_yt_words": bool((pr.get("yt") or {}).get("words")),
             "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
             "copyable": info.get("vcodec") in COPY_CODECS, "light": bool(pr.get("light")),
-            "scan": _scan_view(load_scan(pr)), "scan_job": job("copyright_job"),
+            "scan": _scan_view(load_scan(pr)), "scan_job": job("copyright_job"), "music": load_music(pr),
             "flags": load_flags(pr), "words_job": job("vod_words_job"), "hear_job": job("vod_hear_job"),
             "preview_job": job("vod_preview_job"), "export_job": job("vodexport_job"),
             "exported": bool(out and os.path.isfile(out)), "youtube": pr.get("vod_yt"), "youtube_job": job("vod_yt_job"),
         })
     cfg = safety.load_config()
     return {"videos": vids, "library": library(S), "music_model": audio_events.available(),
-            "voice_model": voicekeep.available(), "voice_model_mb": voicekeep.MODEL_MB,
+            "voice_model": can_erase(), "voice_model_mb": songerase.MODEL_MB, "song_eraser": songerase.available(),
             "whisper": whisper.whisper_available(), "browser": studio_auto.available(),
             "censor": cfg.get("censor", "off"), "censor_categories": [safety.CATEGORIES[c]["label"] for c in
                                                                       cfg.get("censor_categories", []) if c in safety.CATEGORIES]}
@@ -843,9 +911,15 @@ def view(S) -> dict:
 
 def suggested(pr: dict) -> tuple:
     """What Export VOD starts with for a video, for an export that has no screen of its own (Segments): each
-    music stretch as the copyright scan suggests, and the flagged words in the categories Settings › Content
+    music stretch as you left it on Export VOD (5.0), or as the copyright scan suggests, and the flagged words in the categories Settings › Content
     check mutes. ([(start, end, "voice" | "mute")], [(start, end)])"""
     scan = _scan_view(load_scan(pr))
     music = [(s["start"], s["end"], s["suggest"]) for s in (scan or {}).get("spans", []) if s["suggest"] != "keep"]
+    mine = load_music(pr)
+    if mine:          # what you set on Export VOD: all of it for this scan, only what you marked yourself for a newer one
+        same = abs(float(mine["at"]) - float((scan or {}).get("at") or 0)) < 1e-6
+        rows = [s for s in mine["songs"] if same or s.get("mine")]
+        music = ([] if same else music) + [(s["start"], s["end"], s["act"]) for s in rows if s["act"] != "keep"]
+        music = [(a, b, "mute" if m == "voice" and not can_erase() else m) for a, b, m in sorted(music)]
     flags = (load_flags(pr) or {}).get("flags") or []
     return music, [(max(0.0, f["start"] - 0.05), f["end"] + 0.05) for f in flags if f.get("on")]

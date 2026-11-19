@@ -69,7 +69,7 @@ function Picker() {
   const lives = (src.data?.items ?? []).filter(x => x.type === 'live' && x.id)
   return (
     <section className="rv-pick" data-testid="review-picker">
-      <h1>Review</h1>
+      <h1>Moments</h1>
       {src.error && <p className="banner err" role="alert">{src.error}</p>}
       {!src.data && !src.error && <p className="muted">Loading…</p>}
       {src.data && (ready.length || lives.length ? (
@@ -222,7 +222,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
     setLive(v => (v ? { ...v, ...body } : v))         // shown at once; the session's answer follows
     try {
       setLive(await api(LiveView, `/api/live/${pid}/settings`, body))
-      if ('hands_free' in body) toast(body.hands_free ? 'Hands-free is on: new moments render by themselves.' : 'Hands-free is off: new moments wait for you in Review.')
+      if ('hands_free' in body) toast(body.hands_free ? 'Hands-free is on: new moments render by themselves.' : 'Hands-free is off: new moments wait for you in Moments.')
     } catch (e) { toast(err(e), 'err') }
   }
   async function clipNow() {
@@ -800,10 +800,10 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   })
 
   if (failed) return (
-    <section className="rv-pick"><h1>Review</h1><p className="banner err" role="alert">{failed}</p>
+    <section className="rv-pick"><h1>Moments</h1><p className="banner err" role="alert">{failed}</p>
       <p className="muted">Open the video again from <a href="#home">Home › Recent</a>: your keeps, skips and edits come back with it.</p></section>
   )
-  if (!meta) return <section className="rv-pick"><h1>Review</h1><p className="muted">Opening…</p></section>
+  if (!meta) return <section className="rv-pick"><h1>Moments</h1><p className="muted">Opening…</p></section>
 
   // a fix being tried shows in the preview: the title as it would be, the words masked where they would be
   const shown = c && proposal?.playing ? {

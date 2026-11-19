@@ -1,0 +1,15 @@
+Song eraser (Export VOD and Segments, "Erase song"): TIGER for Divide and Remaster
+
+The model Clip Radar downloads for "Erase song" (saved as song_eraser.onnx) is TIGER, its Divide and Remaster
+model (dialogue / music / effects), as converted to ONNX with int8 weights by audiojs.
+
+  TIGER: Time-frequency Interleaved Gain Extraction and Reconstruction for Efficient Speech Separation
+  Mohan Xu, Kai Li, Guo Chen, Xiaolin Hu (Tsinghua University), ICLR 2025, arXiv:2410.01469
+  Code                        https://github.com/JusperLee/TIGER
+  Weights                     https://huggingface.co/JusperLee/TIGER-DnR
+  ONNX (what's downloaded)    https://huggingface.co/audiojs/tiger-dnr  (tiger.int8.onnx)
+
+Licence: Apache License 2.0 (the weights' model card; the ONNX conversion is published under the same licence).
+Trained on Divide and Remaster (FMA and FSD50K clips, each under its own licence). Clip Radar doesn't change the
+model; it runs it as published and checks the download against its SHA-256 hash
+(2189859ac7e89cf4d9d284c6f393e737aaa2b3233ed7ee424ad622012bce7bca).

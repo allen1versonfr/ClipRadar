@@ -55,6 +55,7 @@ import updater
 import segments
 import vodexport
 import voicekeep
+import songerase
 import watermarks
 
 import render_queue
@@ -231,6 +232,7 @@ class Handler(BaseHTTPRequestHandler):
                 "whisper": S._has("faster_whisper", load=False),
                 "laughter": S._has("onnxruntime", load=False) and audio_events.model_path() is not None,
                 "music_remover": S._has("onnxruntime", load=False) and voicekeep.model_path() is not None,
+                "song_eraser": S._has("onnxruntime", load=False) and songerase.model_path() is not None,
                 "twitchdownloader": ts["twitchdownloader"],
                 "can_download_tools": ts["can_download"],
                 "workroot": S.WORKROOT,
@@ -342,13 +344,18 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             # what the editing timeline draws for a stretch of the video: loudness, laughter, chat
             pr = S.projects.get(m.group(1))
-            if not pr or "analysis" not in pr:
+            if not pr or ("analysis" not in pr and not pr.get("light")):
                 return self._err("This session expired. Press Find clips again.", 404)
             try:
                 a, b = float(q.get("a", ["0"])[0]), float(q.get("b", ["0"])[0])
             except ValueError:
                 return self._err("bad range")
-            return self._json(S.strip_data(pr, a, b))
+            if "analysis" not in pr:      # a video opened only to export (Export VOD, Segments): nothing measured
+                out = {"a": max(0.0, a), "b": b, "hz": 1, "wave": [], "events": {}, "chat": [], "start": int(max(0.0, a))}
+            else:
+                out = S.strip_data(pr, a, b)
+            out["music"] = vodexport.music_curve(pr, out["start"], out["b"])     # Export VOD's timeline (5.0)
+            return self._json(out)
         m = re.fullmatch(r"/api/autopilot/(\w+)/(\w+)", p)
         if m:
             # what Clip Radar did with this clip on its own: titled, held, rendered, sent (autopilot.py)
@@ -505,7 +512,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(live_glue.sources_view())
 
         if p == "/api/setup_tools":
-            want = [w for w in body.get("want", []) if w in ("ffmpeg", "twitchdownloader", "ytdlp", "laughter", "music_remover")]
+            want = [w for w in body.get("want", []) if w in ("ffmpeg", "twitchdownloader", "ytdlp", "laughter", "music_remover", "song_eraser")]
             if not want:
                 return self._err("Nothing to download.")
             job = S.new_job("setup")
@@ -513,7 +520,7 @@ class Handler(BaseHTTPRequestHandler):
             def go():
                 log, step = S.job_logger(job), S.job_step(job)
                 step("Downloading tools")
-                models = [w for w in want if w in ("laughter", "music_remover")]
+                models = [w for w in want if w in ("laughter", "music_remover", "song_eraser")]
                 tools = [w for w in want if w not in models]
                 share = 0.8 if tools and models else 1.0 if tools else 0.0
                 res = tools_setup.setup(tools, log=log, progress=S.job_progress(job, 0, share),
@@ -526,6 +533,9 @@ class Handler(BaseHTTPRequestHandler):
                     if w == "music_remover" and not voicekeep.available():
                         step("Downloading the music remover")
                         voicekeep.download(log, progress=bar)
+                    if w == "song_eraser" and not songerase.available():
+                        step("Downloading the song eraser")
+                        songerase.download(log, progress=bar)
                 return res
             S.run_job(job, go)
             return self._json({"job": job["id"]})
@@ -1134,6 +1144,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(str(e))
             if act == "scan":
                 return self._json({"job": vodexport.start_scan(S, pid)["id"]})
+            if act == "music":
+                # the music as you left it on the screen (moved, marked by hand), so Segments uses it too (5.0)
+                return self._json(vodexport.save_music(S.projects[pid], body))
             if act == "start":
                 return self._json({"job": vodexport.start_export(S, pid, body)["id"]})
             if act == "words":
@@ -1391,6 +1404,9 @@ class Handler(BaseHTTPRequestHandler):
             folder = body.get("folder", "")
             if folder == "root":
                 folder = S.WORKROOT
+            elif folder in locations.OWN_FOLDER:
+                folder = locations.folder(folder)
+                os.makedirs(folder, exist_ok=True)       # shown even before the first export lands in it
             elif folder in locations.KEYS:
                 folder = locations.path(folder) or S.WORKROOT
             if folder and os.path.isdir(folder) and any(os.path.realpath(folder) == r_ or os.path.realpath(folder).startswith(r_ + os.sep)

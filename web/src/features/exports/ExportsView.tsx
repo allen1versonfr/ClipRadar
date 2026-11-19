@@ -113,7 +113,7 @@ export function ExportsView() {
       {queue.error && <p className="banner err" role="alert">{queue.error}</p>}
       {!queue.data && !queue.error && <p className="muted pad">Loading…</p>}
       {queue.data && !items.length && (
-        <p className="empty" data-testid="exports-empty">Nothing rendered yet. Keep a clip in <a href="#review">Review</a> and it renders here.</p>
+        <p className="empty" data-testid="exports-empty">Nothing rendered yet. Keep a clip in <a href="#review">Moments</a> and it renders here.</p>
       )}
       {items.length > 0 && (
         <div className="ex-split">

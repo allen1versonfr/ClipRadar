@@ -9,6 +9,7 @@ import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
 import { CAPTIONS, CAPTIONS_HINT, CaptionOverlay, DEFAULTS, JobBar, QUALITY, SIZES, STYLE, type Choices, type Style } from '../vodexport/VodExportView'
+import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from '../vodexport/VodTimeline'
 import { addCut, editLen, gainToVolume, kept, lineAt, linesFrom, move, pastCut, playlist, segLen, step, type Line, type Segment } from './model'
 
 const loadView = () => api(Segments, '/api/segments')
@@ -25,7 +26,7 @@ export function SegmentsView({ open }: { open: string | undefined }) {
     <section className="segv" aria-labelledby="segv-title">
       <header className="view-head">
         <h1 id="segv-title">Segments</h1>
-        <span className="muted">Parts of a stream, put together into one video of up to {fmtTime(poll.data?.max ?? 1800)}.</span>
+        <span className="muted">Parts of a stream, put together into one video, as long as you like.</span>
       </header>
       {poll.error && <p className="banner err" role="alert">{poll.error}</p>}
       {!poll.data && !poll.error && <p className="muted pad">Loading…</p>}
@@ -45,14 +46,14 @@ export function SegmentsView({ open }: { open: string | undefined }) {
               </li>
             ))}
           </ul>
-          <Editor key={sel.id} edit={sel} max={poll.data.max} refresh={poll.refresh} />
+          <Editor key={sel.id} edit={sel} refresh={poll.refresh} />
         </div>
       )}
     </section>
   )
 }
 
-function Editor({ edit, max, refresh }: { edit: SegEdit; max: number; refresh: () => Promise<void> }) {
+function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void> }) {
   const toast = useToast()
   const confirm = useConfirm()
 
@@ -103,7 +104,6 @@ function Editor({ edit, max, refresh }: { edit: SegEdit; max: number; refresh: (
   const [selId, setSelId] = useState(segs[0]?.id ?? '')
   const seg = segs.find(s => s.id === selId) ?? segs[0]
   const total = editLen(segs)
-  const over = total > max + 0.5
 
   // ---- the player: one segment (cuts skipped), or the whole edit in order
   const vid = useRef<HTMLVideoElement>(null)
@@ -178,9 +178,28 @@ function Editor({ edit, max, refresh }: { edit: SegEdit; max: number; refresh: (
   const lines = seg?.lines
   const capWords = seg && lines ? (() => { const l = lineAt(lines, now); return l ? [{ start: l.start, end: l.end, word: l.text }] : [] })() : []
 
+  const tl = useRef<VodTimelineHandle>(null)
+  const boxes: Box[] = [
+    ...segs.map((s, i): Box => ({ id: s.id, start: s.start, end: s.end, lane: 0, kind: s.on ? 'seg' : 'off', edit: s.id === seg?.id,
+      label: s.name || `Segment ${i + 1}` })),
+    ...(seg ? seg.cuts.map(([a, b], k): Box => ({ id: `cut${k}`, start: a!, end: b!, lane: 1, kind: 'cut', edit: true, label: 'Cut' })) : []),
+  ]
+  function onBox(id: string, a: number, b: number) {
+    if (!seg) return
+    if (id.startsWith('cut')) {
+      const k = Number(id.slice(3))
+      return update(seg.id, { cuts: seg.cuts.map((c, j) => (j === k ? [Math.max(seg.start, a), Math.min(seg.end, b)] : c)) })
+    }
+    update(id, { start: a, end: b })
+  }
+  function addSeg(a: number, b: number) {
+    const s: Segment = { id: Math.random().toString(36).slice(2, 10), name: `Segment ${segs.length + 1}`, start: a, end: b, cuts: [], gain_db: 0, on: true, lines: null }
+    setSegs(ss => [...ss, s])
+    setSelId(s.id)
+  }
   return (
-    <div className="vodx-body segv-body">
-      <header className="row wrap segv-head">
+    <div className="vodx-body segv-body vodx-two">
+      <header className="row wrap segv-head vodx-wide">
         <label className="fld grow">Edit name
           <input className="input segv-name" value={draft.name} maxLength={80} data-testid="segv-name"
                  onChange={e => change(x => ({ ...x, name: e.target.value }))} />
@@ -190,17 +209,14 @@ function Editor({ edit, max, refresh }: { edit: SegEdit; max: number; refresh: (
         </span>
         <button className="btn danger sm" onClick={() => void remove()}>Delete edit</button>
       </header>
-      {!edit.exists && <p className="banner err" role="alert">This edit's video was deleted, so it can't be played or exported.</p>}
+      {!edit.exists && <p className="banner err vodx-wide" role="alert">This edit's video was deleted, so it can't be played or exported.</p>}
 
+      <div className="vodx-stagecol">
       <section className="panel set" aria-labelledby="segv-pv">
         <header className="row wrap">
           <h2 id="segv-pv" className="grow">Preview</h2>
-          <span className={`tnum small${over ? ' err-tx' : ''}`} data-testid="segv-length">{fmtTime(total)} of {fmtTime(max)}</span>
+          <span className="tnum small" data-testid="segv-length">{fmtTime(total)} long</span>
         </header>
-        <span className="meter wide" role="meter" aria-label="Length of the edit" aria-valuemin={0} aria-valuemax={max} aria-valuenow={Math.round(total)}>
-          <i className={over ? 'over' : ''} style={{ width: `${Math.min(100, total / max * 100)}%` }} />
-        </span>
-        {over && <p className="err-tx small" data-testid="segv-over">{fmtTime(total - max)} too long. Untick, trim or cut segments to bring it under {fmtTime(max)}.</p>}
         <div className="vodx-stage">
           {edit.open && (
             <video ref={vid} src={src} controls preload="metadata" className="vodx-video" data-testid="segv-player"
@@ -216,12 +232,21 @@ function Editor({ edit, max, refresh }: { edit: SegEdit; max: number; refresh: (
           )}
         </div>
         <div className="vodx-strip segv-strip" role="img" aria-label={`Where the segments are in ${edit.title || 'the video'}`}
-             onClick={e => { const r = e.currentTarget.getBoundingClientRect(); setMode(''); seek((e.clientX - r.left) / r.width * d) }}>
+             onClick={e => { const r = e.currentTarget.getBoundingClientRect(), t = (e.clientX - r.left) / r.width * d; setMode(''); seek(t); tl.current?.show(Math.max(0, t - 60), t + 120) }}>
           {segs.map(s => (
             <i key={s.id} className={`sg${s.on ? '' : ' off'}${s.id === seg?.id ? ' sel' : ''}`} title={s.name}
                style={{ left: `${s.start / d * 100}%`, width: `${Math.max(0.3, (s.end - s.start) / d * 100)}%` }} />
           ))}
           <b style={{ left: `${Math.min(100, now / d * 100)}%` }} />
+        </div>
+        {edit.open && <VodTimeline ref={tl} pid={edit.pid} dur={edit.duration} video={() => vid.current} boxes={boxes} sel={seg?.id}
+                                   label="Timeline of the video: the segments on it, and the stretches cut out of the one picked"
+                                   onSeek={t => { setNow(t); if (mode === 'seg') setMode('') }} onBox={onBox}
+                                   onPick={id => { if (!id.startsWith('cut')) setSelId(id) }} onCreate={addSeg} />}
+        <div className="row wrap vodx-tl-bar">
+          <ZoomButtons tl={tl} />
+          {seg && <button className="btn sm ghost" onClick={() => tl.current?.show(seg.start, seg.end)}>Show {seg.name || 'this segment'}</button>}
+          <span className="small muted">Drag a segment's edges to trim it. Shift and drag to add a segment.</span>
         </div>
         <div className="row wrap">
           <button className="btn primary" data-testid="segv-play-edit" disabled={!list.length || !edit.open} onClick={playEdit}>
@@ -232,6 +257,8 @@ function Editor({ edit, max, refresh }: { edit: SegEdit; max: number; refresh: (
         <p className="hint">Play the edit plays the ticked segments in order, cuts skipped, the way the export will be.
           Turning a segment down is heard here; turning it up is only heard in the export.</p>
       </section>
+      </div>
+      <div className="vodx-panels">
 
       <section className="panel set" aria-labelledby="segv-list">
         <header className="row wrap">
@@ -246,7 +273,7 @@ function Editor({ edit, max, refresh }: { edit: SegEdit; max: number; refresh: (
                     draggable onDragStart={() => setDrag(i)} onDragEnd={() => setDrag(-1)}
                     onDragOver={e => e.preventDefault()} onDrop={() => { if (drag >= 0) moveSeg(drag, i); setDrag(-1) }}>
                   <input type="checkbox" checked={s.on} aria-label={`Use ${s.name} in the export`} onChange={e => update(s.id, { on: e.target.checked })} />
-                  <button className="segv-pick" aria-current={s.id === seg?.id} onClick={() => { setSelId(s.id); setMode(''); seek(s.start) }}>
+                  <button className="segv-pick" aria-current={s.id === seg?.id} onClick={() => { setSelId(s.id); setMode(''); seek(s.start); tl.current?.show(s.start, s.end) }}>
                     <span className="t1">{s.name || `Segment ${i + 1}`}</span>
                     <span className="t2 tnum">{fmtTime(s.start)} to {fmtTime(s.end)} · {fmtTime(segLen(s))}{s.cuts.length ? ` · ${plural(s.cuts.length, 'cut')}` : ''}</span>
                   </button>
@@ -277,13 +304,14 @@ function Editor({ edit, max, refresh }: { edit: SegEdit; max: number; refresh: (
           {edit.export_job?.status === 'running'
             ? <><JobBar job={edit.export_job} label="Exporting" />
                 <button className="btn ghost" onClick={() => void api(Ok, '/api/cancel', { job: edit.export_job!.id }).then(refresh).catch(() => {})}>Cancel</button></>
-            : <button className="btn primary" data-testid="segv-export" disabled={!edit.exists || total < 1 || over || dirty}
+            : <button className="btn primary" data-testid="segv-export" disabled={!edit.exists || total < 1 || dirty}
                       onClick={() => void api(JobStarted, '/api/segments/export', { id: edit.id, ...c, whisper_model: model, language, style,
                         hw_encode: base.hw_encode }).then(() => toast('Exporting the edit…')).catch(e => toast(err(e), 'err')).finally(() => void refresh())}>
                 Export {fmtTime(total)}{segs.some(s => s.on) ? ` · ${plural(list.length, 'part')}` : ''}</button>}
         </footer>
         <ExportDone job={edit.export_job} />
       </section>
+      </div>
     </div>
   )
 }
@@ -448,7 +476,7 @@ function ExportDone({ job }: { job: SegEdit['export_job'] }) {
       <p><b>Saved {r.name}</b> · {fmtTime(r.length ?? 0)}{r.srt ? `, captions in ${r.srt}` : ''}</p>
       {r.took != null && <p className="hint">Made from {plural(r.parts ?? 0, 'part')} in {fmtTime(r.took)}.</p>}
       {job.warning && <p className="hint">{job.warning}</p>}
-      <button className="btn" onClick={() => void api(Ok, '/api/open_folder', { folder: r.folder ?? 'clips' }).catch(e => toast(err(e), 'err'))}>Show in folder</button>
+      <button className="btn" onClick={() => void api(Ok, '/api/open_folder', { folder: r.folder ?? 'segments' }).catch(e => toast(err(e), 'err'))}>Show in folder</button>
     </div>
   )
 }

@@ -14,7 +14,7 @@ const SENS_HINT: Record<string, string> = {
 }
 const CENSOR: Array<[string, string]> = [['off', 'Just flag it'], ['mask', 'Hide in captions'], ['mute', 'Mute it'], ['bleep', 'Bleep it']]
 const CENSOR_HINT: Record<string, string> = {
-  off: 'Clips are flagged in Review and Exports. Nothing is changed.',
+  off: 'Clips are flagged in Moments and Exports. Nothing is changed.',
   mask: 'Flagged words show as f*** in captions and titles. The audio is left alone.',
   mute: 'Flagged words are hidden in captions and silenced in the audio.',
   bleep: 'Flagged words are hidden in captions and bleeped in the audio.',

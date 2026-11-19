@@ -68,7 +68,7 @@ export const Timeline = forwardRef<TimelineHandle, {
     const fa = Math.max(0, a - margin), fb = b + margin
     fetching.current = true
     try { data.current = { ...(await api(Strip, `/api/strip/${c.pid}?a=${fa.toFixed(2)}&b=${fb.toFixed(2)}`)), pid: c.pid } }
-    catch { data.current = { pid: c.pid, a: fa, b: fb, hz: 10, wave: [], events: {}, chat: [], start: Math.floor(fa) } }
+    catch { data.current = { pid: c.pid, a: fa, b: fb, hz: 10, wave: [], events: {}, chat: [], music: [], start: Math.floor(fa) } }
     fetching.current = false
   }
   function fit() {

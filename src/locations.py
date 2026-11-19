@@ -4,6 +4,8 @@ Where Clip Radar keeps things (3.11), each changeable in Settings › Storage:
   projects    a folder per video: your review, analysis, transcripts, thumbnails
   downloads   downloaded videos and chat (empty: inside each project folder, as before)
   clips       rendered clips (empty: a "tiktok" folder inside each project folder, as before)
+  vods        whole videos saved by Export VOD (empty: "Exported VODs" in the projects folder) (5.0)
+  segments    edits saved by Segments (empty: "Segments" in the projects folder) (5.0)
   temp        previews, framing data and the live recording buffer (safe to clear)
   logs        clipradar.log
 
@@ -24,26 +26,44 @@ from typing import Optional
 
 import paths
 
-KEYS = ("projects", "downloads", "clips", "temp", "logs")
+KEYS = ("projects", "downloads", "clips", "vods", "segments", "temp", "logs")
 LABELS = {"projects": "Projects", "downloads": "Downloaded videos", "clips": "Rendered clips",
+          "vods": "Exported VODs", "segments": "Segment exports",
           "temp": "Temporary files and cache", "logs": "Logs"}
+# Exported VODs and segment exports have their own folders, apart from the clips (5.0). Before, they were saved
+# with a video's clips, so Settings › Storage › Delete clips deleted them too. The folders sit next to the project
+# folders (no meta.json in them, so they're never taken for a project) unless chosen in Settings › Storage.
+OWN_FOLDER = {"vods": "Exported VODs", "segments": "Segments"}
 LOW_SPACE = 5 * 1024 ** 3          # warn under 5 GB free
 _lock = threading.Lock()
 _FILE = lambda: os.path.join(str(paths.DATA_DIR), "locations.json")  # noqa: E731
 
 
 def defaults() -> dict:
-    return {"projects": str(paths.WORKROOT), "downloads": "", "clips": "",
+    return {"projects": str(paths.WORKROOT), "downloads": "", "clips": "", "vods": "", "segments": "",
             "temp": str(Path(paths.DATA_DIR) / "temp"), "logs": str(paths.DATA_DIR)}
 
 
+def _read() -> Optional[dict]:
+    """locations.json, or None. Windows refuses a read for a moment while a save replaces the file, so a refused
+    read is tried again rather than taken for "nothing chosen" (5.0, as studio.json in 4.53)."""
+    for i in range(5):
+        try:
+            with open(_FILE(), encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else None
+        except PermissionError:
+            if i == 4:
+                return None
+            time.sleep(0.05 * (i + 1))
+        except (OSError, ValueError):
+            return None
+    return None
+
+
 def load_raw() -> dict:
-    try:
-        with open(_FILE(), encoding="utf-8") as f:
-            d = json.load(f)
-        return {k: str(d.get(k) or "") for k in KEYS if isinstance(d, dict)}
-    except (OSError, ValueError):
-        return {}
+    d = _read()
+    return {k: str(d.get(k) or "") for k in KEYS} if d else {}
 
 
 def _drive_present(p: str) -> bool:
@@ -130,21 +150,15 @@ def save(patch: dict) -> dict:
     with _lock:
         try:
             os.makedirs(str(paths.DATA_DIR), exist_ok=True)
-            tmp = _FILE() + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(dict(cur, _history=cur.get("_history", _history())), f, indent=1)
-            os.replace(tmp, _FILE())
+            import persist        # atomic, a temporary file of its own, and retried while Windows has it open
+            persist.write_json(_FILE(), dict(cur, _history=cur.get("_history", _history())), indent=1)
         except OSError as e:
             return {"ok": False, "errors": dict(errors, _file=str(e))}
     return {"ok": not errors, "errors": errors}
 
 
 def _history() -> list:
-    try:
-        with open(_FILE(), encoding="utf-8") as f:
-            return [h for h in (json.load(f).get("_history") or []) if isinstance(h, str)]
-    except (OSError, ValueError, AttributeError):
-        return []
+    return [h for h in ((_read() or {}).get("_history") or []) if isinstance(h, str)]
 
 
 def project_roots() -> list:
@@ -165,6 +179,22 @@ def download_dir(workdir: str) -> str:
 def clips_dir(workdir: str) -> str:
     root = path("clips")
     return os.path.join(root, os.path.basename(workdir)) if root else os.path.join(workdir, "tiktok")
+
+
+def vods_dir() -> str:
+    """Where Export VOD saves a whole video: Settings › Storage › Exported VODs, or "Exported VODs" next to the
+    project folders."""
+    return path("vods") or os.path.join(path("projects"), OWN_FOLDER["vods"])
+
+
+def segments_dir() -> str:
+    """Where Segments saves an edit: Settings › Storage › Segment exports, or "Segments" next to the project folders."""
+    return path("segments") or os.path.join(path("projects"), OWN_FOLDER["segments"])
+
+
+def folder(key: str) -> str:
+    """The folder a location names, with the ones that default to a place of their own worked out."""
+    return vods_dir() if key == "vods" else segments_dir() if key == "segments" else path(key)
 
 
 def temp_dir(*parts: str) -> str:
@@ -192,7 +222,7 @@ def view(sizes: bool = True) -> dict:
     out = []
     for k in KEYS:
         r = resolve(k)
-        shown = r["path"] or ""
+        shown = r["path"] or (folder(k) if k in OWN_FOLDER else "")
         where = shown or ("Inside each project folder" if k in ("downloads", "clips") else "")
         free = free_space(shown or path("projects"))
         out.append({"key": k, "label": LABELS[k], "path": shown, "where": where, "chosen": r.get("chosen", load_raw().get(k, "")),

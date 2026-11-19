@@ -46,8 +46,8 @@ BUILD IT YOURSELF (optional)
   own PC instead, run scripts\build_exe.bat from the source code.
 
 USE
-  Clip Radar has four sections in the left sidebar: Home, Review, Exports and
-  Settings. The status bar at the bottom shows what's running in the background.
+  Clip Radar's left sidebar has Home, Moments (called Review before 5.0),
+  Exports, Export VOD, Segments and Settings. The status bar at the bottom shows what's running in the background.
 
   Home: start a project
     Past broadcast   paste a link or Browse to a video on your PC, then Find
@@ -91,7 +91,7 @@ USE
                      streams at once; two by default). Each source keeps its
                      own folder, chat, captions and clip numbers.
 
-  Review: decide what to keep
+  Moments: decide what to keep
     The suggested clips are listed on the left. The middle shows the selected
     clip exactly as the TikTok will look (layout, title, word-by-word captions).
     The inspector on the right has four tabs:
@@ -503,21 +503,32 @@ EXPORT VOD (A WHOLE VIDEO)
   downloaded before and files you opened before, and Choose a video on this
   PC picks any video file, on any drive. A video opened here isn't searched
   for clips, so it's ready in a second or two.
-  Preview: the video plays with the captions drawn on it as they'll look.
-  The strip under it shows the music (green: music removed, yellow: muted)
-  and the muted words (red); click it to jump there. Exact preview makes ten
-  seconds from where you are exactly as the export will, music removal and
-  muting included.
-  Copyright scan: Scan for music finds where music plays (the usual cause of
-  copyright claims and muted VODs). For each stretch choose Remove music
-  (the music is taken out and people talking over it stay), Mute all
-  (silence), or Keep. It hears that music is playing, not which song, so
-  it's a safety net, not a guarantee. Singing counts as a voice, so a song
-  with vocals keeps its vocals with Remove music: use Mute all for those.
-  The scan needs the laughter detector; Remove music needs the music remover
-  (about 64 MB). Both are in Settings > Downloads and tools. The music
-  remover is UVR-MDX-NET-Voc_FT from Ultimate Vocal Remover (MIT licence),
-  made by UVR's developers.
+  Preview: the video plays with the captions drawn on it as they'll look. On
+  a wide window it sits beside the settings and stays in view while they
+  scroll. The thin strip under it is the whole video (green: song erased,
+  yellow: muted, red: muted words); click it to jump there. Under that is a
+  timeline like the one in Moments: scroll the wheel to move along it, Ctrl
+  and the wheel to zoom (or the + and - buttons, and Whole video), and it
+  follows the playhead while the video plays. It shows how much each second
+  sounded like music, the music stretches and the part picked for Segments.
+  Drag a stretch's edges to move them. Exact preview makes ten seconds from
+  where you are exactly as the export will, songs erased and words muted.
+  Songs and music: Scan for music finds where music plays (the usual cause
+  of copyright claims and muted VODs). For each stretch choose Erase song
+  (the song goes, singing and all; people talking and the game's sound
+  stay, as in YouTube Studio's Erase song), Mute all sound (silence), or
+  Keep. Hear it makes ten seconds of the result. The scan hears that music
+  is playing, not which song, so check what it found: drag the edges to
+  where a song really starts and ends, and mark any it missed with Shift
+  and drag on the timeline or Mark music from here (then drag its edges).
+  What you change is kept for the video, and music you marked stays when
+  you scan again.
+  The scan needs the laughter detector; Erase song needs the song eraser
+  (about 7 MB). Both are in Settings > Downloads and tools. The song eraser
+  is TIGER (Tsinghua University, Apache 2.0 licence), a model that tells
+  talking, music and other sound apart. Without it, Erase song uses the
+  older music remover if you have it, which keeps only voices, so a song's
+  singing stays.
   Flagged words: Check for flagged words listens to the whole video and
   lists what the content check flags, with the words around each. Ticked
   ones are muted or bleeped and hidden in the captions. Click a time to
@@ -527,8 +538,10 @@ EXPORT VOD (A WHOLE VIDEO)
   at once. With captions off nothing is listened to for them.
   Size and quality, then Export. With no burned-in captions and the
   Original size, the picture is copied as it is and only the sound is made
-  again, which is several times quicker. The file goes in your clips folder,
-  named after the video with "(full VOD)".
+  again, which is several times quicker. The file goes in the Exported VODs
+  folder (next to your project folders, or where you choose in Settings >
+  Storage), named after the video with "(full VOD)". It's kept apart from
+  your clips, so deleting clips never deletes it.
   YouTube Studio: once it's exported, Upload to YouTube Studio puts the file
   in and types the title and description in Clip Radar's own browser window
   (the same one TikTok uploads use; sign in to YouTube there the first
@@ -537,8 +550,8 @@ EXPORT VOD (A WHOLE VIDEO)
   selected in File Explorer.
 
 SEGMENTS (PARTS OF A STREAM, EDITED TOGETHER)
-  Pick the parts of a long stream you want and export them as one video of
-  up to 30 minutes.
+  Pick the parts of a long stream you want and export them as one video, as
+  long as you like.
   Sending parts: in Export VOD, play to where a part starts and press Start
   here, then play to where it ends and press End here. Give it a name if
   you like, choose which edit it goes in (or A new edit) and press Send to
@@ -547,7 +560,9 @@ SEGMENTS (PARTS OF A STREAM, EDITED TOGETHER)
   shown: drag them, or use the arrows, to change it. Untick a part to leave
   it out of the export without losing it.
   Play the edit plays the ticked parts in order, cut stretches skipped, the
-  way the export will be. Click a part to play it or change it:
+  way the export will be. The timeline under the preview works as in Export
+  VOD: drag the picked part's edges to trim it, drag a cut's edges, and
+  Shift and drag to add a part. Click a part to play it or change it:
     Name                rename it
     Starts / Ends       a second earlier or later, or Set to where the
                         player is
@@ -558,14 +573,14 @@ SEGMENTS (PARTS OF A STREAM, EDITED TOGETHER)
     Captions            what was heard in the part (Listen to it now if it
                         hasn't been). Edit captions lets you change the
                         words, remove a line or add one
-  The length of the edit and the 30-minute limit are shown above the
-  preview. Changes save as you go, so an unfinished edit is still there next
+  The length of the edit is shown above the preview. Changes save as you go, so an unfinished edit is still there next
   time you open Clip Radar.
   Export: captions (burned in, a .srt file, both or off, in the look set in
   Export VOD), size and quality. Deal with music and flagged words removes
   or mutes music as the copyright scan suggests and mutes flagged words in
   the categories Settings > Content check mutes, so scan the video in Export
-  VOD first. The file goes in your clips folder, named after the edit.
+  VOD first. The file goes in the Segments folder (next to your project
+  folders, or where you choose in Settings > Storage), named after the edit.
 
   Settings > Campaigns keeps each clipping campaign's rules together:
   - the text every post must carry (an @handle, a code, #ad), at the end or

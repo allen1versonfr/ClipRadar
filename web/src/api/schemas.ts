@@ -110,6 +110,7 @@ export const Status = z.looseObject({
   whisper: z.boolean().optional(),
   laughter: z.boolean().optional(),
   music_remover: z.boolean().optional(),
+  song_eraser: z.boolean().optional(),
   twitchdownloader: z.boolean().optional(),
   can_download_tools: z.boolean().optional(),
   live: z.string().default(''),
@@ -586,6 +587,8 @@ export const Strip = z.looseObject({
   a: z.number(), b: z.number(), hz: z.number().default(10), start: z.number().default(0),
   wave: z.array(z.number()).default([]), events: z.record(z.string(), z.array(z.number())).default({}),
   chat: z.array(z.number()).default([]),
+  /** how much each second sounded like music in Export VOD's copyright scan (0..1), from `start` */
+  music: z.array(z.number()).default([]),
 })
 export type Strip = z.infer<typeof Strip>
 
@@ -636,6 +639,9 @@ export type VodFlag = z.infer<typeof VodFlag>
 const VodJob = Job.extend({ warning: z.string().default('') }).nullable().optional()
 export const VodExportVideo = z.looseObject({
   pid: z.string(),
+  /** the music as you last left it on the screen (5.0): moved edges, what to do, the stretches you marked */
+  music: z.object({ at: z.number().default(0), songs: z.array(z.object({ start: z.number(), end: z.number(),
+    act: z.enum(['voice', 'mute', 'keep']).catch('mute'), mine: z.boolean().default(false) })).default([]) }).nullish(),
   title: z.string().default(''),
   duration: z.number().default(0),
   exists: z.boolean().default(true),
