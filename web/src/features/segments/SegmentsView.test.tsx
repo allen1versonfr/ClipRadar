@@ -14,7 +14,7 @@ function server(calls: Array<[string, Record<string, unknown> | undefined]>) {
   return vi.fn(async (path: string, init?: RequestInit) => {
     calls.push([path, init?.body ? JSON.parse(String(init.body)) : undefined])
     const body = path === '/api/segments' ? { edits: [EDIT] } : path.startsWith('/api/vodexport/words') ? { words: [], covered: [] }
-      : path.startsWith('/api/strip') ? { a: 0, b: 600, hz: 1, wave: [], events: {}, chat: [], start: 0 } : { job: 'j1', ok: true }
+      : path.startsWith('/api/strip/p1') ? { a: 0, b: 600, hz: 1, wave: [], events: {}, chat: [], start: 0 } : { job: 'j1', ok: true }
     return new Response(JSON.stringify(body), { status: 200 })
   })
 }
