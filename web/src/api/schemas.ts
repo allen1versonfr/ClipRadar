@@ -69,6 +69,12 @@ export const QueueItem = z.looseObject({
   handoff: z.looseObject({ at: z.number().default(0), auto: z.string().optional(), step: z.string().optional(),
     error: z.string().optional() }).nullish(),
   tiktok: z.looseObject({ state: z.string().optional(), mode: z.string().optional() }).nullish(),
+  /** 5.1: which edit this is: the clip as set (tiktok), or its 16:9 YouTube edit (Moments › YouTube too) */
+  platform: z.enum(['tiktok', 'youtube']).catch('tiktok'),
+  yt_texts: z.looseObject({ title: z.string().default(''), description: z.string().default('') }).nullish(),
+  /** sent to YouTube: Open YouTube Studio (url), or Upload to YouTube (auto: working | ready | published | failed) */
+  yt: z.looseObject({ at: z.number().default(0), url: z.string().optional(), auto: z.string().optional(), step: z.string().optional(),
+    error: z.string().optional(), left: z.string().optional(), job: z.string().optional() }).nullish(),
   campaign: z.looseObject({ id: z.string(), name: z.string().default('') }).nullish(),
   discord: z.looseObject({ at: z.number().default(0), error: z.string().nullish(), attached: z.boolean().optional(),
     post_url: z.string().nullish(), note: z.string().nullish() }).nullish(),
@@ -98,7 +104,18 @@ export const Queue = z.looseObject({
   items: z.array(QueueItem),
   eta: z.number().nullable(),
   workers: z.number().optional(),
+  /** 5.1: whether Clip Radar can upload for you, sent with the list so Exports' buttons are right from the start */
+  uploads: z.looseObject({ tiktok: z.boolean().default(false), youtube: z.boolean().default(false),
+    press_post: z.boolean().default(false), publish: z.boolean().default(false) }).optional(),
 })
+/** Settings › YouTube (5.1): how clips go to YouTube */
+export const YouTubeSettings = z.looseObject({
+  visibility: z.enum(['public', 'unlisted', 'private']).catch('public'), kids: z.boolean().default(false),
+  title: z.string().default('{title}'), description: z.string().default(''), tags: z.string().default(''), publish: z.boolean().default(false),
+  tokens: z.array(z.string()).default([]),
+})
+export type YouTubeSettings = z.infer<typeof YouTubeSettings>
+export const YtHandoff = z.looseObject({ title: z.string().default(''), description: z.string().default(''), job: z.string().optional() })
 export type Queue = z.infer<typeof Queue>
 
 export const Status = z.looseObject({

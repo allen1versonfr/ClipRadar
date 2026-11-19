@@ -206,6 +206,7 @@ jobs:
           python tests/test_live_vod.py        # joins the recorded pieces with FFmpeg
           python tests/test_segments.py        # renders and joins an edit's segments with FFmpeg
           python tests/test_session.py         # opens videos again where you left off (needs FFmpeg)
+          python tests/test_youtube_clips.py   # a moment kept for TikTok and YouTube: both edits rendered (needs FFmpeg)
           python tests/test_quality.py
 
   build:

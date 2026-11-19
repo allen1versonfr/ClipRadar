@@ -57,6 +57,9 @@ import listening  # noqa: E402
 def queue_public(it: dict) -> dict:
     d = {k: v for k, v in it.items() if k not in ("opts", "cancel", "path", "words", "sig", "_diag")}
     d["duration"] = round(it["end"] - it["start"], 2)
+    if it.get("platform") == "youtube":
+        import ytclips
+        d["yt_texts"] = ytclips.texts(it)          # the title and description it goes to YouTube with (5.1)
     return d
 
 
@@ -73,13 +76,25 @@ def play_sound(event: str, it: dict):
     sounds.play("lock" if event == "ready" else "contact")       # radar pings (4.41), not Windows' beeps
 
 
-def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
+def youtube_opts(opts: dict, info: Optional[dict] = None) -> dict:
+    """The YouTube edit of a moment (5.1): the same clip in standard YouTube shape, 16:9, the whole picture (on a
+    blurred background when the stream isn't 16:9 itself), with nothing cropped, followed or zoomed. Captions and their
+    style stay as set for the clip."""
+    sw, sh = (info or {}).get("width") or 1920, (info or {}).get("height") or 1080
+    wide = abs(sw / max(1, sh) - 16 / 9) < 0.03
+    return dict(opts or {}, aspect="16:9", layout="full" if wide else "blur", track="off", punch="off")
+
+
+def queue_add(pid: str, c: dict, opts: dict, sound: bool = False, platform: str = "tiktok") -> dict:
+    """platform: "tiktok" (the clip as set in Moments) or "youtube" (5.1: its YouTube edit, youtube_opts)."""
     start_, end_ = float(c["start"]), float(c["end"])
     if end_ - start_ < 1:
         raise RuntimeError("That clip is too short.")
     pr = S.projects.get(pid) or {}
     if pr and "layout" not in (opts or {}):
         opts = dict(opts or {}, **previews._auto_layout(pr))
+    if platform == "youtube":
+        opts = youtube_opts(opts, pr.get("info"))
     d = S._find_clip(pr, c.get("id")) if pr else None
     if d:
         why = checkflow.blocks_render(d)
@@ -112,7 +127,9 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False) -> dict:
     except Exception:
         it["link"] = ""
     prefs = exports.load()
-    ex = exports.settings(prefs)
+    # the YouTube edit is made with the YouTube export settings (1920 x 1080), whatever Settings › Export format says
+    ex = exports.settings(dict(prefs, preset="youtube", custom={}) if platform == "youtube" else prefs)
+    it["platform"] = "youtube" if platform == "youtube" else "tiktok"
     camp = campaigns.active()
     if camp:
         # Settings › Campaigns: the active campaign's watermark and post rules go with the clip
@@ -187,6 +204,8 @@ def _file_name(it: dict, outdir: str) -> str:
         base = exports.file_name(ex.get("template", exports.DEFAULT_TEMPLATE), dict(it["name_fields"], title=it["title"] or "clip"))
     else:
         base = S._safe_name(it["title"]) if it["title"].strip() else f"clip {engine.fmt_ts(it['start']).replace(':', '-')}"
+    if it.get("platform") == "youtube":
+        base += " (YouTube)"            # its TikTok edit is in the same folder
     # Settings › Hashtags › In file names: the real tags, '#' and all, chosen with the name (so a retry keeps them)
     nf = it.get("name_fields") or {}
     base = hashtags.with_tags(base, hashtags.file_tags(nf.get("streamer", ""), platform=nf.get("platform", "")))
@@ -390,6 +409,8 @@ def _render_inputs(it: dict, pr: dict, ro, check, timer: Optional[timing.Timer] 
         words = exports.replace_words(words, exports.load().get("replace"))   # Settings › Captions › Replace words
     if not ro.captions:
         words = []
+    if it.get("platform") == "youtube":
+        title = ""                      # YouTube shows the title under the video: no TikTok title card on it
     return words, title, post, spans, mode
 
 

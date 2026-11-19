@@ -129,6 +129,8 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   const dragFrom = useRef<Snap>(undefined)
   const getVideo = useCallback(() => player.current?.video() ?? null, [])
   useEffect(() => { if (!active) getVideo()?.pause() }, [active, getVideo])       // another screen: the preview stops
+  // 5.1, the dual upload switch: Keep also makes a 16:9 YouTube edit of the moment
+  const [ytToo, setYtToo] = useState(() => getPref('ytToo', false))
   // your render style (vc_opts, shared with the current page): what the preview draws and Keep renders
   const [opts, setOptsState] = useState<RenderOpts>(renderOpts)
   const setOpts = useCallback((patch: Partial<RenderOpts>, persist = true) => {
@@ -528,7 +530,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   async function queueKeep(x: Clip, quiet = false, sound = true): Promise<boolean> {
     epoch.current++
     try {
-      await api(Ok, '/api/queue/add', keepBody(x, postFor(x, hashtagsOn), opts, sound))
+      await api(Ok, '/api/queue/add', keepBody(x, postFor(x, hashtagsOn), opts, sound, ytToo))
     } catch (e) {
       if (!quiet) toast(err(e), 'err')
       return false
@@ -536,7 +538,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
     epoch.current++
     update(keyOf(x), y => ({ ...y, state: 'kept' }))
     feedback(x, 'keep')
-    if (!quiet) toast(`Rendering "${x.title.trim() || `clip ${x.id}`}" in the background.`)
+    if (!quiet) toast(`Rendering "${x.title.trim() || `clip ${x.id}`}" in the background${ytToo ? ', for TikTok and YouTube' : ''}.`)
     void queue.refresh()
     return true
   }
@@ -565,7 +567,9 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
     if (x.state === 'kept') {
       if (q?.status === 'done') return
       epoch.current++
-      if (q) await api(Ok, '/api/queue/remove', { id: q.id }).catch(() => {})
+      // both edits of the moment when it was kept with YouTube too (one finished stays in Exports)
+      for (const y of items.filter(i => i.pid === x.pid && i.clip_id === x.id && i.status !== 'done'))
+        await api(Ok, '/api/queue/remove', { id: y.id }).catch(() => {})
       epoch.current++
       update(keyOf(x), y => ({ ...y, state: 'todo' }))
       feedback(x, 'undo')
@@ -1032,6 +1036,9 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                     <button className="btn ghost" onClick={() => step(-1)} aria-label="Previous clip (Up)">Previous</button>
                     <button className="btn ghost" onClick={() => step(1)} aria-label="Next clip (Down)">Next</button>
                   </div>
+                  <label className="chk rv-dual" title="Keep makes two edits of the moment: this one for TikTok, and a 16:9 one for YouTube">
+                    <input type="checkbox" checked={ytToo} onChange={e => { setYtToo(e.target.checked); setPref('ytToo', e.target.checked) }} data-testid="rv-yt-too" />
+                    <span>YouTube too<small>Also a 16:9 YouTube edit</small></span></label>
                   <div className="rv-decide">
                     <button className="btn" onClick={() => void skip()} disabled={kept && q?.status === 'done'} data-testid="rv-skip">
                       {kept ? 'Remove from queue' : c.state === 'skipped' ? 'Move back to review' : 'Skip'}

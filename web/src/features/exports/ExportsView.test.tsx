@@ -7,6 +7,7 @@ import { ExportsView } from './ExportsView'
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  localStorage.clear()
 })
 
 const items = [
@@ -160,5 +161,48 @@ describe('Exports', () => {
     fireEvent.click(await screen.findByTestId('confirm-yes'))
     await waitFor(() => expect(calls).toContainEqual(['/api/queue/clear', {}]))
     expect(await screen.findByText('Cleared 3 clips.')).toBeTruthy()
+  })
+
+  it('5.1: Upload to TikTok is there from the first frame (no "Open TikTok Studio" in its place while it loads)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => {
+      if (path === '/api/studio') await new Promise(r => setTimeout(r, 400))
+      const body = path === '/api/queue' ? { items: [items[0]], eta: null, workers: 1, uploads: { tiktok: true, youtube: true, press_post: false, publish: false } }
+        : path === '/api/studio' ? { available: true, press_post: false } : { ok: true }
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    render(<ToastProvider><ExportsView /></ToastProvider>)
+    const panel = await screen.findByTestId('tt-panel')
+    expect(within(panel).getByTestId('tt-auto').textContent).toBe('Upload to TikTok')     // before /api/studio has answered
+    expect(within(panel).getAllByRole('button')[0]!.textContent).toBe('Upload to TikTok')
+  })
+
+  it('5.1: TikTok and YouTube exports apart, each with its own panel', async () => {
+    const calls: Array<[string, unknown]> = []
+    const two = [
+      { id: 't1', status: 'done', stage: 'done', title: 'Big moment', duration: 12, name: 'Big moment.mp4', url: '/export/t1', history: [], platform: 'tiktok' },
+      { id: 'y1', status: 'done', stage: 'done', title: 'Big moment', duration: 12, name: 'Big moment (YouTube).mp4', url: '/export/y1', history: [],
+        platform: 'youtube', yt_texts: { title: 'Big moment', description: 'From Emily\'s stream' } },
+    ]
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      calls.push([path, init?.body ? JSON.parse(String(init.body)) : undefined])
+      const body = path === '/api/queue' ? { items: two, eta: null, workers: 1, uploads: { tiktok: true, youtube: true, press_post: false, publish: false } }
+        : path === '/api/yt_handoff' ? { title: 'x', description: 'y', job: 'j9' } : path === '/api/job/j9' ? { id: 'j9', status: 'done', result: {} } : { ok: true }
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    render(<ToastProvider><ExportsView /></ToastProvider>)
+    const pick = await screen.findByTestId('exports-platform') as HTMLSelectElement
+    expect([...pick.options].map(o => o.textContent)).toEqual(['TikTok and YouTube (2)', 'TikTok (1)', 'YouTube (1)'])
+    fireEvent.change(pick, { target: { value: 'youtube' } })
+    const rows = screen.getAllByTestId('export-row')
+    expect(rows.map(r => r.dataset.id)).toEqual(['y1'])
+    expect(within(rows[0]!).getByTestId('export-platform').textContent).toBe('YouTube')
+    expect(screen.queryByTestId('tt-panel')).toBeNull()
+    expect((screen.getByTestId('yt-desc') as HTMLTextAreaElement).value).toBe("From Emily's stream")
+    fireEvent.change(screen.getByTestId('yt-title'), { target: { value: 'My title' } })
+    fireEvent.click(screen.getByTestId('yt-auto'))
+    await waitFor(() => expect(calls.find(([p]) => p === '/api/yt_handoff')?.[1]).toMatchObject({ item: 'y1', title: 'My title', auto: true }))
+    fireEvent.change(pick, { target: { value: 'tiktok' } })
+    expect(screen.getAllByTestId('export-row').map(r => r.dataset.id)).toEqual(['t1'])
+    expect(screen.getByTestId('tt-panel')).toBeTruthy()
   })
 })

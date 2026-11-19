@@ -738,7 +738,7 @@ def _fingerprint_js(selectors: dict) -> str:
 
 def _site_selectors(site: str) -> dict:
     if site == "youtube":
-        return dict(youtube_auto.YT)
+        return dict(youtube_auto.YT, **youtube_auto.YT_DIALOG)
     return dict(SELECTORS, shown_caption=SHOWN_CAPTION, post_now=POST_NOW)
 
 
@@ -922,5 +922,5 @@ def save_settings(press_post: Optional[bool] = None) -> dict:
 # youtube_auto.py: re-exported, so studio_auto.<name> still works; code calls youtube_auto.<name>
 import youtube_auto  # noqa: E402
 from youtube_auto import (  # noqa: E402,F401
-    upload_youtube, youtube_title, YT, _yt_put, _yt_tab, YT_TITLE_MAX,
+    upload_youtube, youtube_title, YT, _yt_put, _yt_tab, YT_TITLE_MAX, VISIBILITY, _click, _finish, YT_DIALOG,
 )

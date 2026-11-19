@@ -49,6 +49,24 @@ YT = {
                     " || document.querySelector('ytcp-video-description [contenteditable=true]')"
                     " || document.querySelector('[contenteditable=true][aria-label*=viewers i]')"),
 }
+# 5.1: the rest of the dialog, for a clip uploaded with Settings › YouTube's choices. Kept apart from YT because the
+# saved fingerprint of YouTube's real page (tests/assets/studio_fingerprints/2026-11-17-youtube.json) was taken before
+# these were looked for: a fingerprint records both (studio_auto._site_selectors), and the next one saved on the owner's
+# PC (scripts/studio_check.py --site youtube) checks them against YouTube itself.
+YT_DIALOG = {
+    "kids_no": "document.querySelector('tp-yt-paper-radio-button[name=VIDEO_MADE_FOR_KIDS_NOT_MFK]')",
+    "kids_yes": "document.querySelector('tp-yt-paper-radio-button[name=VIDEO_MADE_FOR_KIDS_MFK]')",
+    "more": "document.querySelector('#toggle-button')",                       # "Show more", where the tags are
+    "tags": ("document.querySelector('#tags-container input') || document.querySelector('ytcp-free-text-chip-bar input')"
+             " || document.querySelector('input[aria-label*=tags i]')"),
+    "next": "document.querySelector('#next-button')",
+    "visibility": "document.querySelector('tp-yt-paper-radio-button[name=PUBLIC]')",
+    "done": "document.querySelector('#done-button')",
+    # after Publish: the dialog saying it's out, or the upload dialog gone
+    "published": ("document.querySelector('ytcp-video-share-dialog') || document.querySelector('ytcp-uploads-still-processing-dialog')"
+                  " || !document.querySelector('ytcp-uploads-dialog #done-button')"),
+}
+VISIBILITY = {"public": "PUBLIC", "unlisted": "UNLISTED", "private": "PRIVATE"}
 
 
 def youtube_title(text: str) -> str:
@@ -85,11 +103,61 @@ def _yt_put(page: cdp.Page, box: str, text: str) -> bool:
     return False
 
 
+def _click(page: cdp.Page, what: str) -> bool:
+    return bool(page.eval(f"(() => {{ const e = {what}; if (!e) return false; e.scrollIntoView({{block: 'center'}}); e.click(); return true }})()",
+                          timeout=10))
+
+
+def _finish(page: cdp.Page, opts: dict, step: Callable[[str], None], check: Callable[[], None]) -> dict:
+    """5.1, for a clip: the rest of the dialog as Settings › YouTube has it. Who it's for (made for kids or not),
+    the tags, then Next to the visibility step, where public, unlisted or private is picked, and Publish pressed
+    only when "Publish for me" is on. Any part YouTube's page doesn't show is left for you, never guessed at:
+    {"audience", "tags", "visibility", "published": done?, "left": what's left to do in the window}."""
+    out = {"audience": False, "tags": False, "visibility": False, "published": False, "left": ""}
+    step("Setting who it's for")
+    if studio_auto._wait(page, YT_DIALOG["kids_no"], 10, check):
+        out["audience"] = _click(page, YT_DIALOG["kids_yes" if opts.get("kids") else "kids_no"])
+    tags = [x.strip() for x in str(opts.get("tags") or "").split(",") if x.strip()]
+    if tags:
+        step("Adding the tags")
+        shown = f"(e => !!e && e.offsetParent !== null)({YT_DIALOG['tags']})"      # behind "Show more" until it's pressed
+        if not page.eval(shown, timeout=10):
+            _click(page, YT_DIALOG["more"])
+            studio_auto._wait(page, shown, 5, check)
+        if page.eval(f"(() => {{ const e = {YT_DIALOG['tags']}; if (!e) return false; e.focus(); return true }})()", timeout=10):
+            page.call("Input.insertText", text=", ".join(tags)[:500] + ",")
+            out["tags"] = True
+    step("Going to the visibility step")
+    for _ in range(4):                              # Details › Video elements › Checks › Visibility
+        if page.eval(f"!!({YT_DIALOG['visibility']})", timeout=10):
+            break
+        if not _click(page, YT_DIALOG["next"]):
+            break
+        studio_auto._wait(page, YT_DIALOG["visibility"], 6, check)
+    vis = VISIBILITY.get(str(opts.get("visibility") or "public"), "PUBLIC")
+    if page.eval(f"!!({YT_DIALOG['visibility']})", timeout=10):
+        out["visibility"] = _click(page, f"document.querySelector('tp-yt-paper-radio-button[name={vis}]')")
+    if not out["visibility"]:
+        out["left"] = "Choose who can see it and publish it in the YouTube window."
+        return out
+    if not opts.get("publish"):
+        out["left"] = "Press Publish (or Save) in the YouTube window."
+        return out
+    step("Publishing")
+    if _click(page, YT_DIALOG["done"]) and studio_auto._wait(page, YT_DIALOG["published"], 30, check, every=0.5):
+        out["published"] = True
+    else:
+        out["left"] = "Clip Radar pressed Publish, but YouTube didn't say it's out. Check the YouTube window."
+    return out
+
+
 def upload_youtube(path: str, title: str, description: str, url: str, step: Callable[[str], None],
-                   check: Callable[[], None] = lambda: None) -> dict:
+                   check: Callable[[], None] = lambda: None, opts: dict | None = None) -> dict:
     """Drive YouTube Studio's upload dialog in Clip Radar's own browser window: the video put in, the title and
-    description typed. It stops there. Audience, visibility and Publish are choices only you can make, so they
-    are never pressed. Returns {"ready": True, "title": typed?, "description": typed?}; raises StudioError."""
+    description typed. Without opts (Export VOD) it stops there: audience, visibility and Publish are left to you.
+    With opts (a clip, 5.1: Settings › YouTube) it goes on: who it's for, the tags, the visibility, and Publish only
+    when opts["publish"]. Returns {"ready": True, "title": typed?, "description": typed?} (and what _finish did);
+    raises StudioError."""
     if not os.path.isfile(path):
         e = studio_auto.StudioError("file", "The exported file isn't there any more. Export the video again first.")
         studio_auto._record_failure("youtube", e, None)
@@ -134,8 +202,9 @@ def upload_youtube(path: str, title: str, description: str, url: str, step: Call
         if description.strip():
             step("Typing the description")
             wrote = _yt_put(page, YT["description"], description.strip())
+        rest = _finish(page, opts, step, check) if opts is not None else {}
         page.call("Page.bringToFront")
-        return {"ready": True, "title": typed, "description": wrote}
+        return dict({"ready": True, "title": typed, "description": wrote}, **rest)
     except studio_auto.StudioError as e:
         studio_auto._record_failure("youtube", e, studio_auto.fingerprint(page, "youtube", private=(title, description, path)) if page else None)
         raise

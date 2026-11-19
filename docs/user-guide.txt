@@ -497,6 +497,20 @@ EXPORT FORMAT
   when it's ready (two pings locking on). Ctrl+Alt+C blips when it grabs a
   clip, and a falling tone means it couldn't.
 
+YOUTUBE (5.1)
+  YouTube too, next to Keep in Moments: each clip you keep is also made as
+  a YouTube video, 1920 x 1080, the whole picture, captions as styled, no
+  title card. It's named like the clip with "(YouTube)".
+  Exports: the Platform list shows TikTok, YouTube or both. A YouTube edit
+  has Upload to YouTube (Clip Radar's own browser window puts it in and
+  fills in the title, description, who it's for, tags and visibility;
+  Publish is pressed only when Publish for me is on) and Open YouTube
+  Studio (title and description copied, the file shown, the upload page
+  opened). Change its title and description there before it goes.
+  Settings > YouTube: who can see it, made for kids, the title and
+  description templates ({title}, {caption}, {streamer}, {source},
+  {hashtags}), tags and Publish for me.
+
 EXPORT VOD (A WHOLE VIDEO)
   Export VOD saves a whole video as one wide (16:9) file. Videos open on Home
   are listed on the left. Under them, On this PC lists the VODs Clip Radar

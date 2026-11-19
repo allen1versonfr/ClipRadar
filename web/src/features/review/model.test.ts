@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Clip } from '../../api/schemas'
 import { RENDER_DEFAULTS } from '../../prefs'
-import { checkStatus, gate, keepBody, merge, nextTodo, postFor, prep, qClass, visible } from './model'
+import { checkStatus, gate, keepBody, merge, nextTodo, postFor, prep, qClass, queueFor, visible } from './model'
 
 const clip = (over: object) => Clip.parse({ id: 1, pid: 'p', start: 10, end: 30, title: 'Chat lost it', ...over })
 
@@ -62,5 +62,14 @@ describe('Review rules', () => {
     expect(nextTodo(cs, cs[0]!)?.id).toBe(4)
     expect(nextTodo(cs, cs[3]!)?.id).toBe(1)
     expect(nextTodo([cs[0]!], cs[0]!)).toBeUndefined()
+  })
+
+  it('5.1: YouTube too asks for a YouTube edit; the clip follows its TikTok render', () => {
+    const c = clip({})
+    expect(keepBody(c, 'post', RENDER_DEFAULTS, true, true)).toMatchObject({ youtube: true })
+    expect('youtube' in keepBody(c, 'post', RENDER_DEFAULTS)).toBe(false)
+    const yt = { pid: c.pid, clip_id: c.id, platform: 'youtube', id: 'y' }, tt = { pid: c.pid, clip_id: c.id, platform: 'tiktok', id: 't' }
+    expect(queueFor(c, [yt, tt] as never)?.id).toBe('t')
+    expect(queueFor(c, [yt] as never)?.id).toBe('y')
   })
 })

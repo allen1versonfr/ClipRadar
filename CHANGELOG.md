@@ -5,6 +5,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-11-19
+
+YouTube gets what TikTok has: a YouTube edit of every moment you keep, uploaded for you or handed over, with settings
+of its own.
+
+### Added
+- **YouTube too, in Moments.** Turn it on next to Keep, and each clip you keep is made twice: the TikTok edit as you set
+  it up, and a YouTube edit of the same moment in standard YouTube shape, 1920 × 1080: the whole picture (on a blurred
+  background when the stream isn't 16:9), captions as you styled them, no TikTok title card (YouTube shows the title
+  under the video). It's named like the clip with "(YouTube)", in the same folder. Skipping a kept clip takes both edits
+  out of the queue.
+- **Upload to YouTube, in Exports,** for a YouTube edit, the way Upload to TikTok works: Clip Radar's own browser window
+  opens YouTube Studio, puts the video in, types the title and description, sets who it's for, adds the tags, goes on to
+  the visibility step and picks public, unlisted or private. It presses Publish only when Publish for me is on.
+  Anything YouTube's page doesn't show is left for you, and it says what's left.
+- **Open YouTube Studio** (the pass-through, like Open TikTok Studio): the title and description copied, the video
+  selected in File Explorer, and YouTube's upload page opened in your browser.
+- **Settings › YouTube**, ready-made and changeable: Public, not made for kids, the title `{title}`, the description
+  `{caption}` plus a link to the stream at that moment, tags, and Publish for me (off). The title and description are
+  templates filled in for each clip, and can be changed for one clip in Exports before it goes.
+- **Exports sorted by platform**: a Platform list (TikTok and YouTube, TikTok, YouTube, with how many of each), and each
+  clip says which edit it is. A YouTube edit shows the YouTube buttons, a TikTok one the TikTok buttons.
+- A **YouTube** export preset (1920 × 1080) in Settings › Export format.
+
+### Fixed
+- **Upload to TikTok showed up a moment after the rest of a clip in Exports**, with Open TikTok Studio sitting in its
+  place until then, so people pressed the wrong one. Whether Clip Radar can upload now comes with the list itself, so the
+  buttons are right from the first moment and never move.
+
+### Tests
+- `tests/test_youtube_clips.py` (new, in CI): a moment kept with YouTube too renders twice, 1080 × 1920 and 1920 × 1080,
+  named apart; the YouTube edit's settings; Settings › YouTube ready-made, saved and tidied; the title and description
+  from the templates (and what you typed for one clip winning); Open YouTube Studio showing the file and opening the page.
+- `tests/test_youtube_auto.py`: against the stand-in YouTube Studio page, a clip's upload sets not made for kids, types
+  the tags (behind Show more), goes to the visibility step and picks unlisted, and leaves Publish to you; with Publish
+  for me on, made for kids when set, public, and published. Export VOD's upload still stops after the description.
+- `tests/test_studio_fingerprints.py`: the saved fingerprint of YouTube's real upload page (taken 2026-11-17) predates
+  the new dialog steps, so they're kept apart (`youtube_auto.YT_DIALOG`) and the test says they still need checking
+  against YouTube. A fingerprint records them from now on: save one with `scripts/studio_check.py --site youtube`.
+- `ExportsView.test.tsx`: Upload to TikTok there before the TikTok settings have answered; the Platform list, a YouTube
+  edit's panel with its filled-in description, and Upload to YouTube sending what you typed. `model.test.ts`: YouTube
+  too asks for the YouTube edit, and a clip follows its TikTok render.
+
 ## [5.0.3] - 2026-11-19
 
 ### Added

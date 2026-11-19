@@ -28,6 +28,10 @@ PRESETS = {
     "reels": {"label": "Instagram Reels", "aspect": "9:16", "scale": 1.0, "fps": 0, "vcodec": "h264", "crf": 20, "vbitrate": 0,
               "acodec": "aac", "abitrate": 128, "container": "mp4", "loudness": -14.0, "max_len": 180,
               "note": "1080 × 1920, up to 3 minutes."},
+    # 5.1: the YouTube edit of a moment (Moments › YouTube too), in standard YouTube shape
+    "youtube": {"label": "YouTube", "aspect": "16:9", "scale": 1.0, "fps": 0, "vcodec": "h264", "crf": 18, "vbitrate": 12000,
+                "acodec": "aac", "abitrate": 192, "container": "mp4", "loudness": -14.0,
+                "note": "1920 × 1080, a standard YouTube video."},
     "x": {"label": "X", "aspect": "9:16", "scale": 0.6667, "fps": 0, "vcodec": "h264", "crf": 21, "vbitrate": 0,
           "acodec": "aac", "abitrate": 128, "container": "mp4", "loudness": -14.0, "max_len": 140,
           "note": "720 × 1280 (X's portrait size), up to 2:20 for most accounts."},

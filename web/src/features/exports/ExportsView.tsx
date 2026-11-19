@@ -3,7 +3,7 @@ import { api } from '../../api/client'
 import { Campaigns, Ok, Queue, QueueCleared, type QueueItem } from '../../api/schemas'
 import { handoffCell } from './postStatus'
 import { WhatHappened } from '../autopilot/WhatHappened'
-import { SubmitPanel, TikTokPanel, useCopy } from './Posting'
+import { SubmitPanel, TikTokPanel, YouTubePanel, useCopy } from './Posting'
 import { usePoll } from '../../hooks/usePoll'
 import { useNow } from '../../hooks/useNow'
 import { useConfirm } from '../../components/Confirm'
@@ -45,7 +45,11 @@ export function ExportsView() {
   const [srcPick, setSrcPick] = useState<string>(() => getPref('exportsSource', ''))
   // a source that has left the queue shows everything again
   const src = srcs.some(s => s.key === srcPick) ? srcPick : ''
-  const items = src ? all.filter(q => sourceKey(q) === src) : all
+  // 5.1: TikTok and YouTube exports apart (a moment kept with Moments › YouTube too has one of each)
+  const [plat, setPlat] = useState<'' | 'tiktok' | 'youtube'>(() => getPref('exportsPlatform', ''))
+  const fromSrc = src ? all.filter(q => sourceKey(q) === src) : all
+  const nPlat = (p: string) => fromSrc.filter(q => q.platform === p).length
+  const items = plat ? fromSrc.filter(q => q.platform === plat) : fromSrc
   const active = items.some(q => q.status === 'queued' || q.status === 'rendering')
   const now = useNow(1000, active)
   const [selId, setSelId] = useState<string>()
@@ -97,6 +101,14 @@ export function ExportsView() {
             {failed > 1 ? `Retry ${failed} failed` : 'Retry failed'}
           </button>
         )}
+        <label className="ex-source">Platform
+          <select className="input" data-testid="exports-platform" value={plat}
+                  onChange={e => { const v = e.target.value as '' | 'tiktok' | 'youtube'; setPlat(v); setPref('exportsPlatform', v); setSelId(undefined) }}>
+            <option value="">TikTok and YouTube ({fromSrc.length})</option>
+            <option value="tiktok">TikTok ({nPlat('tiktok')})</option>
+            <option value="youtube">YouTube ({nPlat('youtube')})</option>
+          </select>
+        </label>
         {srcs.length > 1 && (
           <label className="ex-source">Source
             <select className="input" data-testid="exports-source" value={src}
@@ -113,7 +125,9 @@ export function ExportsView() {
       {queue.error && <p className="banner err" role="alert">{queue.error}</p>}
       {!queue.data && !queue.error && <p className="muted pad">Loading…</p>}
       {queue.data && !items.length && (
-        <p className="empty" data-testid="exports-empty">Nothing rendered yet. Keep a clip in <a href="#review">Moments</a> and it renders here.</p>
+        <p className="empty" data-testid="exports-empty">{plat && fromSrc.length
+          ? `No ${plat === 'youtube' ? 'YouTube' : 'TikTok'} exports${plat === 'youtube' ? '. Turn on YouTube too in Moments to make a YouTube edit of each clip you keep' : ''}.`
+          : <>Nothing rendered yet. Keep a clip in <a href="#review">Moments</a> and it renders here.</>}</p>
       )}
       {items.length > 0 && (
         <div className="ex-split">
@@ -131,7 +145,7 @@ export function ExportsView() {
               </tbody>
             </table>
           </div>
-          {sel && <Detail q={sel} campaigns={camps} onChanged={queue.refresh}
+          {sel && <Detail q={sel} campaigns={camps} onChanged={queue.refresh} uploads={queue.data?.uploads}
                           onRetry={() => act('/api/queue/retry', { id: sel.id }, 'Rendering again…')}
                           onRemove={() => act('/api/queue/remove', { id: sel.id })}
                           onShow={() => act('/api/open_folder', { folder: sel.folder ?? 'root' })} />}
@@ -158,7 +172,8 @@ function Row({ q, now, selected, onSelect, onRemove, onRetry }: RowProps) {
         onClick={onSelect} aria-selected={selected}>
       <td><span className="vt">{q.thumb && <img src={q.thumb} alt="" />}</span></td>
       <td>
-        <div className="t1">{q.title || `Clip ${q.rank ?? ''}`.trim()}</div>
+        <div className="t1">{q.title || `Clip ${q.rank ?? ''}`.trim()}
+          <span className={`plat ${q.platform}`} data-testid="export-platform">{q.platform === 'youtube' ? 'YouTube' : 'TikTok'}</span></div>
         <div className="t2">{q.source_title}</div>
       </td>
       <td className="r tnum">{fmtTime(q.duration)}</td>
@@ -192,8 +207,9 @@ function Row({ q, now, selected, onSelect, onRemove, onRetry }: RowProps) {
   )
 }
 
-function Detail({ q, campaigns, onChanged, onRetry, onRemove, onShow }: {
+function Detail({ q, campaigns, onChanged, onRetry, onRemove, onShow, uploads }: {
   q: QueueItem; campaigns: Campaigns | undefined; onChanged: () => Promise<void>; onRetry: () => void; onRemove: () => void; onShow: () => void
+  uploads: Queue['uploads']
 }) {
   const [more, setMore] = useState(false)
   const copy = useCopy()
@@ -243,7 +259,9 @@ function Detail({ q, campaigns, onChanged, onRetry, onRemove, onShow }: {
   return (
     <aside className="ex-detail" data-testid="export-detail" aria-label="Selected clip">
       {/* a rendered clip: its TikTok buttons at the top, the caption they use at the bottom */}
-      {q.status === 'done' ? <TikTokPanel q={q} onChanged={onChanged}>{body}</TikTokPanel> : body}
+      {q.status !== 'done' ? body
+        : q.platform === 'youtube' ? <YouTubePanel q={q} onChanged={onChanged} uploads={uploads}>{body}</YouTubePanel>
+        : <TikTokPanel q={q} onChanged={onChanged} uploads={uploads}>{body}</TikTokPanel>}
     </aside>
   )
 }
