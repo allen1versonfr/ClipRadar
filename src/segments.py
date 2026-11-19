@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -349,7 +350,9 @@ def _make(S, job: dict, pr: dict, o: dict, plan: list, path: str, tmp: str, band
             words += [dict(w, start=w["start"] - a + at, end=w["end"] - a + at) for w in r["words"]]
             at += b - a
         if len(made) == 1:
-            os.replace(made[0], path)
+            # moved, not renamed: the temporary folder and the Segments folder can be on different drives (5.0.2:
+            # "The system cannot move the file to a different disk drive" when Segments was on D: and temp on C:)
+            shutil.move(made[0], path)
         else:
             S.job_step(job)("Joining " + os.path.basename(path))
             join(made, path, S.job_check(job))

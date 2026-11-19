@@ -155,6 +155,22 @@ if shutil.which("ffmpeg"):
         check("Late's cut stretch is left out", abs(luma(late, 2.5) - 34 * 6 % 256) < 30, luma(late, 2.5))
         check("each with its own subtitle file, edited lines included", os.path.isfile(os.path.splitext(early)[0] + ".srt")
               and "edited" in open(os.path.splitext(early)[0] + ".srt", encoding="utf-8").read())
+    # the Segments folder on another drive than the temporary folder: a rename across drives fails (WinError 17)
+    real_rename, real_replace = os.rename, os.replace
+
+    def other_drive(real):
+        def go(a, b, *x, **k):
+            if "part_" in os.path.basename(str(a)):
+                raise OSError(18, "The system cannot move the file to a different disk drive")
+            return real(a, b, *x, **k)
+        return go
+    os.rename, os.replace = other_drive(real_rename), other_drive(real_replace)
+    try:
+        job = wait(segments.start_export(server, e["id"], dict(opts, segment="y")))
+    finally:
+        os.rename, os.replace = real_rename, real_replace
+    check("a segment exports when the Segments folder is on another drive (5.0.2)", job["status"] == "done"
+          and os.path.isfile((job.get("result") or {}).get("path", "")), job.get("error"))
     job = wait(segments.start_export(server, e["id"], dict(opts, segment="z")))
     res = job.get("result") or {}
     check("one segment exports on its own, even unticked, straight into the Segments folder", job["status"] == "done"

@@ -5,6 +5,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.0.2] - 2026-11-19
+
+### Fixed
+- **Exporting a segment failed when the Segments folder was on another drive** than Clip Radar's temporary folder
+  (for example D:\Segments), with "The system cannot move the file to a different disk drive". A segment made in
+  one piece was renamed into place, which Windows can't do across drives; it's moved now, copied when it has to be.
+  Checked by `tests/test_segments.py` with the rename across drives refused, as Windows does.
+
 ## [5.0.1] - 2026-11-19
 
 ### Changed
