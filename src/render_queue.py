@@ -671,7 +671,7 @@ def classify_render_error(e: Exception) -> tuple:
         ("broken_output", "came out broken" in low,
          "The finished file came out broken twice. Retry; if it keeps happening, turn off "
          "\"Use the GPU to encode\" in the Layout tab."),
-        ("stalled", "made no progress" in low,
+        ("stalled", "made no progress" in low or "didn't finish the file" in low,
          "FFmpeg stopped making progress and was stopped. Retry; if it keeps happening, turn off "
          "\"Use the GPU to encode\" in the Layout tab or try a shorter clip."),
         ("ffmpeg_memory", mem is not None, mem[1] if mem else ""),

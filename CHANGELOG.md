@@ -5,6 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.4.2] - 2026-11-19
+
+### Fixed
+- **A clip render that sat at 100% and never finished.** Once a clip's last frame was made, nothing stopped FFmpeg
+  if it then didn't finish the file (a graphics-card encoder that hangs while finishing, seen on a clip from X),
+  or if it kept making video past the clip's end: the bar sat at 100%, every core busy, and the stall check never
+  fired because FFmpeg kept reporting progress.
+  - 45 seconds after the last frame, FFmpeg is stopped and the clip made again on the CPU (the graphics card is
+    left out for the rest of the session if it fails again), without first retrying the decoding.
+  - A render still going far past the clip's end is stopped too, not left to run.
+  - Either one says what happened in Exports › the clip › details.
+
 ## [5.4.1] - 2026-11-19
 
 ### Fixed

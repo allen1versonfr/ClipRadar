@@ -63,7 +63,7 @@ MOVED = {
                "LINE_LEADS_SOFT", "_line_cost", "_balance", "_chunks", "WM_POSITIONS", "marks_of", "_mpos",
                "mark_anchor", "watermark_anchor", "mark_window", "watermark_window", "_mark_fs",
                "_mark_dialogue", "_wm_alpha", "_shifted", "_join_lines", "title_border", "TITLE_DEFAULT_Y",
-               "TITLE_TOP", "title_top", "build_ass", "_encoder_cache", "RENDER_THREADS", "RENDER_PRIORITY",
+               "TITLE_TOP", "title_top", "build_ass", "_encoder_cache", "RENDER_THREADS", "RENDER_PRIORITY", "ENDING_MAX",
                "_HW", "_HW_HEVC", "CPU_ENCODERS", "HW_SLOTS", "_hw_slots", "_hw_fails", "_HW_BUSY", "HW_DECODE",
                "hw_failed", "hw_worked", "_rate_args", "video_encoder", "_probe_hw", "_with_rate", "write_srt",
                "DARK_LUMA", "SEEN_LUMA", "SEEN_SHARE", "BLUR_SHARP", "picture_check", "audio_peak",
