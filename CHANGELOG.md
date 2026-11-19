@@ -5,6 +5,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.4.1] - 2026-11-19
+
+### Fixed
+- **An export stuck at 100% while the PC crawled.** The end of Export VOD and Segments did slow work with the bar
+  full and nothing said, at full speed on every core and the disk:
+  - **The file was written a second time.** Every export asked FFmpeg to put the file's index at the front
+    (+faststart), which it does by rewriting the whole file once it's made: for a VOD, gigabytes and minutes of the
+    disk flat out, with the bar at 100%. An export longer than 10 minutes now skips it (YouTube and players take
+    the file either way); clips are unchanged.
+  - **Joining segments ran blind.** Joining the parts of a Segments export showed no progress and couldn't be
+    stopped, and when the parts wouldn't join as they were, the whole video was quietly made again: as long as
+    the export itself, every core busy, at 100%. Now the bar moves, Stop works, it says when it has to make the
+    parts again, and it runs at the render priority.
+  - **A copy across drives at the end.** Segments' parts were made in the temp folder and the finished video
+    copied to the Segments folder, gigabytes at a time when that's on another drive. The parts are now made in a
+    hidden folder next to where the video ends up, so the end is a rename. Parts left by an export Clip Radar was
+    closed during are cleared later.
+  - **Export VOD's FFmpeg ran at full priority.** It now uses Settings › Performance's priority, like clip renders
+    (below normal on "Keep the PC responsive", so what you're doing goes first).
+  - **The song eraser busy-waited.** Its threads spun on every core but one even between blocks; they now wait
+    idle. Same speed, measured.
+  - **Taking a known song out held the whole stretch in memory** (a 30-minute stretch, gigabytes). It now works
+    about four minutes at a time and keeps the result on disk: about 200 MB however long the stretch, with the
+    same result.
+
+### Tests
+- `tests/test_segments.py`: a long export isn't written twice, a short one still is; joining moves the bar and
+  Stop stops it; the parts folder is gone when the export is done.
+- `tests/test_songref.py`: a stretch cleaned block by block comes out as in one go (within 1 dB), its temporary
+  files deleted.
+
 ## [5.4.0] - 2026-11-19
 
 ### Added

@@ -288,6 +288,29 @@ if shutil.which("ffmpeg"):
                             capture_output=True, text=True).stdout.strip()
         check("the sound is as long as the picture (in step)", abs(float(sa or 0) - dc) < 0.15, (sa, dc))
 
+    # 5.4: the end of an export never sits at 100% doing a second pass over the file, and joining shows progress and stops
+    check("a long export isn't written twice to put its index first; a short one is",
+          vodexport.movflags(vodexport.FASTSTART_MAX + 1) == [] and "+faststart" in vodexport.movflags(60))
+    jdir = tempfile.mkdtemp(prefix="vc_join_")
+    pa, pb = os.path.join(jdir, "a.mp4"), os.path.join(jdir, "b.mp4")
+    for pth, ss in ((pa, 0), (pb, 10)):
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(ss), "-t", "5", "-i", video, "-c", "copy", pth], check=True)
+    seen, steps = [], []
+    segments.join([pa, pb], os.path.join(jdir, "joined.mp4"), length=10.0, progress=seen.append, step=steps.append)
+    check("joining moves the bar", len(seen) >= 1 and max(seen) > 0.5 and os.path.getsize(os.path.join(jdir, "joined.mp4")) > 0, seen[-3:])
+
+    def stop():
+        raise engine.Cancelled()
+    try:
+        segments.join([pa, pb], os.path.join(jdir, "stopped.mp4"), stop, length=10.0)
+        stopped = False
+    except engine.Cancelled:
+        stopped = True
+    check("and Stop stops it", stopped)
+    leftover = [d for _, ds, _ in os.walk(locations.segments_dir()) for d in ds if d.startswith(".parts-")]
+    check("the parts folder made next to the exports is gone when it's done", not leftover, leftover)
+    shutil.rmtree(jdir, ignore_errors=True)
+
 else:
     print("[skip] no ffmpeg here: the edit isn't rendered")
 

@@ -1315,9 +1315,11 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                 title: str = "", log: Log = _noop, progress: Progress = _noop,
                 check: Check = _noop, words: Optional[list] = None,
                 censor: Optional[list] = None, censor_mode: str = "off", framing: Optional[dict] = None,
-                warn: Log = _noop, diag: Optional[dict] = None, audio_src: str = "") -> str:
+                warn: Log = _noop, diag: Optional[dict] = None, audio_src: str = "", faststart: bool = True) -> str:
     """words: transcript (times relative to clip_start) to caption with; transcribed here if None.
     censor: [(start, end)] spans (relative) to mute ("mute") or bleep ("bleep").
+    faststart: the index at the front of the file (+faststart), which FFmpeg does by writing the whole file a second time
+    once it's made: off for a long export (Export VOD, Segments), where that pass took minutes with the bar at 100%.
     audio_src: a sound file to use instead of the video's own sound, starting where the clip starts
     (Export VOD: the sound with its music removed, voicekeep.keep_voice).
     warn: told when the clip came out differently from what was asked (a layout that had to fall back).
@@ -1489,7 +1491,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         if cont != "webm":
             # negative_cts_offsets: the first frame shows at exactly 0:00 even where the edit list is ignored
             # (TikTok's cover picker does; without it the first frame sits one frame in and the cover is black)
-            cmd += ["-movflags", "+faststart+negative_cts_offsets"]
+            cmd += ["-movflags", "+faststart+negative_cts_offsets" if faststart else "+negative_cts_offsets"]
         cmd += [*RENDER_THREADS, tmp_name]
         diag["cmd"] = subprocess.list2cmdline(cmd)
         p = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
