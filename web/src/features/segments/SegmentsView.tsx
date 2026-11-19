@@ -313,6 +313,9 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
         <p className="hint">{CAPTIONS_HINT[c.captions]} {c.captions === 'burn' || c.captions === 'both' ? <>They look the way they're set in <a href="#vod">Export VOD</a> › Captions.</> : null}</p>
         <div className="row wrap"><span className="muted">Size</span><Seg label="Size" value={c.size} options={SIZES} onChange={size => set({ size })} /></div>
         <div className="row wrap"><span className="muted">Quality</span><Seg label="Quality" value={c.quality} options={QUALITY} onChange={quality => set({ quality })} /></div>
+        <p className="hint" data-testid="segv-speed">{c.size === 'source' && c.captions !== 'burn' && c.captions !== 'both'
+          ? 'Quick: nothing is drawn on the picture, so it\'s copied as it is and only the sound is made again. Each segment starts on the nearest keyframe up to 2.5 seconds before where you set it.'
+          : 'Burned-in captions or a new size mean every frame is made again. A subtitle file (or Off) and the Original size make the export many times quicker.'}</p>
         <label className="chk"><input type="checkbox" checked={c.cleanup} onChange={e => set({ cleanup: e.target.checked })} />
           <span>Deal with music and flagged words<small>Music the copyright scan found is removed or muted as it suggests, and flagged words in the
             categories <a href="#settings/safety">Settings › Content check</a> mutes are muted. Scan the video in Export VOD first.</small></span></label>

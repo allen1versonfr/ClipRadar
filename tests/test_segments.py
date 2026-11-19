@@ -240,6 +240,41 @@ if shutil.which("ffmpeg"):
               os.path.normcase(res["folder"]) == os.path.normcase(locations.segments_dir())
               and os.path.normcase(res["folder"]) != os.path.normcase(locations.clips_dir(server.projects[e["pid"]]["workdir"])), res["folder"])
     check("an edit over 30 minutes isn't refused any more (5.0)", not hasattr(segments, "MAX_LEN"))
+
+    # ---- 5.1.1: nothing drawn on the picture, so it's copied, not made again (a VOD's keyframes: one every 2 s)
+    import vodexport  # noqa: E402
+    kv = os.path.join(work, "keyed.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=40",
+                    "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=40",
+                    "-vf", "geq=lum='T*6':cb=128:cr=128", "-c:v", "libx264", "-preset", "ultrafast", "-g", "60",
+                    "-keyint_min", "60", "-sc_threshold", "0", "-c:a", "aac", "-shortest", kv], check=True)
+    kf = vodexport.keyframes(kv, [5.0, 31.0])
+    check("the keyframes near each cut are found", [k for k in kf if k <= 12] == [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0][:len([k for k in kf if k <= 12])]
+          and 4.0 in kf and 30.0 in kf, kf)
+    snap = vodexport.snap_to_keyframes([(5.0, 9.0), (33.0, 38.0)], kf)
+    check("a segment starts on the keyframe before it, after a cut on the one after", snap == [(4.0, 9.0), (34.0, 38.0)], snap)
+    check("an edge too far from a keyframe isn't copied", vodexport.snap_to_keyframes([(5.0, 9.0)], [0.0, 10.0]) == [None])
+    server.projects[PID]["video"] = kv
+    server.projects[PID]["info"] = engine.probe(kv)
+    cur = segments._find(e["id"])
+    segments.save({"id": cur["id"], "ver": cur["ver"], "name": "Copied",
+                   "segments": [{"id": "c1", "name": "Plain", "start": 5, "end": 15},
+                                {"id": "c2", "name": "With a cut", "start": 20, "end": 36, "cuts": [[25, 31]]}]})
+    t0 = time.time()
+    job = wait(segments.start_export(server, e["id"], {"captions": "off", "size": "source", "quality": "balanced", "hw_encode": False}))
+    res = job.get("result") or {}
+    check("both copied, not made again", job["status"] == "done" and res.get("copied") == 2, (job.get("error"), res.get("copied")))
+    if job["status"] == "done":
+        plain, cut = (f["path"] for f in res["files"])
+        dp, dc = engine.probe(plain)["duration"], engine.probe(cut)["duration"]
+        check("each as long as asked, plus at most the keyframe before (Plain: 10 s from 4 s)", abs(dp - 11.0) < 0.3, dp)
+        check("a cut copied from the keyframe after it (20-25, then 32-36)", abs(dc - 9.0) < 0.3, dc)
+        check("Plain starts at the keyframe before 5 s (4 s in)", abs(luma(plain, 0.2) - luma(kv, 4.2)) < 2, (luma(plain, 0.2), luma(kv, 4.2)))
+        check("the cut stretch isn't shown: 25 s jumps to 32 s", abs(luma(cut, 5.5) - luma(kv, 32.5)) < 2, (luma(cut, 5.5), luma(kv, 32.5)))
+        sa = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=duration", "-of", "csv=p=0", cut],
+                            capture_output=True, text=True).stdout.strip()
+        check("the sound is as long as the picture (in step)", abs(float(sa or 0) - dc) < 0.15, (sa, dc))
+
 else:
     print("[skip] no ffmpeg here: the edit isn't rendered")
 

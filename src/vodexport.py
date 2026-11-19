@@ -424,7 +424,7 @@ def render_opts(S, o: dict, info: dict) -> render.RenderOpts:
     scale = SIZES.get(o["size"]) or min(1.0, max(0.25, sh / 1080))
     ro = S._ropts(dict(o["style"], whisper_model=o["whisper_model"], language=o["language"]))
     return replace(ro, layout="full" if wide else "blur", aspect="16:9", track="off", punch="off",
-                   captions=o["captions"] in ("burn", "both"), hw_encode=o["hw_encode"], speed=o["quality"], scale=scale,
+                   captions=o["captions"] in ("burn", "both"), hw_encode=o["hw_encode"], speed="wide_" + o["quality"], scale=scale,
                    loudness=0.0,           # a whole stream keeps its own volume; only peaks are limited
                    gain_db=float(o.get("gain_db") or 0))   # a segment made louder or quieter (Segments)
 
@@ -576,17 +576,63 @@ def _run_ffmpeg(cmd: list, cwd: str, length: float, progress, check) -> None:
         raise RuntimeError("ffmpeg failed:\n" + render._ffmpeg_reason("".join(err[-60:])))
 
 
+def keyframes(video: str, around: list, reach: float = 12.0) -> list:
+    """The times of the picture's keyframes near each time in `around` (within `reach` seconds), sorted.
+    Only those stretches of the file are read, so a six-hour VOD takes a moment, not a full pass."""
+    if not around:
+        return []
+    iv = ",".join(f"{max(0.0, t - reach):.2f}%{t + reach:.2f}" for t in sorted(around))
+    r = subprocess.run([engine.ffprobe(), "-v", "error", "-select_streams", "v:0", "-read_intervals", iv,
+                        "-show_entries", "packet=pts_time,flags", "-of", "csv=p=0", video],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+                       creationflags=engine.CREATE_NO_WINDOW)
+    out = set()
+    for line in r.stdout.splitlines():
+        bits = line.strip().split(",")
+        if len(bits) >= 2 and "K" in bits[1]:
+            try:
+                out.add(round(float(bits[0]), 3))
+            except ValueError:
+                pass
+    return sorted(out)
+
+
+SNAP_MAX = 2.5            # seconds a copied segment's edge may move to a keyframe (Twitch and YouTube: one every 2 s)
+
+
+def snap_to_keyframes(stretches: list, kf: list, first_back: bool = True, most: float = SNAP_MAX) -> list:
+    """Stretches [(a, b)] moved so each starts on a keyframe, for a copied picture (which can only start on one):
+    the first one back to the keyframe before it (a few seconds more at the start, nothing lost), the ones after a
+    cut forward to the keyframe after (a little more cut, nothing that was cut shown). An edge that would move more
+    than `most` seconds is None (the caller makes that segment the slow way instead, exactly where you set it)."""
+    out = []
+    for i, (a, b) in enumerate(stretches):
+        before = [k for k in kf if a - most - 0.001 <= k <= a + 0.001]
+        after = [k for k in kf if a - 0.001 <= k <= min(b - 0.5, a + most)]
+        k = (before[-1] if before else None) if (i == 0 and first_back) else (after[0] if after else None)
+        if k is not None and b - k >= 0.5:
+            out.append((k, b))
+        else:
+            out.append(None)
+    return out
+
+
 def copy_video(video: str, out_path: str, info: dict, ro: render.RenderOpts, spans: list, audio_src: str,
-               progress, check) -> None:
+               progress, check, start: float = 0.0, length: float = 0.0) -> None:
     """The export with the picture copied as it is and only the sound made again (muted spans, the sound with
-    its music removed). Many times faster than encoding the picture: nothing is decoded but the sound."""
+    its music removed). Many times faster than encoding the picture: nothing is decoded but the sound.
+    start, length: only that stretch (a segment, 5.1.1; start must be a keyframe). spans are times in the stretch,
+    and audio_src (when there is one) starts where the stretch does."""
     work = os.path.dirname(os.path.abspath(out_path))
     tag = uuid.uuid4().hex[:8]
     tmp, cmd_name = f"vc_{tag}.part.mp4", f"vc_{tag}.cmd"
-    length = float(info["duration"])
-    cmd = [engine.ffmpeg(), "-v", "error", "-y", "-nostdin", "-progress", "pipe:1", "-nostats", "-i", video]
+    length = float(length or (float(info["duration"]) - start))
+    cmd = [engine.ffmpeg(), "-v", "error", "-y", "-nostdin", "-progress", "pipe:1", "-nostats"]
+    if start > 0:
+        cmd += ["-ss", f"{start:.3f}"]
+    cmd += ["-t", f"{length:.3f}", "-i", video]
     if audio_src:
-        cmd += ["-i", audio_src]
+        cmd += ["-t", f"{length:.3f}", "-i", audio_src]
     ain = "1:a:0" if audio_src else "0:a:0"
     cmd += ["-map", "0:v:0", "-c:v", "copy"]
     if info.get("vcodec") == "hevc":
@@ -616,7 +662,8 @@ def copy_video(video: str, out_path: str, info: dict, ro: render.RenderOpts, spa
 
 
 def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str, whole: bool,
-                 part: bool = False, band: tuple = (0.0, 1.0), label: str = "", words: Optional[list] = None) -> dict:
+                 part: bool = False, band: tuple = (0.0, 1.0), label: str = "", words: Optional[list] = None,
+                 copy: bool = False) -> dict:
     """Make the video from a to b with everything the screen chose. whole: the real export (the picture is
     copied when it can be, a subtitle file is written); otherwise the exact preview of a few seconds.
     part: one stretch of a Segments export, at full quality but never copied (a copied picture can only
@@ -643,7 +690,8 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     # the bar: listening (only when captions are on), taking the music out, then the picture
     given = words is not None
     need_words = o["captions"] != "off" and has_audio and not given
-    copying = whole and not part and can_copy(o, info)
+    # a Segments part is copied too when its start was moved onto a keyframe for it (copy=True, 5.1.1)
+    copying = whole and can_copy(o, info) and (not part or copy)
     w_hear = 0.45 if need_words else 0.0
     w_voice = (0.6 if copying else 0.25) * (1 - w_hear) if voice else 0.0
     words = [w for w in (words or []) if a <= w["start"] < b] if given and o["captions"] != "off" else []
@@ -681,7 +729,8 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
         if copying:
             step("Copying the picture, making the sound")
             log("The picture is copied as it is (no burned-in captions, the video's own size).")
-            copy_video(video, path, info, ro, spans, audio_src, prog, check)
+            copy_video(video, path, info, ro, spans, audio_src, prog, check,
+                       start=a if part else 0.0, length=length if part else 0.0)
         else:
             step("Rendering" if part else "Rendering the whole video" if whole else "Rendering the preview")
             burn = [dict(w, start=w["start"] - a, end=w["end"] - a) for w in words] if ro.captions else []
