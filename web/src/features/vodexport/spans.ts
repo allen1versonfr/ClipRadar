@@ -1,4 +1,4 @@
-import type { MusicSpan } from '../../api/schemas'
+import type { FoundSong, MusicSpan } from '../../api/schemas'
 import { fmtTime } from '../exports/renderStatus'
 import { plural } from '../../format'
 
@@ -9,7 +9,17 @@ export const ACTIONS: Array<[MusicAction, string]> = [['voice', 'Erase song'], [
 
 /** A stretch of music on Export VOD: one the scan found (with how sure it was and how much talking it heard), or
  *  one you marked yourself (mine). Its edges can be moved on the timeline. */
-export interface Song { start: number; end: number; act: MusicAction; confidence?: number; speech?: number; mine?: boolean }
+export interface Song { start: number; end: number; act: MusicAction; confidence?: number; speech?: number; mine?: boolean
+  /** which song it is, when you said (5.3): a YouTube link or a song file on the PC, over what was recognised */
+  song?: string
+  /** the song it was recognised as (5.3), with its recording on YouTube when that was found */
+  found?: FoundSong | null | undefined }
+
+/** The recording Erase song takes out of a stretch: the one you named, else the one recognised. "" for neither. */
+export const songSource = (s: Song) => (isSongSource(s.song) ? s.song!.trim() : s.found?.url && isSongSource(s.found.url) ? s.found.url : '')
+
+/** A link (http or https) or a full path to a file: what the server accepts as "which song". */
+export const isSongSource = (v: string | undefined) => !!v && (/^https?:\/\/\S+$/i.test(v.trim()) || /^([a-z]:[\\/]|[\\/])/i.test(v.trim()))
 
 /** "1:02:10 to 1:05:40 (3:30)" */
 export const spanLabel = (s: Pick<MusicSpan, 'start' | 'end'>) => `${fmtTime(s.start)} to ${fmtTime(s.end)} (${fmtTime(s.end - s.start)})`

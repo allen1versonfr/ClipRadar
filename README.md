@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 5.2.0" src="https://img.shields.io/badge/version-5.2.0-2fe36f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 5.3.0" src="https://img.shields.io/badge/version-5.3.0-2fe36f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -50,7 +50,7 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
   - Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> from any window to clip the last 30 seconds.
   - **No ads in your clips.** Ad breaks Twitch stitches into the stream are recognised and left out of the recording. Sign in to Twitch with Turbo (or a sub) and you get the ad-free stream.
 - **Content check and censoring.** Each clip's words, title and post caption are checked for things TikTok takes down: slurs, self-harm, threats, personal info, sexual terms, drugs, swearing, gambling and your own blocked words.
-- **Export VOD.** A whole video saved as one wide file (no captions: YouTube makes its own), flagged words muted or bleeped, and a copyright scan that finds the music in it. Erase song takes a song out, singing and all, and keeps talking and the game's sound, like YouTube Studio's; or mute the stretch. Saved in a folder of its own, apart from the clips.
+- **Export VOD.** A whole video saved as one wide file (no captions: YouTube makes its own), flagged words muted or bleeped, and a copyright scan that finds the music in it. Erase song takes a song out, singing and all, and keeps talking and the game's sound, like YouTube Studio's; each song is recognised (as Shazam does) and its own recording found on YouTube and taken out exactly, leaving the talking nearly untouched; a song that isn't recognised is erased by the eraser model. Or mute the stretch. Saved in a folder of its own, apart from the clips.
   - Flagged words can be hidden in captions, muted or bleeped.
   - Hands-free holds risky clips back for you to look at first.
 - **Go through the moments in TikTok format.** Each suggestion plays in a phone-sized preview with its layout, title and word-by-word captions. Keep it with <kbd>Enter</kbd>, skip it with <kbd>X</kbd>, and move between clips with <kbd>↑</kbd> <kbd>↓</kbd>.
@@ -173,6 +173,8 @@ src/
   safety.py       content check (TOS scanner) and censoring
   vodexport.py    Export VOD: a whole video with muting and captions, and the copyright (music) scan
   songerase.py    Erase song: takes a song out of the sound and keeps talking and game sound (TIGER)
+  songid.py       Which song is it: recognises each music stretch (Shazam) and finds its recording on YouTube
+  songref.py      Erase song with the song known: finds that recording in the stream and subtracts it
   hotkey.py       Ctrl+Alt+C clip hotkey on Windows
   updater.py      in-app updates from GitHub releases
   errorlog.py     every failure, kept in errors.jsonl for fixing later

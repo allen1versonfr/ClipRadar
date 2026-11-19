@@ -1268,6 +1268,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(str(e))
             if act == "scan":
                 return self._json({"job": vodexport.start_scan(S, pid)["id"]})
+            if act == "recognise":
+                # which song each music stretch is (5.3), on the last scan
+                return self._json({"job": vodexport.start_scan(S, pid, recognise_only=True)["id"]})
             if act == "segfind":
                 # Find segments: the video split into its parts, by topic, pauses and games (5.0.3)
                 return self._json({"job": vodexport.start_segfind(S, pid, body)["id"]})

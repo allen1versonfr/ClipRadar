@@ -138,6 +138,7 @@ jobs:
           python tests/test_campaigns.py
           python tests/test_captions_anim.py
           python tests/test_vodexport.py
+          python tests/test_songref.py
           python tests/test_sounds.py
           python tests/test_api_contract.py
           python tests/test_file_serving.py
@@ -180,6 +181,7 @@ jobs:
           $env:PATH = "$PWD\tools;$env:PATH"
           python tests/test_media_matrix.py
           python tests/test_render_lifecycle.py
+          python tests/test_songref.py
           python tests/test_black_cover.py
           python tests/test_gpu.py
           python tests/test_gpu_choice.py

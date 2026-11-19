@@ -425,6 +425,7 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
     total = sum(b - a for _, g in groups for _, a, b in g)
     if body.get("cleanup", True) is not False:
         o["music"], o["word_spans"] = vodexport.suggested(pr)
+        o["songs"] = vodexport.suggested_songs(pr)
     outdir = locations.segments_dir()      # Settings › Storage › Segment exports, apart from the clips (5.0)
     if mode == "each" and not one:
         outdir = os.path.join(outdir, exports.safe(e["name"] or "Segments"))   # an edit's segments kept together

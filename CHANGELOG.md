@@ -5,6 +5,42 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.3.0] - 2026-11-19
+
+### Added
+- **Erase song now works like YouTube Studio's: it knows the song.** YouTube's Erase song is so clean because Content
+  ID has already recognised the song, so it can take that exact recording out. Clip Radar now does the same, by
+  itself:
+  1. The copyright scan finds the music, as before, and then **recognises each song** the way Shazam does: 12-second
+     samples from across the stretch, the music pulled out of the talking first when the song eraser is installed,
+     so a song under talking is recognised too.
+  2. It **finds that song's own recording on YouTube** (the artist's official audio first; live versions, covers,
+     remixes, slowed edits and loops left out) and checks it really is the recording in the stream.
+  3. **Erase song takes that exact recording out**, following how the stream changed it: where it is (to the
+     sample, so a song skipped, paused or started from the middle is followed), the streamer's EQ, and its volume
+     moment to moment.
+  - Each stretch shows the song it was recognised as ("♪ M83 – Midnight City"). **Not this song?** lets you paste the
+    right link (or a song file) instead.
+  - A song that isn't recognised, isn't on YouTube, or a part where its recording isn't heard (a remix, a live
+    version) is erased by the eraser model, as in 5.0. Without the eraser model, a recognised song is still erased.
+  - Measured on talking over a song with singing, the song delayed, EQ'd, compressed and AAC-encoded like a stream:
+    the song **28 to 30 dB quieter between sentences** and **17 dB quieter under the talking**, the talking almost
+    untouched (SI-SDR 25 dB). The eraser model alone: 11 dB, 6 dB and 14 dB. About 15 times faster than real time.
+  - Recognised with the music 3, 6 and 10 dB under the talking.
+  - A video scanned before 5.3 shows **Recognise the songs** on Export VOD. Segments uses the recognised songs too.
+  - Only the 12-second samples' Shazam fingerprints leave the PC, during the scan. New package: `shazamio`
+    (installed by install.bat and in the app).
+
+### Tests
+- `tests/test_songref.py` (new, in CI): a made-up song under made-up talking, the song delayed, EQ'd and its volume
+  riding: found and taken out (at least 18 dB between sentences, 10 dB under the talking, the talking kept); a
+  different song left untouched sample for sample; in an export only the stretch changes. Recognition with Shazam's
+  answer and YouTube's search made up: the artist's Topic upload tried first, live versions, slowed edits, other
+  songs and loops never taken; a wrong upload passed over for the one really in the stream; 12-second samples sent,
+  none for a stretch too short; Segments using the recognised recordings, through moved edges and a song you named.
+- Export VOD's screen: a recognised song shown and its recording sent; a song named by hand wins; an older scan
+  offers Recognise the songs; without the eraser model a stretch can still be erased once its song is named.
+
 ## [5.2.0] - 2026-11-19
 
 ### Added
