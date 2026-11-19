@@ -162,7 +162,7 @@ def load_scan(pr: dict) -> Optional[dict]:
             data = json.load(f)
         if data.get("video") == _sig(pr):
             pr["copyright"] = {"spans": data["spans"], "at": data.get("at", 0), "how": data.get("how", ""),
-                               "curve": data.get("curve") or []}
+                               "curve": data.get("curve") or [], "named": data.get("named", 0)}
             return pr["copyright"]
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -248,7 +248,7 @@ def save_music(pr: dict, body: dict) -> dict:
             continue
         songs.append({"start": round(a, 2), "end": round(b, 2),
                       "act": s.get("act") if s.get("act") in MUSIC_ACTIONS else "mute", "mine": bool(s.get("mine")),
-                      "song": song_source(s.get("song"))})
+                      "song": song_source(s.get("song")), "found": _found(s.get("found"))})
     try:
         at = float(body.get("at") or 0)
     except (TypeError, ValueError):
@@ -280,9 +280,15 @@ def _scan_view(scan: Optional[dict]) -> Optional[dict]:
     can, rest = can_erase(), songerase.available()
     spans = []
     for s in scan["spans"]:
-        act = suggest_action(float(s.get("confidence", 0)), float(s.get("speech", 0)), can, rest)
-        spans.append(dict(s, speech=s.get("speech", 0), suggest=act if act in MUSIC_ACTIONS and (can or act != "voice") else "mute"))
-    return dict(scan, spans=spans)
+        known = bool((s.get("song") or {}).get("url"))
+        act = "voice" if known else suggest_action(float(s.get("confidence", 0)), float(s.get("speech", 0)), can, rest)
+        spans.append(dict(s, speech=s.get("speech", 0), suggest=act if act in MUSIC_ACTIONS and (can or known or act != "voice") else "mute"))
+    return dict(scan, spans=spans, recognise=_can_recognise())
+
+
+def _can_recognise() -> bool:
+    import songid
+    return songid.available()
 
 
 # ---------------------------------------------------------------- which videos
@@ -405,6 +411,13 @@ def song_source(v) -> str:
     if re.match(r"^https?://", v, re.I):
         return v
     return v if os.path.isabs(v) else ""
+
+
+def _found(f) -> Optional[dict]:
+    """A recognised song as the screen sends it back: {"title", "artist", "url"}, checked."""
+    if not isinstance(f, dict) or not f.get("title"):
+        return None
+    return {"title": str(f["title"])[:200], "artist": str(f.get("artist") or "")[:200], "url": song_source(f.get("url"))}
 
 
 def _songs(rows, duration: float) -> list:
@@ -706,8 +719,8 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
         ro = replace(ro, speed="fast", crf=28, scale=min(ro.scale, SIZES["720"]))
     has_audio = bool(info.get("has_audio"))
     voice = [(x, y) for x, y, m in o["music"] if m == "voice" and y > a and x < b] if has_audio else []
-    # 5.3: the stretches whose song you named: that song is taken out exactly (YouTube Studio's Erase song works the
-    # same way, knowing the song); the eraser model only does the ones left
+    # 5.3: the stretches whose song is known (recognised, or named by you): that recording is taken out exactly, the way
+    # YouTube Studio's Erase song does it; the eraser model does the rest, and any part where the recording wasn't heard
     known = [(x, y, src) for x, y, src in o.get("songs") or [] if y > a and x < b] if has_audio else []
     voice = [(x, y) for x, y in voice if not any(p <= x + 0.01 and y - 0.01 <= q for p, q, _ in known)]
     hush = [(x, y) for x, y, m in o["music"] if m == "mute" and y > a and x < b] if has_audio else []
@@ -746,16 +759,21 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
         if known:
             import songref
             total = sum(min(y, b) - max(x, a) for x, y, _ in known)
-            step(f"Taking the songs you named out of {engine.fmt_ts(total)}")
+            step(f"Taking the recognised songs out of {engine.fmt_ts(total)}")
             known_src = os.path.join(tmpdir, f"known_{uuid.uuid4().hex[:8]}.flac")
             t0 = time.time()
-            share = w_voice * (0.5 if voice else 1.0)
+            share = w_voice * (0.5 if voice or can_erase() else 1.0)
             got = songref.erase_known(video, known, known_src, a, length, locations.temp_dir("songs"),
                                       progress=bar(w_hear, w_hear + share), check=check, log=log)
-            log(f"Named songs taken out in {engine.fmt_ts(time.time() - t0)}.")
-            if got["missed"]:
-                job["warning"] = ("The song you named wasn't heard in " + ", ".join(f"{engine.fmt_ts(p)}-{engine.fmt_ts(q)}" for p, q in got["missed"][:4])
-                                  + ". Those parts are left as they were: check it's the right song, or erase them without naming it.")
+            log(f"Known songs taken out in {engine.fmt_ts(time.time() - t0)}.")
+            left = [(max(p, a), min(q, b)) for p, q in got["missed"] if min(q, b) - max(p, a) >= 0.5]
+            if left and can_erase():        # where the recording wasn't heard, the eraser model does it
+                voice = sorted(voice + left)
+                log(f"The recording wasn't heard in {len(left)} part{'s' if len(left) != 1 else ''}: the eraser model does "
+                    + ", ".join(f"{engine.fmt_ts(p)}-{engine.fmt_ts(q)}" for p, q in left[:6]) + ".")
+            elif left:
+                job["warning"] = ("The song wasn't heard in " + ", ".join(f"{engine.fmt_ts(p)}-{engine.fmt_ts(q)}" for p, q in left[:4])
+                                  + ". Those parts are left as they were: get the song eraser in Settings › Downloads and tools to erase them too.")
             audio_src = known_src
             w_hear += share
             w_voice -= share
@@ -931,12 +949,42 @@ def _start(S, pid: str, key: str, kind: str, fn) -> dict:
     return job
 
 
-def start_scan(S, pid: str) -> dict:
+def name_songs(pr: dict, progress=lambda x: None, check=lambda: None, log=lambda m: None) -> dict:
+    """Which song each music stretch is (5.3, songid.py): recognised with Shazam, its recording found on YouTube, so
+    Erase song takes that exact recording out, the way YouTube Studio's does. Kept with the scan."""
+    import songid
+    scan = load_scan(pr)
+    if not scan or not scan.get("spans"):
+        return scan or {}
+    if not songid.available():
+        log("Song recognition isn't installed (shazamio): Erase song uses the eraser model.")
+        return scan
+    n = songid.name_spans(pr["video"], scan["spans"], locations.temp_dir("songs"), progress, check, log)
+    scan["named"] = time.time()
+    _write_json(_scan_file(pr), dict(scan, video=_sig(pr)))
+    found = sum(1 for x in scan["spans"] if (x.get("song") or {}).get("url"))
+    log(f"Recognised {n} of {len(scan['spans'])} music stretch{'es' if len(scan['spans']) != 1 else ''}"
+        f"{f', {found} with the recording found' if n else ''}.")
+    return scan
+
+
+def start_scan(S, pid: str, recognise_only: bool = False) -> dict:
+    """The copyright scan, then each stretch's song recognised. recognise_only: just the songs, on the last scan."""
     pr = S.projects[pid]
 
     def go(job):
-        S.job_step(job)("Looking for music")
-        return scan_copyright(pr, S.job_progress(job, 0, 1), S.job_check(job), S.job_logger(job))
+        step, check, log = S.job_step(job), S.job_check(job), S.job_logger(job)
+        if not recognise_only:
+            step("Looking for music")
+            scan_copyright(pr, S.job_progress(job, 0, 0.3), check, log)
+        step("Recognising the songs")
+        try:
+            name_songs(pr, S.job_progress(job, 0 if recognise_only else 0.3, 1), check, log)
+        except engine.Cancelled:
+            raise
+        except Exception as e:          # noqa: BLE001  the scan itself is done: recognising is a bonus
+            log(f"Couldn't recognise the songs: {e}")
+        return pr["copyright"]
     return _start(S, pid, "copyright_job", "copyright", go)
 
 
@@ -1080,13 +1128,22 @@ def view(S) -> dict:
 
 def suggested_songs(pr: dict) -> list:
     """The songs you named on Export VOD's Erase song stretches (5.3), for Segments: [(start, end, source)]."""
+    scan = load_scan(pr) or {}
+    found = {(s["start"], s["end"]): (s.get("song") or {}).get("url", "") for s in scan.get("spans", [])}
     mine = load_music(pr)
-    if not mine:
-        return []
-    scan = load_scan(pr)
-    same = abs(float(mine["at"]) - float((scan or {}).get("at") or 0)) < 1e-6
-    return [(s["start"], s["end"], s["song"]) for s in mine["songs"]
-            if s.get("act") == "voice" and song_source(s.get("song")) and (same or s.get("mine"))]
+    if not mine:                # the scan's stretches as they are: each recognised one with its recording
+        return [(a, b, u) for (a, b), u in found.items() if song_source(u)]
+    same = abs(float(mine["at"]) - float(scan.get("at") or 0)) < 1e-6
+    out = []
+    for s in mine["songs"]:
+        if s.get("act") != "voice" or not (same or s.get("mine")):
+            continue
+        # the song you named, else the one recognised for the same stretch (edges you moved keep it)
+        src = (song_source(s.get("song")) or song_source((s.get("found") or {}).get("url"))
+               or (song_source(found.get((s["start"], s["end"]))) if same else ""))
+        if src:
+            out.append((s["start"], s["end"], src))
+    return out
 
 
 def suggested(pr: dict) -> tuple:
@@ -1095,12 +1152,12 @@ def suggested(pr: dict) -> tuple:
     check mutes. ([(start, end, "voice" | "mute")], [(start, end)])"""
     scan = _scan_view(load_scan(pr))
     music = [(s["start"], s["end"], s["suggest"]) for s in (scan or {}).get("spans", []) if s["suggest"] != "keep"]
+    named = {(a, b) for a, b, _ in suggested_songs(pr)}
     mine = load_music(pr)
     if mine:          # what you set on Export VOD: all of it for this scan, only what you marked yourself for a newer one
         same = abs(float(mine["at"]) - float((scan or {}).get("at") or 0)) < 1e-6
         rows = [s for s in mine["songs"] if same or s.get("mine")]
         music = ([] if same else music) + [(s["start"], s["end"], s["act"]) for s in rows if s["act"] != "keep"]
-        named = {(s["start"], s["end"]) for s in rows if s["act"] == "voice" and s.get("song")}
         # without the song eraser, an Erase song stretch is muted, unless you said which song it is (that needs no model)
         music = [(a, b, "mute" if m == "voice" and not can_erase() and (a, b) not in named else m) for a, b, m in sorted(music)]
     flags = (load_flags(pr) or {}).get("flags") or []

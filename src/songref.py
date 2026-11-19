@@ -290,11 +290,16 @@ def erase_known(video: str, songs: list, out_path: str, start: float, length: fl
     pieces, found, missed = [], 0.0, []
     for i, (a, b, source) in enumerate(songs):
         check()
-        ref = read(fetch(source, folder, log))
-        if ref.shape[1] < SR:
-            raise RuntimeError("That song file has no sound in it.")
         x0 = max(start, a - PAD)
         x1 = min(start + length, b + PAD)
+        try:
+            ref = read(fetch(source, folder, log))
+            if ref.shape[1] < SR:
+                raise RuntimeError("that song file has no sound in it")
+        except RuntimeError as e:       # no network, the video gone: that stretch is left to the eraser model
+            log(f"Couldn't get the song for {engine.fmt_ts(a)} to {engine.fmt_ts(b)}: {e}")
+            missed.append((round(max(a, x0), 2), round(min(b, x1), 2)))
+            continue
         mix = read(video, x0, x1 - x0)
         cleaned, rep = clean(mix, ref, check=check,
                              progress=lambda f, i=i: progress((i + f) / len(songs) * 0.9))

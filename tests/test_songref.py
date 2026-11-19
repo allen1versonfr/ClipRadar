@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "src"))
 import numpy as np  # noqa: E402
 
 import engine  # noqa: E402
+import songid  # noqa: E402
 import songref  # noqa: E402
 import vodexport  # noqa: E402
 
@@ -150,6 +151,40 @@ check("every stretch keeps what to do with it", [m for _, _, m in o["music"]] ==
 check("a full path is a song file", vodexport.song_source(os.path.abspath(__file__)) == os.path.abspath(__file__)
       and vodexport.song_source("song.mp3") == "")
 
+# recognising the song (no network here: Shazam's answer and YouTube's search are made up)
+rows = [{"title": "Midnight City (Live at Coachella)", "channel": "M83", "url": "u-live", "duration": 260},
+        {"title": "M83 - Midnight City (Official Video)", "channel": "M83VEVO", "url": "u-video", "duration": 250},
+        {"title": "Midnight City", "channel": "M83 - Topic", "url": "u-topic", "duration": 243},
+        {"title": "Midnight City (Slowed + Reverb)", "channel": "someone", "url": "u-slowed", "duration": 300},
+        {"title": "Some other song", "channel": "M83 - Topic", "url": "u-other", "duration": 200},
+        {"title": "Midnight City 10 hours", "channel": "loops", "url": "u-long", "duration": 36000}]
+got = [c["url"] for c in songid.candidates({"title": "Midnight City", "artist": "M83"}, search=lambda q: rows)]
+check("the artist's own recording (YouTube's Topic upload) is tried first, then the artist's video",
+      got[:2] == ["u-topic", "u-video"], str(got))
+check("live versions, slowed edits, other songs and 10-hour loops aren't taken for the recording",
+      not {"u-live", "u-slowed", "u-other", "u-long"} & set(got), str(got))
+check("samples are taken across a stretch, the middle first, each one long enough for Shazam",
+      songid.windows(100, 220)[0] == 154.0 and all(100 <= t <= 220 - songid.WINDOW for t in songid.windows(100, 220))
+      and songid.windows(100, 105) == [100])
+
+# the scan's recognised songs are used by Segments with nothing set on Export VOD
+pr = {"workdir": tempfile.mkdtemp(prefix="songref_pr_"), "video": os.path.abspath(__file__),
+      "copyright": {"at": 1.0, "how": "test", "curve": [], "spans": [
+          {"start": 10.0, "end": 30.0, "confidence": 0.9, "speech": 0.5, "song": {"title": "A", "artist": "B", "url": "https://www.youtube.com/watch?v=t"}},
+          {"start": 50.0, "end": 60.0, "confidence": 0.9, "speech": 0.5, "song": {"title": "C", "artist": "D", "url": ""}},
+          {"start": 70.0, "end": 80.0, "confidence": 0.9, "speech": 0.5}]}}
+check("Segments takes the recognised recordings out (only those whose recording was found)",
+      vodexport.suggested_songs(pr) == [(10.0, 30.0, "https://www.youtube.com/watch?v=t")], str(vodexport.suggested_songs(pr)))
+view = vodexport._scan_view(pr["copyright"])
+check("a stretch whose recording was found starts as Erase song", view["spans"][0]["suggest"] == "voice", str(view["spans"][0]))
+vodexport.save_music(pr, {"at": 1.0, "songs": [{"start": 12.0, "end": 28.0, "act": "voice",
+                                               "found": {"title": "A", "artist": "B", "url": "https://www.youtube.com/watch?v=t"}},
+                                              {"start": 50.0, "end": 60.0, "act": "voice", "song": "https://youtu.be/mine"}]})
+check("edges you moved keep the song recognised for them, and a song you named is used",
+      vodexport.suggested_songs(pr) == [(12.0, 28.0, "https://www.youtube.com/watch?v=t"), (50.0, 60.0, "https://youtu.be/mine")],
+      str(vodexport.suggested_songs(pr)))
+shutil.rmtree(pr["workdir"], ignore_errors=True)
+
 if not have_ffmpeg():
     print("[skip] no ffmpeg here: the song file and the export's sound aren't made (the render job runs them)")
 else:
@@ -183,6 +218,29 @@ else:
         drop = db(y[:, mid] - voice[:, int(11 * SR):int(29 * SR)]) - db(music[:, int(11 * SR):int(29 * SR)])
         check("inside it the song is taken out", drop <= -10, f"{drop:.1f}")
         check("the report says how much was found", r["found"] >= 15 and not r["missed"], str(r))
+
+        # the recording found for a recognised song must be the one in the stream: a wrong upload ranked first is passed over
+        wrong_file = os.path.join(tmp, "wrong.flac")
+        write(wrong_file, song(2, 60))
+        found = songid.find_recording({"title": "Song", "artist": "Band"}, mix[:, 10 * SR:30 * SR], cache, search=lambda q: [
+            {"title": "Song", "channel": "Band - Topic", "url": wrong_file, "duration": 60},
+            {"title": "Band - Song", "channel": "Band", "url": ref_file, "duration": 60}])
+        check("of the recordings found, the one that's really in the stream is taken", (found or {}).get("url") == ref_file, str(found))
+
+        # recognising a scan's stretches: Shazam's answer made up, everything else real
+        asked = []
+        real_ask = songid._ask
+        songid._ask = lambda x: asked.append(x.shape[1]) or {"title": "Song", "artist": "Band", "key": "1"}
+        real_search = songid._search
+        songid._search = lambda q: [{"title": "Band - Song", "channel": "Band", "url": ref_file, "duration": 60}]
+        try:
+            spans = [{"start": 6.0, "end": 38.0}, {"start": 0.0, "end": 4.0}]
+            n = songid.name_spans(stream, spans, cache)
+        finally:
+            songid._ask, songid._search = real_ask, real_search
+        check("a stretch is recognised and its recording found", n == 1 and spans[0].get("song", {}).get("url") == ref_file, str(spans))
+        check("Shazam is sent 12 s samples, and a stretch too short isn't sent at all",
+              asked and all(k >= songid.WINDOW * SR * 0.95 for k in asked) and "song" not in spans[1], str(asked))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

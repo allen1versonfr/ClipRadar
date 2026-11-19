@@ -7,7 +7,7 @@ import { usePoll } from '../../hooks/usePoll'
 import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
-import { ACTIONS, isSongSource, musicSummary, spanLabel, type MusicAction, type Song } from './spans'
+import { ACTIONS, isSongSource, musicSummary, songSource, spanLabel, type MusicAction, type Song } from './spans'
 import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from './VodTimeline'
 
 const loadView = () => api(VodExport, '/api/vodexport')
@@ -108,14 +108,16 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   // the music: what the scan found, as it suggests, until you change any of it; then your list, kept for this video
   // (moved edges, stretches you marked yourself). A new scan starts over from what it found, keeping the ones you marked.
   const scanAt = v.scan?.at ?? 0
-  const fromScan = (): Song[] => (v.scan?.spans ?? []).map(s => ({ start: s.start, end: s.end, act: s.suggest, confidence: s.confidence, speech: s.speech }))
+  const fromScan = (): Song[] => (v.scan?.spans ?? []).map(s => ({ start: s.start, end: s.end, act: s.suggest, confidence: s.confidence, speech: s.speech, found: s.song }))
+  // a list kept from before the songs were recognised: each stretch gets the song recognised for it (same edges)
+  const foundAt = (s: Song) => s.found ?? v.scan?.spans.find(x => x.start === s.start && x.end === s.end)?.song
   // kept on the server with the video (so Segments uses it too, and it's there in any window), and here until it's saved
   const [songsFor, setSongsFor] = useState<{ at: number; songs: Song[] } | undefined>(
     () => v.music ?? getPref<Record<string, { at: number; songs: Song[] }>>('vodxSongs', {})[v.pid])
   const saveTimer = useRef(0)
-  const listOf = (cur = songsFor): Song[] => (cur && cur.at === scanAt ? cur.songs : [...fromScan(), ...(cur?.songs.filter(s => s.mine) ?? [])].sort((a, b) => a.start - b.start))
-  // Erase song needs the eraser model, or the song named (that needs no model)
-  const canErase = (s: Song) => canRemove || isSongSource(s.song)
+  const listOf = (cur = songsFor): Song[] => (cur && cur.at === scanAt ? cur.songs.map(s => ({ ...s, found: foundAt(s) })) : [...fromScan(), ...(cur?.songs.filter(s => s.mine) ?? [])].sort((a, b) => a.start - b.start))
+  // Erase song needs the eraser model, or the song's recording (named or recognised: that needs no model)
+  const canErase = (s: Song) => canRemove || !!songSource(s)
   const songs: Song[] = listOf().map(s => (s.act === 'voice' && !canErase(s) ? { ...s, act: 'mute' as const } : s))
   const acts = songs.map(s => s.act)
   const setSongs = (fn: (s: Song[]) => Song[]) => setSongsFor(cur => {
@@ -160,7 +162,7 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   const options = (): Record<string, unknown> => ({
     pid: v.pid, captions: 'off', words: c.words, size: c.size, quality: c.quality, whisper_model: model, language,
     hw_encode: base.hw_encode,
-    music: songs.filter(s => s.act !== 'keep').map(s => (s.act === 'voice' && isSongSource(s.song) ? [s.start, s.end, s.act, s.song!.trim()] : [s.start, s.end, s.act])),
+    music: songs.filter(s => s.act !== 'keep').map(s => (s.act === 'voice' && songSource(s) ? [s.start, s.end, s.act, songSource(s)] : [s.start, s.end, s.act])),
     word_spans: ticked.map(f => [Math.max(0, f.start - 0.05), f.end + 0.05]),
   })
   async function start(path: string, body: object, what: string) {
@@ -202,14 +204,21 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
         </header>
         <p className="muted">Music is the usual cause of copyright claims and muted VODs. <b>Erase song</b> takes the song out, its singing
           too, and keeps people talking and the game's sound, the way YouTube Studio's Erase song does. <b>Mute all sound</b> silences the
-          whole stretch. The scan hears that music is playing, not which song: check what it found, and mark any it missed
-          (Shift and drag on the timeline, or the button below).</p>
+          whole stretch. Each song is recognised (as Shazam does) and its own recording taken out exactly, like YouTube Studio's; a song that isn't
+          recognised is erased by the eraser model. Check what the scan found, and mark any it missed (Shift and drag on the timeline,
+          or the button below).</p>
         {!view.music_model && !v.scan && <p className="hint">Needs the laughter detector (it also hears music). Get it in {toolsLink}.</p>}
         {!canRemove && <p className="hint" data-testid="vodx-no-remover">Erase song needs the song eraser
           (about {view.voice_model_mb} MB). Get it in {toolsLink}. Until then, music can only be muted.</p>}
-        {v.scan_job?.status === 'running' && <JobBar job={v.scan_job} label="Looking for music" />}
+        {v.scan_job?.status === 'running' && <JobBar job={v.scan_job} label={v.scan_job.step || "Looking for music"} />}
         {v.scan_job?.status === 'error' && <p className="banner err" role="alert">{v.scan_job.error}</p>}
         {v.scan && v.scan_job?.status !== 'running' && songs.length === 0 && <p data-testid="vodx-clean">No music found.</p>}
+        {v.scan && v.scan.recognise && !v.scan.named && v.scan.spans.length > 0 && v.scan_job?.status !== 'running' && (
+          <p className="row wrap" data-testid="vodx-recognise-row">
+            <span className="grow">Which songs are these? Recognising them lets Erase song take each exact recording out, like YouTube Studio.</span>
+            <button className="btn sm" data-testid="vodx-recognise" disabled={!v.exists}
+                    onClick={() => void start('/api/vodexport/recognise', { pid: v.pid }, 'Recognising the songs…')}>Recognise the songs</button>
+          </p>)}
         {songs.length > 0 && v.scan_job?.status !== 'running' && <>
           <p data-testid="vodx-music-summary">{musicSummary(songs, acts)}</p>
           <div className="row wrap">
@@ -226,17 +235,20 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
                 <small className="muted">{s.mine ? 'Marked by you' : talk(s)}</small>
                 <Seg label={`Music at ${fmtTime(s.start)}`} value={s.act} options={ACTIONS.filter(([a]) => a !== 'voice' || canErase(s))}
                      onChange={a => setAct(i, a as MusicAction)} />
+                {s.found && <p className="vodx-found small" data-testid="vodx-found">
+                  ♪ <b>{s.found.artist ? `${s.found.artist} – ` : ''}{s.found.title}</b>{' '}
+                  <span className="muted">{s.found.url ? (s.act === 'voice' ? 'recognised: its recording is taken out exactly' : 'recognised')
+                    : "recognised, but its recording isn't on YouTube: the eraser model does it"}</span></p>}
                 {(s.act === 'voice' || !canRemove) && s.act !== 'keep' && (
-                  <label className="vodx-song-ref">
-                    <span className="small">Which song? <span className="muted">(optional)</span></span>
+                  <details className="vodx-song-ref" open={!s.found && !!s.song}>
+                    <summary className="small">{s.found ? 'Not this song?' : 'Know which song it is?'}</summary>
                     <input type="text" data-testid="vodx-song-ref" value={s.song ?? ''} placeholder="YouTube link or song file"
                            aria-invalid={!!s.song?.trim() && !isSongSource(s.song)}
                            aria-label={`Which song plays at ${fmtTime(s.start)}: a YouTube link or the path of a song file`}
                            onChange={e => setSongOf(i, e.target.value)} />
                     <small className="muted">{s.song?.trim() && !isSongSource(s.song) ? 'Paste a link (https://…) or the full path of a song file.'
-                      : isSongSource(s.song) ? 'That exact recording is taken out, so the talking stays nearly untouched.'
-                      : 'Name it and that exact recording is taken out, like YouTube Studio\'s Erase song: much cleaner.'}</small>
-                  </label>)}
+                      : 'Paste its YouTube link (or the song file) and that exact recording is taken out.'}</small>
+                  </details>)}
                 <span className="row vodx-span-acts">
                   <button className="btn sm ghost" disabled={!v.exists || v.preview_job?.status === 'running'} data-testid="vodx-span-hear"
                           onClick={() => { setSelSong(i); exactAt(s.start) }}>Hear it</button>

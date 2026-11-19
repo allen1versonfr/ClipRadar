@@ -47,7 +47,7 @@ set "VPY=.venv\Scripts\python.exe"
 
 echo   [2/5] Installing core packages...
 "%VPY%" -m pip install --upgrade pip --disable-pip-version-check -q
-"%VPY%" -m pip install -U --disable-pip-version-check -q numpy "yt-dlp[default]"
+"%VPY%" -m pip install -U --disable-pip-version-check -q numpy "yt-dlp[default]" shazamio
 if errorlevel 1 ( echo   Package install failed. Check your internet connection and run install.bat again. & pause & exit /b 1 )
 
 echo   [3/5] Installing captions (Whisper). First time takes a few minutes...

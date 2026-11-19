@@ -644,12 +644,16 @@ export const Restored = z.looseObject({ clip: Clip.optional() })
 
 /** Export VOD (/api/vodexport): the videos that can be exported, each one's copyright (music) scan and flagged words,
  *  the jobs on it, and the videos on this PC that could be opened. */
+/** the song a music stretch was recognised as (5.3): url is its recording on YouTube, "" when only the name is known */
+export const FoundSong = z.object({ title: z.string(), artist: z.string().default(''), url: z.string().default('') })
+export type FoundSong = z.infer<typeof FoundSong>
 export const MusicSpan = z.looseObject({
   start: z.number(), end: z.number(), confidence: z.number().default(0),
   /** the part of the stretch where someone is talking, 0..1 */
   speech: z.number().default(0),
   /** what it starts as: voice (remove the music, keep voices), mute (silence it all), keep */
   suggest: z.enum(['voice', 'mute', 'keep']).catch('mute'),
+  song: FoundSong.nullish().catch(null),
 })
 export type MusicSpan = z.infer<typeof MusicSpan>
 export const VodFlag = z.looseObject({
@@ -668,7 +672,7 @@ export const VodExportVideo = z.looseObject({
   /** the music as you last left it on the screen (5.0): moved edges, what to do, the stretches you marked */
   music: z.object({ at: z.number().default(0), songs: z.array(z.object({ start: z.number(), end: z.number(),
     act: z.enum(['voice', 'mute', 'keep']).catch('mute'), mine: z.boolean().default(false),
-    song: z.string().default('') })).default([]) }).nullish(),
+    song: z.string().default(''), found: FoundSong.nullish().catch(null) })).default([]) }).nullish(),
   title: z.string().default(''),
   duration: z.number().default(0),
   exists: z.boolean().default(true),
@@ -678,7 +682,9 @@ export const VodExportVideo = z.looseObject({
   height: z.number().default(0),
   copyable: z.boolean().default(false),
   light: z.boolean().default(false),
-  scan: z.looseObject({ spans: z.array(MusicSpan).default([]), at: z.number().default(0), how: z.string().default('') }).nullable().optional(),
+  scan: z.looseObject({ spans: z.array(MusicSpan).default([]), at: z.number().default(0), how: z.string().default(''),
+    /** when the songs were recognised (0: not yet), and whether recognition is installed */
+    named: z.number().default(0), recognise: z.boolean().default(false) }).nullable().optional(),
   scan_job: VodJob,
   flags: z.looseObject({ flags: z.array(VodFlag).default([]), at: z.number().default(0), stale: z.boolean().default(false) }).nullable().optional(),
   words_job: VodJob,

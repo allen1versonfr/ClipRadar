@@ -65,6 +65,40 @@ describe('Export VOD', () => {
     expect(screen.queryByRole('radio', { name: 'Erase song' })).toBeNull()
   })
 
+  it('a recognised song is shown and its recording sent with its stretch, without being asked', async () => {
+    const calls: Array<[string, unknown]> = []
+    const scan = { ...VIDEO.scan, named: 9, recognise: true, spans: [
+      { ...VIDEO.scan.spans[0], song: { title: 'Midnight City', artist: 'M83', url: 'https://www.youtube.com/watch?v=topic1' } },
+      VIDEO.scan.spans[1]] }
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [{ ...VIDEO, scan }] }))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    expect((await screen.findByTestId('vodx-found')).textContent).toMatch(/M83 – Midnight City.*taken out exactly/)
+    expect(screen.queryByTestId('vodx-recognise')).toBeNull()        // already recognised
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    expect((sent(calls, '/api/vodexport/start')!.music as unknown[])[0]).toEqual([60, 240, 'voice', 'https://www.youtube.com/watch?v=topic1'])
+  })
+
+  it('a song named by hand wins over the one recognised', async () => {
+    const calls: Array<[string, unknown]> = []
+    const scan = { ...VIDEO.scan, named: 9, recognise: true, spans: [
+      { ...VIDEO.scan.spans[0], song: { title: 'Wrong', artist: 'Someone', url: 'https://www.youtube.com/watch?v=wrong' } }, VIDEO.scan.spans[1]] }
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [{ ...VIDEO, scan }] }))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    fireEvent.change(await screen.findByTestId('vodx-song-ref'), { target: { value: 'https://youtu.be/right' } })
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    expect((sent(calls, '/api/vodexport/start')!.music as unknown[])[0]).toEqual([60, 240, 'voice', 'https://youtu.be/right'])
+  })
+
+  it('a scan from before recognition offers to recognise the songs', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [{ ...VIDEO, scan: { ...VIDEO.scan, named: 0, recognise: true } }] }))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    fireEvent.click(await screen.findByTestId('vodx-recognise'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/recognise')).toMatchObject({ pid: 'p1' }))
+  })
+
   it('naming the song (a YouTube link) sends it with its stretch and keeps it with the video', async () => {
     const calls: Array<[string, unknown]> = []
     vi.stubGlobal('fetch', server(calls))
