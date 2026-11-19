@@ -5,6 +5,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.1.2] - 2026-11-19
+
+### Removed
+- **Captions on Export VOD and Segments.** YouTube makes its own captions for every video, so these exports have none:
+  nothing burned in, no subtitle file, and nothing listened to for them. Gone from the screens: Export VOD's Captions
+  panel (burned in, subtitle file, the look) and the captions drawn over its preview, and in Segments the captions
+  choice and each segment's caption editor. The flagged words check and Find segments still listen, for what they need.
+  Clips (Moments) keep their captions.
+
+### Changed
+- **So both exports are quick at the Original size:** with nothing drawn on the picture it's always copied as it is and
+  only the sound is made again (before, the default of burned-in captions meant every frame was made again).
+
+### Tests
+- `test_vodexport.py`, `test_segments.py`: no captions and no subtitle file even when asked for, and asking for
+  burned-in captions no longer stops the picture being copied. `VodExportView.test.tsx`: no captions offered or sent.
+
 ## [5.1.1] - 2026-11-19
 
 ### Changed

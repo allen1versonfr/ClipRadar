@@ -88,20 +88,17 @@ describe('Export VOD', () => {
     await waitFor(() => expect(sent(calls, '/api/vodexport/words')).toMatchObject({ pid: 'p1' }))
   })
 
-  it('captions: the look is sent with the export, and with captions off nothing about listening is shown', async () => {
+  it('5.1.2: no captions (YouTube makes its own): none offered, none sent, and the picture is copied', async () => {
     const calls: Array<[string, unknown]> = []
     vi.stubGlobal('fetch', server(calls))
     render(<ToastProvider><VodExportView /></ToastProvider>)
-    const caps = await screen.findByTestId('vodx-captions')
-    fireEvent.click(within(caps).getByRole('radio', { name: 'Boxed' }))
-    fireEvent.click(within(caps).getByRole('radio', { name: 'Top' }))
-    fireEvent.click(screen.getByTestId('vodx-export'))
-    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
-    expect(sent(calls, '/api/vodexport/start')).toMatchObject({ captions: 'burn', style: { caption_style: 'box', caption_pos: 'top' } })
-    fireEvent.click(within(caps).getByRole('radio', { name: 'Off' }))
-    expect(screen.queryByTestId('vodx-style')).toBeNull()
-    expect(within(caps).queryByText(/listened to first/)).toBeNull()
+    await screen.findByTestId('vodx-copyright')
+    expect(screen.queryByTestId('vodx-captions')).toBeNull()
+    expect(screen.queryByTestId('vodx-caption')).toBeNull()
     expect(screen.getByTestId('vodx-speed').textContent).toMatch(/copied as it is/)
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toMatchObject({ captions: 'off' }))
+    expect(sent(calls, '/api/vodexport/start')).not.toHaveProperty('style')
   })
 
   it('the exact preview starts from where the player is', async () => {
@@ -113,12 +110,11 @@ describe('Export VOD', () => {
     await waitFor(() => expect(sent(calls, '/api/vodexport/preview')).toMatchObject({ pid: 'p1', at: 60, music: [[60, 240, 'voice'], [3600, 3660, 'mute']] }))
   })
 
-  it('without the speech model, exports without captions instead of failing', async () => {
+  it('without the speech model, the flagged words check says what it needs, and the export still goes', async () => {
     const calls: Array<[string, unknown]> = []
     vi.stubGlobal('fetch', server(calls, { ...VIEW, whisper: false, videos: [{ ...VIDEO, flags: null }] }))
     render(<ToastProvider><VodExportView /></ToastProvider>)
-    expect((await screen.findAllByText(/Needs the speech model/)).length).toBe(2)
-    expect(screen.queryByRole('radiogroup', { name: 'Captions' })).toBeNull()
+    expect((await screen.findAllByText(/Needs the speech model/)).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByTestId('vodx-export'))
     await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toMatchObject({ captions: 'off', word_spans: [] }))
   })

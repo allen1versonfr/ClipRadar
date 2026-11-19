@@ -91,7 +91,8 @@ o = vodexport.clean_options({"captions": "nope", "words": "bleep", "size": 720, 
                              "music": [[5, 9], ["x", 1], [50, 900, "voice"], [3, 3.05], [20, 30, "nonsense"]],
                              "word_spans": [[12, 12.4], [200, 201], ["a", "b"]],
                              "style": {"caption_size": 80, "caption_style": "box", "layout": "cam", "words_per_line": 4}}, 100)
-check("an unknown captions choice is burned in", o["captions"] == "burn")
+check("no captions, whatever is asked (5.1.2: YouTube makes its own)", o["captions"] == "off"
+      and vodexport.clean_options({"captions": "burn"}, 100)["captions"] == "off")
 check("music spans are kept inside the video with what to do, bad ones dropped",
       o["music"] == [(5.0, 9.0, "mute"), (20.0, 30.0, "mute"), (50.0, 100.0, "voice")], o["music"])
 check("flagged word spans are kept inside the video", o["word_spans"] == [(12.0, 12.4)], o["word_spans"])
@@ -106,7 +107,7 @@ check("the stream keeps its own volume", ro.loudness == 0.0)
 src = vodexport.clean_options({"captions": "off"}, 100)
 check("the video's own size: a 720p video stays 720p", abs(vodexport.render_opts(server, src, {"width": 1280, "height": 720}).scale - 0.6667) < 0.01)
 check("the picture is copied when nothing is drawn on it", vodexport.can_copy(src, {"vcodec": "h264"}))
-check("not with captions burned in", not vodexport.can_copy(vodexport.clean_options({"captions": "burn"}, 100), {"vcodec": "h264"}))
+check("asking for burned-in captions doesn't stop the copy any more", vodexport.can_copy(vodexport.clean_options({"captions": "burn"}, 100), {"vcodec": "h264"}))
 check("not at another size", not vodexport.can_copy(vodexport.clean_options({"captions": "off", "size": "720"}, 100), {"vcodec": "h264"}))
 check("not a kind of video an .mp4 can't hold", not vodexport.can_copy(src, {"vcodec": "vp9"}))
 
@@ -299,9 +300,8 @@ if shutil.which("ffmpeg"):
               os.path.normcase(r["folder"]) == os.path.normcase(locations.vods_dir()), r["folder"])
         check("all of it, in a wide frame", abs(info["duration"] - 40) < 0.6 and info["width"] / info["height"] > 1.7, info)
         check("at the size asked", info["height"] == 480, info)
-        check("with a subtitle file next to it", r["srt"] and os.path.isfile(os.path.join(r["folder"], r["srt"])), r)
-        srt = open(os.path.join(r["folder"], r["srt"]), encoding="utf-8").read()
-        check("the muted word is masked in the captions", "fucking" not in srt and "word" in srt, srt[:300])
+        check("no subtitle file, and no captions even when asked for (5.1.2)", not r["srt"] and not r["captions"]
+              and not [f for f in os.listdir(r["folder"]) if f.endswith(".srt")], r)
         check("music and the flagged word counted", r["muted_music"] == 30 and r["muted_words"] == 1 and not r["copied"], r)
         check("music stretches are silent", rms(r["path"], 1.05) < 0.005 and rms(r["path"], 9.05) < 0.005)
         check("between them the sound plays", rms(r["path"], 1.5, 0.2) > 0.05, rms(r["path"], 1.5, 0.2))
