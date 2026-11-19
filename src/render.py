@@ -190,6 +190,12 @@ SPEEDS = {   # x264 preset, quality offset (lower crf = better), NVENC preset
     "fast": ("veryfast", 2, "p3"),
     "balanced": ("medium", 0, "p5"),
     "high": ("slow", -2, "p7"),
+    # 5.1.1: Export VOD and Segments, long wide videos. Balanced is a step quicker with a little more quality to make
+    # up for it: the same picture in about three quarters of the time (x264 "faster" at CRF 19 against "medium" at 20,
+    # 1080p, 40 s: SSIM 0.9981 against 0.9979, 14.0 s against 18.3 s). Fast and Best are as for clips.
+    "wide_fast": ("veryfast", 2, "p3"),
+    "wide_balanced": ("faster", -1, "p4"),
+    "wide_high": ("slow", -2, "p7"),
 }
 
 

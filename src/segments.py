@@ -347,7 +347,7 @@ def _out_name(name: str, outdir: str) -> str:
     return out
 
 
-def _make(S, job: dict, pr: dict, o: dict, plan: list, path: str, tmp: str, band: tuple, label) -> dict:
+def _make(S, job: dict, pr: dict, o: dict, plan: list, path: str, tmp: str, band: tuple, label, copy: bool = False) -> dict:
     """The stretches in plan [(segment, start, end)], one after another, in one file at path. Each is made the way
     Export VOD makes a video, then they're joined without being made again. A subtitle file goes next to it when
     asked for. band: the share of the job's bar this takes; label(i): what each step says first."""
@@ -361,7 +361,7 @@ def _make(S, job: dict, pr: dict, o: dict, plan: list, path: str, tmp: str, band
             done = sum(y - x for _, x, y in plan[:i])
             r = vodexport.render_range(S, job, pr, dict(o, gain_db=s["gain_db"]), a, b, part, whole=True, part=True,
                                        band=(lo + (hi - lo) * 0.97 * done / total, lo + (hi - lo) * 0.97 * (done + b - a) / total),
-                                       label=label(i), words=caption_words(s))
+                                       label=label(i), words=caption_words(s), copy=copy)
             made.append(part)
             ro = r["ro"]
             words += [dict(w, start=w["start"] - a + at, end=w["end"] - a + at) for w in r["words"]]
@@ -403,8 +403,26 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
     groups = [(s, g) for s, g in groups if g]
     if not groups:
         raise RuntimeError("Nothing to export: tick at least one segment." if not one else "This segment is all cut out.")
-    total = sum(b - a for _, g in groups for _, a, b in g)
     o = vodexport.clean_options(body, dur)
+    # 5.1.1: with nothing drawn on the picture (no burned-in captions, the video's own size) each stretch's picture is
+    # copied as it is and only the sound is made again: many times faster. A copied picture starts on a keyframe, so
+    # a segment starts on the keyframe just before where you set it (a second or two more, nothing lost), and after a
+    # cut on the keyframe just after (a little more cut). Burned-in captions mean every frame is made again.
+    copied = set()
+    if vodexport.can_copy(o, engine.probe(pr["video"])):
+        kf = vodexport.keyframes(pr["video"], [a for _, g in groups for _, a, _ in g])
+        snapped = []
+        for s, g in groups:
+            new = vodexport.snap_to_keyframes([(a, b) for _, a, b in g], kf)
+            if all(new):
+                snapped.append((s, [(s, a, b) for a, b in new]))
+                copied.add(s["id"])
+            else:
+                snapped.append((s, g))          # a stretch with no keyframe near: this segment is made the slow way
+        groups = snapped
+        if mode == "join" and len(copied) != len(groups):     # one file: all copied, or all made again
+            groups, copied = [(s, [(s, a, b) for a, b in kept(s)]) for s, _ in groups], set()
+    total = sum(b - a for _, g in groups for _, a, b in g)
     if body.get("cleanup", True) is not False:
         o["music"], o["word_spans"] = vodexport.suggested(pr)
     outdir = locations.segments_dir()      # Settings › Storage › Segment exports, apart from the clips (5.0)
@@ -419,7 +437,7 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
         plan = [row for _, g in groups for row in g]
         path = os.path.join(outdir, _out_name(e["name"], outdir))
         files.append(_make(S, job, pr, o, plan, path, tmp, (0.0, 1.0),
-                           lambda i: f"{plan[i][0]['name'] or 'Segment'} ({i + 1} of {len(plan)}): "))
+                           lambda i: f"{plan[i][0]['name'] or 'Segment'} ({i + 1} of {len(plan)}): ", copy=bool(copied)))
     else:
         done = 0.0
         for k, (s, g) in enumerate(groups):
@@ -427,13 +445,14 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
             name = s["name"] or f"Segment {e['segments'].index(s) + 1}"
             path = os.path.join(outdir, _out_name(name, outdir))
             files.append(_make(S, job, pr, o, g, path, tmp, (done / total, (done + length) / total),
-                               lambda i, n=name: f"{n} ({k + 1} of {len(groups)}): "))
+                               lambda i, n=name: f"{n} ({k + 1} of {len(groups)}): ", copy=s["id"] in copied))
             done += length
     took = time.time() - t0
-    log(f"Saved {len(files)} video{'s' if len(files) != 1 else ''} ({engine.fmt_ts(total)} in all) in {engine.fmt_ts(took)}.")
+    log(f"Saved {len(files)} video{'s' if len(files) != 1 else ''} ({engine.fmt_ts(total)} in all) in {engine.fmt_ts(took)}"
+        + (", the picture copied as it is" if copied else "") + ".")
     first = files[0]
     return {"path": first["path"], "name": first["name"], "srt": first["srt"], "folder": outdir, "files": files,
-            "mode": mode, "length": round(total, 1), "parts": sum(len(g) for _, g in groups), "took": round(took, 1),
+            "mode": mode, "copied": len(copied), "length": round(total, 1), "parts": sum(len(g) for _, g in groups), "took": round(took, 1),
             "warning": job.get("warning", "")}
 
 

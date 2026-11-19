@@ -5,6 +5,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.1.1] - 2026-11-19
+
+### Changed
+- **Segments export many times faster when nothing is drawn on the picture.** With captions as a subtitle file or off
+  and the Original size, each segment's picture is now copied as it is and only the sound is made again (erased songs,
+  muted words), as Export VOD already did for a whole video. A copied picture can only start on a keyframe, so a segment
+  starts on the keyframe just before where you set it (Twitch and YouTube VODs have one every 2 seconds; never more than
+  2.5 seconds), and after a cut on the keyframe just after it, so nothing you cut is shown. A segment with no keyframe
+  that close is made the usual way, exactly where you set it. Measured on 2 minutes of 1080p in two segments
+  (4 cores): 54 s before, 7.4 s now.
+- **Rendering a segment (or a whole VOD) is about a fifth quicker** when every frame has to be made again (burned-in
+  captions, a new size). Balanced uses x264's "faster" preset with a little more quality to make up for it, for the same
+  picture: on 40 s of 1080p, SSIM 0.9981 against 0.9979 before, in 14.0 s against 18.3 s. The same 2 minutes of
+  segments: 54 s before, 43 s now. Fast and Best, and clips, are unchanged.
+- The Segments export panel says which choices make it quick.
+
+### Tests
+- `tests/test_segments.py`: on a video with a keyframe every 2 s, both segments copied, each as long as asked plus at
+  most the keyframe before, the frames matching the source where they should (the cut stretch not shown), and the sound
+  as long as the picture; an edge too far from a keyframe isn't copied, and the earlier exact tests (keyframes 8 s apart)
+  still make it the usual way.
+
 ## [5.1.0] - 2026-11-19
 
 YouTube gets what TikTok has: a YouTube edit of every moment you keep, uploaded for you or handed over, with settings
