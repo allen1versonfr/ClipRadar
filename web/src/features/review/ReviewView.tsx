@@ -6,8 +6,8 @@ import { useToast } from '../../components/Toasts'
 import { plural } from '../../format'
 import { usePoll } from '../../hooks/usePoll'
 import { getPref, type RenderOpts, renderOpts, setPref } from '../../prefs'
-import { CHECK_LABEL, checkStatus, type Filter, fmt, gate, isGem, keepBody, keyOf, merge, nextTodo, openFlags, postFor,
-  prep, qClass, queueFor, snapshot, visible } from './model'
+import { CHECK_LABEL, checkStatus, type Filter, fmt, fromYtView, gate, isGem, keepBody, keyOf, merge, nextTodo, openFlags, postFor,
+  prep, qClass, queueFor, snapshot, visible, ytOpts, ytView } from './model'
 import { bounds, clamp, fmtA, frameStep, type History, push, snapOf, type Snap } from './edit'
 import { Player, type PlayerHandle } from './Player'
 import { layoutOf } from './draw'
@@ -136,6 +136,17 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   const setOpts = useCallback((patch: Partial<RenderOpts>, persist = true) => {
     setOptsState(o => { const n = { ...o, ...patch }; if (persist) setPref('opts', n); return n })
   }, [])
+  // 5.4: the YouTube edit, worked on the same way as the TikTok one (Editing: TikTok | YouTube, while YouTube too is
+  // on): its own cut, title, description, volume and captions (kept with the clip), and its own Text and Layout
+  // settings over the TikTok edit's (kept like those, for every clip)
+  const [edition, setEditionState] = useState<'tiktok' | 'youtube'>(() => (getPref('ytEditing', false) ? 'youtube' : 'tiktok'))
+  const yt = ytToo && edition === 'youtube'
+  const ytRef = useRef(yt)
+  ytRef.current = yt
+  const [ytOver, setYtOverState] = useState<Partial<RenderOpts>>(() => getPref<Partial<RenderOpts>>('ytOpts', {}))
+  const setYtOver = useCallback((patch: Partial<RenderOpts>, persist = true) => {
+    setYtOverState(o => { const n = { ...o, ...patch }; if (persist) setPref('ytOpts', n); return n })
+  }, [])
   const [guides, setGuides] = useState(() => !!getPref('guides', false))
   // the watermark clips get: the active campaign's own, or yours (Settings › Watermark)
   const exp = usePoll(useCallback(() => api(ExportFormat, '/api/export'), []), 30_000)
@@ -157,6 +168,8 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   const [extras, setExtras] = useState<Record<string, Extras | null>>({})
   const clipsRef = useRef(clips)
   clipsRef.current = clips
+  const curRef = useRef(cur)
+  curRef.current = cur
   const saveT = useRef(new Map<string, ReturnType<typeof setTimeout>>())      // typing: saved after a pause, per clip
 
   const safety = usePoll(useCallback(() => api(Safety, '/api/safety'), []), 60_000).data
@@ -168,10 +181,12 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   const queue = usePoll(useCallback(async () => ({ e: epoch.current, q: await api(Queue, '/api/queue') }), []), 2000)
   const items: QueueItem[] = queue.data?.q.items ?? []
 
-  const update = useCallback((k: string, f: (c: Clip) => Clip, persist: 'now' | 'soon' | 'no' = 'now') => {
+  /** Change a clip. While the YouTube edit is on screen, a change to the clip on screen is made to its YouTube edit
+   *  (raw: to the moment itself, e.g. the content check's answer). */
+  const update = useCallback((k: string, f: (c: Clip) => Clip, persist: 'now' | 'soon' | 'no' = 'now', raw = false) => {
     setClips(cs => cs.map(c => {
       if (keyOf(c) !== k) return c
-      const n = f(c)
+      const n = !raw && ytRef.current && k === curRef.current ? fromYtView(c, f(ytView(c))) : f(c)
       if (persist === 'now') { clearTimeout(saveT.current.get(k)); saveT.current.delete(k); save(n) }
       else if (persist === 'soon') {
         // saved after a pause, as the clip is then: a keep or skip in the meantime isn't undone by an older copy
@@ -316,26 +331,43 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
     }))
   }, [queue.data])
 
+  const base = clips.find(x => keyOf(x) === cur)
+  const c = base && yt ? ytView(base) : base          // the clip on screen: its YouTube edit while that's being worked on
+  /** The moment itself (not its YouTube edit), for what's sent about the moment: keep, the content check. */
+  const baseOf = (x: Clip) => clipsRef.current.find(y => keyOf(y) === keyOf(x)) ?? x
+  // the settings the preview draws and the editor changes: the YouTube edit's while it's on screen
+  const vEl = getVideo()
+  const wideSrc = !!vEl && vEl.videoWidth > 0 && Math.abs(vEl.videoWidth / vEl.videoHeight - 16 / 9) < 0.03
+  const eo = yt ? ytOpts(opts, ytOver, wideSrc) : opts
+  const setEo = yt ? setYtOver : setOpts
+  function setEdition(v: 'tiktok' | 'youtube') {
+    if (v === edition) return
+    setEditionState(v)
+    setPref('ytEditing', v === 'youtube')
+    setHist({ undo: [], redo: [] })          // undo works on the edit it was made in
+    setExact(null)
+  }
+
   // following the face (Layout › Follow the face): the crop's path for this clip, worked out by Clip Radar
-  const trackFor = clips.find(x => keyOf(x) === cur)
-  const tk = trackFor ? trackKey(trackFor, opts) : ''
+  const trackFor = c
+  const tk = trackFor ? trackKey(trackFor, eo) : ''
   useEffect(() => {
-    if (!trackFor || !tk || tk in tracks || layoutOf(opts) !== 'full' || opts.track === 'off') return
+    if (!trackFor || !tk || tk in tracks || layoutOf(eo) !== 'full' || eo.track === 'off') return
     const t = setTimeout(() => {
       setTracks(m => ({ ...m, [tk]: null }))
-      api(TrackPath, '/api/framing/track', { pid: trackFor.pid, start: trackFor.start, end: trackFor.end, opts })
+      api(TrackPath, '/api/framing/track', { pid: trackFor.pid, start: trackFor.start, end: trackFor.end, opts: eo })
         .then(r => setTracks(m => ({ ...m, [tk]: r }))).catch(() => {})
     }, 500)
     return () => clearTimeout(t)
   }, [tk]) // the key holds everything that changes the path
 
   // punch-in's beats and the face the render follows, once per clip and framing (the preview draws them every frame)
-  const xk = trackFor && wantsExtras(opts) ? extrasKey(trackFor, opts) : ''
+  const xk = trackFor && wantsExtras(eo) ? extrasKey(trackFor, eo) : ''
   useEffect(() => {
     if (!trackFor || !xk || xk in extras) return
     const t = setTimeout(() => {
       setExtras(m => ({ ...m, [xk]: null }))
-      api(PreviewExtras, '/api/preview/extras', { pid: trackFor.pid, start: trackFor.start, end: trackFor.end, opts: frameOf(opts) })
+      api(PreviewExtras, '/api/preview/extras', { pid: trackFor.pid, start: trackFor.start, end: trackFor.end, opts: frameOf(eo) })
         .then(r => setExtras(m => ({ ...m, [xk]: r }))).catch(() => setExtras(m => { const n = { ...m }; delete n[xk]; return n }))
     }, 300)
     return () => clearTimeout(t)
@@ -348,7 +380,6 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   }, [tab, free, getVideo])
   const list = useMemo(() => (filter === 'flagged' ? flaggedList(clips, flagFilter, safety?.enabled !== false) : visible(clips, filter)),
     [clips, filter, flagFilter, safety?.enabled])
-  const c = clips.find(x => keyOf(x) === cur)
   const q = c && queueFor(c, items)
   const counts = useMemo(() => {
     const hype = clips.filter(x => !isGem(x))
@@ -530,7 +561,10 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   async function queueKeep(x: Clip, quiet = false, sound = true): Promise<boolean> {
     epoch.current++
     try {
-      await api(Ok, '/api/queue/add', keepBody(x, postFor(x, hashtagsOn), opts, sound, ytToo))
+      const b = baseOf(x)
+      const v = getVideo()
+      const wide = !!v && v.videoWidth > 0 && Math.abs(v.videoWidth / v.videoHeight - 16 / 9) < 0.03
+      await api(Ok, '/api/queue/add', keepBody(b, postFor(b, hashtagsOn), opts, sound, ytToo ? { opts: ytOpts(opts, ytOver, wide) } : false))
     } catch (e) {
       if (!quiet) toast(err(e), 'err')
       return false
@@ -558,7 +592,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
       const flags = openFlags(x).map(f => `${f.label}: “${f.text}”`).join(' · ')
       if (!await confirm({ title: 'Render a clip with flags?', ok: 'Render anyway',
         body: `${flags}. Rendering it records that you saw this warning. Clip Radar's check isn't TikTok's decision either way.` })) return
-      try { await api(Ok, '/api/check', { ...snapshot(x), action: 'ack', args: {} }) } catch (e) { toast(err(e), 'err'); return }
+      try { await api(Ok, '/api/check', { ...snapshot(baseOf(x)), action: 'ack', args: {} }) } catch (e) { toast(err(e), 'err'); return }
     }
     if (await queueKeep(x)) after(x)
   }
@@ -628,9 +662,9 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   // ---- the content check box: actions on one clip, fixes tried before they're made, Remove
   async function checkAct(x: Clip, action: string, args: Record<string, unknown> = {}) {
     try {
-      const r = await api(Rechecked, '/api/check', { ...snapshot(x), action, args })
+      const r = await api(Rechecked, '/api/check', { ...snapshot(baseOf(x)), action, args })
       const v = r.clips[0]
-      if (v) update(keyOf(x), y => ({ ...y, ...applied(y, v) }), 'no')
+      if (v) update(keyOf(x), y => ({ ...y, ...applied(y, v) }), 'no', true)
       if (action === 'fix') toast(`${FIX_LABEL[String(args.kind)] ?? 'Fix'}: done. Undo is next to the flag.`)
       if (action === 'fix_all') toast(`${args.kind === 'bleep' ? 'Bleeped' : 'Muted'} ${plural(r.fixed, 'flagged word')}. Undo is next to each one.`)
       if (action === 'exclude') { epoch.current++; void queue.refresh() }
@@ -661,7 +695,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   async function propose(x: Clip, fp: string, kind: string) {
     stopTrying()
     try {
-      const r = await api(Rechecked, '/api/check', { ...snapshot(x), action: 'fix', args: { fp, kind, preview: true } })
+      const r = await api(Rechecked, '/api/check', { ...snapshot(baseOf(x)), action: 'fix', args: { fp, kind, preview: true } })
       const fix = (r as { fix?: { span?: [number, number] } }).fix
       setProposal({ fp, kind, view: (r.clips[0] ?? {}) as Record<string, unknown>, span: fix?.span, playing: false })
     } catch (e) { toast(err(e), 'err') }
@@ -729,7 +763,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   const proposalRef = useRef(proposal)
   proposalRef.current = proposal
   useEffect(() => { stopTrying(); setProposal(null) }, [cur])        // another clip: nothing being tried
-  useEffect(() => { setExact(null) }, [cur, opts, free])              // what the exact preview showed has changed
+  useEffect(() => { setExact(null) }, [cur, opts, ytOver, free])              // what the exact preview showed has changed
 
   /** Exact preview: a few seconds around the playhead rendered by the real export pipeline. */
   async function exactPreview(x: Clip) {
@@ -738,7 +772,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
     if (x.wordsEdited) clip.words = x.words.filter(w => w.start >= x.start - 0.2 && w.start < x.end)
     setExactStep('Getting ready…')
     try {
-      const { job } = await api(JobStarted, '/api/preview_render', { pid: x.pid, clip, opts, at: getVideo()?.currentTime ?? x.start })
+      const { job } = await api(JobStarted, '/api/preview_render', { pid: x.pid, clip: { ...clip, gain: x.gain }, opts: eo, at: getVideo()?.currentTime ?? x.start })
       for (;;) {
         const j = await api(Job, `/api/job/${job}`)
         if (j.status === 'done') {
@@ -753,8 +787,6 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
     } catch (e) { toast(err(e), 'err') }
     setExactStep('')
   }
-  const curRef = useRef(cur)
-  curRef.current = cur
 
   // the UI test's way in (tests/test_ui.py), the same as the original page's window.ClipRadarTest
   const probe = useRef<{ hits: () => Hits; width: () => number } | null>(null)
@@ -940,10 +972,10 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
             <>
               <div className="rv-stagecol">
               <Player ref={player} src={c.vod || meta.vod} pid={c.pid} clipKey={keyOf(c)} start={c.start} end={c.end}>
-                <Preview clip={shown ?? c} video={getVideo} thumb={c.thumb} opts={opts} marks={marks} safety={safety} replace={replace}
-                         track={tracks[trackKey(c, opts)] ?? null} guides={guides}
-                         extras={wantsExtras(opts) ? extras[extrasKey(c, opts)] ?? null : null}
-                         onOpts={(patch, persist) => setOpts(patch, persist)}
+                <Preview clip={shown ?? c} video={getVideo} thumb={c.thumb} opts={eo} marks={marks} safety={safety} replace={replace}
+                         track={tracks[trackKey(c, eo)] ?? null} guides={guides}
+                         extras={wantsExtras(eo) ? extras[extrasKey(c, eo)] ?? null : null}
+                         onOpts={(patch, persist) => setEo(patch, persist)}
                          onMark={(i, patch, persist) => {
                            const ms = (dragMarks ?? wmServer?.marks ?? []).map((m, j) => (j === i ? { ...m, ...patch } : m))
                            setDragMarks(ms)
@@ -1046,21 +1078,32 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                     <button className="btn primary" onClick={() => void keep()} disabled={kept && q?.status !== 'error'} data-testid="rv-keep">{keepLabel}</button>
                   </div>
                 </div>
+              {ytToo && (
+                <div className="rv-edition" data-testid="rv-edition">
+                  <span className="muted small">Editing</span>
+                  <div className="seg" role="radiogroup" aria-label="Which edit you're working on">
+                    {([['tiktok', 'TikTok edit'], ['youtube', 'YouTube edit']] as const).map(([v, l]) => (
+                      <button key={v} role="radio" aria-checked={edition === v} className={edition === v ? 'on' : ''}
+                              data-testid={`rv-edition-${v}`} onClick={() => setEdition(v)}>{l}</button>
+                    ))}
+                  </div>
+                  {yt && <small className="muted">Changes here are for the YouTube video only.</small>}
+                </div>)}
               <div className="seg rv-tabs" role="tablist" aria-label="Clip, text or layout">
                 {([['clip', 'Clip'], ['captions', 'Captions'], ['text', 'Text'], ['layout', 'Layout']] as const).map(([v, l]) => (
                   <button key={v} role="tab" aria-selected={tab === v} className={tab === v ? 'on' : ''} onClick={() => setTab(v)}>{l}</button>
                 ))}
               </div>
-              {tab === 'captions' && <CaptionsPanel clip={c} opts={opts} whisper={whisper} now={now}
-                    onEdit={(i, text) => { if (kept) return; const p = editLine(c, i, text, opts); if (p) edit(c, text.trim() ? 'caption edit' : 'caption deleted', p) }}
-                    onAdd={() => { const vid = getVideo(); if (!kept && vid) edit(c, 'caption added', addLine(c, vid.currentTime, opts)) }}
+              {tab === 'captions' && <CaptionsPanel clip={c} opts={eo} whisper={whisper} now={now}
+                    onEdit={(i, text) => { if (kept) return; const p = editLine(c, i, text, eo); if (p) edit(c, text.trim() ? 'caption edit' : 'caption deleted', p) }}
+                    onAdd={() => { const vid = getVideo(); if (!kept && vid) edit(c, 'caption added', addLine(c, vid.currentTime, eo)) }}
                     onReset={() => { edit(c, 'caption reset', resetLines(c)); toast('Captions are back to what Whisper heard.') }}
                     onSeek={t => { const vid = getVideo(); if (vid) { vid.pause(); vid.currentTime = clamp(t, c.start, c.end - 0.05) } }} />}
-              {tab === 'text' && <TextPanel opts={opts} set={setOpts} capPresets={exp.data?.prefs.cap_presets ?? []} whisper={whisper}
+              {tab === 'text' && <TextPanel opts={eo} set={setEo} capPresets={exp.data?.prefs.cap_presets ?? []} whisper={whisper}
                                             guides={guides} onGuides={v => { setGuides(v); setPref('guides', v) }} onRelisten={relisten}
                                             onSavePresets={async l => { await savePresets('cap_presets')(l).catch(e => toast(err(e), 'err')); await exp.refresh() }} />}
-              {tab === 'layout' && <LayoutPanel opts={opts} set={setOpts} pid={c.pid} frameAt={c.start + (c.end - c.start) * 0.6}
-                                                framePresets={exp.data?.prefs.frame_presets ?? []} trackNote={trackNote(tracks[trackKey(c, opts)])}
+              {tab === 'layout' && <LayoutPanel opts={eo} set={setEo} pid={c.pid} frameAt={c.start + (c.end - c.start) * 0.6} wideOnly={yt}
+                                                framePresets={exp.data?.prefs.frame_presets ?? []} trackNote={trackNote(tracks[trackKey(c, eo)])}
                                                 onSavePresets={async l => { await savePresets('frame_presets')(l).catch(e => toast(err(e), 'err')); await exp.refresh() }} />}
               <div className="rv-details" data-testid="rv-details" hidden={tab !== 'clip'}>
                 <ContentCheck clip={c} safety={safety} flaggedTab={filter === 'flagged'} proposal={proposal}
@@ -1083,7 +1126,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                 {c.held && !kept && <p className="notice"><b>{c.held}.</b>&nbsp;Hands-free didn't render this one. Watch it, then keep or skip it.</p>}
                 {isLive && <ClipHappened pid={c.pid} cid={c.id}
                                          version={`${c.listened}|${c.held}|${c.auto_log?.length ?? 0}|${q?.status ?? ''}|${q?.discord?.at ?? ''}`} />}
-                <label className="fld">Title
+                <label className="fld">{yt ? 'YouTube title' : 'Title'}
                   <span className="row">
                     <input className="input grow" value={c.title} disabled={kept} maxLength={120} data-testid="rv-title-input" spellCheck
                            onChange={e => edit(c, 'title change', { title: e.target.value, userTitle: true }, 'title')} />
@@ -1093,11 +1136,15 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                 <SpellHint text={c.title} disabled={kept} onFix={t => edit(c, 'spelling fix', { title: t, userTitle: true })} />
                 <TitleChoices clip={c} name={meta.streamer_name} kept={kept} onName={isLive ? undefined : setStreamer}
                               onPick={(t, k) => edit(c, `title ${k}`, { title: t, userTitle: true })} />
-                <label className="fld">Post caption
+                {yt ? <label className="fld">YouTube description
+                  <textarea className="input" rows={3} value={c.postText} disabled={kept} spellCheck data-testid="rv-yt-desc"
+                            placeholder="Empty: Settings › YouTube's description is used"
+                            onChange={e => edit(c, 'description change', { userPost: e.target.value !== '', postText: e.target.value }, 'post')} />
+                </label> : <label className="fld">Post caption
                   <textarea className="input" rows={3} value={postFor(c, hashtagsOn)} disabled={kept} spellCheck
                             onChange={e => edit(c, 'post caption change', { userPost: true, postText: e.target.value }, 'post')} />
-                </label>
-                <SpellHint text={postFor(c, hashtagsOn)} disabled={kept} onFix={t => edit(c, 'spelling fix', { userPost: true, postText: t })} />
+                </label>}
+                <SpellHint text={yt ? c.postText : postFor(c, hashtagsOn)} disabled={kept} onFix={t => edit(c, 'spelling fix', { userPost: true, postText: t })} />
                 <div className="row wrap">
                   <label className="fld inline" title="Add hashtags to post captions (all clips)">
                     <input type="checkbox" checked={hashtagsOn} data-testid="rv-tags-on" onChange={async e => {

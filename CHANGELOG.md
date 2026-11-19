@@ -5,6 +5,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.4.0] - 2026-11-19
+
+### Added
+- **Edit the YouTube clip the way you edit the main one.** With **YouTube too** on in Moments, an **Editing: TikTok
+  edit | YouTube edit** switch sits above the tabs. Pick **YouTube edit** and the whole editor works on the YouTube
+  video: the preview shows it 16:9, and everything you change there is for YouTube only.
+  - **Its own cut:** trim it longer or shorter than the TikTok clip (the buttons, I and O, dragging on the
+    timeline, Undo and Redo). **Restore original cut** goes back to the TikTok edit's cut.
+  - **Its own title and description:** the YouTube title and description it uploads with (Exports › Upload to
+    YouTube and Open YouTube Studio use them). Left empty, Settings › YouTube's templates fill them in, as before.
+  - **Its own volume and captions:** fix a caption line for YouTube without changing the TikTok one.
+  - **Its own Text and Layout:** caption and title style, layout (whole frame, blur fit, cam only, cam + game,
+    follow the face, punch-in) for the YouTube edit, over the TikTok edit's settings. The shape is always 16:9.
+  - Anything you haven't changed for YouTube follows the TikTok edit, so a moment you don't touch comes out as in
+    5.1. The YouTube edit is saved with the clip and comes back when you open the video again.
+  - Keep and render renders both, each as you made it. The content check, Keep and Skip are for the moment, on
+    either edit.
+
+### Fixed
+- A 16:9 clip's preview in Moments was squeezed into the column; a wide picture is now sized by its width.
+
+### Tests
+- `tests/test_youtube_clips.py`: the YouTube edit kept with the clip (a cut under a second refused), and both edits
+  rendered, each with its own cut (6 s and 12 s), the YouTube one 16:9 whatever its settings said, with its own
+  settings, title and description.
+- `tests/test_web_review.py` (a real browser): the YouTube edit's preview 16:9, its own layout leaving the TikTok
+  edit's alone, its own title saved with the clip, the TikTok edit back at 9:16 with its own title.
+- Moments' screen and model: switching edits, its own cut, title and description; Keep sending both edits as made;
+  a round trip changing nothing; kept and the content check staying with the moment; captions fixed on their own.
+
 ## [5.3.0] - 2026-11-19
 
 ### Added

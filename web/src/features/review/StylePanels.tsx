@@ -204,9 +204,11 @@ export function framingQuery(o: RenderOpts, auto = false): string {
     layout_auto: o.layout_auto ? '1' : '', aspect: String(o.aspect || '9:16'), auto: auto ? '1' : '' }).toString()
 }
 
-export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, onSavePresets }: {
+export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, onSavePresets, wideOnly = false }: {
   opts: RenderOpts; set: SetOpts; pid: string; frameAt: number; framePresets: Preset[]; trackNote: string
   onSavePresets: (list: Preset[]) => Promise<void>
+  /** the YouTube edit (5.4): always 16:9, so the shape isn't offered */
+  wideOnly?: boolean
 }) {
   const toast = useToast()
   const [naming, setNaming] = useState(false)
@@ -249,11 +251,13 @@ export function LayoutPanel({ opts, set, pid, frameAt, framePresets, trackNote, 
   const following = lay === 'full' && opts.track !== 'off'
   return (
     <div className="rv-pane" data-testid="rv-layout">
-      <div className="fld">Shape
+      {wideOnly ? <p className="hint" data-testid="rv-yt-shape">The YouTube edit is 16:9. Its layout here is its own: the TikTok edit keeps yours.</p>
+        : <div className="fld">Shape
         <Seg label="Shape" value={String(opts.aspect || '9:16')} onChange={v => set({ aspect: v })}
              options={[['9:16', 'Vertical 9:16'], ['1:1', 'Square 1:1'], ['16:9', 'Wide 16:9']]} />
         {opts.aspect === '16:9' && opts.layout === 'split' && <span className="hint">Cam + game needs a tall frame, so a wide clip uses the whole frame.</span>}
-      </div>
+      </div>}
+      {wideOnly && opts.layout === 'split' && <span className="hint">Cam + game needs a tall frame, so a wide clip uses the whole frame.</span>}
       <div className="fld">Layout
         <Seg label="Layout" value={String(opts.layout)} onChange={v => set({ layout: v, layout_auto: false })}
              options={[['split', 'Cam + game'], ['full', 'Whole frame'], ['cam', 'Cam only'], ['blur', 'Blur fit'], ['square', 'Square blur']]} />

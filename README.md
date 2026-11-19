@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 5.3.0" src="https://img.shields.io/badge/version-5.3.0-2fe36f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 5.4.0" src="https://img.shields.io/badge/version-5.4.0-2fe36f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -44,6 +44,7 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
   - Quality over quantity: on Automatic it suggests only the moments that stand out against the stream's own best ones, not a set number per hour.
   - **Deep scan** (optional) transcribes the whole stream and finds *quiet gems*: lines that landed even though chat and volume stayed calm.
   - It learns from the clips you keep, skip and post, separately for each streamer.
+  - **YouTube too:** each clip you keep is also made as a 16:9 YouTube video, and you can edit that one on its own (its own cut, title, description, captions and layout) with the same editor.
 - **Hands-free live clipping.** Start it and go watch the stream. Every strong moment is titled, checked and rendered on its own, and finished clips land in Exports.
   - It can wait for the stream to start and keep watching for the next one.
   - Choose how many clips you want (Fewer, Normal, More or Lots).

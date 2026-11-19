@@ -97,7 +97,7 @@ def number_for(book: dict, start: float, end: float, peak: float, kind: str = "h
 def touched(d: dict) -> bool:
     """You did something to this clip, so it stays put whatever the sliders say."""
     return bool(d.get("manual") or d.get("state") in ("kept", "skipped") or d.get("userTrim")
-                or d.get("userTitle") or d.get("userPost") or d.get("wordsEdited"))
+                or d.get("userTitle") or d.get("userPost") or d.get("wordsEdited") or d.get("yt"))
 
 
 # ---------------------------------------------------------------- project.json
