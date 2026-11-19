@@ -5,6 +5,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.0.1] - 2026-11-19
+
+### Changed
+- **Each segment is a video of its own.** Segments used to join an edit's segments into one video. Now Export makes
+  a video for each ticked segment, named after the segment, in a folder named after the edit inside the Segments
+  folder. Each segment also has **Export this segment**, which saves just that one (ticked or not) straight into
+  the Segments folder. Joining them into one video is still there: choose **All joined into one video** above the
+  Export button.
+
+### Tests
+- `tests/test_segments.py`: each ticked segment exported as its own file, as long as what it keeps, cuts left out,
+  each with its own subtitle file, in the edit's folder; one segment exported on its own; joined as before.
+- `web/src/features/segments/SegmentsView.test.tsx` (new): a video for each segment by default, one segment on its
+  own, and all joined into one.
+
 ## [5.0.0] - 2026-11-19
 
 Clip Radar 5.0 turns toward YouTube, now that TikTok is in a good place. Erase song takes a song out of a VOD and keeps

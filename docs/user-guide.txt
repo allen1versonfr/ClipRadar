@@ -550,8 +550,8 @@ EXPORT VOD (A WHOLE VIDEO)
   selected in File Explorer.
 
 SEGMENTS (PARTS OF A STREAM, EDITED TOGETHER)
-  Pick the parts of a long stream you want and export them as one video, as
-  long as you like.
+  Pick the parts of a long stream you want and export each one as a video of
+  its own (or all of them joined into one), as long as you like.
   Sending parts: in Export VOD, play to where a part starts and press Start
   here, then play to where it ends and press End here. Give it a name if
   you like, choose which edit it goes in (or A new edit) and press Send to
@@ -575,12 +575,15 @@ SEGMENTS (PARTS OF A STREAM, EDITED TOGETHER)
                         words, remove a line or add one
   The length of the edit is shown above the preview. Changes save as you go, so an unfinished edit is still there next
   time you open Clip Radar.
-  Export: captions (burned in, a .srt file, both or off, in the look set in
+  Export: a video for each ticked segment (the default), named after the
+  segment, in a folder named after the edit; or All joined into one video.
+  Export this segment, on the segment itself, saves just that one. Then
+  captions (burned in, a .srt file, both or off, in the look set in
   Export VOD), size and quality. Deal with music and flagged words removes
   or mutes music as the copyright scan suggests and mutes flagged words in
   the categories Settings > Content check mutes, so scan the video in Export
   VOD first. The file goes in the Segments folder (next to your project
-  folders, or where you choose in Settings > Storage), named after the edit.
+  folders, or where you choose in Settings > Storage).
 
   Settings > Campaigns keeps each clipping campaign's rules together:
   - the text every post must carry (an @handle, a code, #ad), at the end or

@@ -171,7 +171,8 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
 
   const d = Math.max(1, edit.duration)
   const style: Style = { ...STYLE, ...getPref<Partial<Style>>('vodx_style', {}) }
-  const [c, setC] = useState<Choices & { cleanup: boolean }>(() => ({ ...DEFAULTS, ...getPref<Partial<Choices>>('vodx', {}), cleanup: true, ...getPref('segx', {}) }))
+  // mode: each segment a video of its own (5.0.1), or the ticked ones joined into one
+  const [c, setC] = useState<Choices & { cleanup: boolean; mode: 'each' | 'join' }>(() => ({ ...DEFAULTS, ...getPref<Partial<Choices>>('vodx', {}), cleanup: true, mode: 'each' as const, ...getPref('segx', {}) }))
   const set = (patch: Partial<typeof c>) => setC(cur => { const n = { ...cur, ...patch }; setPref('segx', n); return n })
   const base = renderOpts()
   const model = c.model || String(base.whisper_model || 'small'), language = c.language || String(base.language || '')
@@ -179,6 +180,14 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
   const capWords = seg && lines ? (() => { const l = lineAt(lines, now); return l ? [{ start: l.start, end: l.end, word: l.text }] : [] })() : []
 
   const tl = useRef<VodTimelineHandle>(null)
+  const exporting = edit.export_job?.status === 'running'
+  const ticked = segs.filter(s => s.on && segLen(s) > 0)
+  function startExport(one?: string) {
+    void api(JobStarted, '/api/segments/export', { id: edit.id, ...c, segment: one ?? '', whisper_model: model, language, style, hw_encode: base.hw_encode })
+      .then(() => toast(one ? `Exporting ${segs.find(s => s.id === one)?.name || 'the segment'}…`
+        : c.mode === 'join' ? 'Exporting the edit as one video…' : `Exporting ${plural(ticked.length, 'video')}…`))
+      .catch(e => toast(err(e), 'err')).finally(() => void refresh())
+  }
   const boxes: Box[] = [
     ...segs.map((s, i): Box => ({ id: s.id, start: s.start, end: s.end, lane: 0, kind: s.on ? 'seg' : 'off', edit: s.id === seg?.id,
       label: s.name || `Segment ${i + 1}` })),
@@ -289,10 +298,17 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
       </section>
 
       {seg && <SegmentPanel key={seg.id} seg={seg} now={now} seek={seek} update={p => update(seg.id, p)} edit={edit}
-                            model={model} language={language} per={style.words_per_line} refresh={refresh} />}
+                            model={model} language={language} per={style.words_per_line} refresh={refresh}
+                            exporting={exporting} canExport={edit.exists && !dirty} onExport={() => startExport(seg.id)} />}
 
       <section className="panel set" aria-labelledby="segv-ex">
         <h2 id="segv-ex">Export</h2>
+        <Seg label="How the segments are exported" value={c.mode} options={[['each', 'A video for each segment'], ['join', 'All joined into one video']]}
+             onChange={mode => set({ mode: mode as 'each' | 'join' })} />
+        <p className="hint" data-testid="segv-mode-hint">{c.mode === 'each'
+          ? <>Each ticked segment is saved as its own video, named after the segment, in a folder named after this edit. To export
+            just one, use <b>Export this segment</b> on it.</>
+          : 'The ticked segments are played one after another in one video, in the order shown.'}</p>
         <div className="row wrap"><span className="muted">Captions</span><Seg label="Captions" value={c.captions} options={CAPTIONS} onChange={captions => set({ captions })} /></div>
         <p className="hint">{CAPTIONS_HINT[c.captions]} {c.captions === 'burn' || c.captions === 'both' ? <>They look the way they're set in <a href="#vod">Export VOD</a> › Captions.</> : null}</p>
         <div className="row wrap"><span className="muted">Size</span><Seg label="Size" value={c.size} options={SIZES} onChange={size => set({ size })} /></div>
@@ -301,13 +317,13 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
           <span>Deal with music and flagged words<small>Music the copyright scan found is removed or muted as it suggests, and flagged words in the
             categories <a href="#settings/safety">Settings › Content check</a> mutes are muted. Scan the video in Export VOD first.</small></span></label>
         <footer className="vodx-go">
-          {edit.export_job?.status === 'running'
-            ? <><JobBar job={edit.export_job} label="Exporting" />
+          {exporting
+            ? <><JobBar job={edit.export_job!} label="Exporting" />
                 <button className="btn ghost" onClick={() => void api(Ok, '/api/cancel', { job: edit.export_job!.id }).then(refresh).catch(() => {})}>Cancel</button></>
             : <button className="btn primary" data-testid="segv-export" disabled={!edit.exists || total < 1 || dirty}
-                      onClick={() => void api(JobStarted, '/api/segments/export', { id: edit.id, ...c, whisper_model: model, language, style,
-                        hw_encode: base.hw_encode }).then(() => toast('Exporting the edit…')).catch(e => toast(err(e), 'err')).finally(() => void refresh())}>
-                Export {fmtTime(total)}{segs.some(s => s.on) ? ` · ${plural(list.length, 'part')}` : ''}</button>}
+                      onClick={() => startExport()}>
+                {c.mode === 'each' ? `Export ${plural(ticked.length, 'video')} · ${fmtTime(total)}`
+                  : `Export one video · ${fmtTime(total)}${segs.some(s => s.on) ? ` · ${plural(list.length, 'part')}` : ''}`}</button>}
         </footer>
         <ExportDone job={edit.export_job} />
       </section>
@@ -317,9 +333,10 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
 }
 
 /** One segment: its name, where it starts and ends, the stretches cut out, its volume and its captions. */
-function SegmentPanel({ seg, now, seek, update, edit, model, language, per, refresh }: {
+function SegmentPanel({ seg, now, seek, update, edit, model, language, per, refresh, exporting, canExport, onExport }: {
   seg: Segment; now: number; seek: (t: number) => void; update: (p: Partial<Segment>) => void; edit: SegEdit
   model: string; language: string; per: number; refresh: () => Promise<void>
+  exporting: boolean; canExport: boolean; onExport: () => void
 }) {
   const [cutFrom, setCutFrom] = useState(-1)
   const inside = now >= seg.start && now <= seg.end
@@ -327,7 +344,11 @@ function SegmentPanel({ seg, now, seek, update, edit, model, language, per, refr
   const setEnd = (t: number) => update({ end: Math.min(edit.duration || Infinity, Math.max(t, seg.start + 1)) })
   return (
     <section className="panel set" aria-labelledby="segv-one" data-testid="segv-detail">
-      <h2 id="segv-one">{seg.name || 'Segment'}</h2>
+      <header className="row wrap">
+        <h2 id="segv-one" className="grow">{seg.name || 'Segment'}</h2>
+        <button className="btn" data-testid="segv-export-one" disabled={!canExport || exporting || segLen(seg) < 0.5} onClick={onExport}>
+          Export this segment · {fmtTime(segLen(seg))}</button>
+      </header>
       <label className="fld">Name <input className="input" value={seg.name} maxLength={80} onChange={e => update({ name: e.target.value })} data-testid="segv-seg-name" /></label>
 
       <div className="segv-ends">
@@ -470,10 +491,17 @@ function ExportDone({ job }: { job: SegEdit['export_job'] }) {
   if (job.status === 'error') return <p className="banner err" role="alert" data-testid="segv-error">Export failed: {job.error}</p>
   if (job.status === 'cancelled') return <p className="muted">Export cancelled.</p>
   if (job.status !== 'done') return null
-  const r = (job.result ?? {}) as { name?: string; folder?: string; srt?: string; length?: number; parts?: number; took?: number }
+  const r = (job.result ?? {}) as { name?: string; folder?: string; srt?: string; length?: number; parts?: number; took?: number
+    files?: Array<{ name: string; length: number; srt?: string }> }
+  const files = r.files ?? [{ name: r.name ?? '', length: r.length ?? 0, srt: r.srt }]
   return (
     <div className="vodx-done" data-testid="segv-done">
-      <p><b>Saved {r.name}</b> · {fmtTime(r.length ?? 0)}{r.srt ? `, captions in ${r.srt}` : ''}</p>
+      {files.length === 1
+        ? <p><b>Saved {files[0]!.name}</b> · {fmtTime(files[0]!.length)}{files[0]!.srt ? `, captions in ${files[0]!.srt}` : ''}</p>
+        : <>
+            <p><b>Saved {files.length} videos</b> · {fmtTime(r.length ?? 0)} in all</p>
+            <ul className="segv-files">{files.map(f => <li key={f.name}>{f.name} <span className="muted tnum">{fmtTime(f.length)}</span></li>)}</ul>
+          </>}
       {r.took != null && <p className="hint">Made from {plural(r.parts ?? 0, 'part')} in {fmtTime(r.took)}.</p>}
       {job.warning && <p className="hint">{job.warning}</p>}
       <button className="btn" onClick={() => void api(Ok, '/api/open_folder', { folder: r.folder ?? 'segments' }).catch(e => toast(err(e), 'err'))}>Show in folder</button>
