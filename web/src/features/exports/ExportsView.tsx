@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react'
 import { api } from '../../api/client'
-import { Campaigns, Ok, Queue, QueueCleared, type QueueItem } from '../../api/schemas'
+import { Campaigns, Ok, Queue, QueueCleared, type QueueItem, YtHandoff } from '../../api/schemas'
 import { handoffCell } from './postStatus'
 import { WhatHappened } from '../autopilot/WhatHappened'
-import { SubmitPanel, TikTokPanel, YouTubePanel, useCopy } from './Posting'
+import { SubmitPanel, TikTokPanel, YouTubeBox, YouTubePanel, useCopy } from './Posting'
 import { usePoll } from '../../hooks/usePoll'
 import { useNow } from '../../hooks/useNow'
 import { useConfirm } from '../../components/Confirm'
@@ -261,7 +261,11 @@ function Detail({ q, campaigns, onChanged, onRetry, onRemove, onShow, uploads }:
       {/* a rendered clip: its TikTok buttons at the top, the caption they use at the bottom */}
       {q.status !== 'done' ? body
         : q.platform === 'youtube' ? <YouTubePanel q={q} onChanged={onChanged} uploads={uploads}>{body}</YouTubePanel>
-        : <TikTokPanel q={q} onChanged={onChanged} uploads={uploads}>{body}</TikTokPanel>}
+        : <><TikTokPanel q={q} onChanged={onChanged} uploads={uploads}>{body}</TikTokPanel>
+            {/* 5.1.3: a TikTok clip can go to YouTube too, as a Short */}
+            <YouTubeBox id={q.id} label="YouTube Shorts" title0={q.yt_texts?.title ?? q.title} desc0={q.yt_texts?.description ?? ''}
+                        state={q.yt} can={uploads?.youtube ?? true} publish={uploads?.publish ?? false} onDone={onChanged}
+                        send={(auto, title, description) => api(YtHandoff, '/api/yt_handoff', { item: q.id, title, description, auto })} /></>}
     </aside>
   )
 }

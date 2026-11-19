@@ -737,7 +737,11 @@ export const SegEdit = z.looseObject({
   hear_job: VodJob,
 })
 export type SegEdit = z.infer<typeof SegEdit>
-export const Segments = z.looseObject({ edits: z.array(SegEdit).default([]), max: z.number().default(1800) })
+export const Segments = z.looseObject({ edits: z.array(SegEdit).default([]), max: z.number().default(1800),
+  /** 5.1.3: each exported segment file sent to YouTube, and whether Clip Radar can upload for you */
+  youtube: z.record(z.string(), z.looseObject({ auto: z.string().optional(), error: z.string().optional(), left: z.string().optional(),
+    url: z.string().optional() })).default({}),
+  uploads: z.looseObject({ youtube: z.boolean().default(false), publish: z.boolean().default(false) }).optional() })
 export type Segments = z.infer<typeof Segments>
 export const SegAdded = z.looseObject({ id: z.string(), name: z.string().default('') })
 export const SegSaved = z.looseObject({ ver: z.number() })

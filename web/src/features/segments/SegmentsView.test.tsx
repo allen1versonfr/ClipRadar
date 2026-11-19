@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '../../components/Confirm'
 import { ToastProvider } from '../../components/Toasts'
@@ -48,5 +48,25 @@ describe('Segments (5.0.1: a video for each segment)', () => {
     expect(screen.getByTestId('segv-export').textContent).toMatch(/^Export one video · 0:50/)
     fireEvent.click(screen.getByTestId('segv-export'))
     await waitFor(() => expect(calls.find(([p]) => p === '/api/segments/export')?.[1]).toMatchObject({ mode: 'join' }))
+  })
+
+  it('5.1.3: each exported segment can go to YouTube', async () => {
+    const calls: Array<[string, Record<string, unknown> | undefined]> = []
+    const done = { ...EDIT, export_job: { id: 'x', kind: 'segexport', status: 'done', step: '', progress: 1, log: [], warning: '',
+      result: { folder: '/v/Segments/Best bits', length: 50, parts: 2, took: 3, files: [
+        { name: 'Opening.mp4', length: 30, path: '/v/Segments/Best bits/Opening.mp4' },
+        { name: 'The fight.mp4', length: 20, path: '/v/Segments/Best bits/The fight.mp4' }] } } }
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      calls.push([path, init?.body ? JSON.parse(String(init.body)) : undefined])
+      const body = path === '/api/segments' ? { edits: [done], youtube: {}, uploads: { youtube: true, publish: false } }
+        : path.startsWith('/api/strip/p1') ? { a: 0, b: 600, hz: 1, wave: [], events: {}, chat: [], start: 0 } : { ok: true, title: 'x', description: '' }
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    renderIt()
+    const boxes = await screen.findAllByTestId('yt-box')
+    expect(boxes).toHaveLength(2)
+    expect((within(boxes[1]!).getByTestId('ytb-title') as HTMLInputElement).value).toBe('The fight')
+    fireEvent.click(within(boxes[1]!).getByTestId('ytb-studio'))
+    await waitFor(() => expect(calls.find(([p]) => p === '/api/segments/youtube')?.[1]).toMatchObject({ id: 'e1', file: '/v/Segments/Best bits/The fight.mp4', auto: false }))
   })
 })

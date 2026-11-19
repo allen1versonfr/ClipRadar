@@ -10,7 +10,9 @@ const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
 /** Copy text, saying so; where the clipboard is refused, the text is shown to copy by hand. */
 export function useCopy() {
   const toast = useToast()
-  return (text: string, what = 'Caption') => navigator.clipboard.writeText(text).then(() => toast(`${what} copied.`), () => toast(text))
+  // no clipboard at all (a page not allowed it): the text is shown to copy by hand, and whatever comes next still runs
+  return (text: string, what = 'Caption') => (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard')))
+    .then(() => toast(`${what} copied.`), () => toast(text))
 }
 
 // uploads running, per clip: the step they're on (kept while you look at another clip)
@@ -275,4 +277,79 @@ export function YouTubePanel({ q, onChanged, children, uploads }: {
     </section>
   )
   return <>{actions}{children}{fields}</>
+}
+
+/** 5.1.3: a video to YouTube from anywhere, the way YouTubePanel sends a clip's YouTube edit: Upload to YouTube (Clip
+ *  Radar's own browser window, with Settings › YouTube's choices) or Open YouTube Studio (title and description copied,
+ *  the file shown, the upload page opened). `send` asks the server; it returns a job to follow for an upload. Used for a
+ *  TikTok clip in Exports (it goes up as a Short) and for each exported segment. */
+export function YouTubeBox({ id, title0, desc0, state, can, publish, send, onDone, label = 'YouTube' }: {
+  id: string; title0: string; desc0: string
+  state?: { auto?: string | undefined; error?: string | undefined; left?: string | undefined; url?: string | undefined } | null | undefined
+  can: boolean; publish: boolean
+  send: (auto: boolean, title: string, description: string) => Promise<{ job?: string | undefined }>
+  onDone: () => Promise<void> | void; label?: string
+}) {
+  const toast = useToast()
+  const copy = useCopy()
+  const [title, setTitle] = useState(title0)
+  const [desc, setDesc] = useState(desc0)
+  const [step, setStep] = useState(ytUploading[id])
+  const [error, setError] = useState('')
+  const shown = useRef(id)
+  useEffect(() => { shown.current = id; setTitle(title0); setDesc(desc0); setError(''); setStep(ytUploading[id]) }, [id])
+  const status = step ? '' : !state ? '' : state.auto === 'published' ? 'Published on YouTube.'
+    : state.auto === 'ready' ? (state.left || 'The video is in YouTube Studio. Finish it there.')
+    : state.auto === 'failed' ? (state.error || "The upload didn't finish.")
+    : state.auto === 'working' ? 'Uploading…' : 'YouTube Studio was opened. Upload the video there.'
+  async function open() {
+    setError('')
+    void copy(`${title.trim()}\n\n${desc.trim()}`.trim(), 'Title and description')
+    try { await send(false, title.trim(), desc); toast('YouTube Studio is opening. The title and description are copied and the video is selected in File Explorer.') }
+    catch (e) { setError(err(e)) }
+    await onDone()
+  }
+  async function upload() {
+    if (ytUploading[id]) return
+    setError('')
+    const set = (s?: string) => { if (s) ytUploading[id] = s; else delete ytUploading[id]; if (shown.current === id) setStep(s) }
+    set('Opening YouTube Studio')
+    let job = ''
+    try { job = (await send(true, title.trim(), desc)).job ?? '' } catch (e) { set(undefined); if (shown.current === id) setError(err(e)); return }
+    let j
+    for (let misses = 0; job;) {
+      try { j = await api(Job, `/api/job/${job}`); misses = 0 } catch (e) {
+        if (++misses >= 40) { toast(err(e), 'err'); break }
+        await new Promise(r => setTimeout(r, 250)); continue
+      }
+      if (j.status !== 'running') break
+      set(j.step || 'Working in YouTube Studio')
+      await new Promise(r => setTimeout(r, 250))
+    }
+    set(undefined)
+    await onDone()
+    const r = j?.result as { published?: boolean; left?: string } | undefined
+    if (j?.status === 'done') toast(r?.published ? 'Published on YouTube.' : r?.left || 'The video is in YouTube Studio. Finish it there.')
+    else if (j?.error) toast(j.error, 'err')
+  }
+  return (
+    <section className="post-panel yt-box" aria-label={label} data-testid="yt-box">
+      <h3 className="yt-box-h">{label}</h3>
+      <label className="fld">Title<input className="input" maxLength={100} value={title} onChange={e => setTitle(e.target.value)} data-testid="ytb-title" /></label>
+      <label className="fld">Description<textarea className="input" rows={3} maxLength={5000} value={desc} onChange={e => setDesc(e.target.value)} data-testid="ytb-desc" /></label>
+      <div className="row wrap">
+        {can && <button className="btn primary" disabled={!!step} onClick={() => void upload()} data-testid="ytb-auto">Upload to YouTube</button>}
+        <button className={`btn${can ? '' : ' primary'}`} onClick={() => void open()} data-testid="ytb-studio">Open YouTube Studio</button>
+      </div>
+      {error && <p className="err-tx" role="alert">{error}</p>}
+      {(step || status) && (
+        <div className="post-status" aria-live="polite" data-testid="ytb-status">
+          {step ? <span className="row"><span className="meter busy" role="progressbar" aria-label={step}><i /></span>{step}</span>
+            : <span className={state?.auto === 'failed' ? 'err-tx' : ''}>{status}</span>}
+        </div>
+      )}
+      {can && <span className="hint">{publish ? 'Publish for me is on: Clip Radar presses Publish. ' : 'You press Publish in YouTube Studio. '}
+        Visibility, who it's for and tags: <a href="#settings/youtube">Settings › YouTube</a>.</span>}
+    </section>
+  )
 }

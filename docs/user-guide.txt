@@ -507,6 +507,8 @@ YOUTUBE (5.1)
   Publish is pressed only when Publish for me is on) and Open YouTube
   Studio (title and description copied, the file shown, the upload page
   opened). Change its title and description there before it goes.
+  Every TikTok clip in Exports also has a YouTube Shorts box with the same
+  two buttons, and in Segments each exported video has its own YouTube box.
   Settings > YouTube: who can see it, made for kids, the title and
   description templates ({title}, {caption}, {streamer}, {source},
   {hashtags}), tags and Publish for me.

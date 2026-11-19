@@ -5,6 +5,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.1.3] - 2026-11-19
+
+### Added
+- **Upload to YouTube for every clip, and for segments.** 5.1's Upload to YouTube only showed for the YouTube edit a
+  clip gets with Moments › YouTube too, and Segments had none, though its videos are made for YouTube.
+  - Exports: every TikTok clip now has a YouTube Shorts box under its TikTok buttons: title and description (from
+    Settings › YouTube's templates, changeable), Upload to YouTube and Open YouTube Studio.
+  - Segments: once an edit is exported, each video has its own YouTube box, its title the segment's name. Only a file
+    Segments saved can be sent.
+
+  Both work as for the YouTube edit: Upload to YouTube fills in YouTube Studio in Clip Radar's own window with Settings ›
+  YouTube's visibility, audience and tags, and presses Publish only when Publish for me is on; Open YouTube Studio copies
+  the title and description, shows the file and opens the upload page.
+
+### Fixed
+- Copy buttons no longer stop what they're part of when the page isn't allowed the clipboard: the text is shown to copy
+  by hand and the rest goes on.
+
+### Tests
+- `tests/test_segments.py`: an exported segment sent to YouTube Studio (the file shown, the page opened, the title made one
+  YouTube takes, the screen told), and a file Segments didn't save refused.
+- `ExportsView.test.tsx`: a TikTok clip's Upload to YouTube; `SegmentsView.test.tsx`: a YouTube box for each exported
+  segment, sending that file.
+
 ## [5.1.2] - 2026-11-19
 
 ### Removed
