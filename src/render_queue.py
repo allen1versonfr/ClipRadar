@@ -764,6 +764,9 @@ def apply_perf(prefs: Optional[dict] = None):
     else:
         render.RENDER_PRIORITY[0] = 0
         render.RENDER_THREADS[:] = []
+        if _lowered[0]:                     # "Finish faster": back to normal
+            _set_priority(0x00000020)       # NORMAL_PRIORITY_CLASS
+            _lowered[0] = False
     start_prehear()
     while len(_workers) < MAX_WORKERS[0]:
         i = len(_workers)
@@ -773,6 +776,30 @@ def apply_perf(prefs: Optional[dict] = None):
 
 
 _workers: list = []
+_lowered = [False]
+
+
+def _set_priority(cls: int) -> bool:
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        return bool(k.SetPriorityClass(k.GetCurrentProcess(), cls))
+    except Exception:
+        return False
+
+
+def background_priority() -> None:
+    """Settings › Performance › Keep the PC responsive (the default): Clip Radar's own background work runs below
+    normal priority too, not only the render's FFmpeg (5.4.2). Captions (Whisper), finding the face, the music scan,
+    the song eraser and the checks after a render ran at normal priority on most of the cores, and the whole PC
+    stuttered while a clip was made. Done when the first background job starts, so the window's own processes
+    (started with it, before) keep normal priority; everything started after inherits it, FFmpeg included."""
+    if _lowered[0] or render.RENDER_PRIORITY[0] == 0:
+        return
+    if _set_priority(0x00004000):           # BELOW_NORMAL_PRIORITY_CLASS
+        _lowered[0] = True
 
 
 def queue_eta() -> Optional[float]:
@@ -836,6 +863,7 @@ def queue_worker(idx: int = 0):
             _prehear_wake.set()                       # the clips behind this one can be heard now
             if not it:
                 break
+            background_priority()
             if S.SHUTTING_DOWN[0]:
                 it["status"] = "queued"
                 it["history"].pop()
