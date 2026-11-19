@@ -1622,7 +1622,7 @@ from render_queue import (  # noqa: E402,F401
     _prehear, _prehear_loop, _prehear_one, _prehear_started, _prehear_wake, queue_add, queue_busy, queue_eta,
     queue_public, queue_worker, RAM_SHORT, redact, _render_inputs, _render_item, _render_project, _render_projects,
     _render_projects_lock, RETRYABLE, set_stage, SOUND_LOG, start_prehear, TEST_HOOKS, _UNMEASURED,
-    _validate_render, _wait_prehear, _workers,
+    _validate_render, _wait_prehear, _workers, youtube_opts,
 )
 
 

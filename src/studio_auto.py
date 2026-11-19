@@ -922,5 +922,5 @@ def save_settings(press_post: Optional[bool] = None) -> dict:
 # youtube_auto.py: re-exported, so studio_auto.<name> still works; code calls youtube_auto.<name>
 import youtube_auto  # noqa: E402
 from youtube_auto import (  # noqa: E402,F401
-    upload_youtube, youtube_title, YT, _yt_put, _yt_tab, YT_TITLE_MAX,
+    upload_youtube, youtube_title, YT, _yt_put, _yt_tab, YT_TITLE_MAX, VISIBILITY, _click, _finish,
 )

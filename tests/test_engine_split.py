@@ -93,7 +93,8 @@ SERVER_MOVED = {
                      "_UNMEASURED", "_check_sound", "_picture_soon", "_check_picture", "RETRYABLE", "RAM_SHORT",
                      "_CARD_WORDS", "classify_render_error", "friendly_render_error", "redact", "set_stage",
                      "HISTORY_KEEP", "_attempt_start", "_attempt_end", "_after_render", "MAX_WORKERS",
-                     "apply_perf", "_workers", "queue_eta", "MEM_RESERVE", "_mem_short", "queue_worker"],
+                     "apply_perf", "_workers", "queue_eta", "MEM_RESERVE", "_mem_short", "queue_worker",
+                     "youtube_opts"],
     "listening": ["_deep_model", "deep_status", "_covered", "_update_gems", "start_deep_scan", "_tx_file",
                   "_video_sig", "_load_transcripts", "_save_transcripts", "_tx", "_vocab", "_without",
                   "ensure_words", "start_listening"],
@@ -106,7 +107,8 @@ SERVER_MOVED = {
 }
 # and for studio_auto.py (phase 6): YouTube Studio's upload, which uses studio_auto's browser plumbing at call time
 STUDIO_MOVED = {
-    "youtube_auto": ["YT_TITLE_MAX", "YT", "youtube_title", "_yt_tab", "_yt_put", "upload_youtube"],
+    "youtube_auto": ["YT_TITLE_MAX", "YT", "youtube_title", "_yt_tab", "_yt_put", "upload_youtube",
+                     "VISIBILITY", "_click", "_finish"],
 }
 HUBS = {"engine": MOVED, "server": SERVER_MOVED, "studio_auto": STUDIO_MOVED}
 
