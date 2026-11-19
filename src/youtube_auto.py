@@ -48,7 +48,12 @@ YT = {
     "description": ("document.querySelector('#description-textarea #textbox')"
                     " || document.querySelector('ytcp-video-description [contenteditable=true]')"
                     " || document.querySelector('[contenteditable=true][aria-label*=viewers i]')"),
-    # 5.1: the rest of the dialog, for a clip uploaded with Settings › YouTube's choices
+}
+# 5.1: the rest of the dialog, for a clip uploaded with Settings › YouTube's choices. Kept apart from YT because the
+# saved fingerprint of YouTube's real page (tests/assets/studio_fingerprints/2026-11-17-youtube.json) was taken before
+# these were looked for: a fingerprint records both (studio_auto._site_selectors), and the next one saved on the owner's
+# PC (scripts/studio_check.py --site youtube) checks them against YouTube itself.
+YT_DIALOG = {
     "kids_no": "document.querySelector('tp-yt-paper-radio-button[name=VIDEO_MADE_FOR_KIDS_NOT_MFK]')",
     "kids_yes": "document.querySelector('tp-yt-paper-radio-button[name=VIDEO_MADE_FOR_KIDS_MFK]')",
     "more": "document.querySelector('#toggle-button')",                       # "Show more", where the tags are
@@ -110,27 +115,27 @@ def _finish(page: cdp.Page, opts: dict, step: Callable[[str], None], check: Call
     {"audience", "tags", "visibility", "published": done?, "left": what's left to do in the window}."""
     out = {"audience": False, "tags": False, "visibility": False, "published": False, "left": ""}
     step("Setting who it's for")
-    if studio_auto._wait(page, YT["kids_no"], 10, check):
-        out["audience"] = _click(page, YT["kids_yes" if opts.get("kids") else "kids_no"])
+    if studio_auto._wait(page, YT_DIALOG["kids_no"], 10, check):
+        out["audience"] = _click(page, YT_DIALOG["kids_yes" if opts.get("kids") else "kids_no"])
     tags = [x.strip() for x in str(opts.get("tags") or "").split(",") if x.strip()]
     if tags:
         step("Adding the tags")
-        shown = f"(e => !!e && e.offsetParent !== null)({YT['tags']})"      # behind "Show more" until it's pressed
+        shown = f"(e => !!e && e.offsetParent !== null)({YT_DIALOG['tags']})"      # behind "Show more" until it's pressed
         if not page.eval(shown, timeout=10):
-            _click(page, YT["more"])
+            _click(page, YT_DIALOG["more"])
             studio_auto._wait(page, shown, 5, check)
-        if page.eval(f"(() => {{ const e = {YT['tags']}; if (!e) return false; e.focus(); return true }})()", timeout=10):
+        if page.eval(f"(() => {{ const e = {YT_DIALOG['tags']}; if (!e) return false; e.focus(); return true }})()", timeout=10):
             page.call("Input.insertText", text=", ".join(tags)[:500] + ",")
             out["tags"] = True
     step("Going to the visibility step")
     for _ in range(4):                              # Details › Video elements › Checks › Visibility
-        if page.eval(f"!!({YT['visibility']})", timeout=10):
+        if page.eval(f"!!({YT_DIALOG['visibility']})", timeout=10):
             break
-        if not _click(page, YT["next"]):
+        if not _click(page, YT_DIALOG["next"]):
             break
-        studio_auto._wait(page, YT["visibility"], 6, check)
+        studio_auto._wait(page, YT_DIALOG["visibility"], 6, check)
     vis = VISIBILITY.get(str(opts.get("visibility") or "public"), "PUBLIC")
-    if page.eval(f"!!({YT['visibility']})", timeout=10):
+    if page.eval(f"!!({YT_DIALOG['visibility']})", timeout=10):
         out["visibility"] = _click(page, f"document.querySelector('tp-yt-paper-radio-button[name={vis}]')")
     if not out["visibility"]:
         out["left"] = "Choose who can see it and publish it in the YouTube window."
@@ -139,7 +144,7 @@ def _finish(page: cdp.Page, opts: dict, step: Callable[[str], None], check: Call
         out["left"] = "Press Publish (or Save) in the YouTube window."
         return out
     step("Publishing")
-    if _click(page, YT["done"]) and studio_auto._wait(page, YT["published"], 30, check, every=0.5):
+    if _click(page, YT_DIALOG["done"]) and studio_auto._wait(page, YT_DIALOG["published"], 30, check, every=0.5):
         out["published"] = True
     else:
         out["left"] = "Clip Radar pressed Publish, but YouTube didn't say it's out. Check the YouTube window."

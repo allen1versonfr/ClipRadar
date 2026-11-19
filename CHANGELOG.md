@@ -41,6 +41,9 @@ of its own.
 - `tests/test_youtube_auto.py`: against the stand-in YouTube Studio page, a clip's upload sets not made for kids, types
   the tags (behind Show more), goes to the visibility step and picks unlisted, and leaves Publish to you; with Publish
   for me on, made for kids when set, public, and published. Export VOD's upload still stops after the description.
+- `tests/test_studio_fingerprints.py`: the saved fingerprint of YouTube's real upload page (taken 2026-11-17) predates
+  the new dialog steps, so they're kept apart (`youtube_auto.YT_DIALOG`) and the test says they still need checking
+  against YouTube. A fingerprint records them from now on: save one with `scripts/studio_check.py --site youtube`.
 - `ExportsView.test.tsx`: Upload to TikTok there before the TikTok settings have answered; the Platform list, a YouTube
   edit's panel with its filled-in description, and Upload to YouTube sending what you typed. `model.test.ts`: YouTube
   too asks for the YouTube edit, and a clip follows its TikTok render.

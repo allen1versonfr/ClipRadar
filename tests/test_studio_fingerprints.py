@@ -59,6 +59,11 @@ for site in ("tiktok", "youtube"):
     sel = (saved.get("page") or {}).get("selectors", {})
     wanted = studio_auto.YT if site == "youtube" else studio_auto.SELECTORS
     check(f"{name}: every selector the upload has was checked", set(wanted) <= set(sel), sorted(set(wanted) - set(sel)))
+    if site == "youtube":
+        later = sorted(set(studio_auto.YT_DIALOG) - set(sel))
+        if later:       # 5.1's clip upload looks for more of the dialog; a fingerprint taken before can't have them
+            print(f"  {name} was taken before Upload to YouTube for clips (5.1): {', '.join(later)} not checked against YouTube "
+                  "yet. Save a new one with scripts/studio_check.py --site youtube")
     for part, ok, said in studio_auto.check_fingerprint(saved.get("page"), site, "page"):
         check(f"{name}: upload page: {part}", ok, said)
     if saved.get("file"):

@@ -108,7 +108,7 @@ SERVER_MOVED = {
 # and for studio_auto.py (phase 6): YouTube Studio's upload, which uses studio_auto's browser plumbing at call time
 STUDIO_MOVED = {
     "youtube_auto": ["YT_TITLE_MAX", "YT", "youtube_title", "_yt_tab", "_yt_put", "upload_youtube",
-                     "VISIBILITY", "_click", "_finish"],
+                     "VISIBILITY", "_click", "_finish", "YT_DIALOG"],
 }
 HUBS = {"engine": MOVED, "server": SERVER_MOVED, "studio_auto": STUDIO_MOVED}
 
