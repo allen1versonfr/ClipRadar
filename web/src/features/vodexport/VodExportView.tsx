@@ -1,41 +1,28 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Job, JobStarted, Ok, Picked, PreviewCopy, SegAdded, Segments, VodExport, VodOpened, VodWords, VodYoutube, type MusicSpan, type VodExportVideo, type VodFlag } from '../../api/schemas'
+import { Job, JobStarted, Ok, Picked, PreviewCopy, SegAdded, Segments, VodExport, VodOpened, VodYoutube, type MusicSpan, type VodExportVideo, type VodFlag } from '../../api/schemas'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
 import { usePoll } from '../../hooks/usePoll'
 import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
-import { FONTS, fontCss } from '../watermark/geometry'
-import { ACTIONS, captionAt, heardAt, musicSummary, spanLabel, type MusicAction, type Song, type Word } from './spans'
+import { ACTIONS, musicSummary, spanLabel, type MusicAction, type Song } from './spans'
 import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from './VodTimeline'
 
 const loadView = () => api(VodExport, '/api/vodexport')
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-const CAPTIONS: Array<[string, string]> = [['burn', 'Burned in'], ['srt', 'Subtitle file'], ['both', 'Both'], ['off', 'Off']]
-const CAPTIONS_HINT: Record<string, string> = {
-  burn: 'The words are drawn on the video.',
-  srt: 'Saved as a .srt file next to the video. YouTube and most players can show it.',
-  both: 'Drawn on the video, and saved as a .srt file next to it.',
-  off: 'No captions, and nothing is listened to for them.',
-}
 const WORDS: Array<[string, string]> = [['mute', 'Mute'], ['bleep', 'Bleep']]
 const SIZES: Array<[string, string]> = [['source', 'Original'], ['1080', '1080p'], ['720', '720p'], ['480', '480p']]
 const QUALITY: Array<[string, string]> = [['fast', 'Fast'], ['balanced', 'Balanced'], ['high', 'Best']]
-const CAP_STYLES: Array<[string, string]> = [['clean', 'Plain'], ['box', 'Boxed'], ['pop', 'Outlined'], ['karaoke', 'Karaoke']]
-const CAP_POS: Array<[string, string]> = [['bottom', 'Bottom'], ['middle', 'Middle'], ['top', 'Top']]
-const CAP_COLORS = ['#ffffff', '#ffe600', '#2fe36f', '#4fd1ff', '#ff6b8b']
+/** Export VOD's choices (Segments uses size and quality too). No captions since 5.1.2: YouTube makes its own. */
+export interface Choices { words: string; size: string; quality: string; model: string; language: string }
+export const DEFAULTS: Choices = { words: 'mute', size: 'source', quality: 'balanced', model: '', language: '' }
+export { SIZES, QUALITY }
 
-/** How captions look on a wide video (vodexport.VOD_STYLE); kept apart from the clips' style. Segments uses it too. */
-export interface Style { caption_style: string; caption_font: string; caption_color: string; caption_size: number; words_per_line: number; uppercase: boolean; caption_pos: string }
-export const STYLE: Style = { caption_style: 'clean', caption_font: 'classic', caption_color: '#ffffff', caption_size: 60, words_per_line: 7, uppercase: false, caption_pos: 'bottom' }
-export interface Choices { captions: string; words: string; size: string; quality: string; model: string; language: string }
-export const DEFAULTS: Choices = { captions: 'burn', words: 'mute', size: 'source', quality: 'balanced', model: '', language: '' }
-export { CAPTIONS, CAPTIONS_HINT, SIZES, QUALITY }
-
-/** Export VOD: a whole video saved as one file, with its music and flagged words dealt with and captions. */
+/** Export VOD: a whole video saved as one file, with its music and flagged words dealt with (no captions since 5.1.2:
+ *  YouTube makes its own). */
 export function VodExportView() {
   const toast = useToast()
   const poll = usePoll(loadView, 2000)
@@ -63,7 +50,7 @@ export function VodExportView() {
     <section className="vodx" aria-labelledby="vodx-title">
       <header className="view-head">
         <h1 id="vodx-title">Export VOD</h1>
-        <span className="muted">A whole video as one file, with its music and flagged words dealt with, and captions.</span>
+        <span className="muted">A whole video as one file, with its music and flagged words dealt with. YouTube adds captions itself.</span>
       </header>
       {poll.error && <p className="banner err" role="alert">{poll.error}</p>}
       {!poll.data && !poll.error && <p className="muted pad">Loading…</p>}
@@ -115,8 +102,6 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   const base = renderOpts()
   const [c, setC] = useState<Choices>(() => ({ ...DEFAULTS, ...getPref<Partial<Choices>>('vodx', {}) }))
   const set = (patch: Partial<Choices>) => setC(cur => { const n = { ...cur, ...patch }; setPref('vodx', n); return n })
-  const [style, setStyle] = useState<Style>(() => ({ ...STYLE, ...getPref<Partial<Style>>('vodx_style', {}) }))
-  const setS = (patch: Partial<Style>) => setStyle(cur => { const n = { ...cur, ...patch }; setPref('vodx_style', n); return n })
   const model = c.model || String(base.whisper_model || 'small'), language = c.language || String(base.language || '')
 
   const canRemove = view.voice_model
@@ -160,19 +145,18 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   const ticked = flags.filter(isOn)
 
   const canHear = v.has_audio && (view.whisper || v.has_yt_words)
-  const captions = canHear ? c.captions : 'off'
-  const burn = captions === 'burn' || captions === 'both'
   const exporting = v.export_job?.status === 'running'
-  const fast = v.copyable && !burn && c.size === 'source'
+  // 5.1.2: no captions (YouTube makes its own), so the picture is copied whenever the size is the video's own
+  const fast = v.copyable && c.size === 'source'
 
-  // the player: where you are, so captions and the exact preview start there
+  // the player: where you are, so the exact preview starts there
   const vid = useRef<HTMLVideoElement>(null)
   const [now, setNow] = useState(0)
   const seek = useCallback((t: number) => { const el = vid.current; if (el) { el.currentTime = t; setNow(t) } }, [])
 
   const options = (): Record<string, unknown> => ({
-    pid: v.pid, captions, words: c.words, size: c.size, quality: c.quality, whisper_model: model, language,
-    hw_encode: base.hw_encode, style,
+    pid: v.pid, captions: 'off', words: c.words, size: c.size, quality: c.quality, whisper_model: model, language,
+    hw_encode: base.hw_encode,
     music: songs.map(s => [s.start, s.end, s.act] as const).filter(x => x[2] !== 'keep'),
     word_spans: ticked.map(f => [Math.max(0, f.start - 0.05), f.end + 0.05]),
   })
@@ -198,10 +182,7 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
       <div className="vodx-stagecol">
         <PreviewPanel v={v} vid={vid} now={now} setNow={setNow} seek={seek} songs={songs} setSongs={setSongs} addSong={addSong}
                       sel={selSong} setSel={setSelSong} tl={tl} flags={ticked}
-                      style={style} burn={burn} model={model} language={language} canHear={canHear}
-                      onExact={() => exactAt(now)}
-                      onHear={() => void start('/api/vodexport/hear', { pid: v.pid, whisper_model: model, language, at: now }, '')}
-                      cancel={cancel} />
+                      onExact={() => exactAt(now)} cancel={cancel} />
       </div>
       <div className="vodx-panels">
       <FindSegments v={v} view={view} model={model} language={language} seek={seek} tl={tl} cancel={cancel}
@@ -302,39 +283,13 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
         </>}
       </section>
 
-      <section className="panel set" aria-labelledby="vodx-cap" data-testid="vodx-captions">
-        <h2 id="vodx-cap">Captions</h2>
-        {!canHear && noSpeech}
-        {canHear && <>
-          <Seg label="Captions" value={c.captions} options={CAPTIONS} onChange={captions => set({ captions })} />
-          <p className="hint">{CAPTIONS_HINT[c.captions]}</p>
-        </>}
-        {burn && <CaptionStyle style={style} set={setS} />}
-        {captions !== 'off' && (
-          <div className="row wrap">
-            <label className="fld inline">Accuracy
-              <select className="input" value={model} onChange={e => set({ model: e.target.value })}>
-                <option value="base">Fast</option><option value="small">Balanced</option><option value="medium">Accurate (slow)</option><option value="large-v3">Best (GPU)</option>
-              </select>
-            </label>
-            <label className="fld inline">Language
-              <select className="input" value={language} onChange={e => set({ language: e.target.value })}>
-                {[['', 'Automatic'], ['en', 'English'], ['es', 'Spanish'], ['pt', 'Portuguese'], ['fr', 'French'], ['de', 'German'], ['it', 'Italian'],
-                  ['ar', 'Arabic'], ['tr', 'Turkish'], ['ru', 'Russian'], ['pl', 'Polish'], ['ja', 'Japanese'], ['ko', 'Korean']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-              </select>
-            </label>
-          </div>
-        )}
-        {captions !== 'off' && <p className="hint">{v.has_yt_words ? "Uses the video's own YouTube captions." : 'The whole video is listened to first. Stretches already heard (for clips or the flagged words check) are reused.'}</p>}
-      </section>
 
       <section className="panel set" aria-labelledby="vodx-vid">
         <h2 id="vodx-vid">Video</h2>
         <div className="row wrap"><span className="muted">Size</span><Seg label="Size" value={c.size} options={SIZES} onChange={size => set({ size })} /></div>
-        {c.size !== 'source' || burn ? <div className="row wrap"><span className="muted">Quality</span><Seg label="Quality" value={c.quality} options={QUALITY} onChange={quality => set({ quality })} /></div> : null}
+        {c.size !== 'source' ? <div className="row wrap"><span className="muted">Quality</span><Seg label="Quality" value={c.quality} options={QUALITY} onChange={quality => set({ quality })} /></div> : null}
         <p className="hint" data-testid="vodx-speed">{fast
           ? 'The picture is copied as it is and only the sound is made again, so this is quick: a few minutes for a long stream.'
-          : burn ? 'Burned-in captions mean every frame is made again, which takes a while on a long stream. A subtitle file and the Original size skip that.'
           : !v.copyable ? "This video's picture can't be copied into an .mp4 as it is, so every frame is made again."
           : 'A new size means every frame is made again. Original skips that.'} Saved in the Exported VODs folder
           (<a href="#settings/storage">Settings › Storage</a>), apart from your clips.</p>
@@ -441,64 +396,21 @@ function talk(s: Pick<MusicSpan, 'speech'> | Song): string {
   return p >= 0.6 ? 'People talking over most of it' : p >= 0.2 ? 'People talking over some of it' : p > 0 ? 'A little talking' : 'No talking heard'
 }
 
-function CaptionStyle({ style, set }: { style: Style; set: (p: Partial<Style>) => void }) {
-  return (
-    <div className="vodx-style" data-testid="vodx-style">
-      <div className="row wrap"><span className="muted">Look</span><Seg label="Caption look" value={style.caption_style} options={CAP_STYLES} onChange={caption_style => set({ caption_style })} /></div>
-      <div className="row wrap"><span className="muted">Where</span><Seg label="Caption position" value={style.caption_pos} options={CAP_POS} onChange={caption_pos => set({ caption_pos })} /></div>
-      <div className="row wrap">
-        <label className="fld inline">Font
-          <select className="input" value={style.caption_font} onChange={e => set({ caption_font: e.target.value })}>
-            {Object.entries(FONTS).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
-          </select>
-        </label>
-        <div className="rv-swatches" role="radiogroup" aria-label="Caption colour">
-          {CAP_COLORS.map(col => (
-            <button key={col} role="radio" aria-checked={style.caption_color.toLowerCase() === col} aria-label={`Caption colour ${col}`}
-                    className={style.caption_color.toLowerCase() === col ? 'on' : ''} style={{ background: col }} onClick={() => set({ caption_color: col })} />
-          ))}
-          <input type="color" aria-label="Custom caption colour" value={style.caption_color} onChange={e => set({ caption_color: e.target.value })} />
-        </div>
-      </div>
-      <label className="fld">Text size <span className="range-row"><input type="range" min={40} max={120} step={5} value={style.caption_size} aria-label="Caption text size"
-             onChange={e => set({ caption_size: Number(e.target.value) })} /><span className="tnum">{style.caption_size}%</span></span></label>
-      <label className="fld">Words at once <span className="range-row"><input type="range" min={2} max={12} value={style.words_per_line} aria-label="Words at once"
-             onChange={e => set({ words_per_line: Number(e.target.value) })} /><span className="tnum">{style.words_per_line}</span></span></label>
-      <label className="chk"><input type="checkbox" checked={style.uppercase} onChange={e => set({ uppercase: e.target.checked })} /><span>Capital letters</span></label>
-    </div>
-  )
-}
-
 /** The video with the captions drawn over it as they'll look, the music and flagged words marked on its timeline,
  *  and the exact preview: ten seconds from where you are, made the way the export will be. */
-function PreviewPanel({ v, vid, now, setNow, seek, songs, setSongs, addSong, sel, setSel, tl, flags, style, burn, model, language, canHear, onExact, onHear, cancel }: {
+function PreviewPanel({ v, vid, now, setNow, seek, songs, setSongs, addSong, sel, setSel, tl, flags, onExact, cancel }: {
   v: VodExportVideo; vid: RefObject<HTMLVideoElement | null>; now: number; setNow: (t: number) => void; seek: (t: number) => void
   songs: Song[]; setSongs: (fn: (s: Song[]) => Song[]) => void; addSong: (a: number, b: number) => void
   sel: number; setSel: (i: number) => void; tl: RefObject<VodTimelineHandle | null>
-  flags: VodFlag[]; style: Style; burn: boolean; model: string; language: string; canHear: boolean
-  onExact: () => void; onHear: () => void; cancel: (job: string) => void
+  flags: VodFlag[]
+  onExact: () => void; cancel: (job: string) => void
 }) {
   const [playable, setPlayable] = useState<'yes' | 'no' | 'making'>('yes')
   const [src, setSrc] = useState(`/vod/${v.pid}`)
-  const [heard, setHeard] = useState<{ a: number; b: number; words: Word[]; covered: number[][] }>({ a: -1, b: -1, words: [], covered: [] })
-  const hearing = v.hear_job?.status === 'running'
   const pj = v.preview_job
   const exact = pj?.status === 'done' ? (pj.result as { url?: string; start?: number } | null) : null
   const [showExact, setShowExact] = useState('')
   useEffect(() => { if (exact?.url) setShowExact(exact.url) }, [exact?.url])
-
-  // the words already heard around the playhead (a minute at a time), fetched again once more has been heard
-  const bucket = Math.floor(now / 60)
-  const hearDone = v.hear_job?.status === 'done' ? v.hear_job.id : ''
-  const wordsDone = v.words_job?.status === 'done' ? v.words_job.id : ''
-  useEffect(() => {
-    if (!burn) return
-    const a = Math.max(0, bucket * 60 - 10), b = bucket * 60 + 70
-    let gone = false
-    api(VodWords, `/api/vodexport/words?pid=${v.pid}&a=${a}&b=${b}&model=${encodeURIComponent(model)}&lang=${encodeURIComponent(language)}`)
-      .then(r => { if (!gone) setHeard({ a, b, words: r.words, covered: r.covered }) }).catch(() => {})
-    return () => { gone = true }
-  }, [v.pid, bucket, burn, model, language, hearDone, wordsDone])
 
   async function makePlayable() {
     setPlayable('making')
@@ -516,8 +428,6 @@ function PreviewPanel({ v, vid, now, setNow, seek, songs, setSongs, addSong, sel
     setPlayable('no')
   }
 
-  const cap = burn ? captionAt(heard.words, now, style.words_per_line) : []
-  const notHeard = burn && canHear && heard.a >= 0 && !heardAt(heard.covered, now)
   const tryingMusic = songs.findIndex(s => s.act !== 'keep' && now >= s.start && now < s.end)
   const d = Math.max(1, v.duration)
   // the part picked to send to Segments: where it starts and ends (-1 = not set yet)
@@ -550,7 +460,6 @@ function PreviewPanel({ v, vid, now, setNow, seek, songs, setSongs, addSong, sel
               <video ref={vid} src={src} controls preload="metadata" className="vodx-video" data-testid="vodx-player"
                      onTimeUpdate={e => setNow(e.currentTarget.currentTime)} onSeeked={e => setNow(e.currentTarget.currentTime)}
                      onError={() => { if (playable === 'yes' && !src.includes('preview=1')) setPlayable('no') }} />
-              {cap.length > 0 && <CaptionOverlay words={cap} now={now} style={style} />}
               {playable !== 'yes' && (
                 <div className="vodx-cover">
                   <p>{playable === 'making' ? 'Making a version the preview can play…' : "The preview can't play this kind of video."}</p>
@@ -583,13 +492,9 @@ function PreviewPanel({ v, vid, now, setNow, seek, songs, setSongs, addSong, sel
       <SendToSegments v={v} now={now} seek={seek} mark={mark} setMark={setMark} />
       <p className="hint">
         {tryingMusic >= 0 ? `Music here: ${songs[tryingMusic]!.act === 'voice' ? 'the song will be erased, talking and game sound kept' : 'this stretch will be silent'}. ` : ''}
-        The video plays with its own sound; the captions are drawn as they'll look. <b>Exact preview</b> (or <b>Hear it</b> on a song) makes
+        The video plays with its own sound. <b>Exact preview</b> (or <b>Hear it</b> on a song) makes
         ten seconds the way the export will, with the song erased and words muted, so you can hear the result.
       </p>
-      {notHeard && (
-        <p className="hint" data-testid="vodx-not-heard">Nothing has been listened to here yet, so there are no captions to show.{' '}
-          {hearing ? 'Listening…' : <button className="link" onClick={onHear}>Hear the next 30 seconds</button>}</p>
-      )}
       <div className="row wrap">
         {pj?.status === 'running'
           ? <><JobBar job={pj} label="Making the exact preview" /><button className="btn ghost sm" onClick={() => cancel(pj.id)}>Stop</button></>
@@ -654,30 +559,6 @@ function SendToSegments({ v, now, seek, mark, setMark }: {
             {busy ? 'Sending…' : 'Send to Segments'}</button>
         </div>
       )}
-    </div>
-  )
-}
-
-/** The caption over the player, in the chosen look: the export's sizes scaled to the player (the export's frame is 1080 high). */
-export function CaptionOverlay({ words, now, style }: { words: Word[]; now: number; style: Style }) {
-  const box = useRef<HTMLDivElement>(null)
-  const [h, setH] = useState(360)
-  useEffect(() => {
-    const el = box.current?.parentElement
-    if (!el) return
-    const ro = new ResizeObserver(() => setH(el.clientHeight))
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  const px = 86 * style.caption_size / 100 * (FONTS[style.caption_font]?.scale ?? 1) * h / 1080
-  const text = (w: string) => (style.uppercase ? w.toUpperCase() : w)
-  const hi = style.caption_style === 'karaoke' || style.caption_style === 'pop'
-  return (
-    <div ref={box} className={`vodx-cap ${style.caption_pos} ${style.caption_style}`} data-testid="vodx-caption"
-         style={{ font: fontCss(style.caption_font, px), color: hi ? '#ffffff' : style.caption_color }}>
-      <span>{words.map((w, i) => (
-        <span key={i} style={hi && now >= w.start && now < w.end + 0.15 ? { color: style.caption_color } : undefined}>{text(w.word)}{i < words.length - 1 ? ' ' : ''}</span>
-      ))}</span>
     </div>
   )
 }

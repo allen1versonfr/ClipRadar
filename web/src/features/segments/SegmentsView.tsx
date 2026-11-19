@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from '../../api/client'
-import { JobStarted, Ok, SegSaved, Segments, VodWords, type SegEdit } from '../../api/schemas'
+import { JobStarted, Ok, SegSaved, Segments, type SegEdit } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
@@ -8,9 +8,9 @@ import { usePoll } from '../../hooks/usePoll'
 import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
-import { CAPTIONS, CAPTIONS_HINT, CaptionOverlay, DEFAULTS, JobBar, QUALITY, SIZES, STYLE, type Choices, type Style } from '../vodexport/VodExportView'
+import { DEFAULTS, JobBar, QUALITY, SIZES, type Choices } from '../vodexport/VodExportView'
 import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from '../vodexport/VodTimeline'
-import { addCut, editLen, gainToVolume, kept, lineAt, linesFrom, move, pastCut, playlist, segLen, step, type Line, type Segment } from './model'
+import { addCut, editLen, gainToVolume, kept, move, pastCut, playlist, segLen, step, type Segment } from './model'
 
 const loadView = () => api(Segments, '/api/segments')
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -170,20 +170,17 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
   }
 
   const d = Math.max(1, edit.duration)
-  const style: Style = { ...STYLE, ...getPref<Partial<Style>>('vodx_style', {}) }
   // mode: each segment a video of its own (5.0.1), or the ticked ones joined into one
   const [c, setC] = useState<Choices & { cleanup: boolean; mode: 'each' | 'join' }>(() => ({ ...DEFAULTS, ...getPref<Partial<Choices>>('vodx', {}), cleanup: true, mode: 'each' as const, ...getPref('segx', {}) }))
   const set = (patch: Partial<typeof c>) => setC(cur => { const n = { ...cur, ...patch }; setPref('segx', n); return n })
   const base = renderOpts()
   const model = c.model || String(base.whisper_model || 'small'), language = c.language || String(base.language || '')
-  const lines = seg?.lines
-  const capWords = seg && lines ? (() => { const l = lineAt(lines, now); return l ? [{ start: l.start, end: l.end, word: l.text }] : [] })() : []
 
   const tl = useRef<VodTimelineHandle>(null)
   const exporting = edit.export_job?.status === 'running'
   const ticked = segs.filter(s => s.on && segLen(s) > 0)
   function startExport(one?: string) {
-    void api(JobStarted, '/api/segments/export', { id: edit.id, ...c, segment: one ?? '', whisper_model: model, language, style, hw_encode: base.hw_encode })
+    void api(JobStarted, '/api/segments/export', { id: edit.id, ...c, captions: 'off', segment: one ?? '', whisper_model: model, language, hw_encode: base.hw_encode })
       .then(() => toast(one ? `Exporting ${segs.find(s => s.id === one)?.name || 'the segment'}…`
         : c.mode === 'join' ? 'Exporting the edit as one video…' : `Exporting ${plural(ticked.length, 'video')}…`))
       .catch(e => toast(err(e), 'err')).finally(() => void refresh())
@@ -233,7 +230,6 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
                    onPause={() => { if (mode === 'seg') setMode('') }}
                    onError={() => { if (!src.includes('preview=1')) setSrc(`/vod/${edit.pid}?preview=1`); else setUnplayable(true) }} />
           )}
-          {capWords.length > 0 && c.captions !== 'off' && <CaptionOverlay words={capWords} now={now} style={style} />}
           {(!edit.open || unplayable) && (
             <div className="vodx-cover"><p>{unplayable
               ? <>The preview can't play this kind of video. Open it in <a href="#vod">Export VOD</a> and press Make a version it can play.</>
@@ -298,7 +294,6 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
       </section>
 
       {seg && <SegmentPanel key={seg.id} seg={seg} now={now} seek={seek} update={p => update(seg.id, p)} edit={edit}
-                            model={model} language={language} per={style.words_per_line} refresh={refresh}
                             exporting={exporting} canExport={edit.exists && !dirty} onExport={() => startExport(seg.id)} />}
 
       <section className="panel set" aria-labelledby="segv-ex">
@@ -309,13 +304,11 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
           ? <>Each ticked segment is saved as its own video, named after the segment, in a folder named after this edit. To export
             just one, use <b>Export this segment</b> on it.</>
           : 'The ticked segments are played one after another in one video, in the order shown.'}</p>
-        <div className="row wrap"><span className="muted">Captions</span><Seg label="Captions" value={c.captions} options={CAPTIONS} onChange={captions => set({ captions })} /></div>
-        <p className="hint">{CAPTIONS_HINT[c.captions]} {c.captions === 'burn' || c.captions === 'both' ? <>They look the way they're set in <a href="#vod">Export VOD</a> › Captions.</> : null}</p>
         <div className="row wrap"><span className="muted">Size</span><Seg label="Size" value={c.size} options={SIZES} onChange={size => set({ size })} /></div>
         <div className="row wrap"><span className="muted">Quality</span><Seg label="Quality" value={c.quality} options={QUALITY} onChange={quality => set({ quality })} /></div>
-        <p className="hint" data-testid="segv-speed">{c.size === 'source' && c.captions !== 'burn' && c.captions !== 'both'
-          ? 'Quick: nothing is drawn on the picture, so it\'s copied as it is and only the sound is made again. Each segment starts on the nearest keyframe up to 2.5 seconds before where you set it.'
-          : 'Burned-in captions or a new size mean every frame is made again. A subtitle file (or Off) and the Original size make the export many times quicker.'}</p>
+        <p className="hint" data-testid="segv-speed">{c.size === 'source'
+          ? 'Quick: the picture is copied as it is and only the sound is made again. Each segment starts on the nearest keyframe up to 2.5 seconds before where you set it. No captions: YouTube adds its own.'
+          : 'A new size means every frame is made again. Original makes the export many times quicker.'}</p>
         <label className="chk"><input type="checkbox" checked={c.cleanup} onChange={e => set({ cleanup: e.target.checked })} />
           <span>Deal with music and flagged words<small>Music the copyright scan found is removed or muted as it suggests, and flagged words in the
             categories <a href="#settings/safety">Settings › Content check</a> mutes are muted. Scan the video in Export VOD first.</small></span></label>
@@ -335,10 +328,9 @@ function Editor({ edit, refresh }: { edit: SegEdit; refresh: () => Promise<void>
   )
 }
 
-/** One segment: its name, where it starts and ends, the stretches cut out, its volume and its captions. */
-function SegmentPanel({ seg, now, seek, update, edit, model, language, per, refresh, exporting, canExport, onExport }: {
+/** One segment: its name, where it starts and ends, the stretches cut out and its volume. */
+function SegmentPanel({ seg, now, seek, update, edit, exporting, canExport, onExport }: {
   seg: Segment; now: number; seek: (t: number) => void; update: (p: Partial<Segment>) => void; edit: SegEdit
-  model: string; language: string; per: number; refresh: () => Promise<void>
   exporting: boolean; canExport: boolean; onExport: () => void
 }) {
   const [cutFrom, setCutFrom] = useState(-1)
@@ -390,7 +382,6 @@ function SegmentPanel({ seg, now, seek, update, edit, model, language, per, refr
                onChange={e => update({ gain_db: Number(e.target.value) })} />
         <span className="tnum">{seg.gain_db > 0 ? '+' : ''}{seg.gain_db} dB</span></span></label>
 
-      <Captions seg={seg} now={now} seek={seek} update={update} edit={edit} model={model} language={language} per={per} refresh={refresh} />
     </section>
   )
 }
@@ -409,85 +400,6 @@ function Trim({ label, at, set, now, seek }: { label: string; at: number; set: (
   )
 }
 
-/** The words heard in a segment (fetched a stretch at a time) and, once edited, its own caption lines. */
-function Captions({ seg, now, seek, update, edit, model, language, per, refresh }: {
-  seg: Segment; now: number; seek: (t: number) => void; update: (p: Partial<Segment>) => void; edit: SegEdit
-  model: string; language: string; per: number; refresh: () => Promise<void>
-}) {
-  const toast = useToast()
-  const [heard, setHeard] = useState<{ words: Array<{ start: number; end: number; word: string }>; covered: number } | null>(null)
-  const hearing = edit.hear_job?.status === 'running'
-  const done = edit.hear_job?.status === 'done' ? edit.hear_job.id : ''
-  useEffect(() => {
-    if (!edit.open) return
-    let gone = false
-    void (async () => {
-      const words: Array<{ start: number; end: number; word: string }> = []
-      let covered = 0
-      try {
-        for (let a = seg.start; a < seg.end; a += 900) {
-          const b = Math.min(seg.end, a + 900)
-          const r = await api(VodWords, `/api/vodexport/words?pid=${edit.pid}&a=${a}&b=${b}&model=${encodeURIComponent(model)}&lang=${encodeURIComponent(language)}`)
-          words.push(...r.words)
-          covered += r.covered.reduce((t, [x, y]) => t + Math.max(0, y! - x!), 0)
-        }
-      } catch { /* shown as not heard */ }
-      if (!gone) setHeard({ words, covered: covered / Math.max(1, seg.end - seg.start) })
-    })()
-    return () => { gone = true }
-  }, [edit.open, edit.pid, seg.start, seg.end, model, language, done])
-
-  const said = useMemo(() => (heard ? linesFrom(heard.words, per, seg.start, seg.end) : []), [heard, per, seg.start, seg.end])
-  const lines = seg.lines
-  const setLine = (i: number, patch: Partial<Line>) => update({ lines: (lines ?? []).map((l, k) => (k === i ? { ...l, ...patch } : l)) })
-  const current = lineAt(lines ?? said, now)
-  async function listen() {
-    try { await api(JobStarted, '/api/segments/hear', { id: edit.id, segment: seg.id, whisper_model: model, language }) } catch (e) { toast(err(e), 'err') }
-    await refresh()
-  }
-  return (
-    <div className="set" data-testid="segv-captions">
-      <header className="row wrap">
-        <h3 className="segv-h3 grow">Captions</h3>
-        {lines
-          ? <button className="btn sm ghost" onClick={() => update({ lines: null })} data-testid="segv-cap-reset">Use what was said again</button>
-          : said.length > 0 && <button className="btn sm" onClick={() => update({ lines: said })} data-testid="segv-cap-edit">Edit captions</button>}
-      </header>
-      {!heard && <p className="muted small">Loading what was said…</p>}
-      {heard && !lines && heard.covered < 0.98 && (
-        <p className="hint" data-testid="segv-not-heard">{heard.covered > 0 ? 'Only part of this segment has been listened to.' : 'This segment hasn\'t been listened to yet.'}{' '}
-          {hearing ? <>Listening…</> : <button className="link" onClick={() => void listen()}>Listen to it now</button>}
-          {' '}The export listens to anything left anyway.</p>
-      )}
-      {hearing && edit.hear_job && <JobBar job={edit.hear_job} label="Listening" />}
-      {edit.hear_job?.status === 'error' && <p className="banner err" role="alert">{edit.hear_job.error}</p>}
-      {lines && <p className="hint">These lines replace what was heard in this segment. Each keeps its own time; change the words, or remove a line to leave that moment without a caption.</p>}
-      {(lines ?? said).length > 0 && (
-        <ol className="segv-lines" aria-label="Caption lines">
-          {(lines ?? said).map((l, i) => (
-            <li key={i} className={l === current ? 'on' : ''}>
-              <button className="link tnum" onClick={() => seek(l.start)}>{fmtTime(l.start)}</button>
-              {lines
-                ? <>
-                    <input className="input grow" value={l.text} aria-label={`Caption at ${fmtTime(l.start)}`} maxLength={300}
-                           onChange={e => setLine(i, { text: e.target.value })} data-testid="segv-line" />
-                    <button className="ibtn" aria-label={`Remove the caption at ${fmtTime(l.start)}`}
-                            onClick={() => update({ lines: lines.filter((_, k) => k !== i) })}>×</button>
-                  </>
-                : <span className="grow">{l.text}</span>}
-            </li>
-          ))}
-        </ol>
-      )}
-      {lines && (
-        <button className="btn sm ghost" disabled={!(now >= seg.start && now < seg.end)}
-                onClick={() => update({ lines: [...lines, { start: now, end: Math.min(seg.end, now + 2.5), text: '' }].sort((x, y) => x.start - y.start) })}>
-          Add a line at {fmtTime(now)}</button>
-      )}
-    </div>
-  )
-}
-
 function ExportDone({ job }: { job: SegEdit['export_job'] }) {
   const toast = useToast()
   if (!job || job.status === 'running') return null
@@ -500,7 +412,7 @@ function ExportDone({ job }: { job: SegEdit['export_job'] }) {
   return (
     <div className="vodx-done" data-testid="segv-done">
       {files.length === 1
-        ? <p><b>Saved {files[0]!.name}</b> · {fmtTime(files[0]!.length)}{files[0]!.srt ? `, captions in ${files[0]!.srt}` : ''}</p>
+        ? <p><b>Saved {files[0]!.name}</b> · {fmtTime(files[0]!.length)}</p>
         : <>
             <p><b>Saved {files.length} videos</b> · {fmtTime(r.length ?? 0)} in all</p>
             <ul className="segv-files">{files.map(f => <li key={f.name}>{f.name} <span className="muted tnum">{fmtTime(f.length)}</span></li>)}</ul>

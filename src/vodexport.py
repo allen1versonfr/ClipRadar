@@ -400,7 +400,8 @@ def clean_options(body: dict, duration: float) -> dict:
     spans are numbers inside the video, in order."""
     style = {k: v for k, v in (body.get("style") or {}).items() if k in STYLE_KEYS} if isinstance(body.get("style"), dict) else {}
     return {
-        "captions": body.get("captions") if body.get("captions") in CAPTION_MODES else "burn",
+        # 5.1.2: no captions on Export VOD and Segments: YouTube makes its own, and nothing is listened to for them
+        "captions": "off",
         "words": body.get("words") if body.get("words") in WORD_MODES else "mute",
         # the flagged words ticked in the queue: [(start, end)]
         "word_spans": _pairs(body.get("word_spans"), duration),

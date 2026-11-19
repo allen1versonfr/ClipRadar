@@ -517,7 +517,8 @@ EXPORT VOD (A WHOLE VIDEO)
   downloaded before and files you opened before, and Choose a video on this
   PC picks any video file, on any drive. A video opened here isn't searched
   for clips, so it's ready in a second or two.
-  Preview: the video plays with the captions drawn on it as they'll look. On
+  There are no captions on an exported VOD or segment: YouTube makes its own.
+  Preview: the video plays as it is. On
   a wide window it sits beside the settings and stays in view while they
   scroll. The thin strip under it is the whole video (green: song erased,
   yellow: muted, red: muted words); click it to jump there. Under that is a
@@ -545,13 +546,9 @@ EXPORT VOD (A WHOLE VIDEO)
   singing stays.
   Flagged words: Check for flagged words listens to the whole video and
   lists what the content check flags, with the words around each. Ticked
-  ones are muted or bleeped and hidden in the captions. Click a time to
+  ones are muted or bleeped. Click a time to
   hear it in the preview. What counts is set in Settings > Content check.
-  Captions: burned in, a .srt file next to the video, both, or off. Choose
-  the look, where they sit, the font, colour, size and how many words show
-  at once. With captions off nothing is listened to for them.
-  Size and quality, then Export. With no burned-in captions and the
-  Original size, the picture is copied as it is and only the sound is made
+  Size and quality, then Export. At the Original size the picture is copied as it is and only the sound is made
   again, which is several times quicker. The file goes in the Exported VODs
   folder (next to your project folders, or where you choose in Settings >
   Storage), named after the video with "(full VOD)". It's kept apart from
@@ -592,16 +589,12 @@ SEGMENTS (PARTS OF A STREAM, EDITED TOGETHER)
                         of the middle; Put back undoes it
     Volume              -12 to +12 dB. Quieter is heard in the preview;
                         louder only in the export
-    Captions            what was heard in the part (Listen to it now if it
-                        hasn't been). Edit captions lets you change the
-                        words, remove a line or add one
   The length of the edit is shown above the preview. Changes save as you go, so an unfinished edit is still there next
   time you open Clip Radar.
   Export: a video for each ticked segment (the default), named after the
   segment, in a folder named after the edit; or All joined into one video.
   Export this segment, on the segment itself, saves just that one. Then
-  captions (burned in, a .srt file, both or off, in the look set in
-  Export VOD), size and quality. Deal with music and flagged words removes
+  size and quality (no captions: YouTube makes its own). Deal with music and flagged words removes
   or mutes music as the copyright scan suggests and mutes flagged words in
   the categories Settings > Content check mutes, so scan the video in Export
   VOD first. The file goes in the Segments folder (next to your project

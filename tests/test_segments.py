@@ -198,8 +198,8 @@ if shutil.which("ffmpeg"):
         check("each only as long as what it keeps (Late: 6 s with 2 cut out)", abs(engine.probe(late)["duration"] - 4.0) < 0.35
               and abs(engine.probe(early)["duration"] - 4.0) < 0.35, (engine.probe(late)["duration"], engine.probe(early)["duration"]))
         check("Late's cut stretch is left out", abs(luma(late, 2.5) - 34 * 6 % 256) < 30, luma(late, 2.5))
-        check("each with its own subtitle file, edited lines included", os.path.isfile(os.path.splitext(early)[0] + ".srt")
-              and "edited" in open(os.path.splitext(early)[0] + ".srt", encoding="utf-8").read())
+        check("no subtitle file, even when asked for (5.1.2: YouTube makes its own captions)",
+              not os.path.isfile(os.path.splitext(early)[0] + ".srt"))
     # the Segments folder on another drive than the temporary folder: a rename across drives fails (WinError 17)
     real_rename, real_replace = os.rename, os.replace
 
@@ -232,9 +232,7 @@ if shutil.which("ffmpeg"):
         check("in the edit's order: Late first", luma(out, 0.5) > luma(out, 5.0) + 40, (luma(out, 0.5), luma(out, 5.0)))
         check("the cut stretch is left out (32 s jumps to 34 s)", abs(luma(out, 2.5) - 34 * 6 % 256) < 30, luma(out, 2.5))
         check("Late is turned down, Early isn't", rms(out, 0.5) < rms(out, 5.5) * 0.5, (rms(out, 0.5), rms(out, 5.5)))
-        srt = os.path.join(res["folder"], res["srt"]) if res.get("srt") else ""
-        text = open(srt, encoding="utf-8").read() if srt and os.path.isfile(srt) else ""
-        check("captions edited by hand are in the subtitle file", "edited" in text and "hand" in text, text[:200])
+        check("no captions in the joined video either", not res.get("srt"), res.get("srt"))
         check("named after the edit", res["name"].startswith("Best bits"), res)
         check("saved in the Segments folder, not with the clips (5.0)",
               os.path.normcase(res["folder"]) == os.path.normcase(locations.segments_dir())
