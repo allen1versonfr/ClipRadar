@@ -1670,6 +1670,7 @@ from render_queue import (  # noqa: E402,F401
     queue_public, queue_worker, RAM_SHORT, redact, _render_inputs, _render_item, _render_project, _render_projects,
     _render_projects_lock, RETRYABLE, set_stage, SOUND_LOG, start_prehear, TEST_HOOKS, _UNMEASURED,
     _validate_render, _wait_prehear, _workers, youtube_opts, background_priority, _lowered, _set_priority,
+    open_priority_gate, _priority_gate,
 )
 
 

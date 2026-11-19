@@ -30,6 +30,7 @@ import server  # noqa: E402
 
 if sys.platform != "win32":
     print("[skip] process priority classes are Windows")
+    render_queue.open_priority_gate()
     render_queue.background_priority()          # a no-op elsewhere, and never an error
     check("elsewhere it changes nothing and doesn't fail", render_queue._lowered[0] is False)
 else:
@@ -41,11 +42,22 @@ else:
     k.GetPriorityClass.restype = wintypes.DWORD
     prio = lambda: k.GetPriorityClass(k.GetCurrentProcess())      # noqa: E731
     BELOW, NORMAL = 0x00004000, 0x00000020
+    render_queue._set_priority(NORMAL)            # however this runner started Python
     render_queue.apply_perf({"renders": 1, "priority": "responsive"})
-    check("before any job, Clip Radar (and the window it starts) is at normal priority", prio() == NORMAL, hex(prio()))
     job = server.new_job("test")
     server.run_job(job, lambda: prio())
     import time
+    end = time.time() + 10
+    while job["status"] == "running" and time.time() < end:
+        time.sleep(0.05)
+    check("a job that starts before the window is open leaves Clip Radar at normal priority (the window inherits it)",
+          job.get("result") == NORMAL and prio() == NORMAL, (hex(job.get("result") or 0), hex(prio())))
+    render_queue.open_priority_gate()
+    check("once the window is open, a job that asked while it waited lowers it at once", prio() == BELOW, hex(prio()))
+    render_queue.apply_perf({"renders": 1, "priority": "fast"})
+    render_queue.apply_perf({"renders": 1, "priority": "responsive"})
+    job = server.new_job("test")
+    server.run_job(job, lambda: prio())
     end = time.time() + 10
     while job["status"] == "running" and time.time() < end:
         time.sleep(0.05)

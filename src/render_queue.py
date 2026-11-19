@@ -777,6 +777,17 @@ def apply_perf(prefs: Optional[dict] = None):
 
 _workers: list = []
 _lowered = [False]
+# held until Clip Radar's window is open (app.py): a job started before it (reopening last session's videos, a render
+# queued when it closed) would otherwise lower the window's own processes, which start after and inherit it
+_priority_gate = {"open": False, "wanted": False}
+
+
+def open_priority_gate() -> None:
+    """The window is up (or there is none): background_priority can lower the process now, and does at once if a job
+    asked while it waited."""
+    _priority_gate["open"] = True
+    if _priority_gate["wanted"]:
+        background_priority()
 
 
 def _set_priority(cls: int) -> bool:
@@ -799,9 +810,13 @@ def background_priority() -> None:
     """Settings › Performance › Keep the PC responsive (the default): Clip Radar's own background work runs below
     normal priority too, not only the render's FFmpeg (5.4.2). Captions (Whisper), finding the face, the music scan,
     the song eraser and the checks after a render ran at normal priority on most of the cores, and the whole PC
-    stuttered while a clip was made. Done when the first background job starts, so the window's own processes
-    (started with it, before) keep normal priority; everything started after inherits it, FFmpeg included."""
+    stuttered while a clip was made. Done when the first background job starts and the window is open, so the window's
+    own processes (started with it, before) keep normal priority; everything started after inherits it, FFmpeg
+    included."""
     if _lowered[0] or render.RENDER_PRIORITY[0] == 0:
+        return
+    if not _priority_gate["open"]:
+        _priority_gate["wanted"] = True
         return
     if _set_priority(0x00004000):           # BELOW_NORMAL_PRIORITY_CLASS
         _lowered[0] = True
