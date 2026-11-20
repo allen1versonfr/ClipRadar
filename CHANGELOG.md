@@ -24,12 +24,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
     once; one that goes live with no free slot says so and starts as soon as one frees up.
   - Stop on a target's session stops it for that stream; it's clipped again on their next one.
   - Clip Radar has to be open (it can sit in the background) for its targets to be watched.
+- **You can see when the full stream is being saved.** With Save the whole stream on, a red **REC · Saving the
+  full stream** badge shows on the stream in Home › Running now, on its live session's page and on its target, and
+  the status bar at the bottom of every screen says "Recording … · saving the full stream" with a red dot. After the
+  stream it says when the recording is being joined into one video and when it's saved, and warns if it stopped
+  saving because the disk was nearly full.
 
 ### Tests
 - `tests/test_targets.py` (new, in CI): what can be a target; the list kept with its settings; with Twitch's and
   YouTube's answers made up, an offline target starts nothing, a live one starts clipping once with its own
   settings, stopped by you not again that stream but on the next, a stream that just ended not restarted from an
   out-of-date answer, no free slot said and started when one frees up, a switched-off one never; and the routes.
+- The REC badge for every state of the recording; Running now and the status bar showing it only for a stream
+  being saved.
 - Home's Targets box: the list with what's going on and Open, adding with the Live stream settings and your style,
   a channel it can't watch, switching one off and changing its settings, every target brought up to date.
 

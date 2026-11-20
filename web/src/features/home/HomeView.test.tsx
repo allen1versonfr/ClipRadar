@@ -125,8 +125,19 @@ describe('Home', () => {
     await waitFor(() => expect(calls).toContainEqual(['/api/live/s1/stop', {}]))
   })
 
+  it('a live stream whose full stream is being saved says so, and one that isn\'t doesn\'t', async () => {
+    sources = [
+      { type: 'live', id: 's1', status: 'recording', title: 'Saving one', source: 'z', label: 'Twitch livestream', recorded: 75, moments: 1, chat_state: 'ok', vod: 'keeping' },
+      { type: 'live', id: 's2', status: 'recording', title: 'Not saving', source: 'w', label: 'Twitch livestream', recorded: 75, moments: 1, chat_state: 'ok', vod: 'off' },
+    ]
+    renderHome()
+    const rows = await screen.findAllByTestId('source-row')
+    expect(within(rows[0]!).getByTestId('rec-badge').textContent).toBe('REC · Saving the full stream')
+    expect(within(rows[1]!).queryByTestId('rec-badge')).toBeNull()
+  })
+
   it('describes each source in one line', () => {
-    const base = { title: '', source: '', label: '', step: '', progress: 0, pid: '', error: '', recorded: 0, moments: 0, chat_state: '', todo: 0, duration: 0 }
+    const base = { title: '', source: '', label: '', step: '', progress: 0, pid: '', error: '', recorded: 0, moments: 0, chat_state: '', todo: 0, duration: 0, vod: 'off' }
     expect(sourceDetail({ ...base, type: 'vod', id: 'a', status: 'running', step: 'Reading chat', progress: 0.25, eta: 40 }))
       .toBe('Reading chat · 25% · about 40 s left')
     expect(sourceDetail({ ...base, type: 'live', id: 'b', status: 'recording', recorded: 75, moments: 2, chat_state: 'quiet' }))

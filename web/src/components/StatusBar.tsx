@@ -9,10 +9,11 @@ export function StatusBar({ status, error, queue }: { status: Status | undefined
   const upd = usePoll(useCallback(() => api(Update, '/api/update'), []), 60_000).data
   if (error) return <footer className="status-bar"><span className="err-tx">{error}</span></footer>
   // each task links to where it's shown: a live session's Review, or Exports
-  const tasks: Array<{ text: string; href: string }> = []
+  const tasks: Array<{ text: string; href: string; rec?: boolean }> = []
   for (const l of status?.lives ?? []) {
     const href = `#review/live/${l.id}`
-    if (l.status === 'recording') tasks.push({ text: `Recording ${l.title || 'a live stream'}`, href })
+    // the full stream being saved too (5.5): said, so you know the whole recording is being kept
+    if (l.status === 'recording') tasks.push({ text: `Recording ${l.title || 'a live stream'}${l.vod === 'keeping' ? ' · saving the full stream' : ''}`, href, rec: l.vod === 'keeping' })
     else if (l.status === 'waiting') tasks.push({ text: `Waiting for ${l.title || 'the stream'} to go live`, href })
     else if (l.status === 'starting' || l.status === 'reconnecting') tasks.push({ text: l.status === 'starting' ? 'Connecting to stream' : 'Reconnecting', href })
   }
@@ -20,7 +21,7 @@ export function StatusBar({ status, error, queue }: { status: Status | undefined
   if (active) tasks.push({ text: `Rendering ${plural(active, 'clip')}`, href: '#exports' })
   return (
     <footer className="status-bar" data-testid="status-bar">
-      <span className="sb-tasks" aria-live="polite">{tasks.length ? tasks.map(t => <a key={t.text} className="task" href={t.href}><i />{t.text}</a>)
+      <span className="sb-tasks" aria-live="polite">{tasks.length ? tasks.map(t => <a key={t.text} className={`task${t.rec ? ' rec' : ''}`} href={t.href} data-testid={t.rec ? 'sb-rec' : undefined}><i />{t.text}</a>)
         : <span className="muted">{status ? `Clip Radar ${status.version}` : ''}</span>}</span>
       {upd?.available && (
         <a className="sb-update" href="#settings/updates" data-testid="sb-update">

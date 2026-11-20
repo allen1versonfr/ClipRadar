@@ -296,7 +296,10 @@ def view(S) -> dict:
             sess = _session_for(S, t)
             out.append(dict(t, params=None, live=bool(st.get("live")) if t["on"] else None,
                             session=sess.id if sess is not None else "", note=st.get("note") or ("Checking…" if t["on"] else "Off"),
-                            checked=st.get("checked", 0)))
+                            checked=st.get("checked", 0),
+                            # its session saving the full stream (shown, so you know the recording is being kept)
+                            vod=(getattr(sess, "vod", None) or {}).get("state", "off") if sess is not None else "off",
+                            recording=sess is not None and getattr(sess, "status", "") in ("recording", "reconnecting")))
     return {"targets": out, "watching": bool(_thread[0] and _thread[0].is_alive())}
 
 

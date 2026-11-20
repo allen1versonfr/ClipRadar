@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { type Target, Targets, type TargetSettings } from '../../api/schemas'
+import { RecBadge } from '../../components/RecBadge'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
 import { liveUrl } from '../../handoff'
@@ -80,6 +81,7 @@ export function TargetsCard() {
                 <b className="ellipsis" title={t.source}>{t.name || t.channel}</b>
                 <span className="muted small">{t.platform === 'youtube' ? 'YouTube' : 'Twitch'}</span>
                 <span className="grow small target-note" data-testid="target-note">{t.note}</span>
+                {t.session && <RecBadge vod={t.vod} active={t.recording} compact />}
                 {t.session && <a className="btn sm" href={liveUrl(t.session)}>Open</a>}
                 <label className="chk inline" title={t.on ? 'Watching: clipped when they go live' : 'Not watched'}>
                   <input type="checkbox" checked={t.on} aria-label={`Watch ${t.name || t.channel}`} data-testid="target-on"

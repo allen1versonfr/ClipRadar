@@ -301,7 +301,9 @@ class Handler(BaseHTTPRequestHandler):
                 "ui": S.ui_mode(), "next": S.web_available(),
                 "running": S.busy(),
                 "live": (live_glue.live_active().id if live_glue.live_active() else ""),
-                "lives": [{"id": x.id, "title": x.title, "status": x.status} for x in live_glue.live_list()],
+                # vod: whether the full stream is being saved (5.5: shown in the status bar, so you know it is)
+                "lives": [{"id": x.id, "title": x.title, "status": x.status, "vod": (getattr(x, "vod", None) or {}).get("state", "off")}
+                          for x in live_glue.live_list()],
                 "hotkey": hotkey.status(),
             })
         if p == "/api/update":

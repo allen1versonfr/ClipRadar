@@ -135,7 +135,9 @@ export const Status = z.looseObject({
   twitchdownloader: z.boolean().optional(),
   can_download_tools: z.boolean().optional(),
   live: z.string().default(''),
-  lives: z.array(z.looseObject({ id: z.string(), title: z.string().default(''), status: z.string().default('') })).default([]),
+  lives: z.array(z.looseObject({ id: z.string(), title: z.string().default(''), status: z.string().default(''),
+    /** the full stream being saved: keeping, saving (joining it), saved, stopped (disk full), failed, off */
+    vod: z.string().default('off') })).default([]),
   running: z.boolean().default(false),
   hotkey: z.lazy(() => Hotkey).optional(),
 })
@@ -170,6 +172,7 @@ export const Target = z.looseObject({
   source: z.string(), on: z.boolean().default(true), settings: TargetSettings,
   /** live now (null: not checked, or switched off), the live session clipping it, and what's going on in words */
   live: z.boolean().nullable().default(null), session: z.string().default(''), note: z.string().default(''),
+  vod: z.string().default('off'), recording: z.boolean().default(false),
 })
 export type Target = z.infer<typeof Target>
 export const Targets = z.looseObject({ targets: z.array(Target).default([]), watching: z.boolean().default(false) })
@@ -189,6 +192,7 @@ export const Source = z.looseObject({
   recorded: z.number().default(0),
   moments: z.number().default(0),
   chat_state: z.string().default(''),
+  vod: z.string().default('off'),       // a live stream: the full stream being saved (keeping), joined (saving), saved
   todo: z.number().default(0),          // an open video's clips left to review
   duration: z.number().default(0),      // and its length, in seconds
 })

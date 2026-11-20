@@ -4,6 +4,7 @@ import { JobStarted, Ok, Sources, type Source } from '../../api/schemas'
 import { useToast } from '../../components/Toasts'
 import { go, liveUrl, reviewUrl } from '../../handoff'
 import { usePoll } from '../../hooks/usePoll'
+import { RecBadge } from '../../components/RecBadge'
 import { fmtLeft, fmtTime } from '../exports/renderStatus'
 
 const LIVE_ON = ['recording', 'reconnecting', 'starting', 'waiting']
@@ -56,6 +57,7 @@ export function RunningNow() {
             <div className="src-main">
               <b title={x.source}>{x.title || x.source}</b>
               <small>{x.label} · {sourceDetail(x)}</small>
+              {live && <RecBadge vod={x.vod} active={['recording', 'reconnecting'].includes(x.status)} />}
               {!live && x.status === 'running' && <span className="meter wide"><i style={{ width: `${Math.round(x.progress * 100)}%` }} /></span>}
             </div>
             <span className="src-acts">

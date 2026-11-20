@@ -12,7 +12,7 @@ beforeEach(() => {
   calls = []
   list = [
     { id: 't1', platform: 'twitch', channel: 'shroud', name: 'shroud', source: 'https://www.twitch.tv/shroud', on: true, settings: SET,
-      live: true, session: 'lv9', note: 'Live: clipping since 20:14.' },
+      live: true, session: 'lv9', note: 'Live: clipping since 20:14.', vod: 'keeping', recording: true },
     { id: 't2', platform: 'youtube', channel: '@chan', name: 'chan', source: 'https://www.youtube.com/@chan/live', on: false,
       settings: { ...SET, save_vod: false }, live: null, session: '', note: 'Off' },
   ]
@@ -39,7 +39,9 @@ describe('Targets', () => {
     expect(rows).toHaveLength(2)
     expect(within(rows[0]!).getByTestId('target-note').textContent).toBe('Live: clipping since 20:14.')
     expect(within(rows[0]!).getByRole('link', { name: 'Open' }).getAttribute('href')).toBe('#review/live/lv9')
+    expect(within(rows[0]!).getByTestId('rec-badge').textContent).toBe('REC · full stream')     // its full stream is being saved
     expect(within(rows[1]!).queryByRole('link', { name: 'Open' })).toBeNull()
+    expect(within(rows[1]!).queryByTestId('rec-badge')).toBeNull()
     expect((within(rows[1]!).getByTestId('target-on') as HTMLInputElement).checked).toBe(false)
   })
 

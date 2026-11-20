@@ -2,6 +2,7 @@ import type { LiveView } from '../../api/schemas'
 import { plural } from '../../format'
 import { LIVE_LABEL, LIVE_ON, liveStatus, vodNote } from './live'
 import { fmt } from './model'
+import { RecBadge } from '../../components/RecBadge'
 
 /** A live session's header: its state, what's recorded, chat, moments, and the controls (lowest score, how many
  *  clips, Hands-free, Clip last 30s, Stop). */
@@ -16,6 +17,7 @@ export function LiveHead({ live: L, moments, onSettings, onClip, onStop }: {
     <div className="rv-live" data-testid="rv-live">
       <div className="rv-live-row">
         <span className={`live-tag${on ? '' : ' off'}`} data-testid="rv-live-state"><i />{LIVE_LABEL[L.status] ?? L.status}</span>
+        <RecBadge vod={L.vod.state} active={on} />
         {L.in_ad && L.status === 'recording' && <span className="muted small">Ad break: left out</span>}
         <span className="rv-facts-head muted small">
           <span>Recorded <b className="tnum">{fmt(L.recorded)}</b></span>
