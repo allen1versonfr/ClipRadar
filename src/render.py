@@ -953,6 +953,7 @@ _encoder_cache: dict = {}
 
 RENDER_THREADS: list = []         # ["-threads", "N"] when Settings › Performance asks to keep the PC responsive
 ENDING_MAX = 45            # seconds FFmpeg may take to finish a file once it has made every frame (5.4.2)
+STALL_MAX = 45             # seconds a render's position may stand still before it counts as stuck (5.4.3)
 RENDER_PRIORITY = [0]             # Windows priority class for ffmpeg (BELOW_NORMAL when keeping the PC responsive)
 _HW = [
     ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr",
@@ -1507,6 +1508,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         stalled = [False]
         ended = [0.0]           # when FFmpeg reported the clip's last frame (0: not yet)
         beyond = [0.0]          # the furthest FFmpeg has got, in seconds of output
+        moved = [0.0]           # when that last went forward (0: no frame yet)
 
         def drain():
             for ln in p.stderr:
@@ -1523,7 +1525,11 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                 # or still making video far past the clip's end (repeated frames filling a gap in the source's
                 # timestamps): stopped, not left to run with the bar at 100% and every core busy
                 late = late or beyond[0] > length * 1.5 + 10
-                if time.monotonic() - last_output[0] > 120 or late:
+                # FFmpeg's -progress keeps reporting twice a second even when it's stuck, the same position every
+                # time: a render is stuck when its position stops moving, not when the reports stop (5.4.3: a clip
+                # from X sat at 95% for good, every report alive, the old check never fired)
+                frozen = moved[0] and time.monotonic() - moved[0] > STALL_MAX
+                if time.monotonic() - last_output[0] > 120 or late or frozen:
                     stalled[0] = True
                     try:
                         p.kill()
@@ -1542,6 +1548,8 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                     try:
                         t = int(line.split("=")[1]) / 1e6
                         progress(0.3 + 0.7 * min(1.0, max(0.0, t) / length))
+                        if t > beyond[0] + 1e-3:
+                            moved[0] = time.monotonic()
                         beyond[0] = max(beyond[0], t)
                         if t >= length - 0.1 and not ended[0]:
                             ended[0] = time.monotonic()
@@ -1557,6 +1565,10 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             reader.join(timeout=5)
         if stalled[0] and ended[0]:
             err = "".join(err_lines) + f"\nFFmpeg made the whole clip but didn't finish the file within {ENDING_MAX} seconds, and was stopped."
+            code = p.returncode or -1
+        elif stalled[0] and moved[0]:
+            err = "".join(err_lines) + (f"\nFFmpeg made no progress for {STALL_MAX} seconds (stuck at "
+                                        f"{min(beyond[0], length):.1f} s of {length:.1f} s) and was stopped.")
             code = p.returncode or -1
         elif stalled[0]:
             err = "".join(err_lines) + "\nFFmpeg made no progress for 120 seconds and was stopped."
@@ -1588,6 +1600,10 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             # decoding on the GPU didn't work for this video: again with the CPU decoding, same encoder
             log("Decoding on the GPU failed for this video; decoding on the CPU.")
             hwdec = False
+            if "made no progress" in err:
+                # it hung rather than failed: a driver that wedges also makes the whole PC stutter, so it isn't
+                # tried again this session (5.4.3)
+                _encoder_cache["hwdec"] = False
             diag.update(hw_decode=False, fallback=(diag["fallback"] + "; " if diag["fallback"] else "")
                         + "GPU decoding failed, decoded on the CPU")
             code, err = encode(enc_args, hwdec)
