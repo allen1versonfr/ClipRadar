@@ -144,6 +144,12 @@ def queue_add(pid: str, c: dict, opts: dict, sound: bool = False, platform: str 
         # Settings › Campaigns: the active campaign's watermark and post rules go with the clip
         ex["watermark"] = campaigns.watermark_for(camp, ex["watermark"])
         it["campaign"] = {k: camp[k] for k in ("id", "name", "caption", "caption_where", "tags")}
+    if c.get("no_watermark"):
+        # Moments › No watermark (5.6): this clip without Settings › Watermark's (or the campaign's) marks
+        ex["watermark"] = {"on": False, "marks": []}
+    if c.get("no_captions"):
+        # Moments › No captions (5.6): this clip without burned-in captions (bleeping and muting still hear the words)
+        it["opts"]["captions"] = False
     it["export"] = ex
     it["name_fields"] = exports.fields_for(dict(d or {}, title=it["title"]), pr, ex["preset"], number=it["clip_id"])
     it["sig"] = json.dumps([pid, it["clip_id"], round(start_, 2), round(end_, 2), it["title"], it["opts"], ex], sort_keys=True,

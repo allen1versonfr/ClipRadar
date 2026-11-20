@@ -33,6 +33,8 @@ h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 /* controls */
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--r); border: 1px solid var(--line2); background: var(--bg2); text-decoration: none; color: var(--tx0); white-space: nowrap; }
 .btn:hover { background: var(--bg3); }
+/* a toggle that's on (Moments › No captions, No watermark) */
+.btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .btn.primary:hover { background: var(--accent-2); }
 .btn.ghost { background: transparent; }

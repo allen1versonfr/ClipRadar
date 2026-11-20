@@ -547,6 +547,7 @@ export const YtEdit = z.looseObject({
   postText: z.string().optional(), userPost: z.boolean().optional(),
   gain: z.number().optional(), userGain: z.boolean().optional(),
   wordsEdited: z.boolean().optional(), words: z.array(Word).optional(), words_edit: z.array(Word).optional(),
+  noCaptions: z.boolean().optional(), noWatermark: z.boolean().optional(),
 })
 export type YtEdit = z.infer<typeof YtEdit>
 export const Clip = z.looseObject({
@@ -568,6 +569,8 @@ export const Clip = z.looseObject({
   check: z.looseObject({ excluded: z.boolean().default(false), fixes: z.array(z.unknown()).default([]) }).optional(),
   auto_log: z.array(AutoEntry).optional(),
   yt: YtEdit.optional().catch(undefined),
+  /** Moments › No captions / No watermark (5.6): this clip without them */
+  noCaptions: z.boolean().optional(), noWatermark: z.boolean().optional(),
 })
 export type Clip = z.infer<typeof Clip>
 

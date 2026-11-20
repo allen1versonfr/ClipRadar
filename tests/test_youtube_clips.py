@@ -155,6 +155,24 @@ else:
         check("its settings are the ones made for it (blurred background)", inner["opts"].get("layout") == "blur", inner["opts"])
         check("its title and description are the ones written for it",
               ytclips.texts(inner) == {"title": "YouTube title", "description": "For YouTube"}, ytclips.texts(inner))
+    # 5.6: Moments › No captions and No watermark, for one clip
+    api("/api/queue/clear", {})
+    import exports  # noqa: E402
+    exports.save({"watermark": {"on": True, "marks": [{"kind": "text", "text": "@me", "pos": "br"}]}})
+    api("/api/queue/add", {"pid": pid, "clip": dict(clip, no_captions=True, no_watermark=True),
+                           "opts": {"layout": "full", "captions": True, "hw_encode": False}})
+    api("/api/queue/add", {"pid": pid, "clip": dict(clip, id=2), "opts": {"layout": "full", "captions": True, "hw_encode": False}})
+    inner = [x for x in server.queue]
+    bare = next(x for x in inner if x["clip_id"] == 1)
+    plain = next(x for x in inner if x["clip_id"] == 2)
+    check("a clip with No captions renders without them, and with No watermark without the watermark",
+          bare["opts"].get("captions") is False and not bare["export"]["watermark"]["on"], (bare["opts"].get("captions"), bare["export"]["watermark"]))
+    check("the clips without them pressed keep both", plain["opts"].get("captions") is True and plain["export"]["watermark"]["on"],
+          (plain["opts"].get("captions"), plain["export"]["watermark"]))
+    check("and No captions is kept with the clip in Moments", (api("/api/clip_state", {"pid": pid, "id": 1, "noCaptions": True, "noWatermark": True}) or {}).get("ok")
+          and next(x for x in api(f"/api/project/{pid}")["clips"] if x["id"] == 1).get("noCaptions") is True)
+    api("/api/queue/clear", {})
+    exports.save({"watermark": {"on": False, "marks": []}})
     check("a clip that isn't rendered can't go", api("/api/yt_handoff", {"item": "nope"}).get("status") == 400)
     r = api("/api/youtube", {"visibility": "private"})
     check("Settings › YouTube is saved through the app", r.get("visibility") == "private" and api("/api/youtube")["visibility"] == "private", r)

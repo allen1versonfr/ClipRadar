@@ -154,7 +154,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   const camp = camps.data?.list.find(x => x.id === camps.data?.active && x.watermark.use)
   const wmServer = camp ? { on: true, marks: camp.watermark.marks } : exp.data?.prefs.watermark
   const [dragMarks, setDragMarks] = useState<Mark[]>()
-  const marks = wmServer?.on ? dragMarks ?? wmServer.marks : []
+  const marksAll = wmServer?.on ? dragMarks ?? wmServer.marks : []
   const replace = useMemo(() => Object.fromEntries((exp.data?.prefs.replace ?? []).map(([a, b]) => [a.toLowerCase(), b])), [exp.data])
   async function saveMarks(ms: Mark[]) {
     try {
@@ -338,7 +338,9 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
   // the settings the preview draws and the editor changes: the YouTube edit's while it's on screen
   const vEl = getVideo()
   const wideSrc = !!vEl && vEl.videoWidth > 0 && Math.abs(vEl.videoWidth / vEl.videoHeight - 16 / 9) < 0.03
-  const eo = yt ? ytOpts(opts, ytOver, wideSrc) : opts
+  // and what the clip on screen leaves out (Moments › No captions, 5.6)
+  const eo0 = yt ? ytOpts(opts, ytOver, wideSrc) : opts
+  const eo = c?.noCaptions ? { ...eo0, captions: false } : eo0
   const setEo = yt ? setYtOver : setOpts
   function setEdition(v: 'tiktok' | 'youtube') {
     if (v === edition) return
@@ -972,7 +974,7 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
             <>
               <div className="rv-stagecol">
               <Player ref={player} src={c.vod || meta.vod} pid={c.pid} clipKey={keyOf(c)} start={c.start} end={c.end}>
-                <Preview clip={shown ?? c} video={getVideo} thumb={c.thumb} opts={eo} marks={marks} safety={safety} replace={replace}
+                <Preview clip={shown ?? c} video={getVideo} thumb={c.thumb} opts={eo} marks={c.noWatermark ? [] : marksAll} safety={safety} replace={replace}
                          track={tracks[trackKey(c, eo)] ?? null} guides={guides}
                          extras={wantsExtras(eo) ? extras[extrasKey(c, eo)] ?? null : null}
                          onOpts={(patch, persist) => setEo(patch, persist)}
@@ -1003,6 +1005,13 @@ function Workspace({ pid, live: isLive, active, whisper }: { pid: string; live: 
                   <select className="input" aria-label="Playback speed" title="Playback speed (< and >)" value={speed} onChange={e => changeSpeed(Number(e.target.value))}>
                     {SPEEDS.map(v => <option key={v} value={v}>{v}×</option>)}
                   </select>
+                  {/* this clip without captions or without the watermark (5.6): the preview shows it at once, Keep renders it */}
+                  <button className={`btn sm${c.noCaptions ? ' on' : ''}`} aria-pressed={!!c.noCaptions} disabled={kept} data-testid="rv-no-captions"
+                          title={c.noCaptions ? 'This clip has no captions. Press to put them back.' : 'Render this clip without captions'}
+                          onClick={() => edit(c, c.noCaptions ? 'captions back' : 'no captions', { noCaptions: !c.noCaptions })}>No captions</button>
+                  <button className={`btn sm${c.noWatermark ? ' on' : ''}`} aria-pressed={!!c.noWatermark} disabled={kept} data-testid="rv-no-watermark"
+                          title={c.noWatermark ? 'This clip has no watermark. Press to put it back.' : 'Render this clip without your watermark'}
+                          onClick={() => edit(c, c.noWatermark ? 'watermark back' : 'no watermark', { noWatermark: !c.noWatermark })}>No watermark</button>
                   <button className="btn sm" disabled={!!exactStep} onClick={() => void exactPreview(c)} data-testid="rv-exact-btn"
                           title="Render a few seconds around the playhead exactly like the export">{exactStep || 'Exact preview'}</button>
                   <span className="grow" />
