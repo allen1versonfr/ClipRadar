@@ -91,6 +91,7 @@ IDLE_MINUTES = 20   # browser mode only: quit when no tab has checked in for thi
 
 def run_browser(url: str):
     server.MODE["window"] = False
+    server.render_queue.open_priority_gate()     # no window of Clip Radar's own to keep at normal priority
     webbrowser.open(url)
     print(f"Running in browser mode at {url}", flush=True)
     while True:
@@ -179,6 +180,9 @@ def run_window(url: str) -> bool:
 
     window.events.closing += on_closing
     server.shutdown_hook[0] = really_quit
+    # Keep the PC responsive (5.4.2): Clip Radar's background work goes below normal priority only once the window and
+    # its own processes are up, so they keep normal priority
+    window.events.shown += lambda *a: threading.Timer(3.0, server.render_queue.open_priority_gate).start()
 
     try:
         kwargs = {"private_mode": False, "storage_path": str(paths.DATA_DIR / "webview")}

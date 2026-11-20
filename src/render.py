@@ -952,6 +952,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 _encoder_cache: dict = {}
 
 RENDER_THREADS: list = []         # ["-threads", "N"] when Settings › Performance asks to keep the PC responsive
+ENDING_MAX = 45            # seconds FFmpeg may take to finish a file once it has made every frame (5.4.2)
 RENDER_PRIORITY = [0]             # Windows priority class for ffmpeg (BELOW_NORMAL when keeping the PC responsive)
 _HW = [
     ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr",
@@ -1492,6 +1493,8 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             # negative_cts_offsets: the first frame shows at exactly 0:00 even where the edit list is ignored
             # (TikTok's cover picker does; without it the first frame sits one frame in and the cover is black)
             cmd += ["-movflags", "+faststart+negative_cts_offsets" if faststart else "+negative_cts_offsets"]
+        # (no -t on the output: a source whose timestamps restart part-way, a recording across an ad break, came out
+        # half as long with it. A render that runs on past the clip is stopped by watch_render instead.)
         cmd += [*RENDER_THREADS, tmp_name]
         diag["cmd"] = subprocess.list2cmdline(cmd)
         p = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -1502,6 +1505,8 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         err_lines: list = []
         last_output = [time.monotonic()]
         stalled = [False]
+        ended = [0.0]           # when FFmpeg reported the clip's last frame (0: not yet)
+        beyond = [0.0]          # the furthest FFmpeg has got, in seconds of output
 
         def drain():
             for ln in p.stderr:
@@ -1512,7 +1517,13 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             # FFmpeg's -progress stream normally updates several times per second.
             # A long silence indicates a hung filter/encoder or a wedged input.
             while p.poll() is None:
-                if time.monotonic() - last_output[0] > 120:
+                # all of the clip made, but FFmpeg still hasn't finished the file (a GPU encoder that hangs while
+                # flushing, 5.4.2): stopped after ENDING_MAX seconds and made again on the CPU
+                late = ended[0] and time.monotonic() - ended[0] > ENDING_MAX
+                # or still making video far past the clip's end (repeated frames filling a gap in the source's
+                # timestamps): stopped, not left to run with the bar at 100% and every core busy
+                late = late or beyond[0] > length * 1.5 + 10
+                if time.monotonic() - last_output[0] > 120 or late:
                     stalled[0] = True
                     try:
                         p.kill()
@@ -1531,6 +1542,9 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                     try:
                         t = int(line.split("=")[1]) / 1e6
                         progress(0.3 + 0.7 * min(1.0, max(0.0, t) / length))
+                        beyond[0] = max(beyond[0], t)
+                        if t >= length - 0.1 and not ended[0]:
+                            ended[0] = time.monotonic()
                     except ValueError:
                         pass
                 try:
@@ -1541,7 +1555,10 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
         finally:
             p.wait()
             reader.join(timeout=5)
-        if stalled[0]:
+        if stalled[0] and ended[0]:
+            err = "".join(err_lines) + f"\nFFmpeg made the whole clip but didn't finish the file within {ENDING_MAX} seconds, and was stopped."
+            code = p.returncode or -1
+        elif stalled[0]:
             err = "".join(err_lines) + "\nFFmpeg made no progress for 120 seconds and was stopped."
             code = p.returncode or -1
         else:
@@ -1567,7 +1584,7 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     diag.update(encoder=enc_name, fallback=diag.get("fallback", ""), layout_used=chosen, hw_decode=hwdec)
     try:
         code, err = encode(enc_args, hwdec)
-        if code != 0 and hwdec and not _graph_failed(err):
+        if code != 0 and hwdec and not _graph_failed(err) and "didn't finish the file" not in err:
             # decoding on the GPU didn't work for this video: again with the CPU decoding, same encoder
             log("Decoding on the GPU failed for this video; decoding on the CPU.")
             hwdec = False

@@ -5,6 +5,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.4.2] - 2026-11-19
+
+### Fixed
+- **A clip render that sat at 100% and never finished.** Once a clip's last frame was made, nothing stopped FFmpeg
+  if it then didn't finish the file (a graphics-card encoder that hangs while finishing, seen on a clip from X),
+  or if it kept making video past the clip's end: the bar sat at 100%, every core busy, and the stall check never
+  fired because FFmpeg kept reporting progress.
+  - 45 seconds after the last frame, FFmpeg is stopped and the clip made again on the CPU (the graphics card is
+    left out for the rest of the session if it fails again), without first retrying the decoding.
+  - A render still going far past the clip's end is stopped too, not left to run.
+  - Either one says what happened in Exports › the clip › details.
+- **The whole PC stuttering while a clip was made.** Only the render's FFmpeg ran below normal priority. Captions
+  (Whisper), finding the face, the music scan, the song eraser and the checks after each render ran at normal
+  priority on most of the cores, and games, the browser and Windows itself had to fight Clip Radar for them. With
+  Settings › Performance on **Keep the PC responsive** (the default), all of Clip Radar's background work now runs
+  below normal, so whatever you're doing goes first; Clip Radar's own window stays at normal priority. **Finish
+  faster** runs it all at normal, as before.
+
+### Tests
+- `tests/test_priority.py` (new, in CI on Windows): Clip Radar at normal priority until a background job starts,
+  the job and what starts after it below normal, Finish faster putting it back.
+
 ## [5.4.1] - 2026-11-19
 
 ### Fixed

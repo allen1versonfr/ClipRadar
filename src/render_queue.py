@@ -671,7 +671,7 @@ def classify_render_error(e: Exception) -> tuple:
         ("broken_output", "came out broken" in low,
          "The finished file came out broken twice. Retry; if it keeps happening, turn off "
          "\"Use the GPU to encode\" in the Layout tab."),
-        ("stalled", "made no progress" in low,
+        ("stalled", "made no progress" in low or "didn't finish the file" in low,
          "FFmpeg stopped making progress and was stopped. Retry; if it keeps happening, turn off "
          "\"Use the GPU to encode\" in the Layout tab or try a shorter clip."),
         ("ffmpeg_memory", mem is not None, mem[1] if mem else ""),
@@ -764,6 +764,9 @@ def apply_perf(prefs: Optional[dict] = None):
     else:
         render.RENDER_PRIORITY[0] = 0
         render.RENDER_THREADS[:] = []
+        if _lowered[0]:                     # "Finish faster": back to normal
+            _set_priority(0x00000020)       # NORMAL_PRIORITY_CLASS
+            _lowered[0] = False
     start_prehear()
     while len(_workers) < MAX_WORKERS[0]:
         i = len(_workers)
@@ -773,6 +776,50 @@ def apply_perf(prefs: Optional[dict] = None):
 
 
 _workers: list = []
+_lowered = [False]
+# held until Clip Radar's window is open (app.py): a job started before it (reopening last session's videos, a render
+# queued when it closed) would otherwise lower the window's own processes, which start after and inherit it
+_priority_gate = {"open": False, "wanted": False}
+
+
+def open_priority_gate() -> None:
+    """The window is up (or there is none): background_priority can lower the process now, and does at once if a job
+    asked while it waited."""
+    _priority_gate["open"] = True
+    if _priority_gate["wanted"]:
+        background_priority()
+
+
+def _set_priority(cls: int) -> bool:
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        # the handle is pointer-sized: left to ctypes' default (a 32-bit int) it's cut short, and the call fails
+        k.GetCurrentProcess.restype = wintypes.HANDLE
+        k.SetPriorityClass.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        k.SetPriorityClass.restype = wintypes.BOOL
+        return bool(k.SetPriorityClass(k.GetCurrentProcess(), cls))
+    except Exception:
+        return False
+
+
+def background_priority() -> None:
+    """Settings › Performance › Keep the PC responsive (the default): Clip Radar's own background work runs below
+    normal priority too, not only the render's FFmpeg (5.4.2). Captions (Whisper), finding the face, the music scan,
+    the song eraser and the checks after a render ran at normal priority on most of the cores, and the whole PC
+    stuttered while a clip was made. Done when the first background job starts and the window is open, so the window's
+    own processes (started with it, before) keep normal priority; everything started after inherits it, FFmpeg
+    included."""
+    if _lowered[0] or render.RENDER_PRIORITY[0] == 0:
+        return
+    if not _priority_gate["open"]:
+        _priority_gate["wanted"] = True
+        return
+    if _set_priority(0x00004000):           # BELOW_NORMAL_PRIORITY_CLASS
+        _lowered[0] = True
 
 
 def queue_eta() -> Optional[float]:
@@ -836,6 +883,7 @@ def queue_worker(idx: int = 0):
             _prehear_wake.set()                       # the clips behind this one can be heard now
             if not it:
                 break
+            background_priority()
             if S.SHUTTING_DOWN[0]:
                 it["status"] = "queued"
                 it["history"].pop()
