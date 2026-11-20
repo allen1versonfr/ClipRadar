@@ -8,6 +8,7 @@ import { getPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
 import { LiveCard } from './LiveCard'
 import { RunningNow } from './RunningNow'
+import { TargetsCard } from './TargetsCard'
 import { VodCard } from './VodCard'
 
 const ago = (t: number) => {
@@ -28,6 +29,7 @@ export function HomeView({ status, refreshStatus }: { status: Status | undefined
       <div className="sources">
         <VodCard status={status} source={source} onSource={setSource} start={reopen} />
         <LiveCard status={status} />
+        <TargetsCard />
       </div>
       {recent.length > 0 && (
         <section className="recent" aria-labelledby="recent-h">

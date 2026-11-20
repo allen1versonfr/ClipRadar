@@ -83,7 +83,9 @@ def sources_view() -> dict:
         out.append({"type": "live", "id": sess.id, "status": sess.status, "title": sess.title, "source": sess.source,
                     "label": sources.classify(sess.source)["label"] if not sess.channel else "Twitch livestream",
                     "recorded": sess.recorded, "moments": len(sess.moments), "chat_state": sess.chat_state(),
-                    "error": sess.error, "started": sess.started})
+                    "error": sess.error, "started": sess.started,
+                    # the full stream being saved (keeping), joined into one video (saving), saved, or not (5.5)
+                    "vod": (getattr(sess, "vod", None) or {}).get("state", "off")})
     p = exports.load()
     return {"items": out, "limits": {"downloads": p["downloads"], "lives": p["lives"]}}
 

@@ -56,6 +56,7 @@ import segments
 import vodexport
 import voicekeep
 import songerase
+import targets
 import ytclips
 import remote
 import session
@@ -300,7 +301,9 @@ class Handler(BaseHTTPRequestHandler):
                 "ui": S.ui_mode(), "next": S.web_available(),
                 "running": S.busy(),
                 "live": (live_glue.live_active().id if live_glue.live_active() else ""),
-                "lives": [{"id": x.id, "title": x.title, "status": x.status} for x in live_glue.live_list()],
+                # vod: whether the full stream is being saved (5.5: shown in the status bar, so you know it is)
+                "lives": [{"id": x.id, "title": x.title, "status": x.status, "vod": (getattr(x, "vod", None) or {}).get("state", "off")}
+                          for x in live_glue.live_list()],
                 "hotkey": hotkey.status(),
             })
         if p == "/api/update":
@@ -346,6 +349,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(S.export_view())
         if p == "/api/youtube":
             return self._json(dict(ytclips.load(), tokens=list(ytclips.TOKENS), defaults=ytclips.DEFAULTS))
+        if p == "/api/targets":
+            # Home › Targets: the streamers clipped on their own as soon as they go live (5.5, targets.py)
+            return self._json(targets.view(S))
         if p == "/api/spelling":
             # the spelling fixes (spelling.py), for suggestions as you type a title or post caption
             return self._json(spelling.view())
@@ -921,6 +927,24 @@ class Handler(BaseHTTPRequestHandler):
             cfg = ytclips.save(body) if body else ytclips.load()
             _uploads_cache["at"] = 0.0
             return self._json(dict(cfg, tokens=list(ytclips.TOKENS), defaults=ytclips.DEFAULTS))
+
+        m = re.fullmatch(r"/api/targets/(add|update|remove)", p)
+        if m:
+            # Home › Targets (5.5): add a streamer, change one's settings or switch it off, remove one
+            try:
+                if m.group(1) == "add":
+                    targets.add(str(body.get("source") or ""), body.get("settings"), body.get("params"))
+                elif m.group(1) == "update" and body.get("id") == "*":
+                    targets.set_params(body.get("params") or {})
+                elif m.group(1) == "update":
+                    targets.update(str(body.get("id") or ""), body)
+                else:
+                    targets.remove(str(body.get("id") or ""))
+            except ValueError as e:
+                return self._err(str(e))
+            except KeyError as e:
+                return self._err(str(e.args[0]) if e.args else "That target is gone.", 404)
+            return self._json(targets.view(S))
 
         if p == "/api/yt_handoff":
             # a clip's YouTube version to YouTube: Open YouTube Studio (pass-through), or Upload to YouTube (auto)
