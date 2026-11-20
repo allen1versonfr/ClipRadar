@@ -1023,7 +1023,7 @@ def _apply_clip_state(pr: dict, d: dict, b: dict):
             st, en = max(0.0, st), min(dur, en)
         if en - st >= 1:
             d["start"], d["end"] = round(st, 3), round(en, 3)
-    for k in ("userTrim", "userTitle", "userPost", "wordsEdited"):
+    for k in ("userTrim", "userTitle", "userPost", "wordsEdited", "noCaptions", "noWatermark"):
         if k in b:
             d[k] = bool(b[k])
     if "title" in b:
@@ -1077,6 +1077,9 @@ def _clean_yt(pr: dict, y) -> Optional[dict]:
             out.update(gain=max(-12.0, min(12.0, float(y.get("gain") or 0))), userGain=True)
         except (TypeError, ValueError):
             pass
+    for k in ("noCaptions", "noWatermark"):       # Moments › No captions / No watermark for the YouTube edit (5.6)
+        if isinstance(y.get(k), bool):
+            out[k] = y[k]
     if y.get("wordsEdited"):
         ws = _clean_words(y.get("words_edit"))
         if ws is not None:

@@ -114,3 +114,27 @@ describe('the YouTube edit (5.4)', () => {
     expect(ytOpts({} as never, { layout: 'full', aspect: '9:16' } as never, false)).toMatchObject({ layout: 'full', aspect: '16:9' })
   })
 })
+
+describe('No captions and No watermark (5.6)', () => {
+  const base = Clip.parse({ id: 1, pid: 'p', start: 10, end: 20, title: 'T' })
+  it('are sent with the clip when Keep renders it, and kept with the clip', () => {
+    const c = { ...base, noCaptions: true, noWatermark: true }
+    const b = keepBody(c, 'post', { aspect: '9:16' } as never) as Record<string, any>
+    expect(b.clip).toMatchObject({ no_captions: true, no_watermark: true })
+    expect(snapshot(c)).toMatchObject({ noCaptions: true, noWatermark: true })
+    expect((keepBody(base, 'post', {} as never) as Record<string, any>).clip.no_captions).toBeUndefined()
+  })
+  it('the YouTube edit follows the TikTok one until changed for it', () => {
+    const c = { ...base, noCaptions: true }
+    expect(ytView(c).noCaptions).toBe(true)
+    const d = fromYtView(c, { ...ytView(c), noCaptions: false, noWatermark: true })
+    expect(d).toMatchObject({ noCaptions: true })
+    expect(d.noWatermark).toBeFalsy()
+    expect(ytView(d)).toMatchObject({ noCaptions: false, noWatermark: true })
+    const b = keepBody(d, 'p', {} as never, true, { opts: {} as never }) as Record<string, any>
+    expect(b.clip).toMatchObject({ no_captions: true })
+    expect(b.youtube.clip).toMatchObject({ no_watermark: true })
+    expect(b.youtube.clip.no_captions).toBeUndefined()
+  })
+})
+

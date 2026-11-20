@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.6.0] - 2026-11-20
+
+### Added
+- **No captions and No watermark in Moments.** Two buttons under the clip's preview take the captions or your
+  watermark off the clip you're on, without changing your style for the others. The preview shows it at once,
+  Keep and render makes it that way, and it's kept with the clip (Undo puts it back). With YouTube too on, the
+  YouTube edit follows the TikTok one until you press them for it, so one can have captions and the other not.
+  Flagged words are still muted or bleeped in a clip without captions.
+
+### Tests
+- The buttons pressed for the clip on screen, saved with it and sent when it renders, the next clip unchanged;
+  the YouTube edit following the TikTok one until changed for it; a clip queued with them rendered without
+  captions and without the watermark while the others keep both (`tests/test_youtube_clips.py`).
+
 ## [5.5.0] - 2026-11-20
 
 ### Added

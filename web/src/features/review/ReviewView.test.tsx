@@ -78,6 +78,22 @@ describe('Review', () => {
     expect(sent.youtube.opts.aspect).toBe('16:9')
   })
 
+  it('No captions and No watermark: pressed for the clip on screen, saved with it and sent when it renders', async () => {
+    renderReview()
+    await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Clip 1'))
+    fireEvent.click(screen.getByTestId('rv-no-captions'))
+    fireEvent.click(screen.getByTestId('rv-no-watermark'))
+    expect(screen.getByTestId('rv-no-captions').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('rv-no-watermark').getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(posted('/api/clip_state').some(b => b.id === 1 && b.noCaptions && b.noWatermark)).toBe(true), { timeout: 2000 })
+    fireEvent.click(screen.getByTestId('rv-keep'))
+    await waitFor(() => expect(posted('/api/queue/add')).toHaveLength(1))
+    expect(posted('/api/queue/add')[0]!.clip).toMatchObject({ no_captions: true, no_watermark: true })
+    // the next clip has both
+    await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Clip 2'))
+    expect(screen.getByTestId('rv-no-captions').getAttribute('aria-pressed')).toBe('false')
+  })
+
   it('without YouTube too there is only the one edit', async () => {
     renderReview()
     await screen.findAllByTestId('rv-row')

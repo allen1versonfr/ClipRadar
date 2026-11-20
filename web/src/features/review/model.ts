@@ -57,6 +57,8 @@ export const queueFor = (c: Clip, items: QueueItem[]) =>
 function clipBody(c: Clip, post: string) {
   const clip: Record<string, unknown> = { id: c.id, rank: c.id, start: c.start, end: c.end, title: c.title.trim(), post, thumb: c.thumb, gain: c.gain }
   if (c.wordsEdited) clip.words = c.words.filter(w => w.start >= c.start - 0.2 && w.start < c.end)    // your caption fixes
+  if (c.noCaptions) clip.no_captions = true            // Moments › No captions (5.6)
+  if (c.noWatermark) clip.no_watermark = true          // Moments › No watermark
   return clip
 }
 
@@ -81,6 +83,7 @@ export function snapshot(c: Clip) {
   const yt = c.yt && { ...c.yt, words: undefined, words_edit: c.yt.wordsEdited && c.yt.words ? wordsOut(c.yt.words) : undefined }
   return { pid: c.pid, id: c.id, state: c.state, start: c.start, end: c.end, title: c.title, userTrim: !!c.userTrim,
     userTitle: !!c.userTitle, userPost: !!c.userPost, postText: c.postText, wordsEdited: !!c.wordsEdited, gain: c.gain,
+    noCaptions: !!c.noCaptions, noWatermark: !!c.noWatermark,
     ...(c.wordsEdited ? { words_edit: wordsOut(c.words) } : {}), ...(yt ? { yt } : {}) }
 }
 
@@ -96,10 +99,12 @@ export function ytView(c: Clip): Clip {
     postText: y.userPost ? y.postText ?? '' : '', userPost: !!y.userPost,
     gain: y.userGain && y.gain != null ? y.gain : c.gain,
     words: y.wordsEdited && y.words ? y.words : c.words, wordsEdited: !!y.wordsEdited || !!c.wordsEdited,
-    wordsOrig: y.wordsEdited ? c.words : c.wordsOrig, orig: [c.start, c.end] }
+    wordsOrig: y.wordsEdited ? c.words : c.wordsOrig, orig: [c.start, c.end],
+    noCaptions: y.noCaptions ?? !!c.noCaptions, noWatermark: y.noWatermark ?? !!c.noWatermark }
 }
 
-const YT_KEYS = ['start', 'end', 'userTrim', 'title', 'userTitle', 'postText', 'userPost', 'gain', 'words', 'wordsEdited', 'wordsOrig', 'orig'] as const
+const YT_KEYS = ['start', 'end', 'userTrim', 'title', 'userTitle', 'postText', 'userPost', 'gain', 'words', 'wordsEdited', 'wordsOrig', 'orig',
+  'noCaptions', 'noWatermark'] as const
 
 /** An edit made to the YouTube edit (v, as ytView showed it, changed), put back on the moment c: the parts the
  *  YouTube edit has of its own go to c.yt, everything else (kept, skipped, the content check) to the moment. */
@@ -117,6 +122,7 @@ export function fromYtView(c: Clip, v: Clip): Clip {
   if (v.gain !== was.gain || y.userGain) Object.assign(y, { gain: v.gain, userGain: v.gain !== c.gain })
   if (v.words !== was.words) Object.assign(y, { words: v.words, wordsEdited: v.words !== c.words })
   if (y.wordsEdited === false) delete y.words
+  for (const k of ['noCaptions', 'noWatermark'] as const) if (!!v[k] !== !!was[k] || y[k] != null) y[k] = !!v[k]
   out.yt = y
   return out
 }
