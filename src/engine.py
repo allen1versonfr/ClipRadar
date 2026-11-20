@@ -290,7 +290,7 @@ from render import (  # noqa: E402,F401
     hw_worked, _join_lines, LAYOUT_NAMES, _line_cost, LINE_LEADS, LINE_LEADS_SOFT, mark_anchor, _mark_dialogue,
     _mark_fs, mark_window, marks_of, MAX_CAMS, MAX_FPS, MAX_TEXT_SIZE, MAX_ZOOM, MIN_CAM_PX, motion_of, _mpos,
     mute_commands, mute_graph, _num, out_size, output_fps, picture_check, _probe_hw, punch_beats, PUNCH_EDGE,
-    punch_filter, PUNCH_GAP, PUNCH_MAX, PUNCH_ZOOM, _rate_args, read_through, render_clip, RENDER_PRIORITY, ENDING_MAX,
+    punch_filter, PUNCH_GAP, PUNCH_MAX, PUNCH_ZOOM, _rate_args, read_through, render_clip, RENDER_PRIORITY, ENDING_MAX, STALL_MAX,
     RENDER_THREADS, RenderOpts, SEEN_LUMA, SEEN_SHARE, SHAPES, _shifted, SPANS_INLINE, SPEEDS, _start_lumas,
     text_width, title_border, TITLE_DEFAULT_Y, TITLE_GROW, TITLE_STYLES, TITLE_TOP, title_top, TITLE_YELLOW,
     video_encoder, watermark_anchor, watermark_window, _with_rate, _wm_alpha, WM_POSITIONS, write_srt,

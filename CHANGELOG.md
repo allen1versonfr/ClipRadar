@@ -5,6 +5,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.4.3] - 2026-11-20
+
+### Fixed
+- **A clip render frozen partway (at 95% on a clip from X) while the PC stuttered.** FFmpeg reports its progress
+  twice a second even when it's stuck, the same position each time, and Clip Radar took those reports as signs of
+  life: a frozen render was never stopped. A render is now stuck when its position stops moving for 45 seconds:
+  FFmpeg is stopped and the clip made again.
+  - When it froze while decoding the video on the graphics card (the likeliest cause with a video like that X one,
+    1280x720 at 60 fps with an unusual 9 MHz clock in the file), it's made again decoding on the processor, and
+    the graphics card isn't asked to decode again this session: a driver that wedges is also what made the whole
+    PC stutter.
+  - The clip's details say how far it got before it was stopped.
+
 ## [5.4.2] - 2026-11-19
 
 ### Fixed
