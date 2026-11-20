@@ -5,6 +5,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.0] - 2026-11-20
+
+### Added
+- **Exports YouTube doesn't catch.** YouTube was still claiming songs in exports. The usual reasons: a song the
+  music scan never heard (quiet under talking), the ends of a song past its stretch, a song played again later, and
+  songs only the eraser model took out. Three things make sure those go too:
+  - **Every place a recognised song plays.** Once a song is recognised, the whole video is searched for its
+    recording (about a minute an hour of video), and every place it plays becomes an Erase song stretch: under
+    talking, past the stretch's edges, played again later. Runs with Recognise the songs, by itself.
+  - **Look for songs everywhere** (Export VOD, under the scan): listens to the whole video, a 12-second sample every
+    30 seconds, not only where the music scan heard music. Every song it hears is found everywhere it plays and
+    added. A few minutes an hour of video.
+  - **Check YouTube won't still hear them** (on by default): after erasing, every song stretch is listened to again,
+    as it is and with whatever is left of the music pulled out from under the talking (YouTube hears music under
+    talking better than plain Shazam does). Anything still recognisable is muted in those seconds, and the export
+    says where. Measured: after taking the recording out, Shazam recognised the song in 0 of 5 samples, against 4
+    of 5 before.
+
+### Tests
+- A recognised song found everywhere it plays, quiet under talking too, and not where another song plays; the
+  music scan's stretches getting the places it missed, with no overlaps; still-recognisable samples found; an
+  export where a song is still recognised after erasing comes out muted there and says so, and without the check
+  it doesn't. Export VOD's Look for songs everywhere and the check sent with the export.
+
 ## [5.6.0] - 2026-11-20
 
 ### Added

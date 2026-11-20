@@ -234,3 +234,74 @@ def name_spans(video: str, spans: list, folder: str, progress: Callable = _noop,
 def _ts(t: float) -> str:
     import engine
     return engine.fmt_ts(t)
+
+
+# ---------------------------------------------------------------- songs the music scan didn't hear (5.7)
+
+EVERY = 30.0               # seconds between the samples Look for songs everywhere sends
+
+
+def scan_everywhere(video: str, duration: float, skip: list, folder: str, progress: Callable = _noop,
+                    check: Callable = _noop, log: Callable = _noop, every: float = EVERY) -> dict:
+    """Songs anywhere in the video, music scan or not: a sample every `every` seconds (outside the stretches in skip,
+    already known) sent to Shazam. Returns {recording url: {"title", "artist", "url", "at": [seconds heard]}} for each
+    song whose recording was found; the caller looks for each everywhere (songref.sweep) to find where it plays."""
+    times = [t for t in np.arange(0.0, max(0.0, duration - WINDOW), every)
+             if not any(a - WINDOW <= t <= b for a, b in skip)]
+    heard: dict = {}
+    for i, t in enumerate(times):
+        check()
+        x = songref.read(video, float(t), WINDOW + 0.5)
+        if x.shape[1] >= WINDOW * SR * 0.95 and float(np.abs(x).max()) > 1e-3:
+            got = _ask(x)
+            time.sleep(GAP)
+            if got:
+                k = (got["title"].lower(), got["artist"].lower())
+                heard.setdefault(k, dict(got, at=[]))["at"].append(round(float(t), 1))
+        progress((i + 1) / max(1, len(times)) * 0.8)
+    out: dict = {}
+    for j, song in enumerate(heard.values()):
+        check()
+        t = song["at"][0]
+        rec = find_recording(song, songref.read(video, max(0.0, t - 4), 20.0), folder, check, log)
+        if rec:
+            out[rec["url"]] = dict(song, url=rec["url"])
+            log(f"  Heard {song['artist']} - {song['title']} at {_ts(t)}" + (f" and {len(song['at']) - 1} more place{'s' if len(song['at']) != 2 else ''}" if len(song["at"]) > 1 else "") + ".")
+        else:
+            log(f"  Heard {song['artist']} - {song['title']} at {_ts(t)}, but its recording isn't on YouTube: mark that stretch by hand to erase it.")
+        progress(0.8 + 0.2 * (j + 1) / max(1, len(heard)))
+    return out
+
+
+# ---------------------------------------------------------------- would YouTube still catch it? (5.7)
+
+def still_heard(get: Callable, stretches: list, check: Callable = _noop, progress: Callable = _noop,
+                separate: bool = True) -> list:
+    """The parts of the erased stretches a song is still recognised in: [(start, end, "Artist - Title")].
+    get(t, seconds) -> the erased sound from t. Each stretch heard in back-to-back WINDOW-second samples, as it is and,
+    when the song eraser model is there, with what's left of the music pulled out from under the talking (YouTube's
+    Content ID hears music under talking better than Shazam does as it is). Shazam not answering counts as not heard."""
+    wins = []
+    for a, b in stretches:
+        t = a
+        while t < b - 3:
+            wins.append((t, min(b, t + WINDOW)))
+            t += WINDOW
+    out = []
+    for i, (a, b) in enumerate(wins):
+        check()
+        x = get(a, max(WINDOW, b - a))
+        tries = [x]
+        if separate:
+            try:
+                tries.append(pull_music(x))
+            except Exception:       # noqa: BLE001
+                pass
+        for y in tries:
+            got = _ask(y)
+            time.sleep(GAP)
+            if got:
+                out.append((round(a, 2), round(b, 2), f"{got['artist']} - {got['title']}".strip(" -")))
+                break
+        progress((i + 1) / max(1, len(wins)))
+    return out

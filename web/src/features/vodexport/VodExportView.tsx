@@ -159,11 +159,14 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   const [now, setNow] = useState(0)
   const seek = useCallback((t: number) => { const el = vid.current; if (el) { el.currentTime = t; setNow(t) } }, [])
 
+  // 5.7: after erasing, what Shazam still recognises is muted (YouTube still caught songs before)
+  const [claimCheck, setClaimCheck] = useState(() => getPref('vodxClaim', true))
   const options = (): Record<string, unknown> => ({
     pid: v.pid, captions: 'off', words: c.words, size: c.size, quality: c.quality, whisper_model: model, language,
     hw_encode: base.hw_encode,
     music: songs.filter(s => s.act !== 'keep').map(s => (s.act === 'voice' && songSource(s) ? [s.start, s.end, s.act, songSource(s)] : [s.start, s.end, s.act])),
     word_spans: ticked.map(f => [Math.max(0, f.start - 0.05), f.end + 0.05]),
+    claim_check: claimCheck,
   })
   async function start(path: string, body: object, what: string) {
     try {
@@ -219,8 +222,21 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
             <button className="btn sm" data-testid="vodx-recognise" disabled={!v.exists}
                     onClick={() => void start('/api/vodexport/recognise', { pid: v.pid }, 'Recognising the songs…')}>Recognise the songs</button>
           </p>)}
+        {v.scan && v.scan.recognise && v.scan_job?.status !== 'running' && (
+          <p className="row wrap" data-testid="vodx-everywhere-row">
+            <span className="grow">{v.scan.everywhere
+              ? 'Looked for songs everywhere in this video.'
+              : "Songs quiet under talking can be missed by the music scan, and YouTube still catches them. Look for songs everywhere listens to the whole video (a few minutes an hour)."}</span>
+            <button className="btn sm" data-testid="vodx-everywhere" disabled={!v.exists}
+                    onClick={() => void start('/api/vodexport/everywhere', { pid: v.pid }, 'Looking for songs everywhere…')}>
+              {v.scan.everywhere ? 'Look again' : 'Look for songs everywhere'}</button>
+          </p>)}
         {songs.length > 0 && v.scan_job?.status !== 'running' && <>
           <p data-testid="vodx-music-summary">{musicSummary(songs, acts)}</p>
+          {v.scan?.recognise && <label className="chk" title="After erasing, each song stretch is listened to again; anything still recognisable is muted in those seconds">
+            <input type="checkbox" checked={claimCheck} data-testid="vodx-claim"
+                   onChange={e => { setClaimCheck(e.target.checked); setPref('vodxClaim', e.target.checked) }} />
+            <span>Check YouTube won't still hear them<small>After erasing, every song stretch is listened to again the way YouTube would. Anything still recognisable is muted in those seconds, and the export says where.</small></span></label>}
           <div className="row wrap">
             <span className="muted small">Set all to</span>
             {ACTIONS.filter(([a]) => a !== 'voice' || canRemove).map(([a, l]) => (
