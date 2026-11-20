@@ -35,6 +35,9 @@ import engine  # noqa: E402
 import locations  # noqa: E402
 import paths  # noqa: E402
 import segments  # noqa: E402
+
+import vodexport as _vx  # noqa: E402
+_vx._can_recognise = lambda: False      # no real Shazam in tests (the claim check is tested with a made-up one)
 import server  # noqa: E402
 import listening  # noqa: E402
 

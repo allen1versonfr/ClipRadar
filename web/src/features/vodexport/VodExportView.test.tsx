@@ -91,6 +91,19 @@ describe('Export VOD', () => {
     expect((sent(calls, '/api/vodexport/start')!.music as unknown[])[0]).toEqual([60, 240, 'voice', 'https://youtu.be/right'])
   })
 
+  it('Look for songs everywhere, and the export checks YouTube won\'t still hear them (on unless turned off)', async () => {
+    const calls: Array<[string, unknown]> = []
+    vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [{ ...VIDEO, scan: { ...VIDEO.scan, named: 9, recognise: true } }] }))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    fireEvent.click(await screen.findByTestId('vodx-everywhere'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/everywhere')).toMatchObject({ pid: 'p1' }))
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    expect(sent(calls, '/api/vodexport/start')!.claim_check).toBe(true)
+    fireEvent.click(screen.getByTestId('vodx-claim'))
+    expect(localStorage.getItem('vc_vodxClaim')).toBe('false')
+  })
+
   it('a scan from before recognition offers to recognise the songs', async () => {
     const calls: Array<[string, unknown]> = []
     vi.stubGlobal('fetch', server(calls, { ...VIEW, videos: [{ ...VIDEO, scan: { ...VIDEO.scan, named: 0, recognise: true } }] }))

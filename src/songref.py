@@ -421,3 +421,45 @@ def erase_known(video: str, songs: list, out_path: str, start: float, length: fl
                 pass
     progress(1.0)
     return {"found": round(found, 1), "missed": missed}
+
+
+# ---------------------------------------------------------------- everywhere a song plays (5.7)
+
+SWEEP_PIECE = 60.0          # seconds of the video compared with the recording at a time
+SWEEP_STEP = 50.0           # how far apart they start (so a song that starts at a piece's edge isn't missed)
+LOW_SR = SR / LOW           # the rate _low works at
+
+
+def _video_low(video: str, start: float, length: float) -> np.ndarray:
+    """The video's sound from start for length seconds, mono at LOW_SR, its mean taken out (what _low gives)."""
+    import engine
+    cmd = [engine.ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, start):.3f}", "-t", f"{length:.3f}", "-i", video,
+           "-map", "0:a:0", "-vn", "-ac", "1", "-ar", str(int(round(LOW_SR))), "-f", "f32le", "-"]
+    raw = subprocess.run(cmd, capture_output=True, creationflags=engine.CREATE_NO_WINDOW).stdout
+    a = np.frombuffer(raw[: len(raw) // 4 * 4], dtype="<f4").astype(np.float32)
+    return a - a.mean() if a.size else a
+
+
+def sweep(video: str, duration: float, refs: dict, progress: Callable = _noop, check: Callable = _noop) -> dict:
+    """Everywhere in the video each recording plays: refs {key: recording [2, m]} -> {key: [(start, end)]}, in the
+    video's seconds, a minute or so at a time (the export cleans each 20 s piece exactly, and leaves a piece the song
+    isn't in as it was). Finds a song where the music scan didn't: under talking, past a stretch's edges, played again
+    later. About a minute for an hour of video per song, on the processor."""
+    if not refs or duration <= 0:
+        return {}
+    lows = {k: _low(r) for k, r in refs.items() if r.shape[1] >= SR}
+    out: dict = {k: [] for k in lows}
+    piece_n = int(SWEEP_PIECE * LOW_SR)
+    starts = list(np.arange(0.0, max(duration - 5.0, 0.0) + 1e-6, SWEEP_STEP)) or [0.0]
+    for i, t in enumerate(starts):
+        check()
+        x = _video_low(video, t, min(SWEEP_PIECE, duration - t))
+        if x.size < LOW_SR * 5 or float(np.abs(x).max()) < 1e-4:
+            progress((i + 1) / len(starts))
+            continue
+        for k, rl in lows.items():
+            c = _xcorr(x[:piece_n], rl)
+            if _z(c) >= MIN_Z:
+                out[k].append((round(float(t), 2), round(float(min(duration, t + SWEEP_PIECE)), 2)))
+        progress((i + 1) / len(starts))
+    return {k: _merge(v) for k, v in out.items() if v}

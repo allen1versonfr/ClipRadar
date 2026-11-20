@@ -42,6 +42,9 @@ import vodexport  # noqa: E402
 import voicekeep  # noqa: E402
 import songerase  # noqa: E402
 
+import vodexport as _vx  # noqa: E402
+_vx._can_recognise = lambda: False      # no real Shazam in tests (the claim check is tested with a made-up one)
+
 failures = []
 
 
@@ -366,6 +369,28 @@ if shutil.which("ffmpeg"):
         check("the sound around it is untouched", rms(r["path"], 5) > 0.05 and rms(r["path"], 28) > 0.05)
         check("only the blocks the stretch touches went through it", 1 <= Stems.calls <= 3, Stems.calls)
         check("the older remover wasn't used", Nothing.calls == 0, Nothing.calls)
+
+    # ---- 5.7: would YouTube still catch it? An erase that left the song in (a model that takes nothing out), and
+    # Shazam (made up) still hearing it: those seconds are muted, and the export says where
+    import songid  # noqa: E402
+    songerase.session_impl[0] = Stems(0.0)
+    real_ask, real_can = songid._ask, vodexport._can_recognise
+    songid._ask = lambda x: ({"title": "Song", "artist": "Band"} if float(np.abs(x).max()) > 0.05 else None)
+    songid.GAP = 0
+    vodexport._can_recognise = lambda: True
+    try:
+        job = wait(vodexport.start_export(server, PID, {"captions": "off", "music": [[10, 20, "voice"]]}))
+        r = job.get("result") or {}
+        check("a song still recognisable after erasing exports", job["status"] == "done", job.get("error"))
+        if job["status"] == "done":
+            check("the seconds it's still heard in are muted", rms(r["path"], 14) < 0.005, rms(r["path"], 14))
+            check("the rest plays", rms(r["path"], 5) > 0.05 and rms(r["path"], 28) > 0.05)
+            check("and the export says where", "still recognisable" in (r.get("warning") or ""), r.get("warning"))
+        job = wait(vodexport.start_export(server, PID, {"captions": "off", "music": [[10, 20, "voice"]], "claim_check": False}))
+        r = job.get("result") or {}
+        check("with the check turned off, it isn't", job["status"] == "done" and rms(r["path"], 14) > 0.05, rms(r.get("path", ""), 14) if r else None)
+    finally:
+        songid._ask, vodexport._can_recognise = real_ask, real_can
     songerase.session_impl[0] = None
     voicekeep.session_impl[0] = None
 

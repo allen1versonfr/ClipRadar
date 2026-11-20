@@ -717,7 +717,9 @@ export const VodExportVideo = z.looseObject({
   light: z.boolean().default(false),
   scan: z.looseObject({ spans: z.array(MusicSpan).default([]), at: z.number().default(0), how: z.string().default(''),
     /** when the songs were recognised (0: not yet), and whether recognition is installed */
-    named: z.number().default(0), recognise: z.boolean().default(false) }).nullable().optional(),
+    named: z.number().default(0), recognise: z.boolean().default(false),
+    /** when Look for songs everywhere last ran (5.7) */
+    everywhere: z.number().default(0) }).nullable().optional(),
   scan_job: VodJob,
   flags: z.looseObject({ flags: z.array(VodFlag).default([]), at: z.number().default(0), stale: z.boolean().default(false) }).nullable().optional(),
   words_job: VodJob,

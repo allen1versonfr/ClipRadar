@@ -162,7 +162,7 @@ def load_scan(pr: dict) -> Optional[dict]:
             data = json.load(f)
         if data.get("video") == _sig(pr):
             pr["copyright"] = {"spans": data["spans"], "at": data.get("at", 0), "how": data.get("how", ""),
-                               "curve": data.get("curve") or [], "named": data.get("named", 0)}
+                               "curve": data.get("curve") or [], "named": data.get("named", 0), "everywhere": data.get("everywhere", 0)}
             return pr["copyright"]
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -450,6 +450,8 @@ def clean_options(body: dict, duration: float) -> dict:
         "language": str(body.get("language") or "")[:10],
         "style": dict(VOD_STYLE, **style),
         "hw_encode": body.get("hw_encode", True) is not False,
+        # 5.7: after erasing, what Shazam still recognises is muted, so YouTube doesn't catch it either
+        "claim_check": body.get("claim_check", True) is not False,
     }
 
 
@@ -747,6 +749,8 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     copying = whole and can_copy(o, info) and (not part or copy)
     w_hear = 0.45 if need_words else 0.0
     w_voice = (0.6 if copying else 0.25) * (1 - w_hear) if voice or known else 0.0
+    claim = bool((voice or known) and (whole or part) and o.get("claim_check", True) and _can_recognise())
+    w_claim = 0.15 * (1 - w_hear) if claim else 0.0
     words = [w for w in (words or []) if a <= w["start"] < b] if given and o["captions"] != "off" else []
     if need_words:
         if not whisper.whisper_available() and not (pr.get("yt") or {}).get("words"):
@@ -804,7 +808,25 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                          progress=bar(w_hear, w_hear + w_voice), check=check)
             log(f"{'Songs erased' if eraser else 'Music removed, voices kept,'} in {len(voice)} stretch{'es' if len(voice) != 1 else ''} "
                 f"({engine.fmt_ts(total)}) in {engine.fmt_ts(time.time() - t0)}, {got['blocks']} blocks through the model.")
-        prog = bar(w_hear + w_voice, 1.0)
+        if claim and audio_src:
+            # 5.7: would YouTube still catch it? The erased sound heard again, as Content ID would hear it; what's still
+            # recognised is muted in those seconds, and the export says where
+            import songid
+            import songref as _sr
+            step("Checking YouTube won't still hear the songs")
+            erased = sorted([rel(x, y) for x, y in voice] + [rel(x, y) for x, y, _ in known])
+            src_ = audio_src
+            left = songid.still_heard(lambda t, n: _sr.read(src_, t, n), erased, check,
+                                      bar(w_hear + w_voice, w_hear + w_voice + w_claim), separate=can_erase() and songerase.available())
+            if left:
+                spans += [(p, q, "mute") for p, q, _ in left]
+                where = ", ".join(f"{engine.fmt_ts(a + p)}" for p, q, _ in left[:5]) + (f" and {len(left) - 5} more" if len(left) > 5 else "")
+                log(f"Still recognisable after erasing ({left[0][2]}) at {where}: muted there, {engine.fmt_ts(sum(q - p for p, q, _ in left))} in all.")
+                job["warning"] = (f"A song was still recognisable after erasing in {len(left)} place{'s' if len(left) != 1 else ''} "
+                                  f"({where}): those seconds are muted, so YouTube won't catch them.")
+            else:
+                log("Checked: none of the erased songs is recognisable any more.")
+        prog = bar(w_hear + w_voice + w_claim, 1.0)
         if copying:
             step("Copying the picture, making the sound")
             log("The picture is copied as it is (no burned-in captions, the video's own size).")
@@ -971,7 +993,8 @@ def name_songs(pr: dict, progress=lambda x: None, check=lambda: None, log=lambda
     if not songid.available():
         log("Song recognition isn't installed (shazamio): Erase song uses the eraser model.")
         return scan
-    n = songid.name_spans(pr["video"], scan["spans"], locations.temp_dir("songs"), progress, check, log)
+    n = songid.name_spans(pr["video"], scan["spans"], locations.temp_dir("songs"), lambda f: progress(f * 0.6), check, log)
+    spread_songs(pr, scan, lambda f: progress(0.6 + f * 0.4), check, log)
     scan["named"] = time.time()
     _write_json(_scan_file(pr), dict(scan, video=_sig(pr)))
     found = sum(1 for x in scan["spans"] if (x.get("song") or {}).get("url"))
@@ -980,11 +1003,92 @@ def name_songs(pr: dict, progress=lambda x: None, check=lambda: None, log=lambda
     return scan
 
 
-def start_scan(S, pid: str, recognise_only: bool = False) -> dict:
-    """The copyright scan, then each stretch's song recognised. recognise_only: just the songs, on the last scan."""
+def spread_songs(pr: dict, scan: dict, progress=lambda x: None, check=lambda: None, log=lambda m: None,
+                 extra: Optional[dict] = None) -> int:
+    """Everywhere each recognised song plays (5.7, songref.sweep): the whole video searched for its recording, so the
+    same song under talking, past a stretch's edges or played again later is erased too, not only where the music scan
+    heard music (what YouTube still caught). A stretch it plays in is given the song, and new ones are added. Returns
+    how many seconds were added."""
+    import songref
+    dur = _duration(pr)
+    songs = {}
+    for x in scan.get("spans", []):
+        so = x.get("song") or {}
+        if so.get("url"):
+            songs.setdefault(so["url"], so)
+    for url, so in (extra or {}).items():              # songs heard where the scan heard no music (find_everywhere)
+        songs.setdefault(url, {k: so[k] for k in ("title", "artist", "url") if k in so})
+    if not songs or dur <= 0:
+        return 0
+    refs = {}
+    for url in songs:
+        try:
+            refs[url] = songref.read(songref.fetch(url, locations.temp_dir("songs"), log))
+        except RuntimeError as e:
+            log(f"  Couldn't get {songs[url].get('title', 'a song')} to look for it everywhere: {e}")
+    if not refs:
+        return 0
+    log(f"Looking for {len(refs)} recognised song{'s' if len(refs) != 1 else ''} everywhere in the video...")
+    hits = songref.sweep(pr["video"], dur, refs, progress, check)
+    added = 0.0
+    spans = scan["spans"]
+    for url, ranges in hits.items():
+        so = songs[url]
+        for a, b in ranges:
+            over = [x for x in spans if x["end"] > a and x["start"] < b]
+            for x in over:
+                if not (x.get("song") or {}).get("url"):
+                    x["song"] = dict(so)          # an unrecognised stretch the song plays in is that song
+            # only the parts no stretch covers yet become new stretches
+            free, at = [], a
+            for x in sorted(over, key=lambda x: x["start"]):
+                if x["start"] > at:
+                    free.append((at, min(b, x["start"])))
+                at = max(at, x["end"])
+            if at < b:
+                free.append((at, b))
+            for p, q in free:
+                if q - p >= 2:
+                    spans.append({"start": round(p, 2), "end": round(q, 2), "confidence": 1.0, "speech": 0.0,
+                                  "song": dict(so), "found": "everywhere"})
+                    added += q - p
+    spans.sort(key=lambda x: x["start"])
+    if added:
+        log(f"Found the recognised songs in {engine.fmt_ts(added)} more of the video than the music scan heard.")
+    return int(added)
+
+
+def find_everywhere(pr: dict, progress=lambda x: None, check=lambda: None, log=lambda m: None) -> dict:
+    """Look for songs everywhere (5.7): the whole video, not only where the music scan heard music, a sample every
+    30 s sent to Shazam; every song heard is then found everywhere it plays and added as an Erase song stretch.
+    Songs quiet under talking are what YouTube still caught after an export."""
+    import songid
+    scan = load_scan(pr)
+    if not scan:
+        raise RuntimeError("Scan for music first.")
+    if not songid.available():
+        raise RuntimeError("Song recognition isn't installed (shazamio).")
+    dur = _duration(pr)
+    skip = [(float(x["start"]), float(x["end"])) for x in scan.get("spans", [])]
+    log(f"Listening for songs everywhere in the video: a sample every {int(songid.EVERY)} s...")
+    new = songid.scan_everywhere(pr["video"], dur, skip, locations.temp_dir("songs"), lambda f: progress(f * 0.7), check, log)
+    added = spread_songs(pr, scan, lambda f: progress(0.7 + f * 0.3), check, log, extra=new)
+    scan["everywhere"] = time.time()
+    _write_json(_scan_file(pr), dict(scan, video=_sig(pr)))
+    log(f"Heard {len(new)} song{'s' if len(new) != 1 else ''} the music scan missed"
+        + (f"; {engine.fmt_ts(added)} more to erase." if added else "."))
+    return scan
+
+
+def start_scan(S, pid: str, recognise_only: bool = False, everywhere: bool = False) -> dict:
+    """The copyright scan, then each stretch's song recognised. recognise_only: just the songs, on the last scan.
+    everywhere: Look for songs everywhere (find_everywhere), on the last scan."""
     pr = S.projects[pid]
 
     def go(job):
+        if everywhere:
+            S.job_step(job)("Looking for songs everywhere")
+            return find_everywhere(pr, S.job_progress(job, 0, 1), S.job_check(job), S.job_logger(job))
         step, check, log = S.job_step(job), S.job_check(job), S.job_logger(job)
         if not recognise_only:
             step("Looking for music")

@@ -1292,6 +1292,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._err(str(e))
             if act == "scan":
                 return self._json({"job": vodexport.start_scan(S, pid)["id"]})
+            if act == "everywhere":
+                # Look for songs everywhere (5.7): songs the music scan didn't hear, found with Shazam and their recordings
+                return self._json({"job": vodexport.start_scan(S, pid, everywhere=True)["id"]})
             if act == "recognise":
                 # which song each music stretch is (5.3), on the last scan
                 return self._json({"job": vodexport.start_scan(S, pid, recognise_only=True)["id"]})

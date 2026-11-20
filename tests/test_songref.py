@@ -185,6 +185,18 @@ check("edges you moved keep the song recognised for them, and a song you named i
       str(vodexport.suggested_songs(pr)))
 shutil.rmtree(pr["workdir"], ignore_errors=True)
 
+# 5.7: would YouTube still catch it? Each erased stretch heard again in back-to-back samples
+heard_at = []
+real_ask = songid._ask
+songid._ask = lambda x: ({"title": "Song", "artist": "Band"} if float(np.abs(x).max()) > 0.5 else None)
+songid.GAP = 0
+loud = np.zeros((2, 60 * SR), dtype=np.float32)
+loud[:, 20 * SR:35 * SR] = 0.9                  # still loud from 20 s to 35 s of the erased sound
+left = songid.still_heard(lambda t, n: loud[:, int(t * SR):int((t + n) * SR)], [(0.0, 50.0)], separate=False)
+songid._ask = real_ask
+check("what's still recognisable after erasing is found, in the samples it's heard in",
+      [(a, b) for a, b, _ in left] == [(12.0, 24.0), (24.0, 36.0)] and left[0][2] == "Band - Song", left)
+
 if not have_ffmpeg():
     print("[skip] no ffmpeg here: the song file and the export's sound aren't made (the render job runs them)")
 else:
@@ -240,6 +252,37 @@ else:
             {"title": "Song", "channel": "Band - Topic", "url": wrong_file, "duration": 60},
             {"title": "Band - Song", "channel": "Band", "url": ref_file, "duration": 60}])
         check("of the recordings found, the one that's really in the stream is taken", (found or {}).get("url") == ref_file, str(found))
+
+        # 5.7: everywhere a recognised song plays, found with its recording (here: twice, once quiet under talking,
+        # and not where another song plays)
+        dur = 300
+        long_voice, _ = talking(dur)
+        long_mix = long_voice.copy()
+
+        def put(x, at, gain):
+            k = min(x.shape[1], long_mix.shape[1] - int(at * SR))
+            long_mix[:, int(at * SR):int(at * SR) + k] += x[:, :k] * gain
+        put(through_setup(rec[:, :50 * SR], 0), 40, 1.0)
+        put(through_setup(rec[:, 10 * SR:40 * SR], 0), 210, 0.25)
+        put(through_setup(song(2, 40), 0), 130, 1.0)
+        long_file = os.path.join(tmp, "long.flac")
+        write(long_file, long_mix)
+        hits = songref.sweep(long_file, dur, {"rec": rec})["rec"]
+        inside = lambda t: any(a <= t <= b for a, b in hits)  # noqa: E731
+        check("a recognised song is found everywhere it plays, quiet under talking too",
+              inside(60) and inside(80) and inside(220), hits)
+        check("and not where another song plays", not inside(150), hits)
+        pr = {"video": long_file, "workdir": tmp, "duration": dur,
+              "copyright": {"at": 1, "how": "t", "curve": [], "spans": [
+                  {"start": 45.0, "end": 70.0, "confidence": 0.9, "speech": 0.2, "song": {"title": "Song", "artist": "Band", "url": ref_file}},
+                  {"start": 132.0, "end": 160.0, "confidence": 0.9, "speech": 0.2}]}}
+        added = vodexport.spread_songs(pr, pr["copyright"])
+        sp = pr["copyright"]["spans"]
+        check("the music scan's stretches get the places it missed added, as Erase song stretches with the song",
+              added > 0 and any(x.get("found") == "everywhere" and x["start"] <= 215 <= x["end"] and x["song"]["url"] == ref_file for x in sp)
+              and not any(x["start"] < x2["end"] and x2["start"] < x["end"] for i, x in enumerate(sp) for x2 in sp[i + 1:]),
+              [(x["start"], x["end"], (x.get("song") or {}).get("title"), x.get("found")) for x in sp])
+        check("a stretch of another song isn't given this one", "song" not in next(x for x in sp if x["start"] == 132.0))
 
         # recognising a scan's stretches: Shazam's answer made up, everything else real
         asked = []
