@@ -115,6 +115,18 @@ h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 @media (min-width: 1100px) { .sources { grid-template-columns: minmax(0, 3fr) minmax(340px, 2fr); } }
 .panel { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 16px; }
 .panel.source { display: flex; flex-direction: column; gap: 12px; }
+/* Targets (5.5): the third box, under Past broadcast and Live stream, across both */
+.sources > .targets { grid-column: 1 / -1; }
+.targets-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.target { border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; }
+.target.off { opacity: .6; }
+.target-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.target-row b { max-width: 220px; }
+.target-note { min-width: 160px; }
+.target .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--tx1); }
+.target .dot.live { background: var(--danger); box-shadow: 0 0 0 3px rgba(240, 90, 94, .2); }
+.target .dot.off { background: transparent; border: 1px solid var(--tx1); }
+.target-set { display: flex; flex-direction: column; gap: 12px; padding-top: 10px; margin-top: 8px; border-top: 1px solid var(--line); }
 .panel header p { margin: 4px 0 0; }
 .panel footer { display: flex; justify-content: flex-end; }
 .input { background: var(--bg1); border: 1px solid var(--line2); border-radius: var(--r); padding: 6px 9px; min-width: 0; }

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 5.4.3" src="https://img.shields.io/badge/version-5.4.3-2fe36f?style=flat-square"></a>
+  <a href="https://github.com/allen1versonfr/ClipRadar/releases/latest"><img alt="Version 5.5.0" src="https://img.shields.io/badge/version-5.5.0-2fe36f?style=flat-square"></a>
   <a href="https://github.com/allen1versonfr/ClipRadar/actions/workflows/build.yml"><img alt="Build and test" src="https://img.shields.io/github/actions/workflow/status/allen1versonfr/ClipRadar/build.yml?branch=main&style=flat-square&label=build"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1f2329?style=flat-square">
   <img alt="Built with Python" src="https://img.shields.io/badge/python-3.12-1f2329?style=flat-square">
@@ -46,6 +46,7 @@ Clip Radar watches a Twitch stream the way your chat does. It finds the moments 
   - It learns from the clips you keep, skip and post, separately for each streamer.
   - **YouTube too:** each clip you keep is also made as a 16:9 YouTube video, and you can edit that one on its own (its own cut, title, description, captions and layout) with the same editor.
 - **Hands-free live clipping.** Start it and go watch the stream. Every strong moment is titled, checked and rendered on its own, and finished clips land in Exports.
+  - **Targets:** a list of streamers Clip Radar watches for you. As soon as one goes live it starts clipping them with their own settings (save the whole stream too, if you like), and starts again on their next stream.
   - It can wait for the stream to start and keep watching for the next one.
   - Choose how many clips you want (Fewer, Normal, More or Lots).
   - Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> from any window to clip the last 30 seconds.
@@ -174,6 +175,7 @@ src/
   safety.py       content check (TOS scanner) and censoring
   vodexport.py    Export VOD: a whole video with muting and captions, and the copyright (music) scan
   songerase.py    Erase song: takes a song out of the sound and keeps talking and game sound (TIGER)
+  targets.py      Targets: streamers watched and clipped as soon as they go live
   songid.py       Which song is it: recognises each music stretch (Shazam) and finds its recording on YouTube
   songref.py      Erase song with the song known: finds that recording in the stream and subtracts it
   hotkey.py       Ctrl+Alt+C clip hotkey on Windows

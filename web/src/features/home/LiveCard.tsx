@@ -8,8 +8,8 @@ import { usePoll } from '../../hooks/usePoll'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { PRESETS } from './VodCard'
 
-const MODES: Array<[string, string]> = [['hands', 'Hands-free'], ['review', 'Review each clip']]
-const FREQS: Array<[string, string]> = [['fewer', 'Fewer'], ['normal', 'Normal'], ['more', 'More'], ['lots', 'Lots']]
+export const MODES: Array<[string, string]> = [['hands', 'Hands-free'], ['review', 'Review each clip']]
+export const FREQS: Array<[string, string]> = [['fewer', 'Fewer'], ['normal', 'Normal'], ['more', 'More'], ['lots', 'Lots']]
 const loadTwitch = () => api(Twitch, '/api/twitch')
 
 export function LiveCard({ status }: { status: Status | undefined }) {

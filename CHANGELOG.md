@@ -5,6 +5,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.5.0] - 2026-11-20
+
+### Added
+- **Targets: streamers clipped as soon as they go live.** A third box on Home, under Past broadcast and Live
+  stream. Add a Twitch channel (a name or twitch.tv/name) or a YouTube channel (youtube.com/@name), and Clip Radar
+  watches them for you: the moment one goes live, it starts clipping them on its own, and starts again on their
+  next stream.
+  - Each target has its own live clipping settings: Hands-free or Review each clip, how many clips, stream type,
+    lowest score, clip length, and **Save the whole stream** (the full recording saved as one video when the stream
+    ends, ready in Export VOD). A new one starts with the settings Live stream is on.
+  - Your render style, captions model and the rest come from what you use now, brought up to date each time Home
+    opens.
+  - Each shows what's going on: offline, live and being clipped (with **Open** to watch its moments), or why it
+    isn't (switched off, no free slot). A **Watch** switch turns one off without removing it.
+  - Watching costs almost nothing: every Twitch target is asked about in one request a minute, each YouTube target
+    every three minutes. A target that isn't live takes no slot under Settings › Performance › Live streams at
+    once; one that goes live with no free slot says so and starts as soon as one frees up.
+  - Stop on a target's session stops it for that stream; it's clipped again on their next one.
+  - Clip Radar has to be open (it can sit in the background) for its targets to be watched.
+
+### Tests
+- `tests/test_targets.py` (new, in CI): what can be a target; the list kept with its settings; with Twitch's and
+  YouTube's answers made up, an offline target starts nothing, a live one starts clipping once with its own
+  settings, stopped by you not again that stream but on the next, a stream that just ended not restarted from an
+  out-of-date answer, no free slot said and started when one frees up, a switched-off one never; and the routes.
+- Home's Targets box: the list with what's going on and Open, adding with the Live stream settings and your style,
+  a channel it can't watch, switching one off and changing its settings, every target brought up to date.
+
 ## [5.4.3] - 2026-11-20
 
 ### Fixed

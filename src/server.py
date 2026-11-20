@@ -1587,6 +1587,8 @@ def start(port: int = PORT):
         render_queue.apply_perf()
         updater.start_background(log=_say)
         hotkey.start(live_glue.on_hotkey)
+        import targets
+        targets.start(sys.modules[__name__])   # Home › Targets: streamers clipped as soon as they go live (5.5)
         _keeper.start()
     return srv, f"http://127.0.0.1:{port}"
 
