@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "src"))
 import engine  # noqa: E402
 import live  # noqa: E402
 import paths  # noqa: E402
+import locations  # noqa: E402
 import vodexport  # noqa: E402
 
 WORK = str(paths.WORKROOT)
@@ -71,21 +72,32 @@ def test_keeps_every_piece_and_saves_one_video():
     s._finish_recording()
     v = s.vod
     assert v["state"] == "saved", v
-    assert os.path.basename(v["path"]) == "vod.mp4" and os.path.isfile(v["path"])
+    assert os.path.isfile(v["path"])
+    # 5.7.1: saved in Exported VODs with every other whole video, named after the stream, not a hidden vod.mp4
+    assert os.path.normcase(os.path.dirname(v["path"])) == os.path.normcase(os.path.abspath(locations.vods_dir())), v["path"]
+    assert os.path.basename(v["path"]).startswith("vodtester stream ") and v["path"].endswith(".mp4"), v["path"]
+    assert not [f for f in os.listdir(locations.vods_dir()) if f.endswith(".part")], "nothing half-written left"
     assert abs(engine.probe(v["path"])["duration"] - 6.0) < 0.6
     assert not os.path.exists(s.seg_dir), "the raw pieces are deleted once the video is saved"
-    wd = os.path.dirname(v["path"])            # no Downloads location set: the video sits in its project folder
+    wd = engine.local_workdir(WORK, v["path"])
     meta = engine._meta(wd)
     assert meta.get("local") and meta.get("source") == v["path"] and not meta.get("live") and meta.get("recorded_live")
     assert meta["title"].startswith("vodtester stream ")
     # opening the file again (Home, recent) lands in the same project, not a new one
-    assert os.path.normcase(engine.local_workdir(WORK, v["path"])) == os.path.normcase(wd)
+    assert os.path.normcase(os.path.dirname(wd)) == os.path.normcase(WORK) and os.path.isdir(wd)
     # Export VOD lists it and opens it like any downloaded VOD
     S = fake_server({})
     row = next((r for r in vodexport.library(S) if r["title"] == meta["title"]), None)
     assert row, vodexport.library(S)
     pid = vodexport.open_video(S, pid=row["pid"])
     assert vodexport.usable(S.projects[pid]) and S.projects[pid]["video"] == v["path"]
+    # a second stream saved at the same minute doesn't replace the first
+    s2 = session(True)
+    s2.started = s.started
+    piece(s2)
+    s2.status = "ended"
+    s2._finish_recording()
+    assert s2.vod["state"] == "saved" and s2.vod["path"] != v["path"] and os.path.isfile(v["path"]), s2.vod
 
 
 def test_rolling_buffer_without_the_setting():
@@ -147,6 +159,13 @@ def test_server_checks_for_room_first():
     finally:
         render_queue._check_space = real
     assert on is False and note.startswith("Not saving the full stream: No space left on device (900 MB free")
+    asked = []
+    render_queue._check_space = lambda d, secs: asked.append(d)
+    try:
+        server.live_vod_setting({})
+    finally:
+        render_queue._check_space = real
+    assert asked and os.path.normcase(asked[0]) == os.path.normcase(locations.vods_dir()), "room checked where it's saved (5.7.1)"
     s = session(on, save_vod_note=note)
     assert s.public()["vod"] == dict(s.vod) and s.vod["state"] == "off" and s.vod["note"] == note
 

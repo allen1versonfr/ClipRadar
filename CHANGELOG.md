@@ -38,6 +38,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   lookup that fails or takes too long makes those segments the slow way instead of failing the export.
 
 ### Changed
+- **Every whole video saved in Exported VODs.** A live stream saved with Save the whole stream went into the
+  Downloads location as a `vod.mp4` in a folder of its own, not where Export VOD saves. It's now saved in Settings ›
+  Storage › Exported VODs too, named after the stream and when it started ("name stream 2026-11-21 20-15.mp4"), and
+  the room for it is checked on that disk before the stream starts. It still opens in Export VOD and Segments with
+  its scan and music kept. Streams saved before stay where they are.
 - An exported VOD, a segment and a joined edit are checked when they're made: there, readable, as long as asked,
   with sound when the video has it. A copy that isn't is made again the slow way; anything else says so.
 - Two song recordings left behind by a test run (10 MB) taken out of the source, and the folder they were in ignored.

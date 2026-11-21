@@ -201,7 +201,10 @@ def live_vod_setting(body: dict) -> tuple:
     if not body.get("save_vod", True):
         return False, ""
     try:
-        render_queue._check_space(locations.path("downloads") or S.WORKROOT, LIVE_VOD_CHECK)
+        # the disk Exported VODs is on, where the saved stream goes (5.7.1)
+        where = locations.vods_dir()
+        os.makedirs(where, exist_ok=True)
+        render_queue._check_space(where, LIVE_VOD_CHECK)
     except OSError as e:
         return False, f"Not saving the full stream: {e.strerror or e}. Moments are still clipped."
     return True, ""
