@@ -598,54 +598,143 @@ def movflags(length: float) -> list:
     return ["-movflags", "+faststart"] if length <= FASTSTART_MAX else []
 
 
+SILENT_MAX = 90.0         # seconds FFmpeg may say nothing at all before it counts as hung (5.7.1)
+FROZEN_MAX = 120.0        # seconds its position may stand still while it keeps reporting (5.7.1)
+ENDING_MAX = 600.0        # seconds it may take to finish the file once it has written all of it (the faststart pass)
+
+
 def _run_ffmpeg(cmd: list, cwd: str, length: float, progress, check) -> None:
     """Run FFmpeg (asked for -progress pipe:1), moving the bar and stopping when the job is cancelled. At the render
-    priority (Settings › Performance: below normal, so the PC stays usable)."""
+    priority (Settings › Performance: below normal, so the PC stays usable).
+
+    5.7.1: watched from the side, the way a clip's render is (render.py, 5.4.3). Before, Stop and the stall check only
+    ran when FFmpeg printed a line: an FFmpeg that hung (a wedged disk, a network drive gone, a source it choked on)
+    kept an Export VOD or a Segments join at the same percent for good, and Stop did nothing. Now Stop kills it at
+    once, and one that says nothing for SILENT_MAX seconds, or whose position doesn't move for FROZEN_MAX, is stopped
+    and fails with that said (the caller then makes it another way where it can)."""
     p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
                          text=True, encoding="utf-8", errors="replace",
                          creationflags=engine.CREATE_NO_WINDOW | render.RENDER_PRIORITY[0])
     procjob.adopt(p)
     err: list = []
-    reader = threading.Thread(target=lambda: err.extend(p.stderr), daemon=True)
+
+    def drain():
+        for ln in p.stderr:
+            err.append(ln)
+            del err[:-80]
+    reader = threading.Thread(target=drain, daemon=True)
     reader.start()
-    try:
-        for line in p.stdout:
-            if line.startswith("out_time_us="):
-                try:
-                    progress(min(0.999, max(0.0, int(line.split("=")[1]) / 1e6) / max(1.0, length)))
-                except ValueError:
-                    pass
+    now = time.monotonic
+    seen = {"line": now(), "moved": now(), "pos": -1.0, "ended": 0.0}
+    why = {"stuck": "", "cancelled": False}
+
+    def watch():
+        while p.poll() is None:
             try:
                 check()
             except engine.Cancelled:
+                why["cancelled"] = True
+            except Exception:       # noqa: BLE001  a check that fails isn't a reason to stop the export
+                pass
+            t = now()
+            if not why["cancelled"]:
+                if seen["ended"] and t - seen["ended"] > ENDING_MAX:
+                    why["stuck"] = f"FFmpeg wrote the whole file but didn't finish it within {int(ENDING_MAX)} seconds"
+                elif not seen["ended"] and t - seen["line"] > SILENT_MAX:
+                    why["stuck"] = f"FFmpeg said nothing for {int(SILENT_MAX)} seconds"
+                elif not seen["ended"] and t - seen["moved"] > FROZEN_MAX:
+                    why["stuck"] = (f"FFmpeg made no progress for {int(FROZEN_MAX)} seconds (stuck at "
+                                    f"{engine.fmt_ts(max(0.0, seen['pos']))} of {engine.fmt_ts(length)})")
+            if why["cancelled"] or why["stuck"]:
+                try:
+                    p.kill()
+                except OSError:
+                    pass
+                return
+            time.sleep(1.0)
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    try:
+        for line in p.stdout:
+            seen["line"] = now()
+            if line.startswith("out_time_us="):
+                try:
+                    pos = max(0.0, int(line.split("=")[1]) / 1e6)
+                except ValueError:
+                    continue
+                if pos > seen["pos"] + 1e-3:
+                    seen["pos"], seen["moved"] = pos, now()
+                if pos >= length - 0.5 and not seen["ended"]:
+                    seen["ended"] = now()
+                progress(min(0.999, pos / max(1.0, length)))
+            elif line.startswith("progress=end"):
+                seen["ended"] = seen["ended"] or now()
+            try:
+                check()
+            except engine.Cancelled:
+                why["cancelled"] = True
                 p.kill()
                 raise
     finally:
         p.wait()
         reader.join(timeout=5)
+        watcher.join(timeout=3)
+    if why["cancelled"]:
+        raise engine.Cancelled()
+    if why["stuck"]:
+        raise RuntimeError("ffmpeg failed:\n" + render._ffmpeg_reason("".join(err[-60:])) + "\n" + why["stuck"] + ", and was stopped.")
     if p.returncode != 0:
         raise RuntimeError("ffmpeg failed:\n" + render._ffmpeg_reason("".join(err[-60:])))
 
 
 def keyframes(video: str, around: list, reach: float = 12.0) -> list:
     """The times of the picture's keyframes near each time in `around` (within `reach` seconds), sorted.
-    Only those stretches of the file are read, so a six-hour VOD takes a moment, not a full pass."""
+    Only those stretches of the file are read, so a six-hour VOD takes a moment, not a full pass.
+    Times are the video's own (0 = where it starts), as FFmpeg's -ss takes them.
+
+    5.7.1: ffprobe reads and prints the file's timestamps as they are, and a recording's often don't start at 0 (an
+    OBS .ts or .flv, a stream recorded from the middle: 1.4 s, 10 s, hours). Those were taken as the video's own
+    times, so a copied segment started on a frame that wasn't a keyframe, a second or more from where its sound did.
+    Each time is also rounded up to the millisecond, never down: -ss a hair before a keyframe copies from the one
+    before it, two seconds early, with the sound starting where it should (out of step by that much). Asked in
+    batches, so hundreds of segments don't make a command line Windows refuses, and a probe that fails or takes too
+    long is no keyframes (the segments are made the slow way), never a failed export."""
     if not around:
         return []
-    iv = ",".join(f"{max(0.0, t - reach):.2f}%{t + reach:.2f}" for t in sorted(around))
-    r = subprocess.run([engine.ffprobe(), "-v", "error", "-select_streams", "v:0", "-read_intervals", iv,
-                        "-show_entries", "packet=pts_time,flags", "-of", "csv=p=0", video],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
-                       creationflags=engine.CREATE_NO_WINDOW)
+    zero = _start_time(video)
+    times = sorted(around)
     out = set()
-    for line in r.stdout.splitlines():
-        bits = line.strip().split(",")
-        if len(bits) >= 2 and "K" in bits[1]:
-            try:
-                out.add(round(float(bits[0]), 3))
-            except ValueError:
-                pass
+    for k in range(0, len(times), 150):
+        iv = ",".join(f"{max(0.0, zero + t - reach):.3f}%{zero + t + reach:.3f}" for t in times[k:k + 150])
+        try:
+            r = subprocess.run([engine.ffprobe(), "-v", "error", "-select_streams", "v:0", "-read_intervals", iv,
+                                "-show_entries", "packet=pts_time,flags", "-of", "csv=p=0", video],
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+                               creationflags=engine.CREATE_NO_WINDOW)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for line in r.stdout.splitlines():
+            bits = line.strip().split(",")
+            if len(bits) >= 2 and "K" in bits[1]:
+                try:
+                    t = float(bits[0]) - zero
+                except ValueError:
+                    continue
+                if math.isfinite(t) and t >= -0.0005:
+                    out.add(max(0.0, math.ceil(round(t * 1000, 6)) / 1000))
     return sorted(out)
+
+
+def _start_time(video: str) -> float:
+    """Where the file's timestamps start (seconds; 0 when they start at 0 or it can't be read)."""
+    try:
+        r = subprocess.run([engine.ffprobe(), "-v", "error", "-show_entries", "format=start_time", "-of", "csv=p=0", video],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+                           creationflags=engine.CREATE_NO_WINDOW)
+        t = float((r.stdout or "0").strip().split(",")[0] or 0)
+        return t if math.isfinite(t) and t > 0 else 0.0
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return 0.0
 
 
 SNAP_MAX = 2.5            # seconds a copied segment's edge may move to a keyframe (Twitch and YouTube: one every 2 s)
@@ -712,6 +801,41 @@ def copy_video(video: str, out_path: str, info: dict, ro: render.RenderOpts, spa
     progress(1.0)
 
 
+def check_made(path: str, expect: float, want_audio: bool) -> str:
+    """What's wrong with a video just made, or "" if nothing: it must be there, readable, about as long as asked
+    (1% or 3 s either way), and have sound when the source does (5.7.1). Read from the file's header, so it takes a
+    moment even for a six-hour export: a copy cut short (a source whose timestamps jump) or written without its
+    sound is caught here, not on YouTube."""
+    try:
+        if os.path.getsize(path) < 1000:
+            return "the file came out empty"
+        info = engine.probe(path)
+    except Exception as e:      # noqa: BLE001
+        return "the file it made can't be read (" + ((str(e).strip().splitlines() or [type(e).__name__])[-1][:160]) + ")"
+    got = float(info.get("duration") or 0)
+    if expect > 0 and abs(got - expect) > max(3.0, expect * 0.01):
+        return f"it came out {engine.fmt_ts(got)} long instead of {engine.fmt_ts(expect)}"
+    if want_audio and not info.get("has_audio"):
+        return "it came out without sound"
+    return ""
+
+
+def _temp_room(folder: str, seconds: float, files: int) -> None:
+    """Room in the temp folder for the sound made again (FLAC, about 0.12 MB a second each), checked before an hour of
+    erasing rather than failing at the end of it (5.7.1)."""
+    if seconds <= 0 or files <= 0:
+        return
+    need = seconds * 0.13e6 * files + 300e6
+    try:
+        free = shutil.disk_usage(folder).free
+    except OSError:
+        return
+    if free < need:
+        raise OSError(28, f"No space left on device for the sound being made again in {folder} "
+                          f"({free // 1_000_000} MB free, about {int(need // 1_000_000)} MB needed). "
+                          "Free some space, or move the temp folder in Settings › Storage")
+
+
 def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str, whole: bool,
                  part: bool = False, band: tuple = (0.0, 1.0), label: str = "", words: Optional[list] = None,
                  copy: bool = False) -> dict:
@@ -755,7 +879,7 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     if need_words:
         if not whisper.whisper_available() and not (pr.get("yt") or {}).get("words"):
             log("Captions skipped: the speech model (Whisper) isn't installed.")
-            job["warning"] = "Exported without captions: the speech model (Whisper) isn't installed."
+            _warn(job, "Exported without captions: the speech model (Whisper) isn't installed.")
         else:
             words = hear_all(S, pr, o["whisper_model"], o["language"], a, b, bar(0, w_hear), check, step)
             log(f"Heard {len(words):,} words.")
@@ -769,8 +893,12 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
         log(f"Muting {len(hush)} stretch{'es' if len(hush) != 1 else ''} of music ({engine.fmt_ts(sum(y - x for x, y in hush))}).")
     tmpdir = locations.temp_dir(os.path.basename(pr["workdir"]), "vodexport")
     os.makedirs(tmpdir, exist_ok=True)
+    if voice or known:
+        _temp_room(tmpdir, length, (1 if known else 0) + (1 if voice or can_erase() else 0))
     audio_src = ""
     known_src = ""
+    voice_src = ""
+    erased_voice = False
     try:
         if known:
             import songref
@@ -779,76 +907,164 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             known_src = os.path.join(tmpdir, f"known_{uuid.uuid4().hex[:8]}.flac")
             t0 = time.time()
             share = w_voice * (0.5 if voice or can_erase() else 1.0)
-            got = songref.erase_known(video, known, known_src, a, length, locations.temp_dir("songs"),
-                                      progress=bar(w_hear, w_hear + share), check=check, log=log)
-            log(f"Known songs taken out in {engine.fmt_ts(time.time() - t0)}.")
+            try:
+                got = songref.erase_known(video, known, known_src, a, length, locations.temp_dir("songs"),
+                                          progress=bar(w_hear, w_hear + share), check=check, log=log)
+            except engine.Cancelled:
+                raise
+            except Exception as e:       # noqa: BLE001  5.7.1: the eraser model or muting does it instead, not a failed export
+                if _disk_full(e):
+                    raise
+                log(f"Couldn't take the recognised songs out ({_reason(e)}).")
+                _remove(known_src)
+                known_src = ""
+                got = {"missed": [(x, y) for x, y, _ in known]}
+                known = []
+            else:
+                log(f"Known songs taken out in {engine.fmt_ts(time.time() - t0)}.")
+                audio_src = known_src
             left = [(max(p, a), min(q, b)) for p, q in got["missed"] if min(q, b) - max(p, a) >= 0.5]
             if left and can_erase():        # where the recording wasn't heard, the eraser model does it
                 voice = sorted(voice + left)
                 log(f"The recording wasn't heard in {len(left)} part{'s' if len(left) != 1 else ''}: the eraser model does "
                     + ", ".join(f"{engine.fmt_ts(p)}-{engine.fmt_ts(q)}" for p, q in left[:6]) + ".")
             elif left:
-                job["warning"] = ("The song wasn't heard in " + ", ".join(f"{engine.fmt_ts(p)}-{engine.fmt_ts(q)}" for p, q in left[:4])
-                                  + ". Those parts are left as they were: get the song eraser in Settings › Downloads and tools to erase them too.")
-            audio_src = known_src
+                # 5.7.1: muted rather than left as they were: you asked for the song to go, and without the eraser model
+                # muting is the only way it does (as Segments already did for Erase song without the model)
+                spans += [(*rel(p, q), "mute") for p, q in left]
+                _warn(job, "The song couldn't be taken out of " + ", ".join(f"{engine.fmt_ts(p)}-{engine.fmt_ts(q)}" for p, q in left[:4])
+                      + (f" and {len(left) - 4} more" if len(left) > 4 else "")
+                      + ", so those parts are muted. Get the song eraser in Settings › Downloads and tools to keep the talking there.")
             w_hear += share
             w_voice -= share
         if voice:
             total = sum(y - x for x, y in voice)
             eraser = songerase.available()
             step(f"Erasing songs from {engine.fmt_ts(total)}" if eraser else f"Taking the music out of {engine.fmt_ts(total)} (voices stay)")
-            audio_src = os.path.join(tmpdir, f"voice_{uuid.uuid4().hex[:8]}.flac")
+            voice_src = os.path.join(tmpdir, f"voice_{uuid.uuid4().hex[:8]}.flac")
             t0 = time.time()
             fn = songerase.erase if eraser else voicekeep.keep_voice
-            if known_src:       # on top of the sound the named songs were already taken out of
-                got = fn(known_src, [rel(x, y) for x, y in voice], audio_src, start=0.0, length=0.0,
-                         progress=bar(w_hear, w_hear + w_voice), check=check)
+            try:
+                if known_src:       # on top of the sound the named songs were already taken out of
+                    got = fn(known_src, [rel(x, y) for x, y in voice], voice_src, start=0.0, length=0.0,
+                             progress=bar(w_hear, w_hear + w_voice), check=check)
+                else:
+                    got = fn(video, [rel(x, y) for x, y in voice], voice_src, start=a, length=0.0 if whole and not part else length,
+                             progress=bar(w_hear, w_hear + w_voice), check=check)
+                if not os.path.isfile(voice_src) or os.path.getsize(voice_src) < 100:
+                    raise RuntimeError("it made no sound")
+            except engine.Cancelled:
+                raise
+            except Exception as e:       # noqa: BLE001  5.7.1: muted instead, so the export still can't be claimed there
+                if _disk_full(e):
+                    raise
+                _remove(voice_src)
+                voice_src = ""
+                spans += [(*rel(x, y), "mute") for x, y in voice]
+                log(f"The song eraser failed ({_reason(e)}): {len(voice)} stretch{'es' if len(voice) != 1 else ''} muted instead.")
+                _warn(job, f"The song eraser failed ({_reason(e)}), so the {len(voice)} Erase song stretch{'es' if len(voice) != 1 else ''} "
+                           f"({engine.fmt_ts(total)}) {'are' if len(voice) != 1 else 'is'} muted instead: YouTube won't catch them, "
+                           "but the talking there is muted too.")
             else:
-                got = fn(video, [rel(x, y) for x, y in voice], audio_src, start=a, length=0.0 if whole and not part else length,
-                         progress=bar(w_hear, w_hear + w_voice), check=check)
-            log(f"{'Songs erased' if eraser else 'Music removed, voices kept,'} in {len(voice)} stretch{'es' if len(voice) != 1 else ''} "
-                f"({engine.fmt_ts(total)}) in {engine.fmt_ts(time.time() - t0)}, {got['blocks']} blocks through the model.")
+                audio_src = voice_src
+                erased_voice = True
+                log(f"{'Songs erased' if eraser else 'Music removed, voices kept,'} in {len(voice)} stretch{'es' if len(voice) != 1 else ''} "
+                    f"({engine.fmt_ts(total)}) in {engine.fmt_ts(time.time() - t0)}, {got['blocks']} blocks through the model.")
         if claim and audio_src:
             # 5.7: would YouTube still catch it? The erased sound heard again, as Content ID would hear it; what's still
             # recognised is muted in those seconds, and the export says where
             import songid
             import songref as _sr
             step("Checking YouTube won't still hear the songs")
-            erased = sorted([rel(x, y) for x, y in voice] + [rel(x, y) for x, y, _ in known])
+            erased = sorted(([rel(x, y) for x, y in voice] if erased_voice else []) + [rel(x, y) for x, y, _ in known])
             src_ = audio_src
-            left = songid.still_heard(lambda t, n: _sr.read(src_, t, n), erased, check,
-                                      bar(w_hear + w_voice, w_hear + w_voice + w_claim), separate=can_erase() and songerase.available())
+            try:
+                left = songid.still_heard(lambda t, n: _sr.read(src_, t, n), erased, check,
+                                          bar(w_hear + w_voice, w_hear + w_voice + w_claim), separate=can_erase() and songerase.available())
+            except engine.Cancelled:
+                raise
+            except Exception as e:      # noqa: BLE001  5.7.1: the check is a safety net; it failing isn't a failed export
+                left = []
+                log(f"Couldn't check whether the songs are still recognisable ({_reason(e)}).")
+                _warn(job, "The check that YouTube won't still hear the songs couldn't run this time "
+                           f"({_reason(e)}); the songs were erased as usual.")
+            else:
+                if not left:
+                    log("Checked: none of the erased songs is recognisable any more.")
             if left:
                 spans += [(p, q, "mute") for p, q, _ in left]
                 where = ", ".join(f"{engine.fmt_ts(a + p)}" for p, q, _ in left[:5]) + (f" and {len(left) - 5} more" if len(left) > 5 else "")
                 log(f"Still recognisable after erasing ({left[0][2]}) at {where}: muted there, {engine.fmt_ts(sum(q - p for p, q, _ in left))} in all.")
-                job["warning"] = (f"A song was still recognisable after erasing in {len(left)} place{'s' if len(left) != 1 else ''} "
-                                  f"({where}): those seconds are muted, so YouTube won't catch them.")
-            else:
-                log("Checked: none of the erased songs is recognisable any more.")
+                _warn(job, f"A song was still recognisable after erasing in {len(left)} place{'s' if len(left) != 1 else ''} "
+                           f"({where}): those seconds are muted, so YouTube won't catch them.")
         prog = bar(w_hear + w_voice + w_claim, 1.0)
         if copying:
             step("Copying the picture, making the sound")
             log("The picture is copied as it is (no burned-in captions, the video's own size).")
-            copy_video(video, path, info, ro, spans, audio_src, prog, check,
-                       start=a if part else 0.0, length=length if part else 0.0)
-        else:
-            step("Rendering" if part else "Rendering the whole video" if whole else "Rendering the preview")
+            try:
+                copy_video(video, path, info, ro, spans, audio_src, prog, check,
+                           start=a if part else 0.0, length=length if part else 0.0)
+                bad = check_made(path, length, has_audio)
+                if bad:
+                    _remove(path)
+                    raise RuntimeError(bad)
+            except engine.Cancelled:
+                raise
+            except Exception as e:      # noqa: BLE001  5.7.1: made the slow way instead of failing the export
+                if _disk_full(e):
+                    raise
+                _remove(path)
+                copying = False
+                log(f"Copying the picture didn't work ({_reason(e)}): making the video again instead.")
+                step(("Rendering" if part else "Rendering the whole video") + " (the picture couldn't be copied)")
+        if not copying:
+            if not (whole and can_copy(o, info) and (not part or copy)):
+                step("Rendering" if part else "Rendering the whole video" if whole else "Rendering the preview")
             burn = [dict(w, start=w["start"] - a, end=w["end"] - a) for w in words] if ro.captions else []
             render.render_clip(video, a, b, path, ro, title="", log=log, progress=prog, check=check,
                                words=burn, censor=spans, censor_mode="mute", audio_src=audio_src,
-                               warn=lambda m: job.__setitem__("warning", m), faststart=length <= FASTSTART_MAX)
+                               warn=lambda m: _warn(job, m), faststart=length <= FASTSTART_MAX)
+            if whole or part:
+                bad = check_made(path, length, has_audio)
+                if bad:
+                    log(f"Made, but {bad}.")
+                    _warn(job, f"The video was made, but {bad}. Watch it through before you upload it.")
     finally:
-        for f in {audio_src, known_src} - {""}:
-            try:
-                os.remove(f)
-            except OSError:
-                pass
+        for f in {audio_src, known_src, voice_src} - {""}:
+            _remove(f)
         if voice:
             voicekeep.release()
             songerase.release()
     return {"words": words, "ro": ro, "copied": copying, "muted_words": len(told), "muted_music": len(hush),
             "voice_music": len(voice), "known_songs": len(known)}
+
+
+def _remove(f: str) -> None:
+    try:
+        os.remove(f)
+    except OSError:
+        pass
+
+
+def _disk_full(e: BaseException) -> bool:
+    """A full disk: making it another way would fail the same, so the export fails and says so."""
+    return getattr(e, "errno", None) in (28, 112) or "No space left" in str(e) or "There is not enough space" in str(e)
+
+
+def _reason(e: BaseException) -> str:
+    """An error's last line, short, for the log and the export's warning."""
+    lines = [ln.strip() for ln in str(e).strip().splitlines() if ln.strip() and ln.strip() != "ffmpeg failed:"]
+    return (lines[-1] if lines else type(e).__name__)[:200]
+
+
+def _warn(job: dict, m: str) -> None:
+    """Add to the export's warning (5.7.1: each warning used to replace the one before, so only the last was shown)."""
+    m = (m or "").strip()
+    if not m:
+        return
+    have = job.get("warning") or ""
+    if m not in have:
+        job["warning"] = (have + " " + m).strip() if have else m
 
 
 def run_export(S, job: dict, pid: str, o: dict) -> dict:

@@ -169,8 +169,9 @@ USE
       Clip last 30s (C)   the same, from inside Clip Radar
       Stop                stop recording; you can keep reviewing afterwards
     Save the whole stream (on the Live card, on by default): the full
-    recording is kept and saved as one video when the stream ends, ready in
-    Export VOD and Segments. It takes about 3 GB an hour at 1080p, needs room
+    recording is kept and saved as one video when the stream ends, in the
+    Exported VODs folder (Settings > Storage), ready in Export VOD and
+    Segments. It takes about 3 GB an hour at 1080p, needs room
     for an hour before it starts, and stops keeping (saving what it has) if
     the disk gets nearly full. Turn it off and only the last 15 minutes of
     raw stream are kept on disk; moments are cut out as they happen either

@@ -8,7 +8,7 @@ export function RecBadge({ vod, active, compact = false }: { vod: string; active
           'The whole stream is being recorded and saved. It becomes one video in Export VOD when the stream ends. About 3 GB an hour at 1080p.']
           : ['rec idle', 'Will save the full stream', 'Recording starts when the stream does, and the whole of it is kept.']
       case 'saving': return ['rec busy', 'Saving the full stream as one video…', 'The stream ended: its recording is being joined into one video.']
-      case 'saved': return ['rec done', 'Full stream saved', 'The whole stream is saved as one video, ready in Export VOD.']
+      case 'saved': return ['rec done', 'Full stream saved', 'The whole stream is saved as one video in your Exported VODs folder, ready in Export VOD.']
       case 'stopped': return ['rec warn', 'Full stream stopped saving', 'The disk is nearly full, so the rest of the stream isn\'t being kept. Moments are still clipped.']
       case 'failed': return ['rec err', 'Full stream not saved', 'Saving the full stream failed: the live session says why.']
       default: return null

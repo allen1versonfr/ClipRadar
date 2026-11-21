@@ -310,6 +310,30 @@ if shutil.which("ffmpeg"):
     except engine.Cancelled:
         stopped = True
     check("and Stop stops it", stopped)
+
+    # 5.7.1: a join that comes out wrong (short, or without its sound) is made again into one video, not saved as it is
+    real_made, calls = vodexport.check_made, []
+
+    def first_wrong(path, expect, audio):
+        calls.append(expect)
+        return "it came out 0:05 long instead of 0:10" if len(calls) == 1 else real_made(path, expect, audio)
+    vodexport.check_made = first_wrong
+    steps = []
+    try:
+        segments.join([pa, pb], os.path.join(jdir, "rejoined.mp4"), length=10.0, step=steps.append)
+    finally:
+        vodexport.check_made = real_made
+    rj = engine.probe(os.path.join(jdir, "rejoined.mp4"))
+    check("a join that comes out wrong is made into one video again", len(calls) == 2 and any("came out wrong" in m for m in steps)
+          and abs(rj["duration"] - 10) < 0.5 and rj["has_audio"], (calls, steps, rj))
+    warned = []
+    vodexport.check_made = lambda path, expect, audio: "it came out without sound"
+    try:
+        segments.join([pa, pb], os.path.join(jdir, "still.mp4"), length=10.0, warn=warned.append)
+    finally:
+        vodexport.check_made = real_made
+    check("still wrong after that: kept, and the export says so", os.path.isfile(os.path.join(jdir, "still.mp4"))
+          and warned and "without sound" in warned[0], warned)
     leftover = [d for _, ds, _ in os.walk(locations.segments_dir()) for d in ds if d.startswith(".parts-")]
     check("the parts folder made next to the exports is gone when it's done", not leftover, leftover)
     shutil.rmtree(jdir, ignore_errors=True)

@@ -21,8 +21,8 @@ Live mode: clip a Twitch stream while it's still going.
   buffer     only the last few minutes of raw video are kept, so a 10-hour
              stream doesn't fill the disk. With "Save the whole stream" on, every
              piece is kept instead and joined into one video when the session
-             ends, in a project folder of its own, so Export VOD lists it like a
-             downloaded VOD (_save_vod). It stops keeping pieces if the disk gets
+             ends, saved in Exported VODs with a project folder of its own, so
+             Export VOD lists it like a downloaded VOD (_save_vod). It stops keeping pieces if the disk gets
              close to full.
 """
 
@@ -42,6 +42,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime
 from typing import Callable, Optional
 
@@ -1252,9 +1253,14 @@ class LiveSession:
         return self.save_vod and (self._vod_upto is None or i < self._vod_upto)
 
     def _vod_root(self) -> str:
-        """Where the saved stream goes: the Downloads location (Settings › Storage), else the projects folder."""
+        """Where the saved stream goes: Settings › Storage › Exported VODs, with every other whole video Clip Radar
+        saves (5.7.1: it was hidden in the Downloads location as a vod.mp4 in a folder of its own)."""
         import locations
-        root = locations.path("downloads") or self.workroot
+        root = locations.vods_dir()
+        try:
+            os.makedirs(root, exist_ok=True)
+        except OSError:
+            pass
         return root if os.path.isdir(root) else self.workroot
 
     def _check_vod_room(self):
@@ -1276,17 +1282,22 @@ class LiveSession:
         self.log(f"The disk is nearly full, so the full stream stopped saving at {engine.fmt_ts(at)}. "
                  "Moments are still clipped.")
 
+    def _vod_title(self) -> str:
+        name = re.sub(r"\s*\(live\)$", "", self.title) or "stream"
+        return f"{name} stream {time.strftime('%Y-%m-%d %H:%M', time.localtime(self.started))}"
+
     def _vod_target(self) -> tuple:
-        """(project folder, video path) for the saved stream: a folder of its own next to the live session's,
-        with the video where downloaded VODs go. Opening the file again finds this same folder
-        (engine.local_workdir names a vod.* file's project after the folder it's in)."""
-        import locations
-        base = engine._slug(re.sub(r"^live_", "", os.path.basename(self.dir)) + " stream")[:56].strip("_")
-        wd, n = os.path.join(self.workroot, base), 2
-        while os.path.exists(wd) or os.path.exists(locations.download_dir(wd)):
-            wd = os.path.join(self.workroot, f"{base}_{n}")
+        """(project folder, video path) for the saved stream: the video in Exported VODs, named after the stream and
+        when it started ("name stream 2026-11-21 20-15.mp4"), and its project folder the one opening that file finds
+        again (engine.local_workdir), so its scan and music are kept with it."""
+        import exports
+        root = self._vod_root()
+        base = exports.safe(self._vod_title().replace(":", "-"), 120) or "stream"
+        out, n = os.path.join(root, f"{base}.mp4"), 2
+        while os.path.exists(out):
+            out = os.path.join(root, f"{base} ({n}).mp4")
             n += 1
-        return wd, os.path.join(locations.download_dir(wd), "vod.mp4")
+        return engine.local_workdir(self.workroot, out), out
 
     def _save_vod(self) -> bool:
         """Join the kept pieces into one MP4 (stream copy, no re-encode; ad breaks were never recorded) and
@@ -1302,21 +1313,22 @@ class LiveSession:
         tmp = ""
         try:
             wd, out = self._vod_target()
-            tmp = os.path.join(os.path.dirname(out), "vod.saving.mp4")    # not vod.*: never listed half-written
+            # hidden and not .mp4 until it's whole: never taken for a finished video
+            tmp = os.path.join(os.path.dirname(out), f".{uuid.uuid4().hex[:8]}.saving.part")
             os.makedirs(os.path.dirname(out), exist_ok=True)
             with open(lst, "w", encoding="utf-8") as f:
                 for g in segs:
                     f.write("file '" + g["path"].replace("\\", "/").replace("'", "'\\''") + "'\n")
             # no +faststart: it would write the whole file a second time, and local playback doesn't need it
             engine.run([engine.ffmpeg(), "-v", "error", "-y", "-nostdin", "-f", "concat", "-safe", "0", "-i", lst,
-                        "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", tmp], timeout=600 + dur / 4)
+                        "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-f", "mp4", tmp], timeout=600 + dur / 4)
             os.replace(tmp, out)
             try:
                 dur = float(engine.probe(out).get("duration") or dur)
             except Exception:
                 pass
-            name = re.sub(r"\s*\(live\)$", "", self.title) or "stream"
-            title = f"{name} stream {time.strftime('%Y-%m-%d %H:%M', time.localtime(self.started))}"
+            title = self._vod_title()
+            os.makedirs(wd, exist_ok=True)
             engine._save_meta(wd, source=out, local=True, title=title, duration=round(dur, 1),
                               streamer=self.channel or "", recorded_live=True, live_dir=self.dir)
         except Exception as e:

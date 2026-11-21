@@ -5,6 +5,56 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.1] - 2026-11-21
+
+### Fixed
+- **Segments out of step on recordings that don't start at 0.** On a video whose timestamps start late (an OBS .ts
+  or .flv, a stream recorded from the middle), Segments started each copied picture on the wrong frame: the
+  keyframes were read in the file's own timestamps and used as the video's times. The picture came out up to a
+  second or two off from the sound (0.65 s measured on a recording starting at 11 s). The keyframes are now in the
+  video's own time, and rounded up to the millisecond, never down: a start a hair before a keyframe copied from the
+  one two seconds earlier.
+- **An Export VOD or a Segments join stuck at the same percent for good, with Stop doing nothing.** The copy of the
+  picture and the joining of segments only checked for Stop when FFmpeg printed a line, and nothing checked whether
+  it was stuck. Both are now watched from the side: Stop stops them at once, and an FFmpeg that says nothing for 90
+  seconds, or whose position doesn't move for 2 minutes, is stopped and the export says so.
+- **One step failing threw away the whole export.** Each one now has a way through, and the export says what
+  happened:
+  - **A copied picture that fails or comes out wrong** (FFmpeg refusing a source whose timestamps jump, or a copy
+    cut short) is made again the slow way instead of failing.
+  - **The song eraser failing** (a graphics card driver resetting, out of memory) mutes its stretches instead, so
+    YouTube still won't catch them.
+  - **Taking a recognised song out failing** hands its stretches to the eraser model, or mutes them without it.
+    Parts where the recording wasn't heard are muted too when there's no eraser model, rather than left as they
+    were with the song still in.
+  - **The check that YouTube won't still hear the songs** failing no longer fails the export; the songs are still
+    erased.
+  - **A Segments join that comes out short or without its sound** is made into one video again.
+  - A full disk still stops the export, with that said: making it another way would fail the same.
+- **Every warning shown.** An export with more than one thing to say showed only the last one; now it shows them all.
+- **Not enough room for the sound being made again** is said before the songs are erased, not an hour into it.
+- **A segments export failing over another export's leftover files** being cleaned up at the same moment.
+- Many hundreds of segments no longer make a keyframe lookup Windows refuses (too long a command line), and a
+  lookup that fails or takes too long makes those segments the slow way instead of failing the export.
+
+### Changed
+- **Every whole video saved in Exported VODs.** A live stream saved with Save the whole stream went into the
+  Downloads location as a `vod.mp4` in a folder of its own, not where Export VOD saves. It's now saved in Settings ›
+  Storage › Exported VODs too, named after the stream and when it started ("name stream 2026-11-21 20-15.mp4"), and
+  the room for it is checked on that disk before the stream starts. It still opens in Export VOD and Segments with
+  its scan and music kept. Streams saved before stay where they are.
+- An exported VOD, a segment and a joined edit are checked when they're made: there, readable, as long as asked,
+  with sound when the video has it. A copy that isn't is made again the slow way; anything else says so.
+- Two song recordings left behind by a test run (10 MB) taken out of the source, and the folder they were in ignored.
+
+### Tests
+- `tests/test_vodexport.py`: an eraser, a recognised-song erase and the YouTube check that fail, each giving a
+  finished export muted or erased where it should be and saying so; a copy that comes out short and one FFmpeg
+  refuses, both made again in full; a full disk said, not retried; Stop and the stall checks on an FFmpeg that hangs
+  silent or keeps reporting the same place; a .ts recording starting at 11 s, its keyframes in the video's time and
+  a segment copied from one with the picture and sound starting together.
+- `tests/test_segments.py`: a join that comes out wrong made again, and one still wrong kept and warned about.
+
 ## [5.7.0] - 2026-11-20
 
 ### Added

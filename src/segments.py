@@ -314,13 +314,14 @@ def start_hear(S, eid: str, seg_id: str, body: dict) -> dict:
 
 
 def join(parts: list, out_path: str, check=lambda: None, length: float = 0.0, progress=lambda f: None,
-         step=lambda m: None) -> None:
+         step=lambda m: None, warn=lambda m: None) -> None:
     """The parts, one after another, in one file. They were all made with the same settings, so they're joined
     as they are; if FFmpeg won't (an encoder fell back partway), they're made again into one. With the bar moving
     and Stop working throughout (5.4: before, both ran blind, and the re-making could sit at 100% for as long as the
     whole export took, every core busy)."""
     work = os.path.dirname(os.path.abspath(out_path))
     lst = os.path.join(work, f"seg_{uuid.uuid4().hex[:8]}.txt")
+    want_audio = _has_audio(parts[0]) if parts else False
     with open(lst, "w", encoding="utf-8") as f:
         for p in parts:
             f.write("file '" + os.path.abspath(p).replace("\\", "/").replace("'", r"'\''") + "'\n")
@@ -336,15 +337,32 @@ def join(parts: list, out_path: str, check=lambda: None, length: float = 0.0, pr
                 vodexport._run_ffmpeg(base + codec + [*vodexport.movflags(length or 1e9), out_path], work, length or 1.0, progress, check)
             except RuntimeError as e:
                 err = str(e)
+                if vodexport._disk_full(e):
+                    break
                 continue
-            if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+            # 5.7.1: joined as they are, it must also come out as long as the parts, with sound when they have it (a
+            # join of parts whose timestamps don't line up can come out short, or with the sound dropped): if not, they're
+            # made into one again; what that makes is kept either way, and the export says if it's still off
+            bad = vodexport.check_made(out_path, length, want_audio) if length else ("" if os.path.isfile(out_path) else "nothing")
+            if not bad or (i and os.path.isfile(out_path) and os.path.getsize(out_path) > 1000):
+                if bad:
+                    warn(f"The joined video was made, but {bad}. Watch it through before you upload it.")
                 return
+            err = f"Joined as they are, {bad}."
+            step("The joined video came out wrong: making the parts into one video again")
         raise RuntimeError("Couldn't join the segments:\n" + err.replace("ffmpeg failed:\n", ""))
     finally:
         try:
             os.remove(lst)
         except OSError:
             pass
+
+
+def _has_audio(path: str) -> bool:
+    try:
+        return bool(engine.probe(path).get("has_audio"))
+    except Exception:       # noqa: BLE001
+        return False
 
 
 def _out_name(name: str, outdir: str) -> str:
@@ -381,7 +399,8 @@ def _make(S, job: dict, pr: dict, o: dict, plan: list, path: str, tmp: str, band
             shutil.move(made[0], path)
         else:
             S.job_step(job)("Joining " + os.path.basename(path))
-            join(made, path, S.job_check(job), total, S.job_progress(job, lo + (hi - lo) * 0.97, hi), S.job_step(job))
+            join(made, path, S.job_check(job), total, S.job_progress(job, lo + (hi - lo) * 0.97, hi), S.job_step(job),
+                 warn=lambda m: vodexport._warn(job, m))
     finally:
         for p in made:
             try:
@@ -445,8 +464,11 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
     tmp = os.path.join(outdir, f".parts-{job['id']}")
     for old in os.listdir(outdir):          # parts left by an export Clip Radar was closed in the middle of
         d = os.path.join(outdir, old)
-        if old.startswith(".parts-") and d != tmp and time.time() - os.path.getmtime(d) > 6 * 3600:
-            shutil.rmtree(d, ignore_errors=True)
+        try:
+            if old.startswith(".parts-") and d != tmp and time.time() - os.path.getmtime(d) > 6 * 3600:
+                shutil.rmtree(d, ignore_errors=True)
+        except OSError:                     # gone already, or another export's (5.7.1: that failed the export)
+            pass
     os.makedirs(tmp, exist_ok=True)
     log = S.job_logger(job)
     try:
