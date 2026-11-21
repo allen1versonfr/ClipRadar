@@ -394,6 +394,168 @@ if shutil.which("ffmpeg"):
     songerase.session_impl[0] = None
     voicekeep.session_impl[0] = None
 
+    # ---- 5.7.1: an export that can't fail halfway for want of one step
+    import songref  # noqa: E402
+    songerase.session_impl[0] = Stems(1.0)
+    real_erase = songerase.erase
+
+    def broken_erase(*a, **k):
+        raise RuntimeError("DirectML: the GPU device was removed")
+    songerase.erase = broken_erase
+    try:
+        job = wait(vodexport.start_export(server, PID, {"captions": "off", "music": [[10, 20, "voice"]]}))
+        r = job.get("result") or {}
+        check("a song eraser that fails doesn't fail the export (5.7.1)", job["status"] == "done", job.get("error"))
+        if job["status"] == "done":
+            check("its stretch is muted instead", rms(r["path"], 14) < 0.005, rms(r["path"], 14))
+            check("the rest plays", rms(r["path"], 5) > 0.05 and rms(r["path"], 28) > 0.05)
+            check("and the export says so", "muted instead" in (r.get("warning") or ""), r.get("warning"))
+            tmp = vodexport.locations.temp_dir(os.path.basename(work), "vodexport")
+            check("no half-made sound file left", not os.listdir(tmp), os.listdir(tmp))
+    finally:
+        songerase.erase = real_erase
+
+    real_known = songref.erase_known
+
+    def broken_known(*a, **k):
+        raise ValueError("the recording's sound couldn't be lined up")
+    songref.erase_known = broken_known
+    song_file = os.path.join(work, "song.wav")
+    try:
+        job = wait(vodexport.start_export(server, PID, {"captions": "off", "music": [[10, 20, "voice", song_file]]}))
+        r = job.get("result") or {}
+        check("taking a recognised song out failing doesn't fail the export", job["status"] == "done", job.get("error"))
+        if job["status"] == "done":
+            check("the song eraser does that stretch instead", rms(r["path"], 14) < 0.005 and rms(r["path"], 5) > 0.05,
+                  rms(r["path"], 14))
+        songerase.session_impl[0] = None
+        held_v, voicekeep.session_impl[0] = voicekeep.session_impl[0], None
+        job = wait(vodexport.start_export(server, PID, {"captions": "off", "music": [[10, 20, "voice", song_file]]}))
+        r = job.get("result") or {}
+        check("without the eraser model too, it's muted instead", job["status"] == "done" and rms(r["path"], 14) < 0.005
+              and "muted" in (r.get("warning") or ""), (job.get("error"), r.get("warning")))
+        voicekeep.session_impl[0] = held_v
+    finally:
+        songref.erase_known = real_known
+
+    songerase.session_impl[0] = Stems(1.0)
+    real_ask, real_can, real_still = songid._ask, vodexport._can_recognise, songid.still_heard
+    vodexport._can_recognise = lambda: True
+
+    def broken_still(*a, **k):
+        raise OSError("the sound file is locked")
+    songid.still_heard = broken_still
+    try:
+        job = wait(vodexport.start_export(server, PID, {"captions": "off", "music": [[10, 20, "voice"]]}))
+        r = job.get("result") or {}
+        check("the YouTube check failing doesn't fail the export", job["status"] == "done" and rms(r.get("path", ""), 14) < 0.005,
+              job.get("error"))
+        check("and says it couldn't run", "couldn't run" in (r.get("warning") or ""), r.get("warning"))
+    finally:
+        songid._ask, vodexport._can_recognise, songid.still_heard = real_ask, real_can, real_still
+    songerase.session_impl[0] = None
+
+    real_copy = vodexport.copy_video
+
+    def short_copy(video_, out, info_, ro_, spans_, src_, prog_, chk_, start=0.0, length=0.0):
+        real_copy(video_, out, info_, ro_, spans_, src_, prog_, chk_, start=0.0, length=20.0)    # cut short, as a copy can be
+    vodexport.copy_video = short_copy
+    try:
+        job = wait(vodexport.start_export(server, PID, {"captions": "off", "music": [[5, 9, "mute"]]}))
+        r = job.get("result") or {}
+        check("a copy that comes out short is made again the slow way", job["status"] == "done" and not r.get("copied"),
+              (job.get("error"), r.get("copied")))
+        if job["status"] == "done":
+            check("all of it", abs(engine.probe(r["path"])["duration"] - 40) < 0.6, engine.probe(r["path"]))
+            check("with the music muted", rms(r["path"], 6) < 0.005 and rms(r["path"], 12) > 0.05)
+            check("the log says why", any("didn't work" in ln and "20 s" not in ln for ln in job["log"]), job["log"][-4:])
+
+        def failing_copy(*a, **k):
+            raise RuntimeError("ffmpeg failed:\nApplication provided invalid, non monotonically increasing dts to muxer")
+        vodexport.copy_video = failing_copy
+        job = wait(vodexport.start_export(server, PID, {"captions": "off"}))
+        r = job.get("result") or {}
+        check("a copy FFmpeg refuses is made again the slow way", job["status"] == "done" and not r.get("copied")
+              and abs(engine.probe(r["path"])["duration"] - 40) < 0.6, job.get("error"))
+
+        def full_copy(*a, **k):
+            raise RuntimeError("ffmpeg failed:\nNo space left on device")
+        vodexport.copy_video = full_copy
+        job = wait(vodexport.start_export(server, PID, {"captions": "off"}))
+        check("a full disk isn't tried again the slow way: it says so", job["status"] == "error"
+              and "space" in (job.get("error") or ""), job.get("error"))
+    finally:
+        vodexport.copy_video = real_copy
+
+    check("a video made right passes the check", vodexport.check_made(video, 40.0, True) == "")
+    check("one shorter than asked doesn't", "long instead" in vodexport.check_made(video, 60.0, True))
+    check("one that isn't there doesn't", vodexport.check_made(os.path.join(work, "nope.mp4"), 40.0, True) != "")
+
+    # ---- FFmpeg watched from the side: Stop works and a hung one is stopped, even when it says nothing (5.7.1)
+    py = sys.executable
+    stop = {"at": time.time() + 1.0}
+
+    def stopper():
+        if time.time() > stop["at"]:
+            raise engine.Cancelled()
+    t0 = time.time()
+    try:
+        vodexport._run_ffmpeg([py, "-c", "import time; time.sleep(60)"], work, 10.0, lambda f: None, stopper)
+        stopped = False
+    except engine.Cancelled:
+        stopped = True
+    check("Stop stops an FFmpeg that says nothing", stopped and time.time() - t0 < 10, time.time() - t0)
+    held_s, vodexport.SILENT_MAX = vodexport.SILENT_MAX, 2.0
+    t0 = time.time()
+    try:
+        vodexport._run_ffmpeg([py, "-c", "import time; time.sleep(60)"], work, 10.0, lambda f: None, lambda: None)
+        why = ""
+    except RuntimeError as e:
+        why = str(e)
+    vodexport.SILENT_MAX = held_s
+    check("one that says nothing for too long is stopped, and says so", "said nothing" in why and time.time() - t0 < 15, (why, time.time() - t0))
+    held_f, vodexport.FROZEN_MAX = vodexport.FROZEN_MAX, 2.0
+    t0 = time.time()
+    try:
+        vodexport._run_ffmpeg([py, "-c", "import time,sys\nwhile True:\n print('out_time_us=3000000', flush=True); time.sleep(0.3)"],
+                              work, 10.0, lambda f: None, lambda: None)
+        why = ""
+    except RuntimeError as e:
+        why = str(e)
+    vodexport.FROZEN_MAX = held_f
+    check("one still reporting but stuck at the same place is stopped", "no progress" in why and time.time() - t0 < 15, (why, time.time() - t0))
+
+    # ---- keyframes of a recording whose timestamps don't start at 0 (an OBS .ts): the video's own times (5.7.1)
+    ts = os.path.join(work, "rec.ts")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=30:duration=30",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=30", "-c:v", "libx264", "-preset", "ultrafast", "-g", "60",
+                    "-keyint_min", "60", "-sc_threshold", "0", "-c:a", "aac", "-output_ts_offset", "10", "-f", "mpegts", ts], check=True)
+    kf = vodexport.keyframes(ts, [5.0, 20.0])
+    zero = vodexport._start_time(ts)
+    check("the recording's timestamps start late", zero > 9, zero)
+    check("its keyframes are in the video's own time, not the file's", kf and all(t < 31 for t in kf)
+          and any(abs(t - 20.0) < 1.6 for t in kf) and any(t < 8 for t in kf), (zero, kf))
+    snapped = vodexport.snap_to_keyframes([(5.0, 9.0)], kf)[0]
+    check("a segment there snaps to one", snapped is not None and 3.0 <= snapped[0] <= 5.0, (snapped, kf))
+    if snapped:
+        out = os.path.join(work, "rec_part.mp4")
+        info_ts = engine.probe(ts)
+        ro_ = vodexport.render_opts(server, vodexport.clean_options({}, 30.0), info_ts)
+        vodexport.copy_video(ts, out, info_ts, ro_, [], "", lambda f: None, lambda: None, start=snapped[0], length=4.0)
+        st = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,start_time,duration", "-of", "csv=p=0", out],
+                            capture_output=True, text=True).stdout.split()
+        starts = {}
+        for row in st:
+            bits = row.split(",")
+            try:
+                starts[bits[0]] = float(bits[1])
+            except (IndexError, ValueError):
+                pass
+        check("copied from there, picture and sound start together", "video" in starts and "audio" in starts
+              and abs(starts["video"] - starts["audio"]) < 0.06 and abs(engine.probe(out)["duration"] - 4.0) < 0.3, (st, starts))
+    check("a probe that fails is no keyframes, not an error", vodexport.keyframes(os.path.join(work, "nope.mp4"), [5.0]) == [])
+    check("hundreds of segments are asked for in batches", len(vodexport.keyframes(ts, [i * 0.1 for i in range(400)])) >= 10)
+
     # ---- the exact preview: a few seconds made like the export
     voicekeep.session_impl[0] = Nothing()
     job = wait(vodexport.start_preview(server, PID, {"captions": "burn", "music": [[10, 20, "voice"]], "at": 16}))
