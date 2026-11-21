@@ -5,6 +5,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.2] - 2026-11-21
+
+### Fixed
+- **The songs and music steps stuck at a percent.** Seen as the bar sitting still for minutes, or for good:
+  - **Erase song sat at 99%** after the last song while the rest of a long VOD's sound was read and written (the bar
+    only went as far as the last song). It now covers the whole sound track, mostly the songs being erased, since
+    they're most of the time.
+  - **A recognised song's erase sat at 90%** through its last pass over the whole sound. That pass moves the bar now.
+  - **Recognise the songs sat on one stretch** for as long as its tries took (up to eight Shazam requests). The bar
+    moves with each request now.
+  - **A stalled FFmpeg held the music scan, Erase song or a recognised song's erase at one percent for good**, and
+    Stop did nothing (Stop was only checked between reads). Each is now watched from the side: Stop ends it at once,
+    and a read that has waited 2 minutes ends it and says so. Time spent erasing between reads doesn't count, however
+    long a block takes.
+  - Reading a few seconds of a video's sound (to recognise a song, or check it) can't wait for good either.
+
+### Changed
+- **The songs and music steps are faster.** Measured on a 20-minute video on 4 cores, with Shazam answering in a
+  second:
+  - **Look for songs everywhere:** 62 s to 22 s. Shazam is asked three samples at a time instead of one by one.
+  - **Check YouTube won't still hear them:** 225 s to 117 s. The samples go to Shazam three at a time, and the
+    music is pulled out from under the talking only for the samples that aren't recognised as they are, a run of
+    them in one pass of the model (it was two passes for every 12-second sample).
+  - **Recognise the songs:** 120 s to 86 s. Stretches are recognised three at a time, and the slow model pass runs
+    only when the sample as it is isn't recognised.
+  - **Taking a recognised song out:** 40 s to 22 s for two 3-minute songs. The fit is worked out faster (the same
+    result), two pieces at a time.
+  - **Finding a recognised song everywhere it plays:** 9.3 s to 4.8 s. The sound is read once straight through
+    (it was a new FFmpeg for every 50 seconds), and the recording's transform is worked out once.
+- **The song eraser holds about 3 GB instead of 5** while it works (measured), at the same speed, so a PC with 16 GB
+  isn't pushed into swapping, which is what makes the whole PC crawl. The model itself is the time it takes (about 45
+  s for each 10 s of song on 4 cores here); running it on several blocks at once was measured and wasn't faster.
+
+### Tests
+- `tests/test_song_speed.py` (new, in CI): Stop and a hang caught on a tool that has gone quiet, and time spent
+  working not taken for a hang; Shazam asked a few at a time, in order, faster, and stopped; no model pass for a sample
+  recognised as it is, and one pass for a run of samples in the YouTube check; the fit the same as 5.7.1's and faster;
+  Erase song's and a recognised song's bar moving to the end of the sound track; the whole-video search reading the
+  sound once and still finding the song.
+
 ## [5.7.1] - 2026-11-21
 
 ### Fixed

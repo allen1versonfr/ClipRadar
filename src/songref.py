@@ -43,6 +43,7 @@ G_SMOOTH = 9          # frames the moment-to-moment volume is smoothed over (abo
 MIN_DROP = 4.0        # dB the song's part must drop by for the piece to count as found
 MIN_Z = 12.0          # and its spike in the correlation must stand out this far (see _z)
 REF_MAX = 15 * 60.0   # seconds of a recording read (a song, not an album)
+READ_TIMEOUT = 90.0   # seconds a short read of a video's sound may take before it's given up on (plus a share of its length)
 
 _noop = lambda *a, **k: None  # noqa: E731
 
@@ -106,7 +107,12 @@ def read(path: str, start: float = 0.0, length: float = 0.0) -> np.ndarray:
         cmd += ["-t", f"{length:.3f}"]
     cmd += ["-i", path, "-map", "0:a:0", "-vn", "-af", "aresample=async=1:first_pts=0", "-ac", "2", "-ar", str(SR),
             "-f", "f32le", "-"]
-    raw = subprocess.run(cmd, capture_output=True, creationflags=engine.CREATE_NO_WINDOW).stdout
+    try:
+        # 5.7.2: never waits for good on an FFmpeg that stalled (nothing read is no sound, which every caller handles)
+        raw = subprocess.run(cmd, capture_output=True, creationflags=engine.CREATE_NO_WINDOW,
+                             timeout=READ_TIMEOUT + (length or REF_MAX) / 4).stdout
+    except subprocess.TimeoutExpired:
+        raw = b""
     a = np.frombuffer(raw[: len(raw) // 8 * 8], dtype="<f4")
     return a.reshape(-1, 2).T.copy()
 
@@ -124,21 +130,30 @@ def _win() -> np.ndarray:
 
 
 def stft(x: np.ndarray) -> np.ndarray:
-    x = np.pad(x, ((0, 0), (N_FFT // 2, N_FFT // 2)), mode="reflect")
+    x = np.pad(np.asarray(x, dtype=np.float32), ((0, 0), (N_FFT // 2, N_FFT // 2)), mode="reflect")
     f = 1 + (x.shape[1] - N_FFT) // HOP
     idx = np.arange(N_FFT)[None] + HOP * np.arange(f)[:, None]
-    return np.fft.rfft(x[:, idx] * _win(), axis=2).transpose(0, 2, 1)
+    return np.fft.rfft(x[:, idx] * _win(), axis=2).astype(np.complex64, copy=False).transpose(0, 2, 1)
+
+
+def overlap_add(fr: np.ndarray, hop: int) -> np.ndarray:
+    """Frames [..., f, n_fft] laid end to end every `hop` samples and summed: [..., n_fft + hop * (f - 1)].
+    A few whole-array adds (n_fft / hop of them) instead of a Python loop over every frame (5.7.2: the loop was a
+    good part of each block's time)."""
+    *lead, f, n = fr.shape
+    k = n // hop
+    out = np.zeros((*lead, n + hop * (f - 1)), dtype=fr.dtype)
+    for j in range(k):
+        out[..., j * hop:j * hop + f * hop] += fr[..., j * hop:(j + 1) * hop].reshape(*lead, f * hop)
+    return out
 
 
 def istft(s: np.ndarray, n: int) -> np.ndarray:
     w = _win()
     fr = (np.fft.irfft(s.transpose(0, 2, 1), n=N_FFT, axis=2) * w).astype(np.float32)
     f = fr.shape[1]
-    out = np.zeros((s.shape[0], N_FFT + HOP * (f - 1)), dtype=np.float32)
-    nm = np.zeros(out.shape[1], dtype=np.float32)
-    for i in range(f):
-        out[:, i * HOP:i * HOP + N_FFT] += fr[:, i]
-        nm[i * HOP:i * HOP + N_FFT] += w * w
+    out = overlap_add(fr, HOP)
+    nm = overlap_add(np.broadcast_to(w * w, (f, N_FFT)), HOP)
     out /= np.maximum(nm, 1e-8)
     return out[:, N_FFT // 2:N_FFT // 2 + n]
 
@@ -150,10 +165,22 @@ def _low(x: np.ndarray) -> np.ndarray:
     return (m - m.mean()).astype(np.float32)
 
 
+_spec_cache: dict = {}
+
+
 def _xcorr(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """c[lag] = sum a[t] b[t - lag] for every lag, lags from -(len(b)-1) to len(a)-1 (index lag + len(b) - 1)."""
+    """c[lag] = sum a[t] b[t - lag] for every lag, lags from -(len(b)-1) to len(a)-1 (index lag + len(b) - 1).
+    b's transform is kept for the next call with the same b and size (5.7.2): it's the recording, the same for every
+    piece of the video it's compared with, and was transformed again each time."""
     n = 1 << int(np.ceil(np.log2(len(a) + len(b))))
-    c = np.fft.irfft(np.fft.rfft(a, n) * np.conj(np.fft.rfft(b, n)), n)
+    key = (id(b), len(b), n)
+    fb = _spec_cache.get(key)
+    if fb is None or fb[0] is not b:
+        if len(_spec_cache) >= 4:          # a recording at most 15 min: a few of these at a time
+            _spec_cache.clear()
+        fb = (b, np.conj(np.fft.rfft(b, n)))
+        _spec_cache[key] = fb
+    c = np.fft.irfft(np.fft.rfft(a, n) * fb[1], n)
     return np.concatenate([c[n - len(b) + 1:], c[:len(a)]])
 
 
@@ -195,22 +222,35 @@ def locate(piece: np.ndarray, ref: np.ndarray, ref_low: Optional[np.ndarray] = N
 
 def fit(X: np.ndarray, R: np.ndarray, iters: int = 3, smooth: int = G_SMOOTH) -> np.ndarray:
     """The song as it is in the mix: R (the recording, lined up) through one EQ (a complex gain per frequency and
-    channel) and one volume per frame, fitted in turn; cells where the song is louder than the rest count most."""
+    channel) and one volume per frame, fitted in turn; cells where the song is louder than the rest count most.
+
+    5.7.2: the same fit, worked out from X·conj(R) and |R|² once (they don't change between rounds) with the sums as
+    matrix products, in single precision: about 4 times faster, the same result to within rounding."""
+    X = X.astype(np.complex64, copy=False)
+    R = R.astype(np.complex64, copy=False)
     T = X.shape[2]
-    G = np.ones(T)
-    w = np.ones(X.shape)
-    est = R
-    k = np.ones(smooth) / smooth
+    XR = X * np.conj(R)                                   # [c, f, t]
+    Rp = (R.real ** 2 + R.imag ** 2)                      # |R|²
+    Xp = (X.real ** 2 + X.imag ** 2)                      # |X|²
+    G = np.ones(T, dtype=np.float32)
+    w = None
+    k = np.ones(smooth, dtype=np.float32) / smooth
+    E = None
     for _ in range(iters):
-        RG = R * G[None, None, :]
-        E = (w * X * np.conj(RG)).sum(2) / ((w * np.abs(RG) ** 2).sum(2) + 1e-9)
-        RE = R * E[..., None]
-        g = (w * (X * np.conj(RE)).real).sum((0, 1)) / ((w * np.abs(RE) ** 2).sum((0, 1)) + 1e-9)
-        G = np.maximum(np.convolve(g, k, "same"), 0.0)
-        est = RE * G[None, None, :]
-        res = X - est
-        w = np.abs(est) ** 2 / (np.abs(est) ** 2 + np.abs(res) ** 2 + 1e-12)
-    return est
+        wXR = XR if w is None else w * XR
+        wRp = Rp if w is None else w * Rp
+        E = (wXR @ G) / (wRp @ (G * G) + 1e-9)            # [c, f]
+        Ec = np.conj(E)[..., None]
+        Ep = (E.real ** 2 + E.imag ** 2)[..., None]
+        cross = (XR * Ec).real                            # Re(X conj(R E)) per cell
+        num = (cross if w is None else w * cross).sum((0, 1))
+        den = ((Rp * Ep) if w is None else w * (Rp * Ep)).sum((0, 1))
+        g = num / (den + 1e-9)
+        G = np.maximum(np.convolve(g, k, "same"), 0.0).astype(np.float32)
+        est_p = Rp * Ep * (G * G)                         # |est|²
+        res_p = np.maximum(Xp - 2 * cross * G + est_p, 0.0)  # |X - est|²
+        w = est_p / (est_p + res_p + 1e-12)
+    return R * (E[..., None] * G).astype(np.complex64)
 
 
 def clean(mix: np.ndarray, ref: np.ndarray, progress: Callable = _noop, check: Callable = _noop) -> tuple:
@@ -224,8 +264,8 @@ def clean(mix: np.ndarray, ref: np.ndarray, progress: Callable = _noop, check: C
     ref_low = _low(ref)
     found, missed = 0.0, []
     starts = list(range(0, max(1, n - ov), step)) or [0]
-    for i, a in enumerate(starts):
-        check()
+
+    def one(a: int):
         b = min(n, a + piece)
         x = mix[:, a:b]
         lag, z = locate(x, ref, ref_low)
@@ -242,22 +282,37 @@ def clean(mix: np.ndarray, ref: np.ndarray, progress: Callable = _noop, check: C
         e_y = (np.abs(X - est) ** 2).sum((0, 1))
         loud = (np.abs(est) ** 2).sum((0, 1)) > 0.5 * e_x
         drop = 10 * np.log10((e_x[loud].sum() + 1e-12) / (e_y[loud].sum() + 1e-12)) if loud.sum() > 10 else 0.0
-        ok = z >= MIN_Z and drop >= MIN_DROP and hi - lo > SR
-        if not ok:
-            y = x
-            missed.append((round(a / SR, 2), round(b / SR, 2)))
-        else:
-            found += (b - a) / SR
-        # crossfade the shared seconds
-        wgt = np.ones(b - a, dtype=np.float32)
-        if a > 0:
-            wgt[:min(ov, b - a)] = np.linspace(0, 1, min(ov, b - a), dtype=np.float32)
-        if b < n:
-            k = min(ov, b - a)
-            wgt[-k:] = np.minimum(wgt[-k:], np.linspace(1, 0, k, dtype=np.float32))
-        out[:, a:b] += y * wgt
-        weight[a:b] += wgt
-        progress((i + 1) / len(starts))
+        return y, z >= MIN_Z and drop >= MIN_DROP and hi - lo > SR
+
+    # 5.7.2: two pieces worked on at once (they don't depend on each other; NumPy does its sums outside Python's lock),
+    # the results put together in order as before. Two, not more: each holds a few hundred MB while it's worked on.
+    from concurrent.futures import ThreadPoolExecutor
+    workers = 2 if (os.cpu_count() or 1) >= 4 and len(starts) > 1 else 1
+    with ThreadPoolExecutor(workers) as pool:
+        futs = {}
+        for i, a in enumerate(starts):
+            check()
+            for j in range(i, min(len(starts), i + workers)):
+                if j not in futs:
+                    futs[j] = pool.submit(one, starts[j])
+            y, ok = futs.pop(i).result()
+            b = min(n, a + piece)
+            x = mix[:, a:b]
+            if not ok:
+                y = x
+                missed.append((round(a / SR, 2), round(b / SR, 2)))
+            else:
+                found += (b - a) / SR
+            # crossfade the shared seconds
+            wgt = np.ones(b - a, dtype=np.float32)
+            if a > 0:
+                wgt[:min(ov, b - a)] = np.linspace(0, 1, min(ov, b - a), dtype=np.float32)
+            if b < n:
+                k = min(ov, b - a)
+                wgt[-k:] = np.minimum(wgt[-k:], np.linspace(1, 0, k, dtype=np.float32))
+            out[:, a:b] += y * wgt
+            weight[a:b] += wgt
+            progress((i + 1) / len(starts))
     out /= np.maximum(weight, 1e-6)
     missed = _merge(missed)
     if missed and found == 0:
@@ -385,10 +440,13 @@ def erase_known(video: str, songs: list, out_path: str, start: float, length: fl
         procjob.adopt(p)
     ramp = int(0.05 * SR)
     pos = 0
+    whole = max(1, int(length * SR))
+    watch = procjob.Watch([dec, enc], check)       # 5.7.2: Stop works, and a stalled FFmpeg can't hold the bar
     try:
         while True:
             check()
-            raw = dec.stdout.read(SR * 8 * 10)
+            with watch.waiting():
+                raw = dec.stdout.read(SR * 8 * 10)
             if not raw:
                 break
             blk = np.frombuffer(raw[: len(raw) // 8 * 8], dtype="<f4").reshape(-1, 2).T.copy()
@@ -403,13 +461,23 @@ def erase_known(video: str, songs: list, out_path: str, start: float, length: fl
                 got = src.read(off + lo - p0, off + hi - p0)
                 m = got.shape[1]
                 blk[:, lo - pos:lo - pos + m] = w[:m] * got + (1 - w[:m]) * blk[:, lo - pos:lo - pos + m]
-            enc.stdin.write(np.ascontiguousarray(np.clip(blk, -1, 1).T, dtype="<f4").tobytes())
+            with watch.waiting():
+                enc.stdin.write(np.ascontiguousarray(np.clip(blk, -1, 1).T, dtype="<f4").tobytes())
             pos += n
+            # 5.7.2: this pass over the whole sound track moves the bar too (it sat at 90% through all of it)
+            progress(min(0.999, 0.9 + 0.1 * pos / whole))
+        watch.raise_if()
         enc.stdin.close()
-        err = enc.stderr.read().decode("utf-8", "replace")
+        with watch.waiting():
+            err = enc.stderr.read().decode("utf-8", "replace")
+        watch.raise_if()
         if enc.wait() != 0:
             raise RuntimeError("Couldn't write the sound with the songs taken out: " + err.strip()[-300:])
+    except Exception:
+        watch.raise_if()
+        raise
     finally:
+        watch.close()
         for p in (dec, enc):
             if p.poll() is None:
                 p.kill()
@@ -430,36 +498,109 @@ SWEEP_STEP = 50.0           # how far apart they start (so a song that starts at
 LOW_SR = SR / LOW           # the rate _low works at
 
 
-def _video_low(video: str, start: float, length: float) -> np.ndarray:
-    """The video's sound from start for length seconds, mono at LOW_SR, its mean taken out (what _low gives)."""
+def _low_stream(video: str, check: Callable = _noop):
+    """The video's whole sound, mono at LOW_SR, read once from start to end: yields (start second, samples) in
+    SWEEP_STEP blocks. One FFmpeg reading straight through, instead of a new one seeking to each minute (5.7.2)."""
     import engine
-    cmd = [engine.ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, start):.3f}", "-t", f"{length:.3f}", "-i", video,
-           "-map", "0:a:0", "-vn", "-ac", "1", "-ar", str(int(round(LOW_SR))), "-f", "f32le", "-"]
-    raw = subprocess.run(cmd, capture_output=True, creationflags=engine.CREATE_NO_WINDOW).stdout
-    a = np.frombuffer(raw[: len(raw) // 4 * 4], dtype="<f4").astype(np.float32)
-    return a - a.mean() if a.size else a
+    import procjob
+    rate = int(round(LOW_SR))
+    p = subprocess.Popen([engine.ffmpeg(), "-v", "error", "-nostdin", "-i", video, "-map", "0:a:0", "-vn", "-ac", "1",
+                          "-ar", str(rate), "-f", "f32le", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                         stdin=subprocess.DEVNULL, creationflags=engine.CREATE_NO_WINDOW)
+    procjob.adopt(p)
+    w = procjob.Watch([p], check)
+    step = int(SWEEP_STEP * rate) * 4
+    at = 0
+    try:
+        while True:
+            buf = bytearray()
+            while len(buf) < step:
+                with w.waiting():
+                    chunk = p.stdout.read(step - len(buf))
+                if not chunk:
+                    break
+                buf += chunk
+            w.raise_if()
+            if not buf:
+                break
+            a = np.frombuffer(bytes(buf[: len(buf) // 4 * 4]), dtype="<f4")
+            yield at / rate, a
+            at += a.size
+            if len(buf) < step:
+                break
+    except GeneratorExit:
+        raise
+    except Exception:
+        w.raise_if()
+        raise
+    finally:
+        w.close()
+        if p.poll() is None:
+            p.kill()
+        p.wait()
 
 
 def sweep(video: str, duration: float, refs: dict, progress: Callable = _noop, check: Callable = _noop) -> dict:
     """Everywhere in the video each recording plays: refs {key: recording [2, m]} -> {key: [(start, end)]}, in the
     video's seconds, a minute or so at a time (the export cleans each 20 s piece exactly, and leaves a piece the song
     isn't in as it was). Finds a song where the music scan didn't: under talking, past a stretch's edges, played again
-    later. About a minute for an hour of video per song, on the processor."""
+    later.
+
+    5.7.2: the sound is read once straight through (it was a new FFmpeg seeking to every 50 s), each recording's
+    transform is worked out once (_xcorr), and the pieces are compared on several cores at once."""
     if not refs or duration <= 0:
         return {}
+    from concurrent.futures import ThreadPoolExecutor
     lows = {k: _low(r) for k, r in refs.items() if r.shape[1] >= SR}
     out: dict = {k: [] for k in lows}
+    if not lows:
+        return {}
     piece_n = int(SWEEP_PIECE * LOW_SR)
     starts = list(np.arange(0.0, max(duration - 5.0, 0.0) + 1e-6, SWEEP_STEP)) or [0.0]
-    for i, t in enumerate(starts):
-        check()
-        x = _video_low(video, t, min(SWEEP_PIECE, duration - t))
+    total = len(starts)
+
+    def look(t: float, x: np.ndarray) -> list:
         if x.size < LOW_SR * 5 or float(np.abs(x).max()) < 1e-4:
-            progress((i + 1) / len(starts))
-            continue
-        for k, rl in lows.items():
-            c = _xcorr(x[:piece_n], rl)
-            if _z(c) >= MIN_Z:
-                out[k].append((round(float(t), 2), round(float(min(duration, t + SWEEP_PIECE)), 2)))
-        progress((i + 1) / len(starts))
+            return []
+        x = (x - x.mean()).astype(np.float32)
+        return [k for k, rl in lows.items() if _z(_xcorr(x[:piece_n], rl)) >= MIN_Z]
+
+    workers = max(1, min(3, (os.cpu_count() or 2) - 1))
+    done = 0
+    buf = np.zeros(0, dtype=np.float32)
+    buf_at = 0.0
+    pending: list = []
+    with ThreadPoolExecutor(workers) as pool:
+        def drain(limit: int):
+            nonlocal done
+            while len(pending) > limit:
+                t, fut = pending.pop(0)
+                for k in fut.result():
+                    out[k].append((round(float(t), 2), round(float(min(duration, t + SWEEP_PIECE)), 2)))
+                done += 1
+                progress(min(0.999, done / total))
+        si = 0
+        for _, a in _low_stream(video, check):
+            check()
+            buf = np.concatenate([buf, a]) if buf.size else a
+            # every piece that's all here now (or the last ones, which run to the end)
+            while si < len(starts):
+                t = starts[si]
+                lo = int(round((t - buf_at) * LOW_SR))
+                hi = lo + piece_n
+                if hi > buf.size:
+                    break
+                pending.append((t, pool.submit(look, t, buf[lo:hi].copy())))
+                si += 1
+                drain(workers * 2)
+            keep = int(round((starts[si] - buf_at) * LOW_SR)) if si < len(starts) else buf.size
+            if keep > 0:
+                buf, buf_at = buf[keep:], buf_at + keep / LOW_SR
+        while si < len(starts):             # the pieces at the very end, shorter than a whole minute
+            t = starts[si]
+            lo = max(0, int(round((t - buf_at) * LOW_SR)))
+            pending.append((t, pool.submit(look, t, buf[lo:lo + piece_n].copy())))
+            si += 1
+        drain(0)
+    progress(1.0)
     return {k: _merge(v) for k, v in out.items() if v}

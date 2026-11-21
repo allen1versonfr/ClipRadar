@@ -73,3 +73,94 @@ def adopt(p) -> bool:
         return bool(k32.AssignProcessToJobObject(job, int(p._handle)))
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------- watched pipes (5.7.2)
+
+STUCK = 120.0       # seconds a read from (or a write to) a tool may wait before the tool counts as hung
+
+
+class Watch:
+    """A tool's pipes watched from the side, so Stop works and a hung tool can't hold a job at one percent for good.
+
+    Reading a pipe blocks until the tool writes, and the loop around it only checks for Stop between reads: an FFmpeg
+    that stalled (a disk asleep, a network drive gone, a file it chokes on) kept the music scan, the song eraser or a
+    recognised song's erase at the same percent forever, with Stop doing nothing (5.7.2). This thread checks for Stop
+    every second and ends the tools at once; and when a read or write has waited STUCK seconds it ends them too.
+    Only time spent waiting on the tool counts (`with w.waiting():` around each read and write), never the time Clip
+    Radar spends working between reads, however long a block through the model takes.
+
+        w = Watch([dec, enc], check)
+        try:
+            with w.waiting():
+                data = dec.stdout.read(n)
+            ...
+        except Exception:
+            w.raise_if()          # Stop, or the tool hung: said as that, not as the broken pipe it caused
+            raise
+        finally:
+            w.close()
+        w.raise_if()              # a tool ended early by the watch reads as the end of its output
+    """
+
+    def __init__(self, procs: list, check=lambda: None, stuck: float = 0.0, what: str = "FFmpeg"):
+        import time as _t
+        self._t = _t
+        self.procs = [p for p in procs if p is not None]
+        self.check, self.stuck, self.what = check, float(stuck or STUCK), what
+        self.since = 0.0
+        self.why = ""
+        self.cancelled = False
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        import engine
+        while not self._stop.wait(1.0):
+            try:
+                self.check()
+            except engine.Cancelled:
+                self.cancelled = True
+                self._kill()
+                return
+            except Exception:        # noqa: BLE001  a check that fails is no reason to stop the tool
+                pass
+            since = self.since
+            if since and self._t.monotonic() - since > self.stuck:
+                self.why = (f"{self.what} stopped responding (nothing for {int(self.stuck)} seconds) and was stopped. "
+                            "If this keeps happening, check the drive the video is on.")
+                self._kill()
+                return
+
+    def _kill(self):
+        for p in self.procs:
+            try:
+                if p.poll() is None:
+                    p.kill()
+            except OSError:
+                pass
+
+    class _Waiting:
+        def __init__(self, w):
+            self.w = w
+
+        def __enter__(self):
+            self.w.since = self.w._t.monotonic()
+
+        def __exit__(self, *exc):
+            self.w.since = 0.0
+            return False
+
+    def waiting(self):
+        return Watch._Waiting(self)
+
+    def raise_if(self):
+        if self.cancelled:
+            import engine
+            raise engine.Cancelled()
+        if self.why:
+            raise RuntimeError(self.why)
+
+    def close(self):
+        self._stop.set()
