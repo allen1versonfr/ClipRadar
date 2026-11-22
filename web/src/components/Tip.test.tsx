@@ -21,7 +21,9 @@ describe('a setting explained when the pointer rests on it (5.7.4)', () => {
   })
   it('a "?" for a setting whose control carries none', () => {
     render(<><span>Size</span><Help label="Size" text="Original copies the picture." /></>)
-    const dot = screen.getByRole('button', { name: 'About Size' })
+    const dot = screen.getByRole('button', { name: 'What this does' })
+    // its name doesn't repeat the setting's: looking the setting up by name finds the setting, not the "?"
+    expect(screen.queryByLabelText(/Size/)).toBeNull()
     expect(document.getElementById(dot.getAttribute('aria-describedby')!)?.textContent).toBe('Original copies the picture.')
   })
   it('no text: just the control', () => {
