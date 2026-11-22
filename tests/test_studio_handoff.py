@@ -112,8 +112,10 @@ with sync_playwright() as pw:
             check(f"{ui}: Exports says it's in Studio, waiting for Post", True)
 
             # 2. Press Post on: TikTok gets the post, and Exports says Posted
-            page.click(S["press_click"])                       # the switch, as you would
-            page.wait_for_timeout(400)
+            # the switch, as you would; then wait for the setting to be saved, not a fixed 400 ms: on a slow
+            # runner the save hadn't landed by then, and the upload went in without Press Post (5.8.0)
+            with page.expect_response(lambda r: r.url.endswith("/api/studio") and r.request.method == "POST", timeout=15000):
+                page.click(S["press_click"])
             check(f"{ui}: Press Post for me is remembered", studio_auto.load_settings()["press_post"] is True)
             check(f"{ui}: and warns that it posts straight to the account", "posts straight to your account" in page.inner_text(S["hint"]))
             page.click(S["auto"])

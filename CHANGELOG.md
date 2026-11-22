@@ -27,6 +27,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   from the recorded pieces and then the saved stream; the scan saved with the stream, with its songs; a scan made in
   Export VOD meanwhile isn't overwritten; the setting reaches the session.
 - `tests/test_targets.py`, `TargetsCard.test.tsx`, `ReviewView.test.tsx`: the setting on targets, and the song count.
+- `tests/test_studio_handoff.py` waits for Press Post for me to be saved before uploading, instead of a fixed 400 ms
+  that a slow test machine could miss.
 
 ## [5.7.7] - 2026-11-22
 
