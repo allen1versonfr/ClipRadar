@@ -114,6 +114,28 @@ try:
     job3 = {}
     t3 = exporteta.Tracker(job3, {"p:0:0": 60.0, "p:1:0": 60.0, "p:2:0": 60.0, "p:3:0": 60.0}, False, lambda v: None, workers=2)
     check("four stretches two at a time: half the sum", t3.eta() == 120.0, t3.eta())
+    # 5.7.8: a step not planned that turns up partway (the eraser for the parts a recognised song's recording wasn't
+    # heard in): it moves, and doesn't fail. Before, it failed with KeyError 'erase' and every stretch was muted
+    job5 = {}
+    t5 = exporteta.Tracker(job5, {"known": 30.0, "picture": 50.0}, False, lambda v: None)
+    t5.grow("erase", 120.0)
+    try:
+        g = t5.step("erase")
+        g(0.0)
+        g(0.5)
+        grew = True
+    except KeyError as ex:
+        grew = ex
+    check("a step that turns up partway moves without failing", grew is True, grew)
+    check("and its time is counted", t5.eta() >= 120.0 * 0.5, t5.eta())
+    t6 = exporteta.Tracker({}, {"picture": 50.0}, False, lambda v: None)
+    t6.plan["erase"] = 10.0              # set on the plan alone, as the export did before
+    try:
+        t6.step("erase")(0.3)
+        alone = True
+    except KeyError as ex:
+        alone = ex
+    check("a step set on the plan alone still moves", alone is True, alone)
     # a step much slower than usual is said
     job4 = {}
     t4 = exporteta.Tracker(job4, {"erase": 60.0}, False, lambda v: None, held=[])

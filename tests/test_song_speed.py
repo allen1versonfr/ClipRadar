@@ -142,20 +142,78 @@ loud = np.full((2, 40 * SR), 0.9, dtype=np.float32)
 got = songid.identify(lambda t, k: loud[:, int(t * SR):int((t + k) * SR)], 0.0, 40.0)
 check("a sample recognised as it is: the music isn't pulled out of it", got and not pulled, (got, pulled))
 
-# the YouTube check: what's left of the music pulled out of a run of samples in one pass, and heard there
+# the YouTube check: what's left of the music pulled out of the samples, and heard there
+real_window = songid.pull_window
 erased = np.full((2, 60 * SR), 0.5, dtype=np.float32)      # not recognised as it is (0.5), recognised pulled out?
-songid.pull_music = lambda x: pulled.append(x.shape[1]) or x * 1.6
+songid.pull_window = lambda x: pulled.append(x.shape[1]) or x * 1.6
 del pulled[:]
 left = songid.still_heard(lambda t, k: erased[:, int(t * SR):int((t + k) * SR)], [(0.0, 48.0)])
 check("the YouTube check finds a song only heard with the music pulled out", [(a, b) for a, b, _ in left] ==
       [(0.0, 12.0), (12.0, 24.0), (24.0, 36.0), (36.0, 48.0)], left)
-check("pulling the music out of the run in one pass, not one for each sample", len(pulled) == 1
-      and pulled[0] >= 47 * SR, pulled)
+check("each sample pulled out once, 12 s each", len(pulled) == 4 and set(pulled) == {12 * SR}, pulled)
 del pulled[:]
 songid._ask = lambda x: {"title": "Song", "artist": "Band", "key": "1"}
 left = songid.still_heard(lambda t, k: erased[:, int(t * SR):int((t + k) * SR)], [(0.0, 48.0)])
 check("samples recognised as they are aren't pulled out at all", len(left) == 4 and not pulled, (left, pulled))
-songid.pull_music, songid._ask = real_pull, real_ask
+
+# 5.7.8: an hour of erased music no longer recognisable: the model over one sample in PROBE, not all of it again
+hour = np.full((2, 3700 * SR), 0.5, dtype=np.float32)
+songid._ask = lambda x: {"title": "Song", "artist": "Band", "key": "1"} if float(np.abs(x).max()) > 0.6 else None
+songid.pull_window = lambda x: pulled.append(x.shape[1]) or x
+del pulled[:]
+left = songid.still_heard(lambda t, k: hour[:, int(t * SR):int((t + k) * SR)], [(0.0, 3600.0)])
+check("an hour with nothing left: a quarter of the samples pulled out", not left and len(pulled) == 75, len(pulled))
+
+# a song left recognisable for a minute in the middle: found, and every sample of it, the rest not pulled out
+song = np.full((2, 600 * SR), 0.5, dtype=np.float32)
+song[:, 120 * SR:180 * SR] = 0.6                            # recognised only pulled out, and only there (0.96 > 0.9)
+songid._ask = lambda x: {"title": "Song", "artist": "Band", "key": "1"} if float(np.abs(x).max()) > 0.9 else None
+songid.pull_window = lambda x: pulled.append(x.shape[1]) or x * 1.6
+del pulled[:]
+left = songid.still_heard(lambda t, k: song[:, int(t * SR):int((t + k) * SR)], [(0.0, 600.0)])
+check("a minute still recognisable: all of it found", [(a, b) for a, b, _ in left] ==
+      [(120.0, 132.0), (132.0, 144.0), (144.0, 156.0), (156.0, 168.0), (168.0, 180.0)], left)
+check("and the samples around it, not the rest", len(pulled) < 50 / 4 + 5 + 3, len(pulled))
+
+# a sample recognised as it is: the ones beside it pulled out too, where the song goes on more quietly
+song = np.full((2, 600 * SR), 0.5, dtype=np.float32)
+song[:, 60 * SR:72 * SR] = 0.95                             # 60-72 heard as it is
+song[:, 48 * SR:60 * SR] = 0.6                              # 48-60 and 72-84 only pulled out
+song[:, 72 * SR:84 * SR] = 0.6
+del pulled[:]
+left = songid.still_heard(lambda t, k: song[:, int(t * SR):int((t + k) * SR)], [(0.0, 600.0)])
+check("beside a sample heard as it is, the quieter rest of the song found", [(a, b) for a, b, _ in left] ==
+      [(48.0, 60.0), (60.0, 72.0), (72.0, 84.0)], left)
+
+# 5.7.8: Shazam not answering at all: the check gives up after a few requests, not one 30 s wait per sample for hours
+def no_answer(x):
+    songid._fails[0] += 1
+    time.sleep(0.05)
+    return None
+songid._ask = no_answer
+t0 = time.time()
+try:
+    songid.still_heard(lambda t, k: hour[:, int(t * SR):int((t + k) * SR)], [(0.0, 3600.0)])
+    gave_up = None
+except RuntimeError as ex:
+    gave_up = str(ex)
+check("Shazam not answering: the check stops, and says why", gave_up == "Shazam isn't answering" and time.time() - t0 < 10,
+      (gave_up, round(time.time() - t0, 1)))
+songid._ask = lambda x: songid._fails.__setitem__(1, songid._fails[1] + 1)      # answered: nothing heard
+left = songid.still_heard(lambda t, k: hour[:, int(t * SR):int((t + 120) * SR)][:, :int(k * SR)], [(0.0, 120.0)], separate=False)
+check("answered with nothing heard isn't giving up", left == [], left)
+
+# where the probes go: every PROBE samples in a row hold one, short runs and the end of a run included
+for n in (1, 2, 3, 4, 5, 6, 7, 9, 13, 50):
+    ws = [(12.0 * i, 12.0 * i + 12) for i in range(n)]
+    nx = {w: v for w, v in zip(ws, ws[1:])}
+    got = {ws.index(w) for w in songid.probes(ws, nx)}
+    gaps = all(any(i <= j < i + songid.PROBE for j in got) for i in range(max(1, n - songid.PROBE + 1)))
+    check(f"probes over {n} samples: every {songid.PROBE} in a row hold one", gaps and len(got) <= -(-n // songid.PROBE) + 1,
+          sorted(got))
+apart = [(0.0, 12.0), (100.0, 112.0)]
+check("samples not back to back are each their own run", len(songid.probes(apart, {})) == 2)
+songid.pull_music, songid.pull_window, songid._ask = real_pull, real_window, real_ask
 check("no sound is nothing to recognise, never an error", songid._ask(np.zeros((2, 0), dtype=np.float32)) is None)
 
 # ---- the fit: the same as before (the reference below is 5.7.1's), faster

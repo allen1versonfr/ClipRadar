@@ -69,6 +69,9 @@ def _wav(x: np.ndarray) -> bytes:
     return b.getvalue()
 
 
+_fails = [0, 0]         # Shazam requests that failed outright (no answer at all), and that were answered
+
+
 def _ask(sound: np.ndarray) -> Optional[dict]:
     """One Shazam request: {"title", "artist", "key"} or None."""
     if sound is None or not getattr(sound, "size", 0) or not float(np.abs(sound).max()) > 1e-6:
@@ -91,7 +94,9 @@ def _ask(sound: np.ndarray) -> Optional[dict]:
     try:
         r = asyncio.run(asyncio.wait_for(go(), 30))
     except Exception:           # noqa: BLE001  no network, Shazam down or changed: not recognised
+        _fails[0] += 1
         return None
+    _fails[1] += 1
     tr = (r or {}).get("track") or {}
     if not tr.get("title"):
         return None
@@ -110,6 +115,18 @@ def pull_music(x: np.ndarray) -> np.ndarray:
             kept = songerase.erase_block(xp[:, p:p + songerase.SEG], 1.0)
             out.append(xp[:, p + songerase.CTX:p + songerase.CTX + songerase.GEN] - kept)
     return np.concatenate(out, axis=1)[:, :x.shape[1]].astype(np.float32)
+
+
+def pull_window(x: np.ndarray) -> np.ndarray:
+    """pull_music for one sample of at most a model block (12 s): one run of the model, not two (5.7.8)."""
+    import songerase
+    if not songerase.available() or not x.size:
+        return x
+    n = min(x.shape[1], songerase.SEG)
+    xp = np.pad(x[:, :n], ((0, 0), (0, songerase.SEG - n)))
+    with _model_lock:
+        kept = songerase.erase_block(xp, 1.0, whole=True)
+    return (xp - kept)[:, :n].astype(np.float32)
 
 
 def _ask_gap(sound: np.ndarray) -> Optional[dict]:
@@ -343,8 +360,12 @@ def still_heard(get: Callable, stretches: list, check: Callable = _noop, progres
     Content ID hears music under talking better than Shazam does as it is). Shazam not answering counts as not heard.
 
     5.7.2: the samples as they are go to Shazam AT_ONCE at a time; then the music is pulled out of the ones not
-    recognised a run of them at a time (one pass of the model over a run, not two for every 12-second sample), and
-    those go too."""
+    recognised, and those go too.
+
+    5.7.8: not out of every one. That was the model over all the erased music a second time, as long as erasing it
+    (hours, for a stream with music throughout). Now one sample in PROBE of each run of back-to-back ones, and the
+    ones either side of any still recognised, outward until one isn't: a song left recognisable is heard for most of
+    its length, so it's found, and every sample of it is checked."""
     wins = []
     for a, b in stretches:
         t = a
@@ -355,35 +376,64 @@ def still_heard(get: Callable, stretches: list, check: Callable = _noop, progres
         progress(1.0)
         return []
     share = 0.35 if separate else 1.0
-    heard = _each(lambda w: _ask_gap(get(w[0], max(WINDOW, w[1] - w[0]))), wins, check,
-                  lambda k: progress(share * k / len(wins)))
+    f0, a0 = _fails[0], _fails[1]
+
+    def deaf():
+        # 5.7.8: Shazam not answering at all (no network, or it changed): each request waited its 30 s for nothing,
+        # hours over a stream's worth of samples. After DEAF requests with no answer and none answered, it stops
+        if _fails[0] - f0 >= DEAF and _fails[1] == a0:
+            raise RuntimeError("Shazam isn't answering")
+
+    def ask(w):
+        deaf()
+        return _ask_gap(get(w[0], max(WINDOW, w[1] - w[0])))
+    heard = _each(ask, wins, lambda: (check(), deaf()), lambda k: progress(share * k / len(wins)))
     found = {w: got for w, got in zip(wins, heard) if got}
     left = [w for w in wins if w not in found]
     if separate and left:
-        runs: list = []                          # back-to-back windows, at most RUN of them together
-        for w in left:
-            if runs and abs(runs[-1][-1][1] - w[0]) < 1e-6 and len(runs[-1]) < RUN:
-                runs[-1].append(w)
-            else:
-                runs.append([w])
-        done = 0
-        for run in runs:
-            check()
-            a0, b0 = run[0][0], run[-1][1]
-            try:
-                y = pull_music(get(a0, max(WINDOW, b0 - a0)))
-            except Exception:       # noqa: BLE001  the model failed: the plain sound was asked
-                done += len(run)
-                continue
-            parts = [y[:, int(round((a - a0) * SR)):int(round((max(b, a + WINDOW) - a0) * SR))] for a, b in run]
-            got = _each(_ask_gap, parts, check)
-            for w, g in zip(run, got):
+        nxt = {w: v for w, v in zip(wins, wins[1:]) if abs(w[1] - v[0]) < 1e-6}
+        prv = {v: w for w, v in nxt.items()}
+        todo = probes(left, nxt)
+        # beside a sample recognised as it is, too: the song likely goes on there, only quieter
+        todo += [v for w in found for v in (prv.get(w), nxt.get(w)) if v and v not in found and v not in todo]
+        tried: set = set()
+        while todo:
+            wave, todo = todo[:RUN], todo[RUN:]          # RUN samples in memory at most
+            pulled = []
+            for w in wave:
+                check()
+                tried.add(w)
+                try:
+                    pulled.append(pull_window(get(w[0], max(WINDOW, w[1] - w[0]))))
+                except Exception:       # noqa: BLE001  the model failed: the plain sound was asked
+                    pulled.append(None)
+            got = _each(lambda y: _ask_gap(y) if y is not None else None, pulled, check)
+            for w, g in zip(wave, got):
                 if g:
                     found[w] = g
-            done += len(run)
-            progress(share + (1 - share) * done / len(left))
+                    todo += [v for v in (prv.get(w), nxt.get(w))
+                             if v and v not in tried and v not in todo and v not in found]
+            progress(share + (1 - share) * len(tried) / max(1, len(tried) + len(todo), -(-len(left) // PROBE)))
     progress(1.0)
     return [(round(a, 2), round(b, 2), f"{g['artist']} - {g['title']}".strip(" -")) for (a, b), g in sorted(found.items())]
 
 
-RUN = 10                # samples pulled out together in still_heard (two minutes of sound in memory at most)
+RUN = 10                # samples pulled out before they go to Shazam in still_heard (two minutes of sound in memory)
+DEAF = 6                # 5.7.8: Shazam requests with no answer at all, and none answered, before the YouTube check gives up
+PROBE = 4               # 5.7.8: one sample in this many has the music pulled out first, and the ones around a hit
+
+
+def probes(wins: list, nxt: dict) -> list:
+    """The samples still_heard pulls the music out of first: in each run of back-to-back ones, one in PROBE, none more
+    than PROBE // 2 from one that is, so a song still heard for PROBE samples in a row (48 s) is always met."""
+    out, run = [], []
+    for w in wins + [None]:
+        if run and (w is None or nxt.get(run[-1]) != w):
+            idx = list(range(min(PROBE // 2, len(run) - 1), len(run), PROBE))
+            if len(run) - 1 - idx[-1] > PROBE // 2:
+                idx.append(len(run) - 1)
+            out += [run[i] for i in idx]
+            run = []
+        if w is not None:
+            run.append(w)
+    return out
