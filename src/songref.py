@@ -71,8 +71,10 @@ def fetch(source: str, folder: str, log: Callable = _noop) -> str:
         tmpl = os.path.join(folder, f"dl_{_key(source)}.%(ext)s")
         try:
             import yt_dlp               # the copy Clip Radar downloads VODs with
+            # 5.7.6: a connection that stalls gives up (30 s without data, a few retries) instead of holding the export
             opts = {"format": "bestaudio/best", "outtmpl": tmpl, "noplaylist": True, "quiet": True, "no_warnings": True,
-                    "max_filesize": 200 * 1024 * 1024, "nopart": True}
+                    "max_filesize": 200 * 1024 * 1024, "nopart": True, "socket_timeout": 30, "retries": 3,
+                    "fragment_retries": 3}
             with yt_dlp.YoutubeDL(opts) as y:
                 y.download([source])
         except Exception as e:          # noqa: BLE001  yt-dlp's own errors: said in words

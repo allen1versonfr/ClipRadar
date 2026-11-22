@@ -5,6 +5,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.6] - 2026-11-22
+
+### Fixed
+- **An Export VOD stuck for good.** Three places could wait forever, with Stop doing nothing:
+  - **A run of the song eraser's model that never came back.** Each 10 s block is one call into the model that can't
+    be interrupted. A graphics driver that wedges partway (5.7.5 put the model on the graphics card), or a processor
+    run stuck behind it, held the export at the same percent for good. Each block is now given up on after 3 minutes,
+    or 8 times as long as a block usually takes here if that's longer. On the graphics card, that block and the rest
+    are done on the processor, and the export says the card stopped responding. On the processor, those stretches are
+    muted instead (as with any song eraser failure since 5.7.1), so the export still finishes.
+  - **Setting the model up on the graphics card, or testing it the first time.** Both are given up on after 90 s, and
+    the processor is used.
+  - **Getting a recognised song's recording from YouTube** (yt-dlp) had no network time limit: a stalled connection
+    held the export. It now gives up after 30 s without data, with a few retries, and the eraser model does that song.
+- **The first time the song eraser runs**, the graphics card is tried, which can take a minute or two with the bar
+  standing still. The export now says so ("Trying the song eraser on the graphics card"), so it doesn't look stuck.
+
+### Tests
+- `tests/test_eraser_gpu.py`:
+  - a block that never comes back on the card is redone on the processor within seconds, and said;
+  - one that never comes back on the processor is given up on;
+  - a card that wedges while the model is set up on it isn't used;
+  - the export is told before the card is tried, and not when you chose the CPU.
+
 ## [5.7.5] - 2026-11-22
 
 ### Added

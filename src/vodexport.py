@@ -1102,6 +1102,10 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             fn = songerase.erase if eraser else voicekeep.keep_voice
             tr.plan["erase"] = total / exporteta.rate("voderase")[0]     # it may have grown: parts the recording wasn't heard in
             to_erase = tr.step("erase")
+            if eraser and songerase.needs_trial():
+                # 5.7.6: said, since the bar stands still while it happens (it looked stuck)
+                step("Trying the song eraser on the graphics card (once, up to a minute or two)")
+                log("Trying the song eraser on the graphics card: it's used if it works and is quicker than the processor.")
             try:
                 if known_src:       # on top of the sound the named songs were already taken out of
                     got = fn(known_src, [rel(x, y) for x, y in voice], voice_src, start=0.0, length=0.0,

@@ -132,6 +132,62 @@ try:
           m.where == "cpu" and out1.shape == out2.shape and np.isfinite(out2).all(), m.where)
     check("and it says so", "goes on on the processor" in songerase.status()["note"], songerase.status())
     check("and the processor is used from then on for this card", songerase._remembered().get("device") == "cpu")
+    # 5.7.6: a run that never comes back (a wedged driver) is given up on, never waited for for good
+    import threading as _th  # noqa: E402
+    import time as _tm  # noqa: E402
+
+    class Wedged:
+        def __init__(self, on):
+            self.on = on
+
+        def run(self, _, feed):
+            _tm.sleep(30)
+            return [np.ones((1, 6) + feed["mix_spec"].shape[2:], dtype=np.float32)]
+    songerase.RUN_MIN, held_times = 1.0, songerase.RUN_TIMES
+    songerase.RUN_TIMES = 0.0
+    _time.perf_counter = real_pc
+    try:
+        cpu_calls = []
+        m = songerase._Model(Wedged("gpu"), "gpu", lambda: cpu_calls.append(1) or FakeSession("x", None, ["CPUExecutionProvider"]))
+        t0 = real_pc()
+        out = m.run(np.zeros((1, 2, 1025, 1034), dtype=np.float32))
+        check("a block that never comes back on the card is redone on the processor, in seconds",
+              m.where == "cpu" and cpu_calls and out.shape[1] == 6 and real_pc() - t0 < 10, (m.where, real_pc() - t0))
+        check("and it says the card stopped responding", "stopped responding" in songerase.status()["why"], songerase.status())
+        m2 = songerase._Model(Wedged("cpu"))
+        t0 = real_pc()
+        try:
+            m2.run(np.zeros((1, 2, 1025, 1034), dtype=np.float32))
+            hung = False
+        except songerase.Hung:
+            hung = True
+        check("on the processor too: given up on and said, so the export mutes that stretch instead of waiting for good",
+              hung and real_pc() - t0 < 10, real_pc() - t0)
+    finally:
+        songerase.RUN_MIN, songerase.RUN_TIMES = 180.0, held_times
+        _time.perf_counter = lambda: fake_clock[0]
+    _ = _th
+
+    # setting the model up on a card that wedges: the card isn't used, the processor is
+    real_now = songerase._gpu_session_now
+    songerase._gpu_session_now = lambda ort_, p_, d_: _tm.sleep(30)
+    songerase.PROBE_MAX = 1.0
+    try:
+        os.remove(songerase._device_file()) if os.path.exists(songerase._device_file()) else None
+        _time.perf_counter = real_pc
+        t0 = real_pc()
+        m = place()
+        check("a card that wedges while the model is set up on it: the processor, in seconds",
+              m.where == "cpu" and real_pc() - t0 < 10, (m.where, real_pc() - t0))
+    finally:
+        songerase._gpu_session_now = real_now
+        songerase.PROBE_MAX = 90.0
+    os.remove(songerase._device_file()) if os.path.exists(songerase._device_file()) else None
+    songerase.release()
+    check("before the card is tried, the export is told (it can take a minute or two)", songerase.needs_trial())
+    MODE[0] = "cpu"
+    check("not when you chose the CPU", not songerase.needs_trial())
+    MODE[0] = "auto"
     st = gpu.song_eraser_status()
     check("Settings says where it runs and why", st["can_gpu"] and st["where"] == "cpu" and st["why"], st)
 finally:

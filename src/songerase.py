@@ -109,6 +109,40 @@ def download(log: Log = _noop, folder: Optional[str] = None, progress=_noop) -> 
     return dest
 
 
+RUN_MIN = 180.0          # seconds a block may take before it counts as hung, at least (the CPU takes ~45 s on 4 cores)
+RUN_TIMES = 8.0          # or this many times as long as a block usually takes here, if that's longer
+
+
+class Hung(RuntimeError):
+    """A run of the model that never came back."""
+
+
+def timed_run(sess, spec: np.ndarray, limit: float) -> np.ndarray:
+    """One run of the model, given up on after `limit` seconds (5.7.6). A run is one call into ONNX Runtime that can't
+    be interrupted: a graphics driver that wedges partway (or a processor run stuck behind it) never returned, and the
+    export sat at the same percent for good, Stop included. The run goes on in its own thread; this one stops waiting."""
+    box: dict = {}
+
+    def go():
+        try:
+            box["out"] = sess.run(None, {"mix_spec": spec})[0]
+        except BaseException as e:      # noqa: BLE001  handed to the caller
+            box["err"] = e
+    th = threading.Thread(target=go, daemon=True, name="song-eraser-run")
+    th.start()
+    th.join(limit)
+    if th.is_alive():
+        raise Hung(f"the song eraser's model didn't finish a block in {int(limit)} seconds")
+    if "err" in box:
+        raise box["err"]
+    return box["out"]
+
+
+def _limit() -> float:
+    usual = expected_block_seconds() or _cpu_block_seconds()
+    return max(RUN_MIN, RUN_TIMES * float(usual or 0))
+
+
 class _Model:
     def __init__(self, sess, where: str = "cpu", fallback=None):
         self.sess, self.where, self._fallback = sess, where, fallback
@@ -116,21 +150,24 @@ class _Model:
 
     def run(self, spec: np.ndarray) -> np.ndarray:
         """[1, 2, 1025, 1034] (re, im) -> [1, 6, 1025, 1034]: dialogue, music, effects, each re and im."""
-        with self._run:
+        lock = self._run
+        with lock:
             try:
-                out = self.sess.run(None, {"mix_spec": spec})[0]
+                out = timed_run(self.sess, spec, _limit())
                 if self.where != "cpu" and not np.isfinite(out).all():
                     raise RuntimeError("the graphics card gave numbers that aren't numbers")
                 return out
             except Exception as e:      # noqa: BLE001  5.7.5: the card failed partway (a driver reset): the processor goes on
                 if self.where == "cpu" or self._fallback is None:
                     raise
-                _note(f"The song eraser stopped working on the graphics card ({str(e).strip().splitlines()[-1][:160] if str(e).strip() else type(e).__name__}); "
-                      "it goes on on the processor.")
+                why = "it stopped responding" if isinstance(e, Hung) else (str(e).strip().splitlines()[-1][:160] if str(e).strip() else type(e).__name__)
+                _note(f"The song eraser stopped working on the graphics card ({why}); it goes on on the processor.")
                 _remember({"device": "cpu", "why": "failed on the graphics card", "card": _card_name()})
-                _status.update(where="cpu", why="it failed on the graphics card")
-                self.sess, self.where = self._fallback(), "cpu"
-                return self.sess.run(None, {"mix_spec": spec})[0]
+                _status.update(where="cpu", why="it failed on the graphics card" if not isinstance(e, Hung) else "it stopped responding on the graphics card")
+                # a fresh lock with the fresh session: a run that never came back still holds the old one
+                self.sess, self.where, self._run = self._fallback(), "cpu", threading.Lock()
+        with self._run:
+            return timed_run(self.sess, spec, _limit())
 
 
 # ----------------------------------------------------------------- on the graphics card (5.7.5)
@@ -212,11 +249,34 @@ CPU_THREADS = [0]       # 0: every core (5.7.5; it was one fewer, leaving a core
 
 
 def _gpu_session(ort, p, device: int):
+    """The model on card `device`, set up in its own thread and given up on after PROBE_MAX seconds (5.7.6: a driver
+    that wedges while the model is set up on it held the export before it had started)."""
+    box: dict = {}
+
+    def go():
+        try:
+            box["s"] = _gpu_session_now(ort, p, device)
+        except BaseException as e:      # noqa: BLE001
+            box["e"] = e
+    th = threading.Thread(target=go, daemon=True, name="song-eraser-setup")
+    th.start()
+    th.join(PROBE_MAX)
+    if th.is_alive():
+        raise Hung(f"setting the song eraser up on the graphics card took over {int(PROBE_MAX)} seconds")
+    if "e" in box:
+        raise box["e"]
+    return box["s"]
+
+
+def _gpu_session_now(ort, p, device: int):
     so = ort.SessionOptions()
     so.enable_mem_pattern = False                         # DirectML's own requirements
     so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
     so.log_severity_level = 3
     return ort.InferenceSession(str(p), so, providers=[(DML, {"device_id": int(device)}), "CPUExecutionProvider"])
+
+
+PROBE_MAX = 90.0         # seconds a card's first-use test may take before the card counts as unusable (5.7.6)
 
 
 def _try_cards(ort, p) -> Optional[tuple]:
@@ -233,9 +293,9 @@ def _try_cards(ort, p) -> Optional[tuple]:
     for dev in range(min(n, 3)):
         try:
             sess = _gpu_session(ort, p, dev)
-            sess.run(None, {"mix_spec": probe})            # the first run sets the card up: not timed
+            timed_run(sess, probe, PROBE_MAX)                 # the first run sets the card up: not timed
             t0 = _t.perf_counter()
-            out = sess.run(None, {"mix_spec": probe})[0]
+            out = timed_run(sess, probe, PROBE_MAX)
             took = _t.perf_counter() - t0
         except Exception:   # noqa: BLE001  this card can't run it
             continue
@@ -294,6 +354,18 @@ def _place(ort, p):
     _remember({"device": "cpu", "why": why, "card": _card_name()})
     _status.update(where="cpu", why=why)
     return _Model(cpu())
+
+
+def needs_trial() -> bool:
+    """The graphics card will be tried before the first block (once per card): the export says so, since setting the
+    model up on a card can take a minute or two with the bar standing still."""
+    if session_impl[0] is not None or _session is not None or _want() == "cpu" or _remembered().get("device"):
+        return False
+    try:
+        import onnxruntime as ort
+        return DML in (ort.get_available_providers() or [])
+    except Exception:       # noqa: BLE001
+        return False
 
 
 def expected_block_seconds() -> Optional[float]:
