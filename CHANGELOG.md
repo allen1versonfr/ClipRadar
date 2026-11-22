@@ -5,6 +5,88 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.3] - 2026-11-22
+
+### Fixed
+- **Songs still left in exported VODs.** Three reasons, each fixed:
+  - **Songs found after you changed the music list were left out.** Once you changed anything in Export VOD's
+    music list (one action pressed was enough), the export used your list as it was. The songs Recognise the songs
+    and Look for songs everywhere found after that went into the scan but never into your list, and stayed in the
+    video. Segments did the same. Now your list is kept as you set it, and every stretch the scan gains that your
+    list doesn't cover is added to it.
+  - **Look for songs everywhere only ran when its button was pressed**, and the songs the music scan can't hear
+    (quiet under talking) are most of what YouTube still catches. The music scan now does it every time, after
+    recognising the songs: every song heard anywhere is found everywhere it plays and erased.
+  - **A stretch the scan was unsure about, with nobody talking, started as Keep.** With the song eraser it now starts
+    as Erase song: the eraser keeps the talking and the game's sound, so a stretch that wasn't music loses nothing.
+
+### Changed
+- **Export VOD and Segments use the whole PC.**
+  - **Every core.** The picture was made with one core left free (Settings › Performance › Keep the PC responsive).
+    Exports now use them all, still below normal priority with that setting on, so whatever you're doing still goes
+    first. Measured on 4 cores: 51 s to 42 s for 90 s of 1080p60 made at 720p.
+  - **The picture made while the songs are erased**, not after. The two ran one after the other, the CPU half idle
+    through each. The picture is made at the same time, then the finished sound is put on it without making the
+    picture again.
+  - **A long video's picture in pieces side by side**: 2 on 4 to 7 cores, 3 on 8 to 15, 4 on 16 or more. One FFmpeg
+    can't keep every core busy (its decoding and filters run on few of them): two halves side by side took 12.5 s
+    where one FFmpeg took 15.0 s on 4 cores, and the gap grows with the cores. Each piece is an exact number of
+    frames, so not one frame is lost or doubled, and the sound stays in step: a beep and a flash made together
+    still land within a frame of each other at the end.
+  - **Segments made two at a time**, across all the segments of an export. Each file is joined as soon as its parts
+    are made, and the bar adds up every part's progress. The song eraser runs on one part at a time (two side by side
+    were measured no faster, with twice the memory), and the other part's picture goes on being made meanwhile.
+- Settings › Performance says that exports use every core either way.
+
+### Tests
+- `tests/test_vodexport.py`: an export made in pieces while a song is erased, with every frame there and none twice,
+  the song erased and no pieces left; a flash and a beep within a frame of each other after an export made in pieces;
+  a scan that recognises the songs and looks for them everywhere on its own; Segments using a stretch the scan
+  gained after your list was set, and not one your list covers; a weak detection erased with the song eraser.
+- `tests/test_segments.py`: stretches made two at a time, each segment whole and in order, the bar only forward.
+- `VodExportView.test.tsx`: songs found after you changed the list are in the export, with what you set kept.
+  `spans.test.ts`: a stretch covered by your list.
+
+## [5.7.2] - 2026-11-21
+
+### Fixed
+- **The songs and music steps stuck at a percent.** Seen as the bar sitting still for minutes, or for good:
+  - **Erase song sat at 99%** after the last song while the rest of a long VOD's sound was read and written (the bar
+    only went as far as the last song). It now covers the whole sound track, mostly the songs being erased, since
+    they're most of the time.
+  - **A recognised song's erase sat at 90%** through its last pass over the whole sound. That pass moves the bar now.
+  - **Recognise the songs sat on one stretch** for as long as its tries took (up to eight Shazam requests). The bar
+    moves with each request now.
+  - **A stalled FFmpeg held the music scan, Erase song or a recognised song's erase at one percent for good**, and
+    Stop did nothing (Stop was only checked between reads). Each is now watched from the side: Stop ends it at once,
+    and a read that has waited 2 minutes ends it and says so. Time spent erasing between reads doesn't count, however
+    long a block takes.
+  - Reading a few seconds of a video's sound (to recognise a song, or check it) can't wait for good either.
+
+### Changed
+- **The songs and music steps are faster.** Measured on a 20-minute video on 4 cores, with Shazam answering in a
+  second:
+  - **Look for songs everywhere:** 62 s to 22 s. Shazam is asked three samples at a time instead of one by one.
+  - **Check YouTube won't still hear them:** 225 s to 117 s. The samples go to Shazam three at a time, and the
+    music is pulled out from under the talking only for the samples that aren't recognised as they are, a run of
+    them in one pass of the model (it was two passes for every 12-second sample).
+  - **Recognise the songs:** 120 s to 86 s. Stretches are recognised three at a time, and the slow model pass runs
+    only when the sample as it is isn't recognised.
+  - **Taking a recognised song out:** 40 s to 22 s for two 3-minute songs. The fit is worked out faster (the same
+    result), two pieces at a time.
+  - **Finding a recognised song everywhere it plays:** 9.3 s to 4.8 s. The sound is read once straight through
+    (it was a new FFmpeg for every 50 seconds), and the recording's transform is worked out once.
+- **The song eraser holds about 3 GB instead of 5** while it works (measured), at the same speed, so a PC with 16 GB
+  isn't pushed into swapping, which is what makes the whole PC crawl. The model itself is the time it takes (about 45
+  s for each 10 s of song on 4 cores here); running it on several blocks at once was measured and wasn't faster.
+
+### Tests
+- `tests/test_song_speed.py` (new, in CI): Stop and a hang caught on a tool that has gone quiet, and time spent
+  working not taken for a hang; Shazam asked a few at a time, in order, faster, and stopped; no model pass for a sample
+  recognised as it is, and one pass for a run of samples in the YouTube check; the fit the same as 5.7.1's and faster;
+  Erase song's and a recognised song's bar moving to the end of the sound track; the whole-video search reading the
+  sound once and still finding the song.
+
 ## [5.7.1] - 2026-11-21
 
 ### Fixed

@@ -81,7 +81,7 @@ sa = vodexport.suggest_action
 check("talking over music: the music is removed", sa(0.9, 0.7, True) == "voice")
 check("no talking: muted (the same result, much quicker)", sa(0.9, 0.0, True) == "mute")
 check("no talking, with the song eraser: erased, so the game's sound stays (5.0)", sa(0.9, 0.0, True, True) == "voice")
-check("no talking, the song eraser, a weak detection: still kept", sa(0.4, 0.0, True, True) == "keep")
+check("no talking, the song eraser, a weak detection: erased too, it keeps the game's sound (5.7.3)", sa(0.4, 0.0, True, True) == "voice")
 check("no talking and a weak detection: kept", sa(0.4, 0.0, True) == "keep")
 check("without the remover, a stretch with lots of talking isn't silenced", sa(0.9, 0.8, False) == "keep")
 check("without the remover, a little talking is muted", sa(0.9, 0.3, False) == "mute")
@@ -227,6 +227,31 @@ check("the screen lists the open video with its scan", len(mine) == 1 and [s_["s
       == [s_["start"] for s_ in res["spans"]] and "suggest" in mine[0]["scan"]["spans"][0], v)
 
 
+# ---- 5.7.3: a scan recognises the songs and looks for songs everywhere, without either button being pressed
+import songid as _sid  # noqa: E402
+ran = []
+real_ = (vodexport._can_recognise, _sid.available, vodexport.name_songs, vodexport.find_everywhere)
+vodexport._can_recognise = lambda: True
+_sid.available = lambda: True
+vodexport.name_songs = lambda pr, *a, **k: ran.append("recognise") or pr["copyright"]
+vodexport.find_everywhere = lambda pr, *a, **k: ran.append("everywhere") or pr["copyright"]
+try:
+    def _wait(j, t=60):
+        end = time.time() + t
+        while j["status"] == "running" and time.time() < end:
+            time.sleep(0.05)
+        return j
+    j_ = _wait(vodexport.start_scan(server, PID))
+    check("a scan recognises the songs and looks for them everywhere, on its own", j_["status"] == "done"
+          and ran == ["recognise", "everywhere"], (ran, j_.get("error")))
+    del ran[:]
+    _wait(vodexport.start_scan(server, PID, recognise_only=True))
+    check("Recognise the songs alone doesn't", ran == ["recognise"], ran)
+finally:
+    vodexport._can_recognise, _sid.available, vodexport.name_songs, vodexport.find_everywhere = real_
+res = vodexport.load_scan(server.projects[PID])
+
+
 # ---- the music as you left it on the screen (5.0): Segments uses it too
 pr = server.projects[PID]
 held, voicekeep.session_impl[0] = voicekeep.session_impl[0], None       # no remover here: Erase song falls back to muting
@@ -244,6 +269,15 @@ pr["copyright"] = dict(pr["copyright"], at=res["at"] + 10)
 check("after a new scan, only the music you marked yourself is added to its suggestions",
       (30, 35, "mute") in vodexport.suggested(pr)[0] and (9.5, 26, "mute") not in vodexport.suggested(pr)[0], vodexport.suggested(pr)[0])
 check("the screen gets it back", [x for x in vodexport.view(server)["videos"] if x["pid"] == PID][0]["music"]["songs"][1]["mine"])
+# 5.7.3: your list for this scan, and a stretch the same scan gained after it (Look for songs everywhere): it's used too
+pr["copyright"] = dict(pr["copyright"], at=res["at"])
+pr["copyright"]["spans"] = pr["copyright"]["spans"] + [{"start": 36.0, "end": 39.5, "confidence": 1.0, "speech": 0.0, "found": "everywhere"}]
+got_ = vodexport.suggested(pr)[0]
+check("Segments uses what you set and the stretches the scan found after you set it (5.7.3)",
+      (9.5, 26, "mute") in got_ and any(abs(x - 36.0) < 0.01 for x, _, _ in got_), got_)
+check("a stretch your list already covers isn't added twice", sum(1 for x, y, _ in got_ if x < 26 and y > 9.5) == 1, got_)
+pr["copyright"]["spans"] = pr["copyright"]["spans"][:-1]
+pr["copyright"] = dict(pr["copyright"], at=res["at"] + 10)
 pr.pop("music_mine")
 os.remove(vodexport._music_file(pr))
 pr["music_mine"] = None
@@ -555,6 +589,69 @@ if shutil.which("ffmpeg"):
               and abs(starts["video"] - starts["audio"]) < 0.06 and abs(engine.probe(out)["duration"] - 4.0) < 0.3, (st, starts))
     check("a probe that fails is no keyframes, not an error", vodexport.keyframes(os.path.join(work, "nope.mp4"), [5.0]) == [])
     check("hundreds of segments are asked for in batches", len(vodexport.keyframes(ts, [i * 0.1 for i in range(400)])) >= 10)
+
+    # ---- 5.7.3: a picture that's made again is made in pieces side by side, while a song is erased; then the sound
+    # is put on it. Every frame there, no more, and the sound in step with the picture
+    songerase.session_impl[0] = Stems(1.0)
+    held_pm, vodexport.PIECE_MIN = vodexport.PIECE_MIN, 15.0
+    held_cpu = os.cpu_count
+    os.cpu_count = lambda: 8                # so this PC makes three pieces, as an 8-core one does
+    try:
+        job = wait(vodexport.start_export(server, PID, {"size": "480", "quality": "fast", "hw_encode": False, "music": [[10, 20, "voice"]]}))
+        r = job.get("result") or {}
+        check("an export made in pieces while the song is erased (5.7.3)", job["status"] == "done", (job.get("error"), job["log"][-6:]))
+        if job["status"] == "done":
+            check("it says so", any("pieces side by side" in ln for ln in job["log"]), job["log"][-8:])
+            n_src = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=nb_read_frames",
+                                    "-of", "csv=p=0", video], capture_output=True, text=True).stdout.strip()
+            n_out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=nb_read_frames",
+                                    "-of", "csv=p=0", r["path"]], capture_output=True, text=True).stdout.strip()
+            check("every frame, none twice", n_src == n_out and n_src != "", (n_src, n_out))
+            info = engine.probe(r["path"])
+            check("at the size asked, all of it", info["height"] == 480 and abs(info["duration"] - 40) < 0.6, info)
+            check("the song erased, the rest plays", rms(r["path"], 14) < 0.005 and rms(r["path"], 5) > 0.05 and rms(r["path"], 30) > 0.05,
+                  (rms(r["path"], 14), rms(r["path"], 5)))
+            tmp_ = vodexport.locations.temp_dir(os.path.basename(work), "vodexport")
+            check("no pieces left behind", not [f for f in os.listdir(tmp_) if f.startswith("pic_")], os.listdir(tmp_))
+    finally:
+        vodexport.PIECE_MIN = held_pm
+        os.cpu_count = held_cpu
+        songerase.session_impl[0] = None
+    check("a long video is made in more pieces on a PC with more cores",
+          vodexport.picture_pieces(3600) >= 1 and vodexport.picture_pieces(30) == 1)
+
+    # sound and picture together, to the frame: a flash and a beep at the same moments, exported in pieces
+    sync = os.path.join(work, "sync.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                    "color=c=black:s=320x180:r=30:d=40,drawbox=c=white:t=fill:enable='lt(mod(t-5\\,10)\\,1/30)*gte(t\\,5)'",
+                    "-f", "lavfi", "-i", "sine=f=1000:sample_rate=48000:d=40,volume=enable='gte(mod(t-5\\,10)\\,0.03)+lt(t\\,5)':volume=0",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-bf", "3", "-c:a", "aac", sync], check=True)
+    spid = vodexport.open_video(server, path=sync)
+    vodexport.PIECE_MIN = 12.0
+    try:
+        job = wait(vodexport.start_export(server, spid, {"size": "480", "quality": "fast", "hw_encode": False}))
+    finally:
+        vodexport.PIECE_MIN = held_pm
+    r = job.get("result") or {}
+    if job["status"] == "done":
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-i", r["path"], "-vf", "scale=32:18,format=gray", "-f", "rawvideo", "-"], capture_output=True).stdout
+        lum = np.frombuffer(raw, np.uint8).reshape(-1, 18 * 32).mean(1)
+        pts = [float(x.strip(",")) for x in subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time",
+                                                            "-of", "csv=p=0", r["path"]], capture_output=True, text=True).stdout.split()]
+        idx = np.where(lum > 128)[0]
+        flashes = [pts[i] for k, i in enumerate(idx) if k == 0 or i - idx[k - 1] > 2]
+        snd = np.abs(np.frombuffer(subprocess.run(["ffmpeg", "-v", "error", "-i", r["path"], "-ac", "1", "-ar", "48000", "-f", "f32le", "-"],
+                                                  capture_output=True).stdout, np.float32))
+        s0 = float(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=start_time", "-of", "csv=p=0",
+                                   r["path"]], capture_output=True, text=True).stdout.strip().strip(",") or 0)
+        on = snd > 0.05
+        starts = (np.where(on[1:] & ~on[:-1])[0] + 1) / 48000 + s0
+        beeps = [t for k, t in enumerate(starts) if k == 0 or t - starts[k - 1] > 1]
+        gaps = [abs(b - f) for f, b in zip(flashes, beeps)]
+        check("made in pieces, the sound is with the picture to within a frame, start to end", len(flashes) == 4 and len(beeps) == 4
+              and max(gaps) < 1 / 30 + 0.01, (flashes, beeps))
+    else:
+        check("the flash and beep export", False, job.get("error"))
 
     # ---- the exact preview: a few seconds made like the export
     voicekeep.session_impl[0] = Nothing()

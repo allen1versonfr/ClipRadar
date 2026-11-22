@@ -365,53 +365,143 @@ def _has_audio(path: str) -> bool:
         return False
 
 
-def _out_name(name: str, outdir: str) -> str:
+def _out_name(name: str, outdir: str, taken: Optional[set] = None) -> str:
+    """A file name in outdir not used yet, nor in taken (paths picked already for this export, before they're made)."""
     base = exports.safe(name or "Segments")
     out, n = f"{base}.mp4", 2
-    while os.path.exists(os.path.join(outdir, out)):
+    taken = taken or set()
+    while os.path.exists(os.path.join(outdir, out)) or os.path.normcase(os.path.join(outdir, out)) in taken:
         out = f"{base} ({n}).mp4"
         n += 1
     return out
 
 
-def _make(S, job: dict, pr: dict, o: dict, plan: list, path: str, tmp: str, band: tuple, label, copy: bool = False) -> dict:
-    """The stretches in plan [(segment, start, end)], one after another, in one file at path. Each is made the way
-    Export VOD makes a video, then they're joined without being made again. A subtitle file goes next to it when
-    asked for. band: the share of the job's bar this takes; label(i): what each step says first."""
-    total = sum(b - a for _, a, b in plan)
-    lo, hi = band
-    made, words, ro, at = [], [], None, 0.0
+AT_ONCE_PARTS = 2       # stretches made at the same time (5.7.3): one FFmpeg can't keep every core busy
+
+
+class _Share:
+    """The server, as seen by one stretch made alongside others (5.7.3): its bar goes into its own share of the job's,
+    and Stop (or another stretch failing) stops it. Everything else is the server's own."""
+
+    def __init__(self, S, setter, stopped):
+        self._S, self._set, self._stopped = S, setter, stopped
+
+    def __getattr__(self, k):
+        return getattr(self._S, k)
+
+    def job_progress(self, job, lo, hi):
+        return lambda x: self._set(lo + (hi - lo) * max(0.0, min(1.0, x)))
+
+    def job_check(self, job):
+        real = self._S.job_check(job)
+
+        def c():
+            if self._stopped():
+                raise engine.Cancelled()
+            real()
+        return c
+
+
+def _make_all(S, job: dict, pr: dict, o: dict, files: list, tmp: str) -> list:
+    """Every file of an export: files [{"path", "plan": [(segment, start, end)], "copy", "label": fn(i), "band"}].
+    Each stretch is made the way Export VOD makes a video, AT_ONCE_PARTS at a time across all the files (5.7.3: one
+    after the other before, the CPU half idle), and each file is joined as soon as its stretches are made, without
+    making them again. A subtitle file goes next to one when asked for."""
+    from concurrent.futures import ThreadPoolExecutor
+    workers = AT_ONCE_PARTS if (os.cpu_count() or 1) >= 4 else 1
+    parts = [(k, i) for k, f in enumerate(files) for i in range(len(f["plan"]))]
+    lock = threading.Lock()
+    share, done = {}, {}
+    for k, f in enumerate(files):
+        lo, hi = f["band"]
+        total = sum(b - a for _, a, b in f["plan"]) or 1.0
+        for i, (_, a, b) in enumerate(f["plan"]):
+            share[(k, i)] = (hi - lo) * 0.97 * (b - a) / total
+        share[(k, "join")] = (hi - lo) * 0.03
+    to_bar = S.job_progress(job, 0.0, 1.0)
+    stop = {"v": False}
+
+    def moved(key, v):
+        with lock:
+            done[key] = max(done.get(key, 0.0), v)
+            to_bar(min(0.999, sum(share[x] * done.get(x, 0.0) for x in share)))
+
+    def one(k, i):
+        f = files[k]
+        s, a, b = f["plan"][i]
+        path = os.path.join(tmp, f"part_{job['id']}_{uuid.uuid4().hex[:6]}_{k:03d}_{i:03d}.mp4")
+        sh = _Share(S, lambda v, key=(k, i): moved(key, v), lambda: stop["v"])
+        try:
+            r = vodexport.render_range(sh, job, pr, dict(o, gain_db=s["gain_db"]), a, b, path, whole=True, part=True,
+                                       label=f["label"](i), words=caption_words(s), copy=f["copy"], keep_models=True)
+        except BaseException:
+            _rm(path)
+            raise
+        return path, r
+
+    out, futs, made = [], {}, []
+    pool = ThreadPoolExecutor(workers)
+    nxt = 0
+
+    def ahead(upto: int):
+        nonlocal nxt
+        while nxt < len(parts) and nxt <= upto:
+            futs[parts[nxt]] = pool.submit(one, *parts[nxt])
+            nxt += 1
     try:
-        for i, (s, a, b) in enumerate(plan):
-            S.job_check(job)()
-            part = os.path.join(tmp, f"part_{job['id']}_{uuid.uuid4().hex[:6]}_{i:03d}.mp4")
-            done = sum(y - x for _, x, y in plan[:i])
-            r = vodexport.render_range(S, job, pr, dict(o, gain_db=s["gain_db"]), a, b, part, whole=True, part=True,
-                                       band=(lo + (hi - lo) * 0.97 * done / total, lo + (hi - lo) * 0.97 * (done + b - a) / total),
-                                       label=label(i), words=caption_words(s), copy=copy)
-            made.append(part)
-            ro = r["ro"]
-            words += [dict(w, start=w["start"] - a + at, end=w["end"] - a + at) for w in r["words"]]
-            at += b - a
-        if len(made) == 1:
-            # the parts are made in the Segments folder itself (5.4), so this is a rename; shutil.move still copies
-            # if it ever has to cross drives (5.0.2: "The system cannot move the file to a different disk drive")
-            shutil.move(made[0], path)
-        else:
-            S.job_step(job)("Joining " + os.path.basename(path))
-            join(made, path, S.job_check(job), total, S.job_progress(job, lo + (hi - lo) * 0.97, hi), S.job_step(job),
-                 warn=lambda m: vodexport._warn(job, m))
+        at = 0
+        for k, f in enumerate(files):
+            got, words, ro, t = [], [], None, 0.0
+            for i, (_, a, b) in enumerate(f["plan"]):
+                ahead(at + workers)              # a few stretches ahead, never the whole export at once (the disk)
+                fut = futs.pop((k, i))
+                while True:
+                    S.job_check(job)()
+                    try:
+                        path, r = fut.result(timeout=0.5)
+                        break
+                    except TimeoutError:
+                        continue
+                got.append(path)
+                made.append(path)
+                ro = r["ro"]
+                words += [dict(w, start=w["start"] - a + t, end=w["end"] - a + t) for w in r["words"]]
+                t += b - a
+                at += 1
+            if len(got) == 1:
+                # the parts are made in the Segments folder itself (5.4), so this is a rename; shutil.move still copies
+                # if it ever has to cross drives (5.0.2: "The system cannot move the file to a different disk drive")
+                shutil.move(got[0], f["path"])
+            else:
+                S.job_step(job)("Joining " + os.path.basename(f["path"]))
+                join(got, f["path"], S.job_check(job), t, lambda v, k=k: moved((k, "join"), v), S.job_step(job),
+                     warn=lambda m: vodexport._warn(job, m))
+            moved((k, "join"), 1.0)
+            for p_ in got:
+                _rm(p_)
+            srt = ""
+            if o["captions"] in ("srt", "both") and words and ro is not None:
+                srt = os.path.splitext(f["path"])[0] + ".srt"
+                render.write_srt(words, ro, srt, t)
+            out.append({"path": f["path"], "name": os.path.basename(f["path"]), "srt": os.path.basename(srt) if srt else "",
+                        "length": round(t, 1)})
     finally:
-        for p in made:
-            try:
-                os.remove(p)
-            except OSError:
-                pass
-    srt = ""
-    if o["captions"] in ("srt", "both") and words and ro is not None:
-        srt = os.path.splitext(path)[0] + ".srt"
-        render.write_srt(words, ro, srt, total)
-    return {"path": path, "name": os.path.basename(path), "srt": os.path.basename(srt) if srt else "", "length": round(total, 1)}
+        stop["v"] = True
+        pool.shutdown(wait=True, cancel_futures=True)
+        for p_ in made:
+            _rm(p_)
+        import songerase
+        import voicekeep
+        songerase.release()
+        voicekeep.release()
+    return out
+
+
+def _rm(p: str) -> None:
+    try:
+        os.remove(p)
+    except OSError:
+        pass
 
 
 def run_export(S, job: dict, eid: str, body: dict) -> dict:
@@ -472,21 +562,23 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
     os.makedirs(tmp, exist_ok=True)
     log = S.job_logger(job)
     try:
-        t0, files = time.time(), []
+        t0, todo = time.time(), []
         if mode == "join":
             plan = [row for _, g in groups for row in g]
-            path = os.path.join(outdir, _out_name(e["name"], outdir))
-            files.append(_make(S, job, pr, o, plan, path, tmp, (0.0, 1.0),
-                               lambda i: f"{plan[i][0]['name'] or 'Segment'} ({i + 1} of {len(plan)}): ", copy=bool(copied)))
+            todo.append({"path": os.path.join(outdir, _out_name(e["name"], outdir)), "plan": plan, "copy": bool(copied),
+                         "band": (0.0, 1.0), "label": lambda i, plan=plan: f"{plan[i][0]['name'] or 'Segment'} ({i + 1} of {len(plan)}): "})
         else:
             done = 0.0
+            taken: set = set()
             for k, (s, g) in enumerate(groups):
                 length = sum(b - a for _, a, b in g)
                 name = s["name"] or f"Segment {e['segments'].index(s) + 1}"
-                path = os.path.join(outdir, _out_name(name, outdir))
-                files.append(_make(S, job, pr, o, g, path, tmp, (done / total, (done + length) / total),
-                                   lambda i, n=name: f"{n} ({k + 1} of {len(groups)}): ", copy=s["id"] in copied))
+                path = os.path.join(outdir, _out_name(name, outdir, taken))
+                taken.add(os.path.normcase(path))
+                todo.append({"path": path, "plan": g, "copy": s["id"] in copied, "band": (done / total, (done + length) / total),
+                             "label": lambda i, n=name, k=k: f"{n} ({k + 1} of {len(groups)}): "})
                 done += length
+        files = _make_all(S, job, pr, o, todo, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     took = time.time() - t0

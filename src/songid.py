@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import io
 import re
+import threading
 import time
 import wave
 from typing import Callable, Optional
@@ -40,6 +41,9 @@ TRIES = 4              # samples tried per stretch before giving up
 CANDIDATES = 4         # YouTube results tried for the recording
 MAX_SKEW = 2e-3        # Shazam's answer skewed more than this in time or pitch: a wrong answer, most likely
 GAP = 0.4              # seconds between Shazam requests, so it's never asked too fast
+AT_ONCE = 3            # Shazam requests in flight together (5.7.2: one at a time, each about a second, was most of
+                       # the wait); each still keeps GAP between its own requests
+_model_lock = threading.Lock()   # one song eraser run at a time: it already uses every core, and a few GB of memory
 
 _noop = lambda *a, **k: None  # noqa: E731
 
@@ -67,6 +71,8 @@ def _wav(x: np.ndarray) -> bytes:
 
 def _ask(sound: np.ndarray) -> Optional[dict]:
     """One Shazam request: {"title", "artist", "key"} or None."""
+    if sound is None or not getattr(sound, "size", 0) or not float(np.abs(sound).max()) > 1e-6:
+        return None            # no sound (a read that failed, silence): nothing to recognise
     from shazamio import Shazam
 
     async def go():
@@ -95,14 +101,45 @@ def _ask(sound: np.ndarray) -> Optional[dict]:
 def pull_music(x: np.ndarray) -> np.ndarray:
     """The music in x with the talking taken out (what the song eraser removes), when the eraser model is there."""
     import songerase
-    if not songerase.available():
+    if not songerase.available() or not x.size:
         return x
     xp = np.pad(x, ((0, 0), (songerase.CTX, songerase.SEG)))
     out = []
-    for p in range(0, x.shape[1], songerase.GEN):
-        kept = songerase.erase_block(xp[:, p:p + songerase.SEG], 1.0)
-        out.append(xp[:, p + songerase.CTX:p + songerase.CTX + songerase.GEN] - kept)
+    with _model_lock:
+        for p in range(0, x.shape[1], songerase.GEN):
+            kept = songerase.erase_block(xp[:, p:p + songerase.SEG], 1.0)
+            out.append(xp[:, p + songerase.CTX:p + songerase.CTX + songerase.GEN] - kept)
     return np.concatenate(out, axis=1)[:, :x.shape[1]].astype(np.float32)
+
+
+def _ask_gap(sound: np.ndarray) -> Optional[dict]:
+    got = _ask(sound)
+    time.sleep(GAP)
+    return got
+
+
+def _each(fn: Callable, items: list, check: Callable = _noop, done: Callable = _noop) -> list:
+    """fn(item) for every item, AT_ONCE at a time, results in order. done(k) after each of the first k finished; Stop
+    (check) ends it between them, the ones not started yet dropped."""
+    from concurrent.futures import ThreadPoolExecutor
+    if not items:
+        return []
+    out = []
+    pool = ThreadPoolExecutor(max(1, min(AT_ONCE, len(items))))
+    try:
+        futs = [pool.submit(fn, it) for it in items]
+        for k, f in enumerate(futs):
+            while True:
+                check()
+                try:
+                    out.append(f.result(timeout=0.5))
+                    break
+                except TimeoutError:
+                    continue
+            done(k + 1)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return out
 
 
 def windows(a: float, b: float, n: int = TRIES) -> list:
@@ -114,24 +151,30 @@ def windows(a: float, b: float, n: int = TRIES) -> list:
     return [round(a + f * span, 2) for f in order]
 
 
-def identify(get: Callable, a: float, b: float, check: Callable = _noop, separate: bool = True) -> Optional[dict]:
-    """The song in a stretch, or None. get(t, seconds) -> sound [2, n] of the video from t."""
+def identify(get: Callable, a: float, b: float, check: Callable = _noop, separate: bool = True,
+             tick: Callable = _noop) -> Optional[dict]:
+    """The song in a stretch, or None. get(t, seconds) -> sound [2, n] of the video from t. tick() after each request.
+    5.7.2: the sample as it is is asked first, and the music only pulled out of it (a slow pass through the song eraser
+    model) when that isn't recognised."""
     for t in windows(a, b):
         check()
         x = get(t, min(WINDOW + 0.5, max(WINDOW, b - t)))
         if x.shape[1] < WINDOW * SR * 0.95:
             continue
-        tries = [x]
+        got = _ask_gap(x)
+        tick()
+        if got:
+            return got
         if separate:
             try:
-                tries.append(pull_music(x))
-            except Exception:       # noqa: BLE001  the model failed: the plain sound is still tried
-                pass
-        for y in tries:
-            got = _ask(y)
-            time.sleep(GAP)
-            if got:
-                return got
+                y = pull_music(x)
+            except Exception:       # noqa: BLE001  the model failed: the plain sound was tried
+                continue
+            if y is not x:
+                got = _ask_gap(y)
+                tick()
+                if got:
+                    return got
     return None
 
 
@@ -208,16 +251,29 @@ def find_recording(song: dict, sound: np.ndarray, folder: str, check: Callable =
 def name_spans(video: str, spans: list, folder: str, progress: Callable = _noop, check: Callable = _noop,
                log: Callable = _noop) -> int:
     """Fill in spans[i]["song"] = {"title", "artist", "url"} for each stretch whose song is recognised and whose
-    recording is found ("url" "" when only the name is known). Returns how many were named."""
+    recording is found ("url" "" when only the name is known). Returns how many were named.
+    5.7.2: the stretches are recognised AT_ONCE at a time, and the bar moves with each request, not only after a
+    stretch's every try (up to eight requests, minutes with a slow answer, at one percent)."""
     named = 0
     cache: dict = {}
-    for i, s in enumerate(spans):
+    todo = [i for i, s in enumerate(spans) if float(s["end"]) - float(s["start"]) >= 8]
+    asked = [0]
+    most = max(1, len(todo) * TRIES)
+    lock = threading.Lock()
+
+    def tick():
+        with lock:
+            asked[0] += 1
+            progress(min(0.85, 0.85 * asked[0] / most))
+
+    def one(i):
+        s = spans[i]
+        return identify(lambda t, n: songref.read(video, t, n), float(s["start"]), float(s["end"]), check=check, tick=tick)
+    found = _each(one, todo, check, lambda k: progress(max(0.0, min(0.85, 0.85 * k / max(1, len(todo))))))
+    for j, (i, got) in enumerate(zip(todo, found)):
         check()
+        s = spans[i]
         a, b = float(s["start"]), float(s["end"])
-        if b - a < 8:
-            progress((i + 1) / len(spans))
-            continue
-        got = identify(lambda t, n: songref.read(video, t, n), a, b, check=check)
         if got:
             k = (got["title"].lower(), got["artist"].lower())
             if k not in cache:
@@ -227,7 +283,8 @@ def name_spans(video: str, spans: list, folder: str, progress: Callable = _noop,
             s["song"] = dict(got, url=rec["url"] if rec else "")
             named += 1
             log(f"  {_ts(a)}: {got['artist']} - {got['title']}" + ("" if rec else " (its recording wasn't found on YouTube)"))
-        progress((i + 1) / len(spans))
+        progress(0.85 + 0.15 * (j + 1) / max(1, len(todo)))
+    progress(1.0)
     return named
 
 
@@ -249,16 +306,18 @@ def scan_everywhere(video: str, duration: float, skip: list, folder: str, progre
     times = [t for t in np.arange(0.0, max(0.0, duration - WINDOW), every)
              if not any(a - WINDOW <= t <= b for a, b in skip)]
     heard: dict = {}
-    for i, t in enumerate(times):
-        check()
+
+    def sample(t):
         x = songref.read(video, float(t), WINDOW + 0.5)
         if x.shape[1] >= WINDOW * SR * 0.95 and float(np.abs(x).max()) > 1e-3:
-            got = _ask(x)
-            time.sleep(GAP)
-            if got:
-                k = (got["title"].lower(), got["artist"].lower())
-                heard.setdefault(k, dict(got, at=[]))["at"].append(round(float(t), 1))
-        progress((i + 1) / max(1, len(times)) * 0.8)
+            return _ask_gap(x)
+        return None
+    # 5.7.2: AT_ONCE samples at a time (a six-hour video is 720 of them, about a second each)
+    got_all = _each(sample, times, check, lambda k: progress(k / max(1, len(times)) * 0.8))
+    for t, got in zip(times, got_all):
+        if got:
+            k = (got["title"].lower(), got["artist"].lower())
+            heard.setdefault(k, dict(got, at=[]))["at"].append(round(float(t), 1))
     out: dict = {}
     for j, song in enumerate(heard.values()):
         check()
@@ -280,28 +339,50 @@ def still_heard(get: Callable, stretches: list, check: Callable = _noop, progres
     """The parts of the erased stretches a song is still recognised in: [(start, end, "Artist - Title")].
     get(t, seconds) -> the erased sound from t. Each stretch heard in back-to-back WINDOW-second samples, as it is and,
     when the song eraser model is there, with what's left of the music pulled out from under the talking (YouTube's
-    Content ID hears music under talking better than Shazam does as it is). Shazam not answering counts as not heard."""
+    Content ID hears music under talking better than Shazam does as it is). Shazam not answering counts as not heard.
+
+    5.7.2: the samples as they are go to Shazam AT_ONCE at a time; then the music is pulled out of the ones not
+    recognised a run of them at a time (one pass of the model over a run, not two for every 12-second sample), and
+    those go too."""
     wins = []
     for a, b in stretches:
         t = a
         while t < b - 3:
             wins.append((t, min(b, t + WINDOW)))
             t += WINDOW
-    out = []
-    for i, (a, b) in enumerate(wins):
-        check()
-        x = get(a, max(WINDOW, b - a))
-        tries = [x]
-        if separate:
+    if not wins:
+        progress(1.0)
+        return []
+    share = 0.35 if separate else 1.0
+    heard = _each(lambda w: _ask_gap(get(w[0], max(WINDOW, w[1] - w[0]))), wins, check,
+                  lambda k: progress(share * k / len(wins)))
+    found = {w: got for w, got in zip(wins, heard) if got}
+    left = [w for w in wins if w not in found]
+    if separate and left:
+        runs: list = []                          # back-to-back windows, at most RUN of them together
+        for w in left:
+            if runs and abs(runs[-1][-1][1] - w[0]) < 1e-6 and len(runs[-1]) < RUN:
+                runs[-1].append(w)
+            else:
+                runs.append([w])
+        done = 0
+        for run in runs:
+            check()
+            a0, b0 = run[0][0], run[-1][1]
             try:
-                tries.append(pull_music(x))
-            except Exception:       # noqa: BLE001
-                pass
-        for y in tries:
-            got = _ask(y)
-            time.sleep(GAP)
-            if got:
-                out.append((round(a, 2), round(b, 2), f"{got['artist']} - {got['title']}".strip(" -")))
-                break
-        progress((i + 1) / max(1, len(wins)))
-    return out
+                y = pull_music(get(a0, max(WINDOW, b0 - a0)))
+            except Exception:       # noqa: BLE001  the model failed: the plain sound was asked
+                done += len(run)
+                continue
+            parts = [y[:, int(round((a - a0) * SR)):int(round((max(b, a + WINDOW) - a0) * SR))] for a, b in run]
+            got = _each(_ask_gap, parts, check)
+            for w, g in zip(run, got):
+                if g:
+                    found[w] = g
+            done += len(run)
+            progress(share + (1 - share) * done / len(left))
+    progress(1.0)
+    return [(round(a, 2), round(b, 2), f"{g['artist']} - {g['title']}".strip(" -")) for (a, b), g in sorted(found.items())]
+
+
+RUN = 10                # samples pulled out together in still_heard (two minutes of sound in memory at most)

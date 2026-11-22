@@ -52,6 +52,8 @@ export function PerformancePanel() {
       <div className="fld">While rendering
         <Seg label="While rendering" value={pr?.priority ?? 'responsive'} onChange={v => void save({ priority: v === 'fast' ? 'fast' : 'responsive' })}
              options={[['responsive', 'Keep the PC responsive'], ['fast', 'Finish faster']]} />
+        <small className="muted" data-testid="perf-exports">Export VOD and Segments use every core either way. Keeping the PC
+          responsive runs them below normal priority, so whatever you're doing still goes first.</small>
       </div>
       {p && (
         <p className="fine" data-testid="perf-info">

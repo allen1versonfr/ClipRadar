@@ -279,9 +279,11 @@ def scan_file(video: str, duration: float, start: float = 0.0, progress=_noop, c
     procjob.adopt(p)      # ends with Clip Radar, even if it crashes (Windows)
     sc = Scanner()
     got = 0
+    w = procjob.Watch([p], check)          # 5.7.2: Stop works and a stalled FFmpeg can't hold the scan at a percent
     try:
         while True:
-            chunk = p.stdout.read(SR * 4 * 30)          # 30 s at a time
+            with w.waiting():
+                chunk = p.stdout.read(SR * 4 * 30)          # 30 s at a time
             if not chunk:
                 break
             check()
@@ -290,8 +292,13 @@ def scan_file(video: str, duration: float, start: float = 0.0, progress=_noop, c
             sc.feed(arr)
             if duration:
                 progress(min(0.999, got / SR / duration))
+        w.raise_if()
         sc.feed(np.zeros(0, dtype=np.float32), final=True)
+    except Exception:
+        w.raise_if()
+        raise
     finally:
+        w.close()
         if p.poll() is None:
             p.kill()
         p.wait()

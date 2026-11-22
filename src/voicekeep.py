@@ -231,7 +231,7 @@ def _read(pipe, n: int) -> np.ndarray:
     return a.reshape(-1, 2).T.copy()
 
 
-def keep_voice(video: str, spans: list, out_path: str, start: float = 0.0, length: float = 0.0,
+def _keep_voice_unlocked(video: str, spans: list, out_path: str, start: float = 0.0, length: float = 0.0,
                progress=_noop, check=_noop) -> dict:
     """The sound of `video` from `start` for `length` seconds (0 = to the end), written to out_path (FLAC,
     44.1 kHz stereo) with the music taken out inside spans [(start, end)] (seconds from `start`).
@@ -257,14 +257,24 @@ def keep_voice(video: str, spans: list, out_path: str, start: float = 0.0, lengt
                            creationflags=engine.CREATE_NO_WINDOW)
     for p in (dec, enc):
         procjob.adopt(p)
-    total = marks[-1][1] if marks else 0
+    # 5.7.2: the bar covers the whole sound track, mostly the blocks through the model (see songerase.erase)
+    try:
+        whole = int((length if length > 0 else max(0.0, float(engine.probe(video).get("duration") or 0) - start)) * SR)
+    except Exception:       # noqa: BLE001
+        whole = 0
+    whole = max(whole, marks[-1][1] if marks else 0)
+    expect = sum(1 for k in range(0, whole, gen) if any(a < k + gen and b > k for a, b in marks)) if whole else 0
+    touched = 0
     ran, pos = 0, 0
     prev = np.zeros((2, trim), dtype=np.float32)
+    w = procjob.Watch([dec, enc], check)
     try:
-        cur = _read(dec.stdout, gen)
+        with w.waiting():
+            cur = _read(dec.stdout, gen)
         while cur.shape[1]:
             check()
-            nxt = _read(dec.stdout, gen)
+            with w.waiting():
+                nxt = _read(dec.stdout, gen)
             n = cur.shape[1]
             mix = blend(pos, n, marks, int(RAMP * SR))
             out = cur
@@ -279,23 +289,45 @@ def keep_voice(video: str, spans: list, out_path: str, start: float = 0.0, lengt
                 ran += 1
             elif mix is not None:
                 out = cur * (1.0 - mix)
-            enc.stdin.write(np.ascontiguousarray(np.clip(out, -1.0, 1.0).T, dtype="<f4").tobytes())
+            touched += mix is not None
+            with w.waiting():
+                enc.stdin.write(np.ascontiguousarray(np.clip(out, -1.0, 1.0).T, dtype="<f4").tobytes())
             prev = np.concatenate([prev, cur], axis=1)[:, -trim:]
             pos += n
-            if total:
-                progress(min(0.999, pos / total))
+            if whole:
+                done = 0.85 * min(1.0, touched / expect) + 0.15 * min(1.0, pos / whole) if expect else pos / whole
+                progress(min(0.999, done))
             cur = nxt
+        w.raise_if()
         enc.stdin.close()
-        err = enc.stderr.read().decode("utf-8", "replace")
+        with w.waiting():
+            err = enc.stderr.read().decode("utf-8", "replace")
+        w.raise_if()
         if enc.wait() != 0:
             raise RuntimeError("Couldn't write the sound with the music removed: " + err.strip()[-300:])
+    except Exception:
+        w.raise_if()
+        raise
     finally:
+        w.close()
         for p in (dec, enc):
             if p.poll() is None:
                 p.kill()
             p.wait()
     progress(1.0)
     return {"blocks": ran, "seconds": round(ran * gen / SR, 1)}
+
+
+_run_lock = threading.Lock()
+
+
+def keep_voice(*args, **kw) -> dict:
+    """The music remover over a sound track (_keep_voice_unlocked), one at a time (5.7.3): Segments makes two
+    stretches at once, and the model already uses every core and a few GB of memory, so a second one alongside would
+    only add memory, not speed (measured: 40 s a block two at a time, 44 s one at a time). The other stretch's
+    picture goes on being made meanwhile."""
+    with _run_lock:
+        return _keep_voice_unlocked(*args, **kw)
 
 
 if __name__ == "__main__":
@@ -307,3 +339,4 @@ if __name__ == "__main__":
             print("music remover already there")
         else:
             print("saved", download(print, target))
+

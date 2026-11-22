@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MusicSpan } from '../../api/schemas'
-import { captionAt, heardAt, musicSummary, spanLabel } from './spans'
+import { captionAt, covered, heardAt, musicSummary, spanLabel } from './spans'
 
 const S = (start: number, end: number): MusicSpan => ({ start, end, confidence: 0.9, speech: 0, suggest: 'mute' })
 
@@ -27,5 +27,13 @@ describe('the preview caption', () => {
   it('knows what has been listened to', () => {
     expect(heardAt([[0, 60]], 30)).toBe(true)
     expect(heardAt([[0, 60]], 61)).toBe(false)
+  })
+})
+
+describe('a stretch covered by your list (5.7.3)', () => {
+  it('is one at least half inside the others, edges moved or not', () => {
+    expect(covered({ start: 60, end: 240 }, [{ start: 70, end: 230 }])).toBe(true)
+    expect(covered({ start: 60, end: 240 }, [{ start: 0, end: 30 }])).toBe(false)
+    expect(covered({ start: 3000, end: 3180 }, [{ start: 60, end: 240 }, { start: 3600, end: 3660 }])).toBe(false)
   })
 })

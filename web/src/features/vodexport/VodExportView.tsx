@@ -7,7 +7,7 @@ import { usePoll } from '../../hooks/usePoll'
 import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
-import { ACTIONS, isSongSource, musicSummary, songSource, spanLabel, type MusicAction, type Song } from './spans'
+import { ACTIONS, covered, isSongSource, musicSummary, songSource, spanLabel, type MusicAction, type Song } from './spans'
 import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from './VodTimeline'
 
 const loadView = () => api(VodExport, '/api/vodexport')
@@ -115,7 +115,11 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   const [songsFor, setSongsFor] = useState<{ at: number; songs: Song[] } | undefined>(
     () => v.music ?? getPref<Record<string, { at: number; songs: Song[] }>>('vodxSongs', {})[v.pid])
   const saveTimer = useRef(0)
-  const listOf = (cur = songsFor): Song[] => (cur && cur.at === scanAt ? cur.songs.map(s => ({ ...s, found: foundAt(s) })) : [...fromScan(), ...(cur?.songs.filter(s => s.mine) ?? [])].sort((a, b) => a.start - b.start))
+  // 5.7.3: your list for this scan, plus what the scan found after it was made (Recognise the songs and Look for songs
+  // everywhere add to the same scan): those were left out of the export, songs and all
+  const listOf = (cur = songsFor): Song[] => (cur && cur.at === scanAt
+    ? [...cur.songs.map(s => ({ ...s, found: foundAt(s) })), ...fromScan().filter(x => !covered(x, cur.songs))].sort((a, b) => a.start - b.start)
+    : [...fromScan(), ...(cur?.songs.filter(s => s.mine) ?? [])].sort((a, b) => a.start - b.start))
   // Erase song needs the eraser model, or the song's recording (named or recognised: that needs no model)
   const canErase = (s: Song) => canRemove || !!songSource(s)
   const songs: Song[] = listOf().map(s => (s.act === 'voice' && !canErase(s) ? { ...s, act: 'mute' as const } : s))
