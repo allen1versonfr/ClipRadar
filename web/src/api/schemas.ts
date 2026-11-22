@@ -297,6 +297,9 @@ export const Perf = z.looseObject({
 
 /** /api/gpu: the graphics card and what runs on it (4.36). */
 export const Gpu = z.looseObject({
+  /** 5.7.5: where the song eraser runs: on the card (DirectML) when it can and it's quicker */
+  song_eraser: z.looseObject({ can_gpu: z.boolean().default(false), where: z.string().default(''), why: z.string().default('') })
+    .default({ can_gpu: false, where: '', why: '' }),
   /** the NVIDIA card's name, '' when there's none */
   nvidia: z.string().default(''),
   /** Whisper can run on the card: the card and NVIDIA's CUDA libraries */

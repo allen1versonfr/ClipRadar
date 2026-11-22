@@ -51,6 +51,20 @@ picked to carry out the owner's answers and can be changed here.
   the content needs them (the clip preview, the timeline).
 - MOTION 2: 120-180 ms transitions on screen and panel changes; progress animates; no ambient motion.
 
+## Settings explain themselves
+
+Set by the product owner on 2026-11-22: **a setting whose effect isn't obvious from its name gets a short explanation
+that comes up when the pointer rests on it** (or it has the keyboard's focus). From now on every new or changed setting
+follows this, and settings are given one when they're touched.
+
+- An option in a row of choices (`Seg`) carries it as its third entry: `['fast', 'Fast', 'Quickest to make: ...']`.
+- A setting whose control can't carry one (a dropdown, a number) gets a small "?" next to its name: `<Help label text />`.
+- Any other control: wrap it in `<Tip text>` (`web/src/components/Tip.tsx`). The text is also read out with the control.
+- One or two plain sentences: what it does, what it costs (time, quality, file size), and when you'd pick it.
+  Real numbers where they help ("about a third of the time"). No jargon a streamer wouldn't use, unless it's what
+  they'd search for (an encoder name, in brackets).
+- Not for settings that say what they do already (a checkbox whose label and small text explain it, Cancel, Export).
+
 ## Not changed without asking
 
 - The app icon / logo (`src/ui/icon.svg`).

@@ -688,3 +688,25 @@ video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offs
 /* 5.2: Settings › Server mode */
 .server-url, .server-code { display: block; font-size: 15px; padding: 6px 10px; border-radius: var(--r); background: var(--bg1); user-select: all; }
 .server-code { font-size: 22px; letter-spacing: .12em; width: max-content; }
+
+/* 5.7.4: a setting's explanation, when the pointer rests on it or it has the keyboard's focus (components/Tip.tsx) */
+.tip { position: relative; display: inline-flex; }
+.tip-bubble {
+  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%) translateY(2px);
+  width: max-content; max-width: 260px; padding: 7px 10px; border-radius: var(--r);
+  background: var(--bg4); color: var(--tx0); border: 1px solid var(--line2); box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+  font-size: 12px; font-weight: 400; line-height: 1.4; text-align: left; white-space: normal; letter-spacing: 0;
+  opacity: 0; visibility: hidden; pointer-events: none; z-index: 60;
+  transition: opacity .12s ease, transform .12s ease, visibility 0s linear .12s;
+}
+.tip-wide .tip-bubble { max-width: 320px; }
+.tip:hover > .tip-bubble, .tip:focus-within > .tip-bubble {
+  opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0);
+  transition: opacity .12s ease .35s, transform .12s ease .35s, visibility 0s linear .35s;
+}
+.help-dot {
+  width: 16px; height: 16px; border-radius: 50%; padding: 0; margin-left: 4px; border: 1px solid var(--line2);
+  background: transparent; color: var(--tx2); font-size: 10px; font-weight: 700; line-height: 14px; cursor: help;
+}
+.help-dot:hover, .help-dot:focus-visible { color: var(--tx0); border-color: var(--tx2); }
+@media (prefers-reduced-motion: reduce) { .tip-bubble, .tip:hover > .tip-bubble, .tip:focus-within > .tip-bubble { transition: none; } }

@@ -5,6 +5,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.5] - 2026-11-22
+
+### Added
+- **The song eraser on the graphics card: NVIDIA, AMD and Intel.** It ran on the processor only, the slowest part of
+  an export by far (about 45 s for each 10 s of song on 4 cores), with the graphics card idle. It now runs through
+  DirectML, Windows' own way to run models on any DirectX 12 card, the way Whisper uses AMD and Intel cards through
+  Vulkan.
+  - **Tried once for each card:** one block timed and its numbers checked. It's used only if it works and is quicker
+    than the processor, and the choice is kept for that card. A PC with two cards (a laptop's built-in one and a
+    dedicated one) uses the faster.
+  - **Settings › Performance › "runs on"** (Automatic, Graphics card, CPU) is the song eraser's choice too. Automatic
+    leaves the card alone while a game has it busy. Settings says where the song eraser runs and why.
+  - **A card that stops partway** (a driver reset, out of memory) hands over to the processor without losing the
+    export, and the export says so.
+  - The export's time estimate uses the card's speed.
+- **Settings explain themselves.** Rest the pointer on a setting (or give it the keyboard's focus) and a short line says
+  what it does and what it costs:
+  - **Export VOD:** Size, Quality (Fast, Balanced, Best), Flagged words (Mute, Bleep), each music action, Find
+    segments' lengths.
+  - **Segments:** how the segments are exported, Size, Quality.
+  - **Settings › Performance:** renders, downloads and live streams at once; Keep the PC responsive or Finish
+    faster; where Whisper and the song eraser run.
+
+  From now on every setting whose effect isn't obvious gets one (DESIGN.md).
+
+### Changed
+- **The song eraser uses the whole processor when it runs there.** It used one core fewer than the PC has, and its
+  threads went to sleep between the model's steps: 2.2 of 4 cores busy. Now it uses every core and keeps them busy:
+  3.9 of 4, 41.3 s a block instead of 51.8 s (measured on 4 cores). With Keep the PC responsive it still runs below
+  normal priority, so whatever you're doing goes first.
+- **Builds use ONNX Runtime's DirectML build** in place of the plain one (CI, `build_exe.bat`, `install.bat`). It runs
+  everything else exactly as before on the processor (the music scan, face framing), and CI checks it's the one built.
+
+### Tests
+- `tests/test_eraser_gpu.py` (new, in CI). With ONNX Runtime and the card stood in for, it checks:
+  - **Placement:** a quicker AMD card used, and the choice kept; a slower card not used unless you chose it; the CPU
+    when you chose it; a card that gives broken numbers, a busy one, and a copy without DirectML all left alone.
+  - **Failure partway:** a card that fails mid-export hands over to the processor, says so, and isn't tried again.
+  - **Settings:** says where it runs and why.
+- `src/components/Tip.test.tsx`: each option's explanation goes with it and is read out with it, and a "?" for a
+  setting without one.
+
 ## [5.7.4] - 2026-11-22
 
 ### Added

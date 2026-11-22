@@ -2,6 +2,7 @@ import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { Estimate, Job, JobStarted, Ok, Picked, PreviewCopy, SegAdded, Segments, VodExport, VodOpened, VodYoutube, type MusicSpan, type VodExportVideo, type VodFlag } from '../../api/schemas'
 import { Seg } from '../../components/Seg'
+import { Help, Tip } from '../../components/Tip'
 import { useToast } from '../../components/Toasts'
 import { usePoll } from '../../hooks/usePoll'
 import { plural } from '../../format'
@@ -13,9 +14,19 @@ import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from './Vo
 const loadView = () => api(VodExport, '/api/vodexport')
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-const WORDS: Array<[string, string]> = [['mute', 'Mute'], ['bleep', 'Bleep']]
-const SIZES: Array<[string, string]> = [['source', 'Original'], ['1080', '1080p'], ['720', '720p'], ['480', '480p']]
-const QUALITY: Array<[string, string]> = [['fast', 'Fast'], ['balanced', 'Balanced'], ['high', 'Best']]
+// 5.7.4: what each choice does, shown when the pointer rests on it
+const WORDS: Array<[string, string, string]> = [
+  ['mute', 'Mute', 'The flagged word is silent, and the sound around it plays.'],
+  ['bleep', 'Bleep', 'A 1 kHz bleep plays over the flagged word, like TV.']]
+const SIZES: Array<[string, string, string]> = [
+  ['source', 'Original', "The video's own size. Its picture is copied as it is, without being made again: minutes even for a long stream."],
+  ['1080', '1080p', 'Made again at 1080p: every frame encoded, so it takes much longer than Original. A smaller file only if the video is bigger than 1080p.'],
+  ['720', '720p', 'Made again at 720p: a smaller file, every frame encoded (on the graphics card when there is one).'],
+  ['480', '480p', 'Made again at 480p: the smallest file, every frame encoded.']]
+const QUALITY: Array<[string, string, string]> = [
+  ['fast', 'Fast', 'Quickest to make: the picture is a little softer and the file a little smaller (x264 "veryfast" at CRF 22, or NVENC p3).'],
+  ['balanced', 'Balanced', 'The default: close to Best, in about a third of the time (x264 "faster" at CRF 19, or NVENC p4).'],
+  ['high', 'Best', 'The sharpest picture, and the slowest to make: often two to three times Balanced (x264 "slow" at CRF 18, or NVENC p7).']]
 /** Export VOD's choices (Segments uses size and quality too). No captions since 5.1.2: YouTube makes its own. */
 export interface Choices { words: string; size: string; quality: string; model: string; language: string }
 export const DEFAULTS: Choices = { words: 'mute', size: 'source', quality: 'balanced', model: '', language: '' }
@@ -237,14 +248,14 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
           </p>)}
         {songs.length > 0 && v.scan_job?.status !== 'running' && <>
           <p data-testid="vodx-music-summary">{musicSummary(songs, acts)}</p>
-          {v.scan?.recognise && <label className="chk" title="After erasing, each song stretch is listened to again; anything still recognisable is muted in those seconds">
+          {v.scan?.recognise && <label className="chk">
             <input type="checkbox" checked={claimCheck} data-testid="vodx-claim"
                    onChange={e => { setClaimCheck(e.target.checked); setPref('vodxClaim', e.target.checked) }} />
             <span>Check YouTube won't still hear them<small>After erasing, every song stretch is listened to again the way YouTube would. Anything still recognisable is muted in those seconds, and the export says where.</small></span></label>}
           <div className="row wrap">
             <span className="muted small">Set all to</span>
-            {ACTIONS.filter(([a]) => a !== 'voice' || canRemove).map(([a, l]) => (
-              <button key={a} className="btn sm ghost" onClick={() => setAct('all', a)}>{l}</button>
+            {ACTIONS.filter(([a]) => a !== 'voice' || canRemove).map(([a, l, hint]) => (
+              <Tip key={a} text={hint}><button className="btn sm ghost" onClick={() => setAct('all', a)}>{l}</button></Tip>
             ))}
           </div>
           <ul className="vodx-spans" aria-label="Music">
@@ -332,8 +343,8 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
 
       <section className="panel set" aria-labelledby="vodx-vid">
         <h2 id="vodx-vid">Video</h2>
-        <div className="row wrap"><span className="muted">Size</span><Seg label="Size" value={c.size} options={SIZES} onChange={size => set({ size })} /></div>
-        {c.size !== 'source' ? <div className="row wrap"><span className="muted">Quality</span><Seg label="Quality" value={c.quality} options={QUALITY} onChange={quality => set({ quality })} /></div> : null}
+        <div className="row wrap"><span className="muted">Size<Help label="Size" text="Original copies the picture as it is, the quickest by far. Any other size makes every frame again, which takes much longer (the estimate under Export says how long)." /></span><Seg label="Size" value={c.size} options={SIZES} onChange={size => set({ size })} /></div>
+        {c.size !== 'source' ? <div className="row wrap"><span className="muted">Quality<Help label="Quality" text="How hard the encoder works on each frame when the picture is made again. Only shown with a new size: Original copies the picture, so there's nothing to choose." /></span><Seg label="Quality" value={c.quality} options={QUALITY} onChange={quality => set({ quality })} /></div> : null}
         <p className="hint" data-testid="vodx-speed">{fast
           ? 'The picture is copied as it is and only the sound is made again, so this is quick: a few minutes for a long stream.'
           : !v.copyable ? "This video's picture can't be copied into an .mp4 as it is, so every frame is made again."
@@ -358,7 +369,10 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
   )
 }
 
-const LENGTHS: Array<[string, string]> = [['short', 'Short (2 to 8 min)'], ['medium', 'Medium (5 to 15 min)'], ['long', 'Long (10 to 30 min)']]
+const LENGTHS: Array<[string, string, string]> = [
+  ['short', 'Short (2 to 8 min)', 'More, shorter parts: a split at each smaller change of topic.'],
+  ['medium', 'Medium (5 to 15 min)', 'Parts about the length of a YouTube video.'],
+  ['long', 'Long (10 to 30 min)', 'Fewer, longer parts: split only where the stream really changes (a new game, a long break).']]
 type Part = NonNullable<VodExportVideo['found']>['parts'][number]
 
 /** Find segments (5.0.3): the video split into the parts it's made of (where the topic changes, long pauses, a new

@@ -329,7 +329,27 @@ def status() -> dict:
         "routes": dict(_routes),
         "cpu_load": cpu_load(),
         "gpu_load": gpu_load(wait=False),
+        "song_eraser": song_eraser_status(),
     }
+
+
+def song_eraser_status() -> dict:
+    """Where the song eraser runs (5.7.5): {"can_gpu": this copy has DirectML and there's a card, "where": "gpu"/"cpu"/""
+    (not used yet), "why"}. Settings › Performance's "runs on" choice covers it too."""
+    try:
+        import onnxruntime as ort
+        dml = "DmlExecutionProvider" in (ort.get_available_providers() or [])
+    except Exception:       # noqa: BLE001
+        dml = False
+    try:
+        import songerase
+        st = songerase.status()
+        seen = songerase._remembered()
+    except Exception:       # noqa: BLE001
+        st, seen = {}, {}
+    where = st.get("where") or seen.get("device") or ""
+    why = st.get("why") or seen.get("why") or ("" if not seen.get("block") else f"about {seen['block']:.1f} s a block on the graphics card")
+    return {"can_gpu": dml and bool(card()["vendor"]), "where": where, "why": why}
 
 
 def installed() -> bool:

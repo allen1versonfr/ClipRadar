@@ -1127,7 +1127,13 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                 audio_src = voice_src
                 erased_voice = True
                 if eraser:
-                    exporteta.learn("voderase", "", total, time.time() - t0)
+                    where = songerase.status()
+                    if where.get("where") == "cpu":         # the graphics card's speed is kept by songerase itself
+                        exporteta.learn("voderase", "", total, time.time() - t0)
+                    log(f"The song eraser ran on the {'graphics card' if where.get('where') == 'gpu' else 'processor'}"
+                        + (f" ({where['why']})" if where.get("why") else "") + ".")
+                    if where.get("note"):
+                        _warn(job, where["note"])
                 log(f"{'Songs erased' if eraser else 'Music removed, voices kept,'} in {len(voice)} stretch{'es' if len(voice) != 1 else ''} "
                     f"({engine.fmt_ts(total)}) in {engine.fmt_ts(time.time() - t0)}, {got['blocks']} blocks through the model.")
             tr.done("erase")

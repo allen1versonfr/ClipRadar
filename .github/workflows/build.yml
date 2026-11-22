@@ -139,6 +139,7 @@ jobs:
           python tests/test_captions_anim.py
           python tests/test_vodexport.py
           python tests/test_songref.py
+          python tests/test_eraser_gpu.py
           python tests/test_priority.py
           python tests/test_targets.py
           python tests/test_sounds.py

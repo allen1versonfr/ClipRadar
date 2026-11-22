@@ -31,7 +31,7 @@ import persist
 # measured while making Clip Radar, on 4 cores (2026-11-22): the starting point until this PC has done one itself
 BASE_CORES = 4
 DEFAULTS = {
-    "voderase": 10.0 / 44.0,      # the song eraser model: 44 s for each 10 s block of song
+    "voderase": 10.0 / 41.3,      # the song eraser model on the processor: 41 s for each 10 s block of song (5.7.5)
     "vodknown": 360.0 / 22.0,     # a recognised song taken out with its recording: 6 min of song in 22 s
     "vodcopy": 100.0,             # the picture copied, the sound made again: limited by the drive more than the CPU
     "vodrender": 90.0 / 42.0,     # 1080p60 made at 720p, "balanced", on the processor
@@ -96,6 +96,14 @@ def _fmt(sec: float) -> str:
     return f"{max(1, m)} min" if sec >= 60 else f"{max(1, sec)} s"
 
 
+def _eraser_block() -> Optional[float]:
+    try:
+        import songerase
+        return songerase.expected_block_seconds()
+    except Exception:       # noqa: BLE001
+        return None
+
+
 def render_key(enc: str, out_h: int, fps: float, quality: str) -> str:
     return f"{enc}|{out_h}|{int(round(fps))}|{quality}"
 
@@ -117,15 +125,19 @@ def plan(*, length: float, info: dict, copying: bool, size: str, quality: str, e
         r, m = rate("vodknown")
         steps["known"] = known_s / r
         measured.append(m)
+    gpu_block = _eraser_block()
     if erase_s > 0:
-        r, m = rate("voderase")
+        if gpu_block:                       # 5.7.5: on the graphics card, timed on this PC when it was first tried
+            r, m = 10.0 / gpu_block, True
+        else:
+            r, m = rate("voderase")
         steps["erase"] = erase_s / r
         measured.append(m)
     if claim_s > 0:
         r, m = rate("vodclaim")
         t = claim_s / r
         if separate:                        # what's left of the music pulled out with the model too
-            t += claim_s / rate("voderase")[0]
+            t += claim_s / (10.0 / gpu_block if gpu_block else rate("voderase")[0])
         steps["claim"] = t
     hw = bool(encoder) and encoder not in ("libx264", "libx265", "libvpx-vp9", "CPU", "")
     if copying:
@@ -164,8 +176,10 @@ def plan(*, length: float, info: dict, copying: bool, size: str, quality: str, e
         if not hw and share >= MIN_SAY:
             held.append("No graphics card encoder was found, so the picture is made on the processor.")
     if steps.get("erase", 0) / max(1.0, total) >= MIN_SAY:
-        held.append(f"{_fmt(erase_s)} of song goes through the song eraser model ({_fmt(steps['erase'])}), the slowest part: it "
-                    "runs on the processor. Recognised songs are much quicker (their recording is taken out).")
+        held.append(f"{_fmt(erase_s)} of song goes through the song eraser model ({_fmt(steps['erase'])}), the slowest part"
+                    + (", on the graphics card." if gpu_block else
+                       ": it runs on the processor (see Settings › Performance for the graphics card).")
+                    + " Recognised songs are much quicker (their recording is taken out).")
     if steps.get("claim", 0) / max(1.0, total) >= MIN_SAY:
         held.append(f"Checking YouTube won't still hear the songs ({_fmt(steps['claim'])}). It can be turned off under the scan.")
     return {"steps": {k: round(v, 1) for k, v in steps.items()}, "seconds": round(total, 1), "together": bool(together),

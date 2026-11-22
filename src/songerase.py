@@ -110,12 +110,199 @@ def download(log: Log = _noop, folder: Optional[str] = None, progress=_noop) -> 
 
 
 class _Model:
-    def __init__(self, sess):
-        self.sess = sess
+    def __init__(self, sess, where: str = "cpu", fallback=None):
+        self.sess, self.where, self._fallback = sess, where, fallback
+        self._run = threading.Lock()      # DirectML can't take two runs of one session at once; the CPU doesn't mind
 
     def run(self, spec: np.ndarray) -> np.ndarray:
         """[1, 2, 1025, 1034] (re, im) -> [1, 6, 1025, 1034]: dialogue, music, effects, each re and im."""
-        return self.sess.run(None, {"mix_spec": spec})[0]
+        with self._run:
+            try:
+                out = self.sess.run(None, {"mix_spec": spec})[0]
+                if self.where != "cpu" and not np.isfinite(out).all():
+                    raise RuntimeError("the graphics card gave numbers that aren't numbers")
+                return out
+            except Exception as e:      # noqa: BLE001  5.7.5: the card failed partway (a driver reset): the processor goes on
+                if self.where == "cpu" or self._fallback is None:
+                    raise
+                _note(f"The song eraser stopped working on the graphics card ({str(e).strip().splitlines()[-1][:160] if str(e).strip() else type(e).__name__}); "
+                      "it goes on on the processor.")
+                _remember({"device": "cpu", "why": "failed on the graphics card", "card": _card_name()})
+                _status.update(where="cpu", why="it failed on the graphics card")
+                self.sess, self.where = self._fallback(), "cpu"
+                return self.sess.run(None, {"mix_spec": spec})[0]
+
+
+# ----------------------------------------------------------------- on the graphics card (5.7.5)
+# The model ran on the processor only: 44 s for each 10 s of song on 4 cores, most of a long export, with the graphics
+# card idle. DirectML (Windows' own way to run models on any DirectX 12 card: NVIDIA, AMD and Intel alike, as Whisper's
+# Vulkan engine is for AMD and Intel) runs it on the card. It's tried once per card: one block timed and checked, and
+# used only if it gives real numbers and beats the processor; the choice is kept (song_eraser_device.json) until the
+# card changes. Settings › Performance › "Whisper runs on" is the song eraser's choice too: Automatic, the graphics
+# card, or the CPU (and Automatic leaves the card alone while a game has it busy).
+
+DML = "DmlExecutionProvider"
+_status: dict = {"where": "", "why": "", "note": ""}
+
+
+def _device_file() -> Path:
+    return Path(paths.DATA_DIR) / "song_eraser_device.json"
+
+
+def _card_name() -> str:
+    try:
+        import gpu
+        c = gpu.card()
+        return str(c.get("name") or "")
+    except Exception:       # noqa: BLE001
+        return ""
+
+
+def _remembered() -> dict:
+    try:
+        import persist
+        d = persist.read_json(str(_device_file()), {}) or {}
+        return d if d.get("card") == _card_name() else {}
+    except Exception:       # noqa: BLE001
+        return {}
+
+
+def _remember(d: dict) -> None:
+    try:
+        import persist
+        persist.write_json(str(_device_file()), d)
+    except Exception:       # noqa: BLE001
+        pass
+
+
+def _note(m: str) -> None:
+    _status["note"] = m
+
+
+def status() -> dict:
+    """Where the song eraser runs and why, for Settings and the export's log: {"where": "gpu"/"cpu"/"", "why", "note"}."""
+    return dict(_status)
+
+
+def _want() -> str:
+    try:
+        import gpu
+        return gpu.mode()
+    except Exception:       # noqa: BLE001
+        return "auto"
+
+
+def _cpu_session(ort, p):
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = CPU_THREADS[0] or max(1, os.cpu_count() or 2)
+    # 5.7.5: every core, and the threads spin waiting for the model's next step: the processor really busy. Measured on 4
+    # cores: 41.3 s a block with 3.9 cores busy, against 51.8 s with 2.2 (one core left out, threads asleep between
+    # steps). Spinning was turned off in 5.4 because the PC crawled; since 5.4.2 Clip Radar's background work runs below
+    # normal priority (Keep the PC responsive), so Windows gives those cores to whatever you're doing first.
+    so.add_session_config_entry("session.intra_op.allow_spinning", "1")
+    so.add_session_config_entry("session.inter_op.allow_spinning", "0")
+    # 5.7.2: no memory pool: the same speed (measured: 44.5 s against 43.9 s a block on 4 cores) with about 3 GB
+    # held instead of 5, so a PC with 16 GB isn't pushed into swapping, which is what made it crawl
+    so.enable_cpu_mem_arena = False
+    so.log_severity_level = 3
+    return ort.InferenceSession(str(p), so, providers=["CPUExecutionProvider"])
+
+
+CPU_THREADS = [0]       # 0: every core (5.7.5; it was one fewer, leaving a core idle through hours of erasing)
+
+
+def _gpu_session(ort, p, device: int):
+    so = ort.SessionOptions()
+    so.enable_mem_pattern = False                         # DirectML's own requirements
+    so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    so.log_severity_level = 3
+    return ort.InferenceSession(str(p), so, providers=[(DML, {"device_id": int(device)}), "CPUExecutionProvider"])
+
+
+def _try_cards(ort, p) -> Optional[tuple]:
+    """(session, device, seconds a block) on the fastest card that gives real numbers, or None."""
+    import time as _t
+    rng = np.random.default_rng(0)
+    probe = (rng.standard_normal((1, 2, 1025, 1034)) * 0.05).astype(np.float32)
+    try:
+        import gpu
+        n = max(1, len(gpu.cards()))
+    except Exception:       # noqa: BLE001
+        n = 1
+    best = None
+    for dev in range(min(n, 3)):
+        try:
+            sess = _gpu_session(ort, p, dev)
+            sess.run(None, {"mix_spec": probe})            # the first run sets the card up: not timed
+            t0 = _t.perf_counter()
+            out = sess.run(None, {"mix_spec": probe})[0]
+            took = _t.perf_counter() - t0
+        except Exception:   # noqa: BLE001  this card can't run it
+            continue
+        if out.shape != (1, 6, 1025, 1034) or not np.isfinite(out).all() or not np.abs(out).max() > 0:
+            continue
+        if best is None or took < best[2]:
+            best = (sess, dev, took)
+    return best
+
+
+def _cpu_block_seconds() -> float:
+    """How long a block takes on this PC's processor: measured on an earlier export, or the typical speed for its cores."""
+    try:
+        import exporteta
+        return GEN / SR / exporteta.rate("voderase")[0]
+    except Exception:       # noqa: BLE001
+        return 44.0 * 4 / max(1, os.cpu_count() or 4)
+
+
+def _place(ort, p):
+    """The model's session on the graphics card when that's allowed, works and is quicker; else on the processor."""
+    want = _want()
+    have_dml = DML in (ort.get_available_providers() or [])
+    cpu = lambda: _cpu_session(ort, p)          # noqa: E731
+    if want == "cpu" or not have_dml:
+        _status.update(where="cpu", why="you chose the CPU" if want == "cpu" else "this copy of Clip Radar can't use the graphics card")
+        return _Model(cpu())
+    if want == "auto":
+        try:
+            import gpu
+            if gpu.gpu_load(wait=False) >= gpu.GPU_BUSY:
+                _status.update(where="cpu", why="the graphics card is busy (a game?)")
+                return _Model(cpu())
+        except Exception:   # noqa: BLE001
+            pass
+    seen = _remembered()
+    if seen.get("device") == "cpu" and want == "auto":
+        _status.update(where="cpu", why=seen.get("why") or "the processor was quicker on this PC")
+        return _Model(cpu())
+    if seen.get("device") == "gpu":
+        try:
+            sess = _gpu_session(ort, p, int(seen.get("id", 0)))
+            _status.update(where="gpu", why=f"about {seen.get('block', 0):.1f} s a block on {seen.get('card') or 'the graphics card'}")
+            return _Model(sess, "gpu", cpu)
+        except Exception:   # noqa: BLE001  the card changed under it: tried again below
+            pass
+    got = _try_cards(ort, p)
+    on_cpu = _cpu_block_seconds()
+    if got and (want == "gpu" or got[2] < on_cpu * 0.9):
+        sess, dev, took = got
+        _remember({"device": "gpu", "id": dev, "block": round(took, 2), "cpu_block": round(on_cpu, 1), "card": _card_name()})
+        _status.update(where="gpu", why=f"about {took:.1f} s a block on the graphics card, against {on_cpu:.0f} s on the processor")
+        return _Model(sess, "gpu", cpu)
+    why = ("the graphics card couldn't run it" if not got
+           else f"the processor is quicker on this PC ({on_cpu:.0f} s a block against {got[2]:.0f} s)")
+    _remember({"device": "cpu", "why": why, "card": _card_name()})
+    _status.update(where="cpu", why=why)
+    return _Model(cpu())
+
+
+def expected_block_seconds() -> Optional[float]:
+    """Seconds a block should take where the eraser will run, when the graphics card was timed on this PC (for the
+    export's time estimate); None to go by the processor's speed."""
+    seen = _remembered()
+    if seen.get("device") == "gpu" and _want() != "cpu" and seen.get("block"):
+        return float(seen["block"])
+    return None
 
 
 def _load():
@@ -128,17 +315,7 @@ def _load():
             p = model_path()
             if p is None:
                 raise RuntimeError("the song eraser model isn't installed")
-            so = ort.SessionOptions()
-            so.intra_op_num_threads = max(1, (os.cpu_count() or 2) - 1)
-            # threads wait for work without spinning: spinning kept every core but one at 100% even between blocks,
-            # and the PC crawled through a long Erase song (5.4)
-            so.add_session_config_entry("session.intra_op.allow_spinning", "0")
-            so.add_session_config_entry("session.inter_op.allow_spinning", "0")
-            # 5.7.2: no memory pool: the same speed (measured: 44.5 s against 43.9 s a block on 4 cores) with about 3 GB
-            # held instead of 5, so a PC with 16 GB isn't pushed into swapping, which is what made it crawl
-            so.enable_cpu_mem_arena = False
-            so.log_severity_level = 3
-            _session = _Model(ort.InferenceSession(str(p), so, providers=["CPUExecutionProvider"]))
+            _session = _place(ort, p)
         return _session
 
 
