@@ -222,6 +222,33 @@ describe('Export VOD', () => {
     await waitFor(() => expect(calls.filter(([p]) => p === '/api/vodexport/youtube').at(-1)?.[1]).toMatchObject({ auto: false }))
   })
 
+  it('5.7.4: before it starts, how long the export would take and what\'s holding it back; while it runs, the time left and why', async () => {
+    const calls: Array<[string, unknown]> = []
+    const est = { seconds: 5400, note: 'About 1 h 30 min, from typical speeds.', held: ['The picture is made again at 720p (1 h 20 min).'] }
+    vi.stubGlobal('fetch', vi.fn(async (p: string, init?: RequestInit) => {
+      calls.push([p, init?.body ? JSON.parse(String(init.body)) : undefined])
+      return new Response(JSON.stringify(p === '/api/vodexport' ? VIEW : p === '/api/vodexport/estimate' ? est : { words: [], covered: [] }), { status: 200 })
+    }))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    const box = await screen.findByTestId('vodx-estimate', {}, { timeout: 3000 })
+    expect(box.textContent).toMatch(/About 1 h 30 min/)
+    expect(within(box).getByTestId('vodx-held').textContent).toMatch(/made again at 720p/)
+    // asked with the same choices the export would be started with
+    expect(sent(calls, '/api/vodexport/estimate')).toMatchObject({ pid: 'p1', captions: 'off' })
+    cleanup()
+    const job = { id: 'j', kind: 'vodexport', status: 'running', step: 'Erasing songs', progress: 0.25, eta: 4000, log: [],
+      eta_note: 'Time left from this PC\'s own speed on earlier exports, then from how fast each step is going.',
+      held: ['The song eraser is going slower than this PC usually does.'], warning: '' }
+    vi.stubGlobal('fetch', vi.fn(async (p: string) => new Response(JSON.stringify(p === '/api/vodexport'
+      ? { ...VIEW, videos: [{ ...VIDEO, export_job: job }] } : { words: [], covered: [] }), { status: 200 })))
+    render(<ToastProvider><VodExportView /></ToastProvider>)
+    const bars = await screen.findAllByTestId('vodx-job')
+    const bar = bars.find(b => b.textContent?.includes('Erasing songs'))!
+    expect(bar.textContent).toMatch(/about 1 h 6 min left/)
+    expect(within(bar).getByTestId('vodx-eta-note').textContent).toMatch(/own speed on earlier exports/)
+    expect(within(bar).getByTestId('vodx-held').textContent).toMatch(/slower than this PC usually does/)
+  })
+
   it('a new scan starts the choices over', async () => {
     let view: object = VIEW
     vi.stubGlobal('fetch', vi.fn(async (p: string) => new Response(JSON.stringify(p === '/api/vodexport' ? view : { words: [], covered: [] }), { status: 200 })))

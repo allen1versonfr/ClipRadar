@@ -3,6 +3,7 @@ import { api } from '../../api/client'
 import { ErrorLog, ExportPerf, Gpu, Hotkey, JobStarted, Ok, Perf, Storage, type Status } from '../../api/schemas'
 import { useConfirm } from '../../components/Confirm'
 import { Seg } from '../../components/Seg'
+import { Help } from '../../components/Tip'
 import { useToast } from '../../components/Toasts'
 import { fmtBytes } from '../../format'
 import { useJob } from '../../hooks/useJob'
@@ -34,9 +35,14 @@ export function PerformancePanel() {
   }
   const p = pc.data
   const speeds = Object.entries(p?.speeds ?? {}).map(([k, v]) => `${k.replace('libx264', 'CPU (x264)')} ${v}× real time`).join(', ')
+  const about = {
+    renders: 'How many clips are made at the same time. More finish a queue sooner on a PC with many cores or a graphics card encoder, and use more memory.',
+    downloads: 'How many VODs download at once. More only helps when your connection is faster than one download fills.',
+    lives: 'How many live streams can be clipped at the same time (Targets included). Each records and listens all the time.',
+  }
   const select = (label: string, key: 'renders' | 'downloads' | 'lives') => (
-    <label>{label}
-      <select className="input" value={String(pr?.[key] ?? 1)} disabled={!pr} onChange={e => void save({ [key]: Number(e.target.value) })}>
+    <label>{label}<Help label={label} text={about[key]} />
+      <select className="input" aria-label={label} value={String(pr?.[key] ?? 1)} disabled={!pr} onChange={e => void save({ [key]: Number(e.target.value) })}>
         {(key === 'downloads' ? DOWNLOADS : ONE_TO_THREE.map(n => [n, n])).map(([v, t]) => <option key={v} value={v}>{t}</option>)}
       </select>
     </label>
@@ -51,7 +57,8 @@ export function PerformancePanel() {
       </div>
       <div className="fld">While rendering
         <Seg label="While rendering" value={pr?.priority ?? 'responsive'} onChange={v => void save({ priority: v === 'fast' ? 'fast' : 'responsive' })}
-             options={[['responsive', 'Keep the PC responsive'], ['fast', 'Finish faster']]} />
+             options={[['responsive', 'Keep the PC responsive', "Clip Radar's work runs below normal priority, so a game or the browser goes first. It still uses every core when nothing else needs them."],
+                       ['fast', 'Finish faster', "Everything at normal priority: done sooner, but the PC can stutter while it works."]]} />
         <small className="muted" data-testid="perf-exports">Export VOD and Segments use every core either way. Keeping the PC
           responsive runs them below normal priority, so whatever you're doing still goes first.</small>
       </div>
@@ -122,15 +129,20 @@ export function GpuSupport() {
       <p className="fine" data-testid="gpu-state">
         {name ? `${name}${d.vram_mb ? `, ${Math.round(d.vram_mb / 1024)} GB` : ''}` : 'No graphics card found'} · video {d.encoder && d.encoder !== 'CPU' ? `encoded on the GPU (${d.encoder})` : d.encoder === 'CPU' ? 'encoded on the CPU (no GPU encoder found)' : 'encoder checked at the first render'}
         {d.hw_decode ? ', decoded on the GPU when it can' : ', decoded on the CPU'} · Whisper {whisper}
+        {' · '}<span data-testid="gpu-eraser">song eraser {d.song_eraser.where === 'gpu' ? 'on the graphics card' : d.song_eraser.where === 'cpu' ? 'on the processor'
+          : d.song_eraser.can_gpu ? 'tried on the graphics card the first time it runs' : 'on the processor'}{d.song_eraser.why ? ` (${d.song_eraser.why})` : ''}</span>
       </p>
-      {d.vulkan && (
+      {(d.vulkan || d.song_eraser.can_gpu) && (
         <>
-          <div className="fld">Whisper runs on
+          <div className="fld">{d.vulkan ? 'Whisper and the song eraser run on' : 'The song eraser runs on'}
             <Seg label="Whisper runs on" value={d.mode} onChange={v => void setMode(v)}
-                 options={[['auto', 'Automatic'], ['gpu', 'Graphics card'], ['cpu', 'CPU']]} />
+                 options={[['auto', 'Automatic', 'The graphics card where it helps, the processor where words have to be right or the card is busy.'],
+                           ['gpu', 'Graphics card', 'Everything on the graphics card: quickest, caption timing a little looser.'],
+                           ['cpu', 'CPU', 'Everything on the processor: slower, leaves the graphics card to games.']]} />
           </div>
           <p className="fine" data-testid="gpu-routes">
-            {d.mode === 'auto' && 'Automatic puts titles and Deep scan on the card, keeps captions on the CPU, and moves titles to the CPU while the card is busy.'}
+            {d.mode === 'auto' && (d.vulkan ? 'Automatic puts titles and Deep scan on the card, keeps captions on the CPU, and moves titles to the CPU while the card is busy.' : '')}
+            {d.mode === 'auto' && d.song_eraser.can_gpu && ' The song eraser goes on the card when it was quicker there, and not while a game has the card busy.'}
             {d.mode === 'gpu' && 'Everything goes on the card. Caption timing is looser there.'}
             {d.mode === 'cpu' && 'Everything stays on the CPU.'}
             {' '}Right now: CPU {Math.round(d.cpu_load)}%, card {Math.round(d.gpu_load)}%.

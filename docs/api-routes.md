@@ -1,5 +1,7 @@
 | Method | Path |
 |---|---|
+| GET | `/remote-login` |
+| GET | `/api/remote` |
 | GET | `/` |
 | GET | `/index.html` |
 | GET | `/next` |
@@ -25,6 +27,8 @@
 | GET | `/api/learning/explain` |
 | GET | `/api/queue` |
 | GET | `/api/export` |
+| GET | `/api/youtube` |
+| GET | `/api/targets` |
 | GET | `/api/spelling` |
 | GET | `/api/errors` |
 | GET | `/api/campaigns` |
@@ -32,8 +36,8 @@
 | GET | `/api/locations` |
 | GET | `/api/framing/{id}` |
 | GET | `/api/vodexport` |
-| GET | `/api/vodexport/words` |
 | GET | `/api/segments` |
+| GET | `/api/vodexport/words` |
 | GET | `/api/perf` |
 | GET | `/api/timings` |
 | GET | `/api/strip/{id}` |
@@ -76,6 +80,9 @@
 | POST | `/api/uninstall` |
 | POST | `/api/live/start` |
 | POST | `/api/live/{id}/{stop|clip|settings}` |
+| POST | `/api/youtube` |
+| POST | `/api/targets/{add|update|remove}` |
+| POST | `/api/yt_handoff` |
 | POST | `/api/handoff` |
 | POST | `/api/preview` |
 | POST | `/api/studio` |
@@ -86,16 +93,24 @@
 | POST | `/api/check` |
 | POST | `/api/clip_remove` |
 | POST | `/api/clip_restore` |
+| POST | `/api/vodexport/open` |
 | POST | `/api/segments/add` |
+| POST | `/api/segments/add_many` |
+| POST | `/api/segments/youtube` |
 | POST | `/api/segments/save` |
 | POST | `/api/segments/delete` |
 | POST | `/api/segments/open` |
 | POST | `/api/segments/hear` |
 | POST | `/api/segments/export` |
-| POST | `/api/vodexport/open` |
+| POST | `/api/segments/estimate` |
 | POST | `/api/vodexport/youtube` |
 | POST | `/api/vodexport/scan` |
+| POST | `/api/vodexport/everywhere` |
+| POST | `/api/vodexport/recognise` |
+| POST | `/api/vodexport/segfind` |
+| POST | `/api/vodexport/music` |
 | POST | `/api/vodexport/start` |
+| POST | `/api/vodexport/estimate` |
 | POST | `/api/vodexport/words` |
 | POST | `/api/vodexport/hear` |
 | POST | `/api/vodexport/preview` |

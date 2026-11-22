@@ -320,7 +320,7 @@ def new_job(kind: str) -> dict:
     return job
 
 
-JOB_PUBLIC = ("id", "kind", "status", "step", "progress", "eta", "log", "result", "error", "started")
+JOB_PUBLIC = ("id", "kind", "status", "step", "progress", "eta", "eta_note", "held", "log", "result", "error", "started")
 
 
 def job_public(job: dict) -> dict:
@@ -1671,7 +1671,7 @@ from render_queue import (  # noqa: E402,F401
     _after_render, apply_perf, _attempt_end, _attempt_start, BrokenOutput, _CARD_WORDS, _check_output,
     _check_picture, _check_sound, _check_space, classify_render_error, _file_name, friendly_render_error,
     HISTORY_KEEP, MAX_WORKERS, MB_PER_SECOND, MEM_RESERVE, _mem_short, _needs_captions, _picture_soon, play_sound,
-    _prehear, _prehear_loop, _prehear_one, _prehear_started, _prehear_wake, queue_add, queue_busy, queue_eta,
+    _prehear, _prehear_loop, _prehear_one, _prehear_started, _prehear_wake, queue_add, queue_busy, queue_eta, queue_note,
     queue_public, queue_worker, RAM_SHORT, redact, _render_inputs, _render_item, _render_project, _render_projects,
     _render_projects_lock, RETRYABLE, set_stage, SOUND_LOG, start_prehear, TEST_HOOKS, _UNMEASURED,
     _validate_render, _wait_prehear, _workers, youtube_opts, background_priority, _lowered, _set_priority,

@@ -531,6 +531,12 @@ EXPORT VOD (A WHOLE VIDEO)
   PC picks any video file, on any drive. A video opened here isn't searched
   for clips, so it's ready in a second or two.
   There are no captions on an exported VOD or segment: YouTube makes its own.
+  How long it takes: under Export, before you start, how long the export
+  will take with what you've chosen, and anything notable making it slower
+  (the picture made again when it could be copied, songs going through the
+  song eraser, no graphics card encoder). While it runs, the time left and
+  what it rests on. It learns this PC's speed from each export. Segments
+  says the same under its Export button.
   Preview: the video plays as it is. On
   a wide window it sits beside the settings and stays in view while they
   scroll. The thin strip under it is the whole video (green: song erased,

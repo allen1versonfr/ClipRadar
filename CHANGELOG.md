@@ -5,6 +5,85 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.5] - 2026-11-22
+
+### Added
+- **The song eraser on the graphics card: NVIDIA, AMD and Intel.** It ran on the processor only, the slowest part of
+  an export by far (about 45 s for each 10 s of song on 4 cores), with the graphics card idle. It now runs through
+  DirectML, Windows' own way to run models on any DirectX 12 card, the way Whisper uses AMD and Intel cards through
+  Vulkan.
+  - **Tried once for each card:** one block timed and its numbers checked. It's used only if it works and is quicker
+    than the processor, and the choice is kept for that card. A PC with two cards (a laptop's built-in one and a
+    dedicated one) uses the faster.
+  - **Settings › Performance › "runs on"** (Automatic, Graphics card, CPU) is the song eraser's choice too. Automatic
+    leaves the card alone while a game has it busy. Settings says where the song eraser runs and why.
+  - **A card that stops partway** (a driver reset, out of memory) hands over to the processor without losing the
+    export, and the export says so.
+  - The export's time estimate uses the card's speed.
+- **Settings explain themselves.** Rest the pointer on a setting (or give it the keyboard's focus) and a short line says
+  what it does and what it costs:
+  - **Export VOD:** Size, Quality (Fast, Balanced, Best), Flagged words (Mute, Bleep), each music action, Find
+    segments' lengths.
+  - **Segments:** how the segments are exported, Size, Quality.
+  - **Settings › Performance:** renders, downloads and live streams at once; Keep the PC responsive or Finish
+    faster; where Whisper and the song eraser run.
+
+  From now on every setting whose effect isn't obvious gets one (DESIGN.md).
+
+### Changed
+- **The song eraser uses the whole processor when it runs there.** It used one core fewer than the PC has, and its
+  threads went to sleep between the model's steps: 2.2 of 4 cores busy. Now it uses every core and keeps them busy:
+  3.9 of 4, 41.3 s a block instead of 51.8 s (measured on 4 cores). With Keep the PC responsive it still runs below
+  normal priority, so whatever you're doing goes first.
+- **Builds use ONNX Runtime's DirectML build** in place of the plain one (CI, `build_exe.bat`, `install.bat`). It runs
+  everything else exactly as before on the processor (the music scan, face framing), and CI checks it's the one built.
+
+### Tests
+- `tests/test_eraser_gpu.py` (new, in CI). With ONNX Runtime and the card stood in for, it checks:
+  - **Placement:** a quicker AMD card used, and the choice kept; a slower card not used unless you chose it; the CPU
+    when you chose it; a card that gives broken numbers, a busy one, and a copy without DirectML all left alone.
+  - **Failure partway:** a card that fails mid-export hands over to the processor, says so, and isn't tried again.
+  - **Settings:** says where it runs and why.
+- `src/components/Tip.test.tsx`: each option's explanation goes with it and is read out with it, and a "?" for a
+  setting without one.
+
+## [5.7.4] - 2026-11-22
+
+### Added
+- **How long an export will take, and what's holding it back.** Export VOD and Segments now say how long an export will
+  take before you press Export, with what you've chosen, and update it as you change the size, quality or music.
+  While it runs, the time left and a short line on what that rests on (typical speeds until this PC has exported
+  something, then this PC's own), and anything notable that makes it slower than it could be:
+  - **The picture made again when it could be copied**, with how long copying would take instead (Size: Source).
+  - **A picture that can't be copied** (a VP9 or AV1 download), so every frame is made again.
+  - **No graphics card encoder**, so the picture is made on the processor.
+  - **Songs going through the song eraser model**, the slowest part, and how long they take.
+  - **The YouTube check**, and that it can be turned off.
+  - **A step going much slower than this PC usually does** (another program using the processor, the graphics card
+    or the drive, or the PC short of memory), noticed while it runs.
+- **Exports (clips) say it too.** Under the queue: what the time left rests on, and anything notable: clips made on
+  the processor with no graphics card encoder, one clip at a time on a PC that could do more (Settings ›
+  Performance), or clips waiting because the PC is short of memory.
+
+### Changed
+- **The time left is right, and the bar moves at an even pace.** Before, the time left came only from how fast the bar
+  had been moving, and the bar's parts were fixed shares that didn't match where the time goes. Erasing an hour of
+  songs is most of an export, but it got a quarter of the bar, so the estimate was off by hours and jumped at each
+  step. Each step is now planned from this PC's own measured speed, its time left follows its own speed as it runs,
+  steps that run side by side count once (the longer one), and the bar shows the share of the time that has gone.
+  Each export's speeds are kept for the next estimate (`export_speeds.json` in the data folder).
+
+### Tests
+- `tests/test_export_eta.py` (new, in CI):
+  - **The plan:** minutes for a copy and hours when the picture is made again, each held-back reason said when it
+    matters, the picture and songs made side by side taking less time, and this PC's own speeds used once there are
+    some.
+  - **The tracker:** time left from each step's own speed, steps side by side counted once, Segments' two at a time,
+    the bar only moving forward, and a slow step said.
+  - **The screens' data:** Export VOD's and Segments' estimate before starting, and the time left, what it rests on
+    and what's holding it back sent while exporting.
+- `VodExportView.test.tsx`: the estimate and held-back reasons before an export, and the time left and why during one.
+
 ## [5.7.3] - 2026-11-22
 
 ### Fixed

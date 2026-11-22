@@ -46,6 +46,10 @@ echo   [1/4] Installing build packages...
 "%VPY%" -m pip install --upgrade pip --disable-pip-version-check -q
 "%VPY%" -m pip install -U --disable-pip-version-check -q -r requirements.txt pywebview pyinstaller
 if errorlevel 1 ( echo   Package install failed. Check your internet connection and try again. & pause & exit /b 1 )
+rem 5.7.5: the song eraser on the graphics card (NVIDIA, AMD, Intel): ONNX Runtime's DirectML build in place of the plain one
+"%VPY%" -m pip uninstall -y -q onnxruntime >nul 2>&1
+"%VPY%" -m pip install -U --disable-pip-version-check -q "onnxruntime-directml>=1.20"
+if errorlevel 1 ( echo   The graphics card build of ONNX Runtime didn't install: the song eraser runs on the CPU. & "%VPY%" -m pip install -q onnxruntime )
 
 rem ---------- helper tools (shipped next to the exe) ----------
 echo   [2/4] Getting ffmpeg, TwitchDownloader and yt-dlp...

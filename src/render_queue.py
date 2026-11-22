@@ -828,6 +828,28 @@ def background_priority() -> None:
         _lowered[0] = True
 
 
+def queue_note() -> dict:
+    """What the clips' time left rests on, and anything notable holding them back (5.7.4): {"note", "held"}."""
+    with S.queue_lock:
+        items = [x for x in S.queue if x["status"] in ("queued", "rendering")]
+    if not items:
+        return {"note": "", "held": []}
+    known = all(exports.speed(exports.speed_key(render.video_encoder(S._ropts(x.get("opts") or {}, x.get("export") or {}))[0],
+                                                x.get("export") or {})) for x in items)
+    note = ("Time left from how fast this PC rendered clips like these before." if known
+            else "Time left shows once the first clip of this kind has started rendering (it's timed on this PC).")
+    held = []
+    enc = render._encoder_cache.get("hw") if "hw" in render._encoder_cache else "?"
+    if enc is None:
+        held.append("No graphics card encoder was found, so clips are made on the processor.")
+    queued = sum(1 for x in items if x["status"] == "queued")
+    if queued >= 3 and MAX_WORKERS[0] == 1 and (os.cpu_count() or 1) >= 8:
+        held.append("One clip renders at a time. This PC could do more: Settings › Performance › Clips rendering at once.")
+    if _mem_short() and MAX_WORKERS[0] > 1:
+        held.append("The PC is short of memory, so the next clips wait until more is free.")
+    return {"note": note, "held": held}
+
+
 def queue_eta() -> Optional[float]:
     """Time until everything in the queue is rendered (None when there's nothing to go on yet)."""
     total, unknown = 0.0, False

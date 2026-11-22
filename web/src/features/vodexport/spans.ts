@@ -5,7 +5,10 @@ import { plural } from '../../format'
 /** What happens to a stretch of music: the song erased (talking and game sound kept), all of it silenced, or left
  *  alone. "voice" is the name the server has always used for erasing. */
 export type MusicAction = 'voice' | 'mute' | 'keep'
-export const ACTIONS: Array<[MusicAction, string]> = [['voice', 'Erase song'], ['mute', 'Mute all sound'], ['keep', 'Keep']]
+export const ACTIONS: Array<[MusicAction, string, string]> = [
+  ['voice', 'Erase song', "The song goes and the talking and the game's sound stay, like YouTube Studio's Erase song. A recognised song's own recording is taken out; others go through the song eraser model (slower)."],
+  ['mute', 'Mute all sound', 'Silence for the whole stretch, talking included. Quick, and nothing can be claimed there.'],
+  ['keep', 'Keep', 'Left as it is. YouTube may claim it if it hears a song.']]
 
 /** A stretch of music on Export VOD: one the scan found (with how sure it was and how much talking it heard), or
  *  one you marked yourself (mine). Its edges can be moved on the timeline. */

@@ -630,6 +630,10 @@ video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offs
 .vodx-style { display: flex; flex-direction: column; gap: 10px; }
 .vodx-go { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .vodx-job { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
+/* 5.7.4: what an export's time rests on, and what's notable about why it takes as long as it does */
+.vodx-held { margin: 0; padding-left: 18px; color: var(--tx1); display: grid; gap: 2px; }
+.vodx-held li { line-height: 1.35; }
+.vodx-estimate { display: grid; gap: 4px; margin-top: 6px; }
 .vodx-done { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .vodx-done p { margin: 0; overflow-wrap: anywhere; }
 
@@ -684,3 +688,29 @@ video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offs
 /* 5.2: Settings › Server mode */
 .server-url, .server-code { display: block; font-size: 15px; padding: 6px 10px; border-radius: var(--r); background: var(--bg1); user-select: all; }
 .server-code { font-size: 22px; letter-spacing: .12em; width: max-content; }
+
+/* 5.7.4: a setting's explanation, when the pointer rests on it or it has the keyboard's focus (components/Tip.tsx).
+   Not laid out at all until it's shown (display: none): a hidden bubble still widened the page, so a narrow window
+   scrolled sideways. */
+.tip { position: relative; display: inline-flex; }
+.tip-bubble {
+  display: none; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: min(260px, 80vw); padding: 7px 10px; border-radius: var(--r);
+  background: var(--bg4); color: var(--tx0); border: 1px solid var(--line2); box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+  font-size: 12px; font-weight: 400; line-height: 1.4; text-align: left; white-space: normal; letter-spacing: 0;
+  pointer-events: none; z-index: 60;
+}
+.tip-wide .tip-bubble { max-width: min(320px, 80vw); }
+.tip:hover > .tip-bubble, .tip:focus-within > .tip-bubble { display: block; animation: tip-in .12s ease .35s both; }
+@keyframes tip-in { from { opacity: 0; transform: translateX(-50%) translateY(2px); } to { opacity: 1; transform: translateX(-50%); } }
+.help-dot {
+  width: 16px; height: 16px; border-radius: 50%; padding: 0; margin-left: 4px; border: 1px solid var(--line2);
+  background: transparent; color: var(--tx2); font-size: 10px; font-weight: 700; line-height: 14px; cursor: help;
+}
+.help-dot:hover, .help-dot:focus-visible { color: var(--tx0); border-color: var(--tx2); }
+/* a fingertip's 44 px on a touch screen, the circle drawn in the middle of it; a tap shows the explanation (focus) */
+@media (pointer: coarse) {
+  .help-dot { width: 44px; height: 44px; margin: -14px -12px -14px -8px; border: none; line-height: 44px;
+              background: radial-gradient(circle, transparent 0 7px, var(--line2) 7px 8px, transparent 8.5px); }
+}
+@media (prefers-reduced-motion: reduce) { .tip:hover > .tip-bubble, .tip:focus-within > .tip-bubble { animation: none; } }

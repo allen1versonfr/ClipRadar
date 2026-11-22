@@ -9,7 +9,8 @@ import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
 import { YouTubeBox } from '../exports/Posting'
-import { DEFAULTS, JobBar, QUALITY, SIZES, type Choices } from '../vodexport/VodExportView'
+import { Help } from '../../components/Tip'
+import { DEFAULTS, ExportEstimate, JobBar, QUALITY, SIZES, type Choices } from '../vodexport/VodExportView'
 import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from '../vodexport/VodTimeline'
 import { addCut, editLen, gainToVolume, kept, move, pastCut, playlist, segLen, step, type Segment } from './model'
 
@@ -180,8 +181,9 @@ function Editor({ edit, refresh, yt }: { edit: SegEdit; refresh: () => Promise<v
   const tl = useRef<VodTimelineHandle>(null)
   const exporting = edit.export_job?.status === 'running'
   const ticked = segs.filter(s => s.on && segLen(s) > 0)
+  const exportBody = (one?: string) => ({ id: edit.id, ...c, captions: 'off', segment: one ?? '', whisper_model: model, language, hw_encode: base.hw_encode })
   function startExport(one?: string) {
-    void api(JobStarted, '/api/segments/export', { id: edit.id, ...c, captions: 'off', segment: one ?? '', whisper_model: model, language, hw_encode: base.hw_encode })
+    void api(JobStarted, '/api/segments/export', exportBody(one))
       .then(() => toast(one ? `Exporting ${segs.find(s => s.id === one)?.name || 'the segment'}…`
         : c.mode === 'join' ? 'Exporting the edit as one video…' : `Exporting ${plural(ticked.length, 'video')}…`))
       .catch(e => toast(err(e), 'err')).finally(() => void refresh())
@@ -299,14 +301,15 @@ function Editor({ edit, refresh, yt }: { edit: SegEdit; refresh: () => Promise<v
 
       <section className="panel set" aria-labelledby="segv-ex">
         <h2 id="segv-ex">Export</h2>
-        <Seg label="How the segments are exported" value={c.mode} options={[['each', 'A video for each segment'], ['join', 'All joined into one video']]}
+        <Seg label="How the segments are exported" value={c.mode} options={[['each', 'A video for each segment', 'Each ticked segment is saved as a video of its own, in a folder named after the edit.'],
+                   ['join', 'All joined into one video', 'The ticked segments one after another, in the order they are in, as one video.']]}
              onChange={mode => set({ mode: mode as 'each' | 'join' })} />
         <p className="hint" data-testid="segv-mode-hint">{c.mode === 'each'
           ? <>Each ticked segment is saved as its own video, named after the segment, in a folder named after this edit. To export
             just one, use <b>Export this segment</b> on it.</>
           : 'The ticked segments are played one after another in one video, in the order shown.'}</p>
-        <div className="row wrap"><span className="muted">Size</span><Seg label="Size" value={c.size} options={SIZES} onChange={size => set({ size })} /></div>
-        <div className="row wrap"><span className="muted">Quality</span><Seg label="Quality" value={c.quality} options={QUALITY} onChange={quality => set({ quality })} /></div>
+        <div className="row wrap"><span className="muted">Size<Help label="Size" text="Original copies each segment's picture as it is, the quickest by far (a segment then starts on the keyframe just before where you set it). Any other size makes every frame again." /></span><Seg label="Size" value={c.size} options={SIZES} onChange={size => set({ size })} /></div>
+        <div className="row wrap"><span className="muted">Quality<Help label="Quality" text="How hard the encoder works on each frame when the picture is made again (any size but Original)." /></span><Seg label="Quality" value={c.quality} options={QUALITY} onChange={quality => set({ quality })} /></div>
         <p className="hint" data-testid="segv-speed">{c.size === 'source'
           ? 'Quick: the picture is copied as it is and only the sound is made again. Each segment starts on the nearest keyframe up to 2.5 seconds before where you set it. No captions: YouTube adds its own.'
           : 'A new size means every frame is made again. Original makes the export many times quicker.'}</p>
@@ -322,6 +325,7 @@ function Editor({ edit, refresh, yt }: { edit: SegEdit; refresh: () => Promise<v
                 {c.mode === 'each' ? `Export ${plural(ticked.length, 'video')} · ${fmtTime(total)}`
                   : `Export one video · ${fmtTime(total)}${segs.some(s => s.on) ? ` · ${plural(list.length, 'part')}` : ''}`}</button>}
         </footer>
+        {!exporting && edit.exists && !dirty && total >= 1 && <ExportEstimate path="/api/segments/estimate" body={exportBody()} />}
         <ExportDone job={edit.export_job} edit={edit} yt={yt} refresh={refresh} />
       </section>
       </div>

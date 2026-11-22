@@ -55,6 +55,9 @@ echo   [3/5] Installing captions (Whisper). First time takes a few minutes...
 if errorlevel 1 (
   echo   Captions couldn't be installed. Clip Radar will still work, just without captions.
 )
+rem 5.7.5: the song eraser on the graphics card (NVIDIA, AMD, Intel): ONNX Runtime's DirectML build in place of the plain one
+"%VPY%" -m pip uninstall -y -q onnxruntime >nul 2>&1
+"%VPY%" -m pip install -U --disable-pip-version-check -q "onnxruntime-directml>=1.20" || "%VPY%" -m pip install -q onnxruntime
 "%VPY%" src\audio_events.py --download src\models >nul 2>&1 || echo   The laughter detector didn't download. You can get it later in Settings.
 
 rem ---------- ffmpeg ----------
