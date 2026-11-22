@@ -217,7 +217,8 @@ def candidates(song: dict, search: Optional[Callable] = None) -> list:
 def _search(q: str) -> list:
     try:
         import yt_dlp
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True}) as y:
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True,
+                               "socket_timeout": 30, "retries": 2}) as y:     # 5.7.6: a stalled search gives up
             r = y.extract_info("ytsearch8:" + q, download=False) or {}
         return [e for e in (r.get("entries") or []) if e]
     except Exception:           # noqa: BLE001  no network, YouTube changed: nothing found
