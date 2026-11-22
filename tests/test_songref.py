@@ -245,6 +245,17 @@ else:
         check("in blocks, the song is taken out as well as in one go", abs(drop2 - drop) <= 1.0 and r2["found"] >= 15, f"{drop2:.1f} vs {drop:.1f}, {r2}")
         check("and its temporary files are gone", not [f for f in os.listdir(tmp) if f.endswith(".f32")], os.listdir(tmp))
 
+        # two exports of one stream (same folder, same process) each keep their own temporary files: one finishing
+        # used to delete the other's mid-read (known_<pid>_0.f32, "No such file or directory")
+        raws, real_clean = [], songref._clean_stretch
+        songref._clean_stretch = lambda video, x0, x1, ref, raw, *a: (raws.append(raw), real_clean(video, x0, x1, ref, raw, *a))[1]
+        try:
+            for name in ("export_a.flac", "export_b.flac"):
+                songref.erase_known(stream, [(10.0, 30.0, ref_file)], os.path.join(tmp, name), 2.0, 36.0, cache)
+        finally:
+            songref._clean_stretch = real_clean
+        check("two exports into one folder never share a temporary file", len(raws) == 2 and raws[0] != raws[1], str(raws))
+
         # the recording found for a recognised song must be the one in the stream: a wrong upload ranked first is passed over
         wrong_file = os.path.join(tmp, "wrong.flac")
         write(wrong_file, song(2, 60))

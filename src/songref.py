@@ -413,7 +413,9 @@ def erase_known(video: str, songs: list, out_path: str, start: float, length: fl
             log(f"Couldn't get the song for {engine.fmt_ts(a)} to {engine.fmt_ts(b)}: {e}")
             missed.append((round(max(a, x0), 2), round(min(b, x1), 2)))
             continue
-        raw = os.path.join(os.path.dirname(os.path.abspath(out_path)), f"known_{os.getpid()}_{i}.f32")
+        # named after out_path, not the process: two exports of one stream share the folder and the process, and
+        # each one's cleanup took the other's file away mid-read (5.7.5: "No such file ... known_<pid>_0.f32")
+        raw = f"{os.path.splitext(os.path.abspath(out_path))[0]}_{i}.f32"
         raws.append(raw)
         cleaned, rep = _clean_stretch(video, x0, x1, ref, raw, check,
                                       lambda f, i=i: progress((i + f) / len(songs) * 0.9))
