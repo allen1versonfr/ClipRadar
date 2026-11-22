@@ -410,21 +410,21 @@ def _make_all(S, job: dict, pr: dict, o: dict, files: list, tmp: str) -> list:
     from concurrent.futures import ThreadPoolExecutor
     workers = AT_ONCE_PARTS if (os.cpu_count() or 1) >= 4 else 1
     parts = [(k, i) for k, f in enumerate(files) for i in range(len(f["plan"]))]
-    lock = threading.Lock()
-    share, done = {}, {}
-    for k, f in enumerate(files):
-        lo, hi = f["band"]
-        total = sum(b - a for _, a, b in f["plan"]) or 1.0
-        for i, (_, a, b) in enumerate(f["plan"]):
-            share[(k, i)] = (hi - lo) * 0.97 * (b - a) / total
-        share[(k, "join")] = (hi - lo) * 0.03
-    to_bar = S.job_progress(job, 0.0, 1.0)
+    import exporteta
+    plans = _plans(S, pr, o, files)
+    flat = [p for row in plans for p in row]
+    whole = exporteta.combine(flat, workers)
+    steps = {f"p:{k}:{i}": p["seconds"] for k, row in enumerate(plans) for i, p in enumerate(row)}
+    steps.update({f"j:{k}": 2.0 + sum(b - a for _, a, b in f["plan"]) / 3000.0 for k, f in enumerate(files) if len(f["plan"]) > 1})
+    tr = exporteta.Tracker(job, steps, False, S.job_progress(job, 0.0, 1.0), basis=vodexport._basis(whole), held=whole["held"],
+                           workers=workers)
+    if whole["held"]:
+        S.job_logger(job)("This export: about " + exporteta._fmt(whole["seconds"]) + ". " + " ".join(whole["held"]))
     stop = {"v": False}
 
     def moved(key, v):
-        with lock:
-            done[key] = max(done.get(key, 0.0), v)
-            to_bar(min(0.999, sum(share[x] * done.get(x, 0.0) for x in share)))
+        k, i = key
+        tr.step(f"j:{k}" if i == "join" else f"p:{k}:{i}")(v)
 
     def one(k, i):
         f = files[k]
@@ -504,13 +504,9 @@ def _rm(p: str) -> None:
         pass
 
 
-def run_export(S, job: dict, eid: str, body: dict) -> dict:
-    """Export an edit (5.0.1): each segment as a video of its own (mode "each", the default), or only the one
-    named in body["segment"], or the ticked segments joined into one video (mode "join", as before).
-    Segments are saved in Settings › Storage › Segment exports: one segment's video straight there, an edit's in
-    a folder named after the edit."""
-    e = _find(eid)
-    pr = ensure_open(S, e)
+def _prepare(S, e: dict, pr: dict, body: dict, snap: bool = True) -> tuple:
+    """What an export of the edit makes: (mode, [(segment, [(segment, start, end)])], ids of the segments whose picture
+    is copied, the export's options). snap: move copied stretches onto keyframes (the export; an estimate skips it)."""
     dur = vodexport._duration(pr)
     one = str(body.get("segment") or "")
     mode = "join" if body.get("mode") == "join" and not one else "each"
@@ -528,22 +524,56 @@ def run_export(S, job: dict, eid: str, body: dict) -> dict:
     # cut on the keyframe just after (a little more cut). Burned-in captions mean every frame is made again.
     copied = set()
     if vodexport.can_copy(o, engine.probe(pr["video"])):
-        kf = vodexport.keyframes(pr["video"], [a for _, g in groups for _, a, _ in g])
-        snapped = []
-        for s, g in groups:
-            new = vodexport.snap_to_keyframes([(a, b) for _, a, b in g], kf)
-            if all(new):
-                snapped.append((s, [(s, a, b) for a, b in new]))
-                copied.add(s["id"])
-            else:
-                snapped.append((s, g))          # a stretch with no keyframe near: this segment is made the slow way
-        groups = snapped
-        if mode == "join" and len(copied) != len(groups):     # one file: all copied, or all made again
-            groups, copied = [(s, [(s, a, b) for a, b in kept(s)]) for s, _ in groups], set()
-    total = sum(b - a for _, g in groups for _, a, b in g)
+        if not snap:
+            copied = {s["id"] for s, _ in groups}
+        else:
+            kf = vodexport.keyframes(pr["video"], [a for _, g in groups for _, a, _ in g])
+            snapped = []
+            for s, g in groups:
+                new = vodexport.snap_to_keyframes([(a, b) for _, a, b in g], kf)
+                if all(new):
+                    snapped.append((s, [(s, a, b) for a, b in new]))
+                    copied.add(s["id"])
+                else:
+                    snapped.append((s, g))          # a stretch with no keyframe near: this segment is made the slow way
+            groups = snapped
+            if mode == "join" and len(copied) != len(groups):     # one file: all copied, or all made again
+                groups, copied = [(s, [(s, a, b) for a, b in kept(s)]) for s, _ in groups], set()
     if body.get("cleanup", True) is not False:
         o["music"], o["word_spans"] = vodexport.suggested(pr)
         o["songs"] = vodexport.suggested_songs(pr)
+    return mode, groups, copied, o
+
+
+def _plans(S, pr: dict, o: dict, files: list) -> list:
+    """Each stretch's plan, in the order _make_all makes them: [[plan of each stretch] for each file]."""
+    return [[vodexport.estimate(S, pr, dict(o, gain_db=s["gain_db"]), a, b, whole=True, part=True, copy=f["copy"])
+             for s, a, b in f["plan"]] for f in files]
+
+
+def estimate_export(S, eid: str, body: dict) -> dict:
+    """How long exporting the edit would take with these choices, before it starts (5.7.4): {"seconds", "note", "held"}."""
+    import exporteta
+    e = _find(eid)
+    pr = ensure_open(S, e)
+    _, groups, copied, o = _prepare(S, e, pr, body, snap=False)
+    files = [{"plan": g, "copy": s["id"] in copied} for s, g in groups]
+    plans = [p for row in _plans(S, pr, o, files) for p in row]
+    workers = AT_ONCE_PARTS if (os.cpu_count() or 1) >= 4 else 1
+    c = exporteta.combine(plans, workers)
+    return {"seconds": c["seconds"], "note": f"About {exporteta._fmt(c['seconds'])}, from {c['basis'][0]}.", "held": c["held"]}
+
+
+def run_export(S, job: dict, eid: str, body: dict) -> dict:
+    """Export an edit (5.0.1): each segment as a video of its own (mode "each", the default), or only the one
+    named in body["segment"], or the ticked segments joined into one video (mode "join", as before).
+    Segments are saved in Settings › Storage › Segment exports: one segment's video straight there, an edit's in
+    a folder named after the edit."""
+    e = _find(eid)
+    pr = ensure_open(S, e)
+    one = str(body.get("segment") or "")
+    mode, groups, copied, o = _prepare(S, e, pr, body, snap=True)
+    total = sum(b - a for _, g in groups for _, a, b in g)
     outdir = locations.segments_dir()      # Settings › Storage › Segment exports, apart from the clips (5.0)
     if mode == "each" and not one:
         outdir = os.path.join(outdir, exports.safe(e["name"] or "Segments"))   # an edit's segments kept together

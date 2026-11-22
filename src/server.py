@@ -320,7 +320,7 @@ def new_job(kind: str) -> dict:
     return job
 
 
-JOB_PUBLIC = ("id", "kind", "status", "step", "progress", "eta", "log", "result", "error", "started")
+JOB_PUBLIC = ("id", "kind", "status", "step", "progress", "eta", "eta_note", "held", "log", "result", "error", "started")
 
 
 def job_public(job: dict) -> dict:

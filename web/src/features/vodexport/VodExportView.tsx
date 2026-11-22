@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { Job, JobStarted, Ok, Picked, PreviewCopy, SegAdded, Segments, VodExport, VodOpened, VodYoutube, type MusicSpan, type VodExportVideo, type VodFlag } from '../../api/schemas'
+import { Estimate, Job, JobStarted, Ok, Picked, PreviewCopy, SegAdded, Segments, VodExport, VodOpened, VodYoutube, type MusicSpan, type VodExportVideo, type VodFlag } from '../../api/schemas'
 import { Seg } from '../../components/Seg'
 import { useToast } from '../../components/Toasts'
 import { usePoll } from '../../hooks/usePoll'
@@ -350,6 +350,7 @@ function Editor({ v, view, refresh }: { v: VodExportVideo; view: VodExport; refr
                 .filter(Boolean).map(x => ' · ' + x).join('')}
             </button>}
       </footer>
+      {!exporting && v.exists && <ExportEstimate path="/api/vodexport/estimate" body={options()} />}
       {v.export_job && !exporting && <ExportResult job={v.export_job} />}
       {v.exported && !exporting && <YouTubePanel v={v} view={view} refresh={refresh} />}
       </div>
@@ -611,13 +612,53 @@ function SendToSegments({ v, now, seek, mark, setMark }: {
 
 export function JobBar({ job, label }: { job: NonNullable<VodExportVideo['export_job']>; label: string }) {
   const pct = Math.round(job.progress * 100)
-  const left = job.eta && job.eta > 5 ? ` · about ${fmtTime(job.eta)} left` : ''
+  const left = job.eta && job.eta > 5 ? ` · about ${fmtLong(job.eta)} left` : ''
   return (
     <div className="vodx-job" data-testid="vodx-job">
       <span className="small">{job.step || label} · {pct}%{left}</span>
       <span className="meter wide" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
         <i style={{ width: `${pct}%` }} />
       </span>
+      {/* 5.7.4: what the time left rests on, and what's notable about why it takes as long as it does */}
+      {job.eta_note && <small className="muted" data-testid="vodx-eta-note">{job.eta_note}</small>}
+      <Held items={job.held ?? []} />
+    </div>
+  )
+}
+
+/** "1 h 20 min", "12 min", "40 s": a long wait said the way people say it. */
+export function fmtLong(sec: number): string {
+  const s = Math.max(0, Math.round(sec))
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
+  if (h) return m ? `${h} h ${m} min` : `${h} h`
+  return s >= 60 ? `${Math.max(1, m)} min` : `${s} s`
+}
+
+function Held({ items }: { items: string[] }) {
+  if (!items.length) return null
+  return (
+    <ul className="vodx-held small" data-testid="vodx-held" aria-label="What's taking the time">
+      {items.map(h => <li key={h}>{h}</li>)}
+    </ul>
+  )
+}
+
+/** 5.7.4: how long the export would take with what's chosen now, asked again when the choices change. */
+export function ExportEstimate({ path, body }: { path: string; body: Record<string, unknown> }) {
+  const key = JSON.stringify(body)
+  const [est, setEst] = useState<Estimate | null>(null)
+  useEffect(() => {
+    let live = true
+    const t = window.setTimeout(() => {
+      api(Estimate, path, JSON.parse(key)).then(e => { if (live) setEst(e) }).catch(() => { if (live) setEst(null) })
+    }, 400)
+    return () => { live = false; clearTimeout(t) }
+  }, [path, key])
+  if (!est || est.seconds == null) return null
+  return (
+    <div className="vodx-estimate" data-testid="vodx-estimate">
+      <small className="muted">{est.note}</small>
+      <Held items={est.held} />
     </div>
   )
 }

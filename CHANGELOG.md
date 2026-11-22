@@ -5,6 +5,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.4] - 2026-11-22
+
+### Added
+- **How long an export will take, and what's holding it back.** Export VOD and Segments now say how long an export will
+  take before you press Export, with what you've chosen, and update it as you change the size, quality or music.
+  While it runs, the time left and a short line on what that rests on (typical speeds until this PC has exported
+  something, then this PC's own), and anything notable that makes it slower than it could be:
+  - **The picture made again when it could be copied**, with how long copying would take instead (Size: Source).
+  - **A picture that can't be copied** (a VP9 or AV1 download), so every frame is made again.
+  - **No graphics card encoder**, so the picture is made on the processor.
+  - **Songs going through the song eraser model**, the slowest part, and how long they take.
+  - **The YouTube check**, and that it can be turned off.
+  - **A step going much slower than this PC usually does** (another program using the processor, the graphics card
+    or the drive, or the PC short of memory), noticed while it runs.
+- **Exports (clips) say it too.** Under the queue: what the time left rests on, and anything notable: clips made on
+  the processor with no graphics card encoder, one clip at a time on a PC that could do more (Settings ›
+  Performance), or clips waiting because the PC is short of memory.
+
+### Changed
+- **The time left is right, and the bar moves at an even pace.** Before, the time left came only from how fast the bar
+  had been moving, and the bar's parts were fixed shares that didn't match where the time goes. Erasing an hour of
+  songs is most of an export, but it got a quarter of the bar, so the estimate was off by hours and jumped at each
+  step. Each step is now planned from this PC's own measured speed, its time left follows its own speed as it runs,
+  steps that run side by side count once (the longer one), and the bar shows the share of the time that has gone.
+  Each export's speeds are kept for the next estimate (`export_speeds.json` in the data folder).
+
+### Tests
+- `tests/test_export_eta.py` (new, in CI):
+  - **The plan:** minutes for a copy and hours when the picture is made again, each held-back reason said when it
+    matters, the picture and songs made side by side taking less time, and this PC's own speeds used once there are
+    some.
+  - **The tracker:** time left from each step's own speed, steps side by side counted once, Segments' two at a time,
+    the bar only moving forward, and a slow step said.
+  - **The screens' data:** Export VOD's and Segments' estimate before starting, and the time left, what it rests on
+    and what's holding it back sent while exporting.
+- `VodExportView.test.tsx`: the estimate and held-back reasons before an export, and the time left and why during one.
+
 ## [5.7.3] - 2026-11-22
 
 ### Fixed

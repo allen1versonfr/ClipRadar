@@ -121,6 +121,14 @@ export function ExportsView() {
         {items.length > 0 && <button className="btn ghost" data-testid="clear-queue" onClick={() => void clearQueue()}>Clear queue</button>}
         <button className="btn ghost" onClick={() => act('/api/open_folder', { folder: 'root' })}>Open clips folder</button>
       </header>
+      {/* 5.7.4: what the time left rests on, and anything notable holding the clips back */}
+      {items.some(q => q.status === 'queued' || q.status === 'rendering') && (queue.data?.eta_note || (queue.data?.held ?? []).length > 0) && (
+        <div className="vodx-estimate" data-testid="exports-eta">
+          {queue.data?.eta_note && <small className="muted">{queue.data.eta_note}</small>}
+          {(queue.data?.held ?? []).length > 0 && (
+            <ul className="vodx-held small" aria-label="What's taking the time">{queue.data!.held!.map(h => <li key={h}>{h}</li>)}</ul>)}
+        </div>
+      )}
       {campaign && <a className="notice" href="#settings/campaigns" data-testid="ex-campaign">Campaign: {campaign.name}. Clips you keep now follow its rules. Change it in Settings › Campaigns.</a>}
       {queue.error && <p className="banner err" role="alert">{queue.error}</p>}
       {!queue.data && !queue.error && <p className="muted pad">Loading…</p>}

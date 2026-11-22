@@ -630,6 +630,10 @@ video:focus, video:focus-within { outline: 2px solid var(--accent); outline-offs
 .vodx-style { display: flex; flex-direction: column; gap: 10px; }
 .vodx-go { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .vodx-job { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
+/* 5.7.4: what an export's time rests on, and what's notable about why it takes as long as it does */
+.vodx-held { margin: 0; padding-left: 18px; color: var(--tx1); display: grid; gap: 2px; }
+.vodx-held li { line-height: 1.35; }
+.vodx-estimate { display: grid; gap: 4px; margin-top: 6px; }
 .vodx-done { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .vodx-done p { margin: 0; overflow-wrap: anywhere; }
 

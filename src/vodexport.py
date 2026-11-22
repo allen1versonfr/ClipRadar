@@ -38,6 +38,7 @@ import engine
 import render
 import whisper
 import exports
+import exporteta
 import locations
 import outcome
 import procjob
@@ -824,7 +825,6 @@ def copy_video(video: str, out_path: str, info: dict, ro: render.RenderOpts, spa
 # ---------------------------------------------------------------- the picture, made apart (5.7.3)
 
 PIECE_MIN = 90.0          # seconds: a picture shorter than twice this is made in one piece
-MUX = 0.04                # the bar's share for putting the picture and the sound together
 
 
 def picture_pieces(length: float) -> int:
@@ -934,6 +934,48 @@ def _temp_room(folder: str, seconds: float, files: int) -> None:
                           "Free some space, or move the temp folder in Settings › Storage")
 
 
+def plan_range(info: dict, o: dict, ro, length: float, voice: list, known: list, claim: bool, copying: bool,
+               n_pieces: int, apart: bool) -> dict:
+    """How long making `length` seconds with these choices should take on this PC, step by step (exporteta.plan),
+    with "key": the render speed it was looked up by."""
+    enc = render.video_encoder(ro)[0] if not copying else ""
+    fps = render.output_fps(info, ro)
+    out_h = int(round((info.get("height") or 1080) * (ro.scale or 1.0)))
+    erase_s = sum(y - x for x, y in voice)
+    known_s = sum(y - x for x, y, *_ in known)
+    p = exporteta.plan(length=length, info=info, copying=copying, size=o.get("size", "source"), quality=o.get("quality", "balanced"),
+                       encoder=enc, out_h=out_h, fps=fps, erase_s=erase_s, known_s=known_s,
+                       claim_s=(erase_s + known_s) if claim else 0.0, separate=claim and can_erase() and songerase.available(),
+                       pieces=max(1, n_pieces), together=apart and bool(voice or known or claim),
+                       copyable=info.get("vcodec") in COPY_CODECS)
+    p["key"] = exporteta.render_key(enc or "cpu", out_h, fps, o.get("quality", "balanced"))
+    return p
+
+
+def _basis(plan: dict) -> str:
+    return "Time left from " + plan["basis"][0] + ", then from how fast each step is going."
+
+
+def _sound_parts(o: dict, a: float, b: float, has_audio: bool) -> tuple:
+    """(voice, known) from a to b: the Erase song stretches the eraser model does, and those whose song is known."""
+    voice = [(x, y) for x, y, m in o["music"] if m == "voice" and y > a and x < b] if has_audio else []
+    known = [(x, y, src) for x, y, src in o.get("songs") or [] if y > a and x < b] if has_audio else []
+    voice = [(x, y) for x, y in voice if not any(p <= x + 0.01 and y - 0.01 <= q for p, q, _ in known)]
+    clip = lambda x, y: (max(x, a), min(y, b))          # noqa: E731
+    return [clip(x, y) for x, y in voice], [(*clip(x, y), s) for x, y, s in known]
+
+
+def estimate(S, pr: dict, o: dict, a: float, b: float, whole: bool = True, part: bool = False, copy: bool = False) -> dict:
+    """The plan for one export (or one Segments stretch) before it starts, made the way render_range will make it."""
+    info = engine.probe(pr["video"])
+    ro = render_opts(S, o, info)
+    voice, known = _sound_parts(o, a, b, bool(info.get("has_audio")))
+    claim = bool((voice or known) and o.get("claim_check", True) and _can_recognise())
+    copying = whole and can_copy(o, info) and (not part or copy)
+    n = picture_pieces(b - a) if not copying else 0
+    return plan_range(info, o, ro, b - a, voice, known, claim, copying, n, bool(n and (n > 1 or voice or known or claim)))
+
+
 def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str, whole: bool,
                  part: bool = False, band: tuple = (0.0, 1.0), label: str = "", words: Optional[list] = None,
                  copy: bool = False, keep_models: bool = False) -> dict:
@@ -970,9 +1012,7 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     # a Segments part is copied too when its start was moved onto a keyframe for it (copy=True, 5.1.1)
     copying = whole and can_copy(o, info) and (not part or copy)
     w_hear = 0.45 if need_words else 0.0
-    w_voice = (0.6 if copying else 0.25) * (1 - w_hear) if voice or known else 0.0
     claim = bool((voice or known) and (whole or part) and o.get("claim_check", True) and _can_recognise())
-    w_claim = 0.15 * (1 - w_hear) if claim else 0.0
     words = [w for w in (words or []) if a <= w["start"] < b] if given and o["captions"] != "off" else []
     if need_words:
         if not whisper.whisper_available() and not (pr.get("yt") or {}).get("words"):
@@ -1002,24 +1042,19 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     # core busy. The sound is put on it at the end, without making the picture again.
     sound_work = bool(voice or known or claim)
     n_pieces = picture_pieces(length) if (whole or part) and not copying else 0
+    apart = bool(n_pieces and (n_pieces > 1 or sound_work))
+    # 5.7.4: how long each step should take here, followed as it runs: the time left, and what's holding it back
+    plan = plan_range(info, o, ro, length, voice, known, claim, copying, n_pieces, apart)
+    tr = exporteta.Tracker(job, plan["steps"], plan["together"], S.job_progress(job, lo, hi), basis=_basis(plan),
+                           held=plan["held"], set_eta=not part)
+    if not part and plan["held"]:
+        log("This export: about " + exporteta._fmt(plan["seconds"]) + ". " + " ".join(plan["held"]))
     pic = None
-    if n_pieces and (n_pieces > 1 or sound_work):
+    if apart:
         pic = _Picture(video, a, length, ro, info, tmpdir, n_pieces, check, log, lambda m: _warn(job, m))
-        sound_share = w_hear + w_voice + w_claim
-        pic_share = max(0.0, 1.0 - sound_share - MUX)
-        at = {"sound": 0.0}
-        to_bar = S.job_progress(job, lo, hi)
+        to_pic = tr.step("picture")
         made = pic
-
-        def push():
-            to_bar(min(1.0 - MUX, at["sound"] + pic_share * made.fraction()))
-        pic.on_progress = push
-
-        def bar(x, y):          # noqa: F811  the sound's steps, with the picture's progress added on
-            def f(v):
-                at["sound"] = x + (y - x) * max(0.0, min(1.0, v))
-                push()
-            return f
+        pic.on_progress = lambda: to_pic(made.fraction())
         log(f"The picture is made at the same time as the sound, in {n_pieces} piece{'s' if n_pieces != 1 else ''} side by side.")
     try:
         if known:
@@ -1028,10 +1063,9 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             step(f"Taking the recognised songs out of {engine.fmt_ts(total)}")
             known_src = os.path.join(tmpdir, f"known_{uuid.uuid4().hex[:8]}.flac")
             t0 = time.time()
-            share = w_voice * (0.5 if voice or can_erase() else 1.0)
             try:
                 got = songref.erase_known(video, known, known_src, a, length, locations.temp_dir("songs"),
-                                          progress=bar(w_hear, w_hear + share), check=check, log=log)
+                                          progress=tr.step("known"), check=check, log=log)
             except engine.Cancelled:
                 raise
             except Exception as e:       # noqa: BLE001  5.7.1: the eraser model or muting does it instead, not a failed export
@@ -1045,6 +1079,8 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             else:
                 log(f"Known songs taken out in {engine.fmt_ts(time.time() - t0)}.")
                 audio_src = known_src
+                exporteta.learn("vodknown", "", total, time.time() - t0)
+            tr.done("known")
             left = [(max(p, a), min(q, b)) for p, q in got["missed"] if min(q, b) - max(p, a) >= 0.5]
             if left and can_erase():        # where the recording wasn't heard, the eraser model does it
                 voice = sorted(voice + left)
@@ -1057,8 +1093,6 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                 _warn(job, "The song couldn't be taken out of " + ", ".join(f"{engine.fmt_ts(p)}-{engine.fmt_ts(q)}" for p, q in left[:4])
                       + (f" and {len(left) - 4} more" if len(left) > 4 else "")
                       + ", so those parts are muted. Get the song eraser in Settings › Downloads and tools to keep the talking there.")
-            w_hear += share
-            w_voice -= share
         if voice:
             total = sum(y - x for x, y in voice)
             eraser = songerase.available()
@@ -1066,13 +1100,15 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             voice_src = os.path.join(tmpdir, f"voice_{uuid.uuid4().hex[:8]}.flac")
             t0 = time.time()
             fn = songerase.erase if eraser else voicekeep.keep_voice
+            tr.plan["erase"] = total / exporteta.rate("voderase")[0]     # it may have grown: parts the recording wasn't heard in
+            to_erase = tr.step("erase")
             try:
                 if known_src:       # on top of the sound the named songs were already taken out of
                     got = fn(known_src, [rel(x, y) for x, y in voice], voice_src, start=0.0, length=0.0,
-                             progress=bar(w_hear, w_hear + w_voice), check=check)
+                             progress=to_erase, check=check)
                 else:
                     got = fn(video, [rel(x, y) for x, y in voice], voice_src, start=a, length=0.0 if whole and not part else length,
-                             progress=bar(w_hear, w_hear + w_voice), check=check)
+                             progress=to_erase, check=check)
                 if not os.path.isfile(voice_src) or os.path.getsize(voice_src) < 100:
                     raise RuntimeError("it made no sound")
             except engine.Cancelled:
@@ -1090,8 +1126,11 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             else:
                 audio_src = voice_src
                 erased_voice = True
+                if eraser:
+                    exporteta.learn("voderase", "", total, time.time() - t0)
                 log(f"{'Songs erased' if eraser else 'Music removed, voices kept,'} in {len(voice)} stretch{'es' if len(voice) != 1 else ''} "
                     f"({engine.fmt_ts(total)}) in {engine.fmt_ts(time.time() - t0)}, {got['blocks']} blocks through the model.")
+            tr.done("erase")
         if claim and audio_src:
             # 5.7: would YouTube still catch it? The erased sound heard again, as Content ID would hear it; what's still
             # recognised is muted in those seconds, and the export says where
@@ -1100,9 +1139,11 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             step("Checking YouTube won't still hear the songs")
             erased = sorted(([rel(x, y) for x, y in voice] if erased_voice else []) + [rel(x, y) for x, y, _ in known])
             src_ = audio_src
+            t_claim = time.time()
             try:
                 left = songid.still_heard(lambda t, n: _sr.read(src_, t, n), erased, check,
-                                          bar(w_hear + w_voice, w_hear + w_voice + w_claim), separate=can_erase() and songerase.available())
+                                          tr.step("claim"), separate=can_erase() and songerase.available())
+                exporteta.learn("vodclaim", "", sum(q - p for p, q in erased), time.time() - t_claim)
             except engine.Cancelled:
                 raise
             except Exception as e:      # noqa: BLE001  5.7.1: the check is a safety net; it failing isn't a failed export
@@ -1119,14 +1160,19 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                 log(f"Still recognisable after erasing ({left[0][2]}) at {where}: muted there, {engine.fmt_ts(sum(q - p for p, q, _ in left))} in all.")
                 _warn(job, f"A song was still recognisable after erasing in {len(left)} place{'s' if len(left) != 1 else ''} "
                            f"({where}): those seconds are muted, so YouTube won't catch them.")
-        prog = bar(w_hear + w_voice + w_claim, 1.0)
+        tr.done("claim")
+        prog = tr.step("picture")
+        t_pic = time.time()
         if pic:
             step(("Rendering" if part else "Rendering the whole video") + " (the picture)")
             try:
                 pieces = pic.wait(check)
                 step("Putting the picture and the sound together")
                 pinfo = dict(info, vcodec=engine.probe(pieces[0]).get("vcodec", "h264"))
-                copy_video(video, path, pinfo, ro, spans, audio_src, S.job_progress(job, lo + (hi - lo) * (1 - MUX), hi), check,
+                tr.done("picture")
+                if not sound_work:
+                    exporteta.learn("vodrender", plan["key"], length, time.time() - t_pic)
+                copy_video(video, path, pinfo, ro, spans, audio_src, tr.step("join"), check,
                            length=length, audio_start=0.0 if audio_src else a, pieces=pieces)
                 bad = check_made(path, length, has_audio)
                 if bad:
@@ -1142,7 +1188,8 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                 log(f"Making the picture apart didn't work ({_reason(e)}): making the video the usual way.")
                 pic.stop()
                 pic = None
-                prog = S.job_progress(job, lo + (hi - lo) * (w_hear + w_voice + w_claim), hi)
+                tr.restart("picture", plan_range(info, o, ro, length, [], [], False, False, 1, False)["steps"]["picture"])
+                prog = tr.step("picture")
             else:
                 pic.stop()          # the pieces aren't needed any more
                 pic = "made"
@@ -1156,6 +1203,9 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                 if bad:
                     _remove(path)
                     raise RuntimeError(bad)
+                if not part:
+                    exporteta.learn("vodcopy", "", length, time.time() - t_pic)
+                tr.done("picture")
             except engine.Cancelled:
                 raise
             except Exception as e:      # noqa: BLE001  5.7.1: made the slow way instead of failing the export
@@ -1164,6 +1214,8 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                 _remove(path)
                 copying = False
                 log(f"Copying the picture didn't work ({_reason(e)}): making the video again instead.")
+                tr.restart("picture", plan_range(info, o, ro, length, [], [], False, False, 1, False)["steps"]["picture"])
+                prog = tr.step("picture")
                 step(("Rendering" if part else "Rendering the whole video") + " (the picture couldn't be copied)")
         if not copying and pic != "made":
             if not (whole and can_copy(o, info) and (not part or copy)):
@@ -1178,6 +1230,10 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                 if bad:
                     log(f"Made, but {bad}.")
                     _warn(job, f"The video was made, but {bad}. Watch it through before you upload it.")
+                if not sound_work:          # timed alone (alongside the songs being erased, it shares the processor)
+                    exporteta.learn("vodrender", plan["key"], length, time.time() - t_pic)
+            tr.done("picture")
+        tr.done("join")
     finally:
         if isinstance(pic, _Picture):
             pic.stop()
@@ -1563,6 +1619,15 @@ def start_hear(S, pid: str, body: dict) -> dict:
         words = hear_all(S, pr, model, lang, a, b, S.job_progress(job, 0, 1), S.job_check(job), S.job_step(job))
         return {"start": a, "end": b, "words": len(words)}
     return _start(S, pid, "vod_hear_job", "vodhear", go)
+
+
+def estimate_export(S, pid: str, body: dict) -> dict:
+    """How long the export would take with these choices, before it starts (5.7.4): {"seconds", "note", "held"}."""
+    pr = S.projects[pid]
+    dur = _duration(pr)
+    if dur <= 0 or not os.path.isfile(pr["video"]):
+        return {"seconds": None, "note": "", "held": []}
+    return exporteta.summary(estimate(S, pr, clean_options(body, dur), 0.0, dur))
 
 
 def start_export(S, pid: str, body: dict) -> dict:

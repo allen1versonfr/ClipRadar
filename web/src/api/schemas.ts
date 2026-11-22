@@ -103,6 +103,9 @@ export const QueueCleared = z.looseObject({ removed: z.number().default(0), rend
 export const Queue = z.looseObject({
   items: z.array(QueueItem),
   eta: z.number().nullable(),
+  /** 5.7.4: what the time left rests on, and anything notable holding the clips back */
+  eta_note: z.string().optional(),
+  held: z.array(z.string()).optional(),
   workers: z.number().optional(),
   /** 5.1: whether Clip Radar can upload for you, sent with the list so Exports' buttons are right from the start */
   uploads: z.looseObject({ tiktok: z.boolean().default(false), youtube: z.boolean().default(false),
@@ -151,11 +154,22 @@ export const Job = z.looseObject({
   step: z.string().default(''),
   progress: z.number().default(0),
   eta: z.number().nullable().optional(),
+  /** 5.7.4: what the time left rests on, and anything notable holding the job back (exports) */
+  eta_note: z.string().nullable().optional(),
+  held: z.array(z.string()).nullable().optional(),
   log: z.array(z.string()).default([]),
   error: z.string().nullable().optional(),
   result: z.unknown().optional(),
 })
 export type Job = z.infer<typeof Job>
+
+/** How long an export would take before it starts (/api/vodexport/estimate, /api/segments/estimate, 5.7.4) */
+export const Estimate = z.looseObject({
+  seconds: z.number().nullable().default(null),
+  note: z.string().default(''),
+  held: z.array(z.string()).default([]),
+})
+export type Estimate = z.infer<typeof Estimate>
 
 export const JobStarted = z.looseObject({ job: z.string(), already: z.boolean().optional() })
 /** Just enough of a project or live session to hand it to Review. */

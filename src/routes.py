@@ -343,7 +343,9 @@ class Handler(BaseHTTPRequestHandler):
                 items = [render_queue.queue_public(it) for it in S.queue]
             # 5.1: whether Clip Radar can upload for you, with the list, so Exports' buttons are right from the start
             # (they used to appear a moment after the list, and "Open TikTok Studio" got pressed in their place)
-            return self._json({"items": items, "eta": render_queue.queue_eta(), "workers": render_queue.MAX_WORKERS[0],
+            why = render_queue.queue_note()        # 5.7.4: what the time left rests on, and what's holding it back
+            return self._json({"items": items, "eta": render_queue.queue_eta(), "eta_note": why["note"], "held": why["held"],
+                               "workers": render_queue.MAX_WORKERS[0],
                                "uploads": _uploads_now()})
         if p == "/api/export":
             return self._json(S.export_view())
@@ -1271,6 +1273,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"job": segments.start_hear(S, eid, str(body.get("segment") or ""), body)["id"]})
                 if act == "export":
                     return self._json({"job": segments.start_export(S, eid, body)["id"]})
+                if act == "estimate":
+                    # how long exporting the edit would take, and what's holding it back (5.7.4)
+                    return self._json(segments.estimate_export(S, eid, body))
             except segments.Conflict as e:
                 return self._err(str(e), 409)
             except LookupError as e:
@@ -1306,6 +1311,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(vodexport.save_music(S.projects[pid], body))
             if act == "start":
                 return self._json({"job": vodexport.start_export(S, pid, body)["id"]})
+            if act == "estimate":
+                # how long the export would take with these choices, and what's holding it back (5.7.4)
+                return self._json(vodexport.estimate_export(S, pid, body))
             if act == "words":
                 return self._json({"job": vodexport.start_words(S, pid, body)["id"]})
             if act == "hear":

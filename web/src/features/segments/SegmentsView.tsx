@@ -9,7 +9,7 @@ import { plural } from '../../format'
 import { getPref, renderOpts, setPref } from '../../prefs'
 import { fmtTime } from '../exports/renderStatus'
 import { YouTubeBox } from '../exports/Posting'
-import { DEFAULTS, JobBar, QUALITY, SIZES, type Choices } from '../vodexport/VodExportView'
+import { DEFAULTS, ExportEstimate, JobBar, QUALITY, SIZES, type Choices } from '../vodexport/VodExportView'
 import { type Box, VodTimeline, type VodTimelineHandle, ZoomButtons } from '../vodexport/VodTimeline'
 import { addCut, editLen, gainToVolume, kept, move, pastCut, playlist, segLen, step, type Segment } from './model'
 
@@ -180,8 +180,9 @@ function Editor({ edit, refresh, yt }: { edit: SegEdit; refresh: () => Promise<v
   const tl = useRef<VodTimelineHandle>(null)
   const exporting = edit.export_job?.status === 'running'
   const ticked = segs.filter(s => s.on && segLen(s) > 0)
+  const exportBody = (one?: string) => ({ id: edit.id, ...c, captions: 'off', segment: one ?? '', whisper_model: model, language, hw_encode: base.hw_encode })
   function startExport(one?: string) {
-    void api(JobStarted, '/api/segments/export', { id: edit.id, ...c, captions: 'off', segment: one ?? '', whisper_model: model, language, hw_encode: base.hw_encode })
+    void api(JobStarted, '/api/segments/export', exportBody(one))
       .then(() => toast(one ? `Exporting ${segs.find(s => s.id === one)?.name || 'the segment'}…`
         : c.mode === 'join' ? 'Exporting the edit as one video…' : `Exporting ${plural(ticked.length, 'video')}…`))
       .catch(e => toast(err(e), 'err')).finally(() => void refresh())
@@ -322,6 +323,7 @@ function Editor({ edit, refresh, yt }: { edit: SegEdit; refresh: () => Promise<v
                 {c.mode === 'each' ? `Export ${plural(ticked.length, 'video')} · ${fmtTime(total)}`
                   : `Export one video · ${fmtTime(total)}${segs.some(s => s.on) ? ` · ${plural(list.length, 'part')}` : ''}`}</button>}
         </footer>
+        {!exporting && edit.exists && !dirty && total >= 1 && <ExportEstimate path="/api/segments/estimate" body={exportBody()} />}
         <ExportDone job={edit.export_job} edit={edit} yt={yt} refresh={refresh} />
       </section>
       </div>

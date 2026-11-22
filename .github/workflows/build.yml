@@ -185,6 +185,7 @@ jobs:
           python tests/test_render_lifecycle.py
           python tests/test_songref.py
           python tests/test_song_speed.py
+          python tests/test_export_eta.py
           python tests/test_black_cover.py
           python tests/test_gpu.py
           python tests/test_gpu_choice.py
