@@ -56,3 +56,11 @@ export function captionAt(words: Word[], t: number, per: number): Word[] {
 
 /** Whether second t has been listened to already. */
 export const heardAt = (covered: number[][], t: number) => covered.some(([a, b]) => t >= a! && t < b!)
+
+/** Whether at least half of a stretch is inside the others (a stretch whose edges you moved still covers the one the
+ *  scan found). 5.7.3: the stretches the scan gains after you changed your list are the ones that aren't covered. */
+export const covered = (x: { start: number; end: number }, others: { start: number; end: number }[]) => {
+  if (x.end <= x.start) return true
+  const inside = others.reduce((n, o) => n + Math.max(0, Math.min(x.end, o.end) - Math.max(x.start, o.start)), 0)
+  return inside >= 0.5 * (x.end - x.start)
+}

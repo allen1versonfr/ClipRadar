@@ -235,6 +235,30 @@ describe('Export VOD', () => {
     await waitFor(() => expect(screen.getByTestId('vodx-music-summary').textContent).toMatch(/1 erased, 1 muted/), { timeout: 4000 })
   })
 
+  it('5.7.3: songs found after you changed the list (the same scan gains them) are still in the export', async () => {
+    const calls: Array<[string, unknown]> = []
+    let view: object = VIEW
+    vi.stubGlobal('fetch', vi.fn(async (p: string, init?: RequestInit) => {
+      calls.push([p, init?.body ? JSON.parse(String(init.body)) : undefined])
+      return new Response(JSON.stringify(p === '/api/vodexport' ? view : p.startsWith('/api/vodexport/words') ? { words: [], covered: [] } : { job: 'j1' }), { status: 200 })
+    }))
+    const { rerender } = render(<ToastProvider><VodExportView /></ToastProvider>)
+    await screen.findByTestId('vodx-music-summary')
+    // your list: the stretch at 1:00 kept
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Music at 1:00' })).getByRole('radio', { name: 'Keep' }))
+    // then Look for songs everywhere finds a song at 50:00 and the song at 1:00 again at 1:30:00, in the same scan
+    const more = [...VIDEO.scan.spans, { start: 3000, end: 3180, confidence: 1, speech: 0, suggest: 'voice', song: { title: 'S', artist: 'A', url: 'https://youtu.be/s' } },
+      { start: 5400, end: 5500, confidence: 1, speech: 0, suggest: 'voice' }]
+    view = { ...VIEW, videos: [{ ...VIDEO, scan: { ...VIDEO.scan, spans: more } }] }
+    fireEvent(document, new Event('visibilitychange'))
+    rerender(<ToastProvider><VodExportView /></ToastProvider>)
+    await waitFor(() => expect(screen.getAllByTestId('vodx-span')).toHaveLength(4), { timeout: 4000 })
+    fireEvent.click(screen.getByTestId('vodx-export'))
+    await waitFor(() => expect(sent(calls, '/api/vodexport/start')).toBeDefined())
+    // what you set is kept (1:00 left alone), and both new ones are erased
+    expect(sent(calls, '/api/vodexport/start')!.music).toEqual([[3000, 3180, 'voice', 'https://youtu.be/s'], [3600, 3660, 'mute'], [5400, 5500, 'voice']])
+  })
+
   it('music the scan missed can be marked, is erased in the export, and stays through a new scan', async () => {
     const calls: Array<[string, unknown]> = []
     let view: object = VIEW

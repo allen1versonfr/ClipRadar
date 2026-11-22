@@ -144,9 +144,14 @@ def suggest_action(confidence: float, speech: float, can_remove: bool, keeps_res
         return "keep" if speech >= SPEECH_ON else "mute"
     # nobody talking: muting does what the voice-only remover would, in no time; the song eraser keeps the game's
     # sound, which muting would lose. A weak detection is left alone, so game sound half-taken for music is kept
+    if can_remove and keeps_rest:
+        # 5.7.3: erased even when the scan is unsure. The song eraser keeps the talking and the game's sound, so a
+        # stretch that wasn't music loses nothing; a song left as "keep" because the scan was unsure is what YouTube
+        # caught. (Without it, a weak detection is still left alone: muting would lose the game's sound.)
+        return "voice"
     if confidence < 0.5:
         return "keep"
-    return "voice" if can_remove and keeps_rest else "mute"
+    return "mute"
 
 
 def _scan_file(pr: dict) -> str:
@@ -758,21 +763,35 @@ def snap_to_keyframes(stretches: list, kf: list, first_back: bool = True, most: 
 
 
 def copy_video(video: str, out_path: str, info: dict, ro: render.RenderOpts, spans: list, audio_src: str,
-               progress, check, start: float = 0.0, length: float = 0.0) -> None:
+               progress, check, start: float = 0.0, length: float = 0.0, audio_start: float = 0.0,
+               pieces: Optional[list] = None) -> None:
     """The export with the picture copied as it is and only the sound made again (muted spans, the sound with
     its music removed). Many times faster than encoding the picture: nothing is decoded but the sound.
     start, length: only that stretch (a segment, 5.1.1; start must be a keyframe). spans are times in the stretch,
-    and audio_src (when there is one) starts where the stretch does."""
+    and audio_src (when there is one) starts where the stretch does.
+    5.7.3: audio_start: where in audio_src the sound starts (the video's own sound under a picture made apart).
+    pieces: the picture is these files one after another (made side by side), joined as they are; `video` is then
+    only where the sound comes from when there's no audio_src."""
     work = os.path.dirname(os.path.abspath(out_path))
     tag = uuid.uuid4().hex[:8]
     tmp, cmd_name = f"vc_{tag}.part.mp4", f"vc_{tag}.cmd"
     length = float(length or (float(info["duration"]) - start))
     cmd = [engine.ffmpeg(), "-v", "error", "-y", "-nostdin", "-progress", "pipe:1", "-nostats"]
-    if start > 0:
-        cmd += ["-ss", f"{start:.3f}"]
-    cmd += ["-t", f"{length:.3f}", "-i", video]
+    lst = ""
+    if pieces:
+        lst = os.path.join(work, f"vc_{tag}.txt")
+        with open(lst, "w", encoding="utf-8") as f:
+            for p_ in pieces:
+                f.write("file '" + os.path.abspath(p_).replace("\\", "/").replace("'", r"'\''") + "'\n")
+        cmd += ["-f", "concat", "-safe", "0", "-t", f"{length:.3f}", "-i", lst]
+        if not audio_src and info.get("has_audio"):
+            audio_src = video             # the sound from the video itself, from audio_start
+    else:
+        if start > 0:
+            cmd += ["-ss", f"{start:.3f}"]
+        cmd += ["-t", f"{length:.3f}", "-i", video]
     if audio_src:
-        cmd += ["-t", f"{length:.3f}", "-i", audio_src]
+        cmd += [*(["-ss", f"{audio_start:.3f}"] if audio_start > 0 else []), "-t", f"{length:.3f}", "-i", audio_src]
     ain = "1:a:0" if audio_src else "0:a:0"
     cmd += ["-map", "0:v:0", "-c:v", "copy"]
     if info.get("vcodec") == "hevc":
@@ -793,12 +812,91 @@ def copy_video(video: str, out_path: str, info: dict, ro: render.RenderOpts, spa
         _run_ffmpeg(cmd, work, length, progress, check)
         os.replace(os.path.join(work, tmp), out_path)
     finally:
-        for name in (tmp, cmd_name):
-            try:
-                os.remove(os.path.join(work, name))
-            except OSError:
-                pass
+        for name in (tmp, cmd_name, lst):
+            if name:
+                try:
+                    os.remove(os.path.join(work, name))
+                except OSError:
+                    pass
     progress(1.0)
+
+
+# ---------------------------------------------------------------- the picture, made apart (5.7.3)
+
+PIECE_MIN = 90.0          # seconds: a picture shorter than twice this is made in one piece
+MUX = 0.04                # the bar's share for putting the picture and the sound together
+
+
+def picture_pieces(length: float) -> int:
+    """How many pieces a picture of `length` seconds is made in, side by side. One FFmpeg can't keep every core busy
+    (its decoding and filters run on few of them): measured on 4 cores, two halves side by side took 12.5 s where one
+    FFmpeg took 15.0 s. More pieces on a PC with more cores; each at least PIECE_MIN seconds."""
+    cores = os.cpu_count() or 2
+    most = 1 if cores < 4 else 2 if cores < 8 else 3 if cores < 16 else 4
+    return max(1, min(most, int(length // PIECE_MIN)))
+
+
+class _Picture:
+    """The picture from a for length seconds (no sound), made in n pieces side by side, each an exact number of frames,
+    so they add up to the whole to the frame and the sound put on after stays in step. Started at once and left to run
+    while the sound is worked on; wait() returns the pieces in order, or raises what went wrong."""
+
+    def __init__(self, video: str, a: float, length: float, ro, info: dict, folder: str, n: int, check, log, warn):
+        self.fps = render.output_fps(info, ro)
+        total = max(1, int(round(length * self.fps)))
+        n = max(1, min(n, total))
+        self.cuts = [int(round(k * total / n)) for k in range(n + 1)]
+        tag = uuid.uuid4().hex[:8]
+        self.paths = [os.path.join(folder, f"pic_{tag}_{k}.mp4") for k in range(n)]
+        self.done = [0.0] * n
+        self.errors: list = []
+        self.stopped = False
+        self.on_progress = lambda: None
+        self._threads = []
+
+        def stop_check():
+            if self.stopped:
+                raise engine.Cancelled()
+            check()
+
+        def one(k):
+            f0, f1 = self.cuts[k], self.cuts[k + 1]
+            t0 = a + f0 / self.fps
+            t1 = t0 + (f1 - f0) / self.fps + 2.0 / self.fps        # a frame or two over: -frames:v cuts it exact
+            try:
+                render.render_clip(video, t0, t1, self.paths[k], ro, title="", log=log, check=stop_check,
+                                   progress=lambda f, k=k: self._moved(k, f), words=[], censor=[], audio_src="",
+                                   warn=warn, faststart=False, picture_only=True, frames=f1 - f0, threads=[])
+            except BaseException as e:      # noqa: BLE001  said by wait()
+                self.errors.append(e)
+                self.stopped = True         # the others stop too: the picture is made the usual way instead
+        for k in range(n):
+            th = threading.Thread(target=one, args=(k,), daemon=True)
+            self._threads.append(th)
+            th.start()
+
+    def _moved(self, k: int, f: float):
+        self.done[k] = max(self.done[k], min(1.0, f))
+        self.on_progress()
+
+    def fraction(self) -> float:
+        return sum(self.done) / len(self.done)
+
+    def wait(self, check) -> list:
+        for th in self._threads:
+            while th.is_alive():
+                check()
+                th.join(0.5)
+        if self.errors:
+            raise self.errors[0]
+        return self.paths
+
+    def stop(self):
+        self.stopped = True
+        for th in self._threads:
+            th.join(30)
+        for p_ in self.paths:
+            _remove(p_)
 
 
 def check_made(path: str, expect: float, want_audio: bool) -> str:
@@ -838,7 +936,7 @@ def _temp_room(folder: str, seconds: float, files: int) -> None:
 
 def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str, whole: bool,
                  part: bool = False, band: tuple = (0.0, 1.0), label: str = "", words: Optional[list] = None,
-                 copy: bool = False) -> dict:
+                 copy: bool = False, keep_models: bool = False) -> dict:
     """Make the video from a to b with everything the screen chose. whole: the real export (the picture is
     copied when it can be, a subtitle file is written); otherwise the exact preview of a few seconds.
     part: one stretch of a Segments export, at full quality but never copied (a copied picture can only
@@ -899,6 +997,30 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
     known_src = ""
     voice_src = ""
     erased_voice = False
+    # 5.7.3: a picture that's made again is made apart from the sound, in pieces side by side, starting now: while the
+    # songs are erased, not after (the two took one after the other, the CPU half idle through each), and with every
+    # core busy. The sound is put on it at the end, without making the picture again.
+    sound_work = bool(voice or known or claim)
+    n_pieces = picture_pieces(length) if (whole or part) and not copying else 0
+    pic = None
+    if n_pieces and (n_pieces > 1 or sound_work):
+        pic = _Picture(video, a, length, ro, info, tmpdir, n_pieces, check, log, lambda m: _warn(job, m))
+        sound_share = w_hear + w_voice + w_claim
+        pic_share = max(0.0, 1.0 - sound_share - MUX)
+        at = {"sound": 0.0}
+        to_bar = S.job_progress(job, lo, hi)
+        made = pic
+
+        def push():
+            to_bar(min(1.0 - MUX, at["sound"] + pic_share * made.fraction()))
+        pic.on_progress = push
+
+        def bar(x, y):          # noqa: F811  the sound's steps, with the picture's progress added on
+            def f(v):
+                at["sound"] = x + (y - x) * max(0.0, min(1.0, v))
+                push()
+            return f
+        log(f"The picture is made at the same time as the sound, in {n_pieces} piece{'s' if n_pieces != 1 else ''} side by side.")
     try:
         if known:
             import songref
@@ -998,6 +1120,32 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                 _warn(job, f"A song was still recognisable after erasing in {len(left)} place{'s' if len(left) != 1 else ''} "
                            f"({where}): those seconds are muted, so YouTube won't catch them.")
         prog = bar(w_hear + w_voice + w_claim, 1.0)
+        if pic:
+            step(("Rendering" if part else "Rendering the whole video") + " (the picture)")
+            try:
+                pieces = pic.wait(check)
+                step("Putting the picture and the sound together")
+                pinfo = dict(info, vcodec=engine.probe(pieces[0]).get("vcodec", "h264"))
+                copy_video(video, path, pinfo, ro, spans, audio_src, S.job_progress(job, lo + (hi - lo) * (1 - MUX), hi), check,
+                           length=length, audio_start=0.0 if audio_src else a, pieces=pieces)
+                bad = check_made(path, length, has_audio)
+                if bad:
+                    _remove(path)
+                    raise RuntimeError(bad)
+                copying = False
+            except engine.Cancelled:
+                raise
+            except Exception as e:      # noqa: BLE001  made the usual way instead
+                if _disk_full(e):
+                    raise
+                _remove(path)
+                log(f"Making the picture apart didn't work ({_reason(e)}): making the video the usual way.")
+                pic.stop()
+                pic = None
+                prog = S.job_progress(job, lo + (hi - lo) * (w_hear + w_voice + w_claim), hi)
+            else:
+                pic.stop()          # the pieces aren't needed any more
+                pic = "made"
         if copying:
             step("Copying the picture, making the sound")
             log("The picture is copied as it is (no burned-in captions, the video's own size).")
@@ -1017,22 +1165,25 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
                 copying = False
                 log(f"Copying the picture didn't work ({_reason(e)}): making the video again instead.")
                 step(("Rendering" if part else "Rendering the whole video") + " (the picture couldn't be copied)")
-        if not copying:
+        if not copying and pic != "made":
             if not (whole and can_copy(o, info) and (not part or copy)):
                 step("Rendering" if part else "Rendering the whole video" if whole else "Rendering the preview")
             burn = [dict(w, start=w["start"] - a, end=w["end"] - a) for w in words] if ro.captions else []
             render.render_clip(video, a, b, path, ro, title="", log=log, progress=prog, check=check,
                                words=burn, censor=spans, censor_mode="mute", audio_src=audio_src,
-                               warn=lambda m: _warn(job, m), faststart=length <= FASTSTART_MAX)
+                               warn=lambda m: _warn(job, m), faststart=length <= FASTSTART_MAX,
+                               threads=[] if whole or part else None)       # 5.7.3: an export uses every core
             if whole or part:
                 bad = check_made(path, length, has_audio)
                 if bad:
                     log(f"Made, but {bad}.")
                     _warn(job, f"The video was made, but {bad}. Watch it through before you upload it.")
     finally:
+        if isinstance(pic, _Picture):
+            pic.stop()
         for f in {audio_src, known_src, voice_src} - {""}:
             _remove(f)
-        if voice:
+        if voice and not keep_models:      # Segments lets go of them once, when every stretch is made
             voicekeep.release()
             songerase.release()
     return {"words": words, "ro": ro, "copied": copying, "muted_words": len(told), "muted_music": len(hush),
@@ -1310,12 +1461,23 @@ def start_scan(S, pid: str, recognise_only: bool = False, everywhere: bool = Fal
             step("Looking for music")
             scan_copyright(pr, S.job_progress(job, 0, 0.3), check, log)
         step("Recognising the songs")
+        whole_too = not recognise_only and _can_recognise()
         try:
-            name_songs(pr, S.job_progress(job, 0 if recognise_only else 0.3, 1), check, log)
+            name_songs(pr, S.job_progress(job, 0 if recognise_only else 0.3, 0.6 if whole_too else 1), check, log)
         except engine.Cancelled:
             raise
         except Exception as e:          # noqa: BLE001  the scan itself is done: recognising is a bonus
             log(f"Couldn't recognise the songs: {e}")
+        if whole_too:
+            # 5.7.3: Look for songs everywhere with every scan, not only when its button is pressed: the songs the music
+            # scan can't hear (quiet under talking) are most of what YouTube still caught
+            step("Looking for songs everywhere")
+            try:
+                find_everywhere(pr, S.job_progress(job, 0.6, 1), check, log)
+            except engine.Cancelled:
+                raise
+            except Exception as e:      # noqa: BLE001
+                log(f"Couldn't look for songs everywhere: {e}")
         return pr["copyright"]
     return _start(S, pid, "copyright_job", "copyright", go)
 
@@ -1478,6 +1640,15 @@ def suggested_songs(pr: dict) -> list:
     return out
 
 
+def covered(a: float, b: float, spans: list) -> bool:
+    """Whether at least half of a to b is inside spans [(start, end)] (a stretch you moved the edges of still covers
+    the one the scan found)."""
+    if b <= a:
+        return True
+    inside = sum(max(0.0, min(b, y) - max(a, x)) for x, y in spans)
+    return inside >= 0.5 * (b - a)
+
+
 def suggested(pr: dict) -> tuple:
     """What Export VOD starts with for a video, for an export that has no screen of its own (Segments): each
     music stretch as you left it on Export VOD (5.0), or as the copyright scan suggests, and the flagged words in the categories Settings › Content
@@ -1489,7 +1660,11 @@ def suggested(pr: dict) -> tuple:
     if mine:          # what you set on Export VOD: all of it for this scan, only what you marked yourself for a newer one
         same = abs(float(mine["at"]) - float((scan or {}).get("at") or 0)) < 1e-6
         rows = [s for s in mine["songs"] if same or s.get("mine")]
-        music = ([] if same else music) + [(s["start"], s["end"], s["act"]) for s in rows if s["act"] != "keep"]
+        yours = [(s["start"], s["end"], s["act"]) for s in rows]
+        # 5.7.3: with your list for this scan, the stretches the scan gained after it was made (Recognise the songs and
+        # Look for songs everywhere add them to the same scan) are added too: they were left out, songs and all
+        extra = [m for m in music if same and not covered(m[0], m[1], [(x, y) for x, y, _ in yours])]
+        music = ([] if same else music) + extra + [(a, b, m) for a, b, m in yours if m != "keep"]
         # without the song eraser, an Erase song stretch is muted, unless you said which song it is (that needs no model)
         music = [(a, b, "mute" if m == "voice" and not can_erase() and (a, b) not in named else m) for a, b, m in sorted(music)]
     flags = (load_flags(pr) or {}).get("flags") or []

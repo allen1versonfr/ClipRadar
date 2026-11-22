@@ -231,7 +231,7 @@ def _read(pipe, n: int) -> np.ndarray:
     return a.reshape(-1, 2).T.copy()
 
 
-def keep_voice(video: str, spans: list, out_path: str, start: float = 0.0, length: float = 0.0,
+def _keep_voice_unlocked(video: str, spans: list, out_path: str, start: float = 0.0, length: float = 0.0,
                progress=_noop, check=_noop) -> dict:
     """The sound of `video` from `start` for `length` seconds (0 = to the end), written to out_path (FLAC,
     44.1 kHz stereo) with the music taken out inside spans [(start, end)] (seconds from `start`).
@@ -318,6 +318,18 @@ def keep_voice(video: str, spans: list, out_path: str, start: float = 0.0, lengt
     return {"blocks": ran, "seconds": round(ran * gen / SR, 1)}
 
 
+_run_lock = threading.Lock()
+
+
+def keep_voice(*args, **kw) -> dict:
+    """The music remover over a sound track (_keep_voice_unlocked), one at a time (5.7.3): Segments makes two
+    stretches at once, and the model already uses every core and a few GB of memory, so a second one alongside would
+    only add memory, not speed (measured: 40 s a block two at a time, 44 s one at a time). The other stretch's
+    picture goes on being made meanwhile."""
+    with _run_lock:
+        return _keep_voice_unlocked(*args, **kw)
+
+
 if __name__ == "__main__":
     # python src/voicekeep.py --download [folder]
     import sys
@@ -327,3 +339,4 @@ if __name__ == "__main__":
             print("music remover already there")
         else:
             print("saved", download(print, target))
+

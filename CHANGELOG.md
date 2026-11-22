@@ -5,6 +5,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.3] - 2026-11-22
+
+### Fixed
+- **Songs still left in exported VODs.** Three reasons, each fixed:
+  - **Songs found after you changed the music list were left out.** Once you changed anything in Export VOD's
+    music list (one action pressed was enough), the export used your list as it was. The songs Recognise the songs
+    and Look for songs everywhere found after that went into the scan but never into your list, and stayed in the
+    video. Segments did the same. Now your list is kept as you set it, and every stretch the scan gains that your
+    list doesn't cover is added to it.
+  - **Look for songs everywhere only ran when its button was pressed**, and the songs the music scan can't hear
+    (quiet under talking) are most of what YouTube still catches. The music scan now does it every time, after
+    recognising the songs: every song heard anywhere is found everywhere it plays and erased.
+  - **A stretch the scan was unsure about, with nobody talking, started as Keep.** With the song eraser it now starts
+    as Erase song: the eraser keeps the talking and the game's sound, so a stretch that wasn't music loses nothing.
+
+### Changed
+- **Export VOD and Segments use the whole PC.**
+  - **Every core.** The picture was made with one core left free (Settings › Performance › Keep the PC responsive).
+    Exports now use them all, still below normal priority with that setting on, so whatever you're doing still goes
+    first. Measured on 4 cores: 51 s to 42 s for 90 s of 1080p60 made at 720p.
+  - **The picture made while the songs are erased**, not after. The two ran one after the other, the CPU half idle
+    through each. The picture is made at the same time, then the finished sound is put on it without making the
+    picture again.
+  - **A long video's picture in pieces side by side**: 2 on 4 to 7 cores, 3 on 8 to 15, 4 on 16 or more. One FFmpeg
+    can't keep every core busy (its decoding and filters run on few of them): two halves side by side took 12.5 s
+    where one FFmpeg took 15.0 s on 4 cores, and the gap grows with the cores. Each piece is an exact number of
+    frames, so not one frame is lost or doubled, and the sound stays in step: a beep and a flash made together
+    still land within a frame of each other at the end.
+  - **Segments made two at a time**, across all the segments of an export. Each file is joined as soon as its parts
+    are made, and the bar adds up every part's progress. The song eraser runs on one part at a time (two side by side
+    were measured no faster, with twice the memory), and the other part's picture goes on being made meanwhile.
+- Settings › Performance says that exports use every core either way.
+
+### Tests
+- `tests/test_vodexport.py`: an export made in pieces while a song is erased, with every frame there and none twice,
+  the song erased and no pieces left; a flash and a beep within a frame of each other after an export made in pieces;
+  a scan that recognises the songs and looks for them everywhere on its own; Segments using a stretch the scan
+  gained after your list was set, and not one your list covers; a weak detection erased with the song eraser.
+- `tests/test_segments.py`: stretches made two at a time, each segment whole and in order, the bar only forward.
+- `VodExportView.test.tsx`: songs found after you changed the list are in the export, with what you set kept.
+  `spans.test.ts`: a stretch covered by your list.
+
 ## [5.7.2] - 2026-11-21
 
 ### Fixed

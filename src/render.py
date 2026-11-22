@@ -1317,7 +1317,8 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
                 title: str = "", log: Log = _noop, progress: Progress = _noop,
                 check: Check = _noop, words: Optional[list] = None,
                 censor: Optional[list] = None, censor_mode: str = "off", framing: Optional[dict] = None,
-                warn: Log = _noop, diag: Optional[dict] = None, audio_src: str = "", faststart: bool = True) -> str:
+                warn: Log = _noop, diag: Optional[dict] = None, audio_src: str = "", faststart: bool = True,
+                picture_only: bool = False, frames: int = 0, threads: Optional[list] = None) -> str:
     """words: transcript (times relative to clip_start) to caption with; transcribed here if None.
     censor: [(start, end)] spans (relative) to mute ("mute") or bleep ("bleep").
     faststart: the index at the front of the file (+faststart), which FFmpeg does by writing the whole file a second time
@@ -1326,9 +1327,16 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
     (Export VOD: the sound with its music removed, voicekeep.keep_voice).
     warn: told when the clip came out differently from what was asked (a layout that had to fall back).
     diag: filled in with what FFmpeg was asked and said (cmd, encoder, exit, stderr, fallback), for the
-    render's attempt history, whether it worked or not."""
+    render's attempt history, whether it worked or not.
+    picture_only: no sound in the file (5.7.3: Export VOD makes the picture while the songs are erased, and puts the
+    sound on after). frames: exactly that many frames (a piece of a picture made in pieces side by side, so the pieces
+    add up to the whole to the frame). threads: FFmpeg's -threads instead of Settings › Performance's (an export uses
+    every core, [])."""
     diag = diag if diag is not None else {}
     info = probe(video)
+    if picture_only:
+        info = dict(info, has_audio=False)
+        audio_src = ""
     clip_start = max(0.0, clip_start)
     if not clip_end > clip_start:
         raise RenderInputError("source_range", "This clip ends before it starts.")
@@ -1496,7 +1504,9 @@ def render_clip(video: str, clip_start: float, clip_end: float, out_path: str, o
             cmd += ["-movflags", "+faststart+negative_cts_offsets" if faststart else "+negative_cts_offsets"]
         # (no -t on the output: a source whose timestamps restart part-way, a recording across an ad break, came out
         # half as long with it. A render that runs on past the clip is stopped by watch_render instead.)
-        cmd += [*RENDER_THREADS, tmp_name]
+        if frames > 0:
+            cmd += ["-frames:v", str(int(frames))]
+        cmd += [*(RENDER_THREADS if threads is None else threads), tmp_name]
         diag["cmd"] = subprocess.list2cmdline(cmd)
         p = subprocess.Popen(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",

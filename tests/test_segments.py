@@ -203,6 +203,37 @@ if shutil.which("ffmpeg"):
         check("Late's cut stretch is left out", abs(luma(late, 2.5) - 34 * 6 % 256) < 30, luma(late, 2.5))
         check("no subtitle file, even when asked for (5.1.2: YouTube makes its own captions)",
               not os.path.isfile(os.path.splitext(early)[0] + ".srt"))
+    # ---- 5.7.3: stretches made two at a time across the segments, each file whole and in order, the bar only forward
+    real_rr, live_, most_, seen_ = vodexport.render_range, [0], [0], []
+    lk = threading.Lock()
+
+    def counted(*a, **k):
+        with lk:
+            live_[0] += 1
+            most_[0] = max(most_[0], live_[0])
+        try:
+            time.sleep(0.4)
+            return real_rr(*a, **k)
+        finally:
+            with lk:
+                live_[0] -= 1
+    vodexport.render_range = counted
+    held_cpu = os.cpu_count
+    os.cpu_count = lambda: 8
+    try:
+        job = segments.start_export(server, e["id"], dict(opts, size="480"))
+        while job["status"] == "running":
+            seen_.append(job.get("progress", 0))
+            time.sleep(0.05)
+    finally:
+        vodexport.render_range = real_rr
+        os.cpu_count = held_cpu
+    res = job.get("result") or {}
+    check("stretches are made two at a time (5.7.3)", job["status"] == "done" and most_[0] == 2, (most_[0], job.get("error")))
+    check("each segment still its own whole video, in order", [f["name"] for f in res.get("files", [])] == ["Late (2).mp4", "Early (2).mp4"]
+          and all(abs(engine.probe(f["path"])["duration"] - 4.0) < 0.35 for f in res.get("files", [])), res.get("files"))
+    check("the bar only goes forward while they're made together", all(y >= x - 1e-9 for x, y in zip(seen_, seen_[1:])), seen_[-10:])
+
     # ---- 5.1.3: an exported segment to YouTube (Open YouTube Studio: the file shown, the upload page opened)
     import studio  # noqa: E402
     import ytclips  # noqa: E402
