@@ -22,6 +22,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   with the stream as its copyright scan, so Export VOD doesn't listen to the whole stream again. This needs the sound
   model (Settings › Downloads and tools), and doesn't depend on the new setting.
 
+### Fixed
+- **A refused request could lose its answer on Windows.** A request whose body isn't JSON is refused (415), but its body
+  was left unread, and closing a connection with unread data resets it on Windows, so the refusal could arrive as a
+  broken connection instead. The body is now read before the answer.
+
 ### Tests
 - `tests/test_live_songs.py`: when a stretch is recognised (over, or a minute in), only once, without the eraser model,
   from the recorded pieces and then the saved stream; the scan saved with the stream, with its songs; a scan made in
