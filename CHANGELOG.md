@@ -5,6 +5,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.8] - 2026-11-22
+
+### Fixed
+- **"The song eraser failed ('erase')", and hours of talking muted.** When a recognised song's recording wasn't
+  heard in some parts, the export handed those parts to the song eraser, a step it hadn't planned on. The time
+  estimate (5.7.4) took the step on without starting its progress, so the eraser's first move failed, and every
+  one of those stretches was muted instead, the talking with it: 325 stretches in one export here. Since 5.7.4, on
+  any export where the recognised songs didn't line up everywhere. The eraser now runs on them, and its time is
+  counted at the graphics card's speed when it runs there.
+- **Exports with a lot of music took hours longer than they needed to (Segments up to 5 hours).** The check that
+  YouTube won't still hear the songs ran the song eraser model over all the erased music a second time, to pull out
+  what was left of it, so it took as long as erasing it did. On a stream with music throughout (4 h 51 min of it on
+  one of yours), that was about 2.5 hours more on the graphics card, and over 8 hours on the processor.
+  - Now the model goes over one 12 s sample in four, and every sample either side of one where a song is still
+    heard, outward until one isn't, and either side of one Shazam knew as it was. A song left recognisable for 48 s
+    in a row is always found, and all of it is muted, as before.
+  - Each sample is one run of the model, not two.
+  - About a quarter of the time it took. The export's time estimate counts it that way. Timed on a stream's music:
+    2 minutes of it took 702 s, now 161 s.
+- **The YouTube check could wait hours for Shazam.** With Shazam not answering at all (no network, or it changed),
+  each 12 s sample waited 30 s for nothing: about 4 hours over a stream with music throughout. It now gives up after
+  6 requests with no answer and none answered, and the export says the check couldn't run.
+
+### Tests
+- `tests/test_export_eta.py`: a step that turns up partway, or is set on the plan alone, moves without failing.
+- `tests/test_song_speed.py`:
+  - an hour of erased music with nothing left pulls out a quarter of the samples;
+  - a minute still recognisable in ten is found whole, without pulling out the rest;
+  - beside a sample recognised as it is, the quieter rest of the song is found;
+  - every four samples in a row hold one that's probed, for short runs and the end of a run too.
+
 ## [5.7.7] - 2026-11-22
 
 ### Fixed

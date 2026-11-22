@@ -137,8 +137,10 @@ def plan(*, length: float, info: dict, copying: bool, size: str, quality: str, e
     if claim_s > 0:
         r, m = rate("vodclaim")
         t = claim_s / r
-        if separate:                        # what's left of the music pulled out with the model too
-            t += claim_s / (10.0 / gpu_block if gpu_block else rate("voderase")[0])
+        if separate:                        # what's left of the music pulled out with the model too: 5.7.8, one 12 s
+            import songid                   # sample in PROBE, a run of the model each
+            block = gpu_block or 10.0 / rate("voderase")[0]
+            t += claim_s / songid.WINDOW / songid.PROBE * block
         steps["claim"] = t
     hw = bool(encoder) and encoder not in ("libx264", "libx265", "libvpx-vp9", "CPU", "")
     if copying:
@@ -281,10 +283,17 @@ class Tracker:
                     if self.set_eta:
                         self.job["held"] = list(self.held)
 
+    def grow(self, k: str, seconds: float) -> None:
+        """A step planned at `seconds` now, added if it wasn't planned (5.7.8: set on the plan alone, its first move
+        failed, KeyError 'erase', and the song eraser's every stretch was muted instead)."""
+        with self.lock:
+            self.plan[k] = max(0.0, seconds)
+            self.frac.setdefault(k, 0.0)
+
     def step(self, k: str) -> Callable:
-        if k not in self.plan:
-            self.plan[k] = 0.0
-            self.frac[k] = 0.0
+        if k not in self.plan or k not in self.frac:
+            self.plan.setdefault(k, 0.0)
+            self.frac.setdefault(k, 0.0)
 
         def f(v: float):
             with self.lock:
