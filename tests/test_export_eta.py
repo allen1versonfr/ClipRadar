@@ -32,7 +32,6 @@ os.environ["CLIPRADAR_WORK"] = tempfile.mkdtemp(prefix="vc_eta_")
 os.environ["CLIPRADAR_UPDATE_API"] = "http://127.0.0.1:9/none"
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
-import engine  # noqa: E402
 import exporteta  # noqa: E402
 
 failures = []
@@ -142,6 +141,7 @@ if shutil.which("ffmpeg"):
     check("Export VOD says how long before it starts", est["seconds"] and est["seconds"] > 0 and est["note"].startswith("About"), est)
     est2 = vodexport.estimate_export(server, pid, {"size": "480"})
     check("a new size takes longer, and says why", est2["seconds"] > est["seconds"] and any("Size: Source" in h for h in est2["held"]), est2)
+    exporteta.MIN_TIMED = 0.0           # this little video is made in a second or two: timed all the same
     job = vodexport.start_export(server, pid, {"size": "480", "quality": "fast", "hw_encode": False})
     seen = []
     while job["status"] == "running":
@@ -152,10 +152,8 @@ if shutil.which("ffmpeg"):
     check("while it runs: how long is left, from the start", job["status"] == "done" and seen and seen[0] > 0, (job.get("error"), seen[:3]))
     check("and what that rests on, and what's holding it back, sent to the screen",
           pub.get("eta_note", "").startswith("Time left from") and isinstance(pub.get("held"), list), pub.get("eta_note"))
-    check("the time this PC took is kept for next time", exporteta._speed("vodrender|" + vodexport.plan_range(
-        engine.probe(video), vodexport.clean_options({"size": "480", "quality": "fast"}, 30), vodexport.render_opts(
-            server, vodexport.clean_options({"size": "480", "quality": "fast", "hw_encode": False}, 30), engine.probe(video)),
-        30, [], [], False, False, 1, False)["key"]) is not None or exporteta._speed("vodrender") is not None)
+    exporteta.MIN_TIMED = 3.0
+    check("the time this PC took is kept for next time", exporteta._speed("vodrender") is not None, exporteta._speed("vodrender"))
     e = segments.add(server, pid, 2, 8)
     e = segments.add(server, pid, 12, 20, "Two", e["id"])
     est3 = segments.estimate_export(server, e["id"], {"size": "480"})

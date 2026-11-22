@@ -40,6 +40,7 @@ DEFAULTS = {
 GPU_GAIN = 3.0                    # a graphics card encoder, until one has been timed here
 SLOW = 1.7                        # a step this many times slower than planned is said to be going slow
 MIN_SAY = 0.12                    # a reason is only said when it's at least this share of the time
+MIN_TIMED = 3.0                   # seconds: a step quicker than this is too short to learn a speed from
 
 
 _lock = threading.Lock()
@@ -84,7 +85,7 @@ def rate(kind: str, key: str = "", scale: float = 1.0) -> tuple:
 
 def learn(kind: str, key: str, seconds_done: float, took: float) -> None:
     """A step of `seconds_done` (of video or song) took `took` seconds: kept for the next estimate."""
-    if took >= 3 and seconds_done > 0:
+    if took >= MIN_TIMED and seconds_done > 0:
         _keep(f"{kind}|{key}" if key else kind, seconds_done / took)
 
 
