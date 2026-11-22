@@ -35,7 +35,8 @@ COOLDOWN = 300.0           # after a target's stream ended: not started again fr
 MAX_TARGETS = 50
 MODES = ("hands", "review")
 FREQS = ("fewer", "normal", "more", "lots")
-DEFAULTS = {"mode": "hands", "frequency": "normal", "preset": "any", "min_quality": 0, "length": 0, "save_vod": True}
+DEFAULTS = {"mode": "hands", "frequency": "normal", "preset": "any", "min_quality": 0, "length": 0, "save_vod": True,
+            "prep_songs": True}
 
 _lock = threading.RLock()
 state: dict = {}           # target id -> {"live", "stream", "checked", "note", "session", "ended", "stopped_stream"}
@@ -81,6 +82,7 @@ def clean_settings(s: Optional[dict]) -> dict:
         except (TypeError, ValueError):
             pass
     out["save_vod"] = s.get("save_vod", True) is not False
+    out["prep_songs"] = s.get("prep_songs", True) is not False      # Recognise songs while recording (5.8)
     return out
 
 
@@ -223,6 +225,7 @@ def _start(S, t: dict, stream: str) -> str:
     s = t["settings"]
     body = dict(t.get("params") or {}, source=t["source"], hands_free=s["mode"] == "hands", frequency=s["frequency"],
                 preset=s["preset"], min_quality=s["min_quality"], length=s["length"], save_vod=s["save_vod"],
+                prep_songs=s["prep_songs"],
                 wait_for_live=True, keep_watching=False, target=t["id"])
     sess = live_glue.start_live_session(t["source"], body)
     st.update(session=sess.id, stream=stream, started=time.time())
