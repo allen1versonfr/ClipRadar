@@ -5,6 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.7.7] - 2026-11-22
+
+### Fixed
+- **Two Export VODs of the same stream spoiled each other's song removal.** While taking the recognised songs out,
+  each export kept its cleaned sound in a file named only by Clip Radar's process, in a folder every export of that
+  stream shares. So two exports at once used the same file, and the first to finish deleted it while the other was
+  still reading: "No such file or directory: known_..._0.f32". The export then fell back to the song eraser model for
+  every song, hours longer. Each export now keeps its own files.
+
+### Tests
+- `tests/test_songref.py`: two exports into one folder never share a temporary file.
+
 ## [5.7.5] - 2026-11-22
 
 ### Added
