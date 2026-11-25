@@ -48,6 +48,7 @@ describe('Targets', () => {
   it('adds a streamer with the Live stream settings and your render style', async () => {
     localStorage.setItem('vc_liveFreq', JSON.stringify('lots'))
     localStorage.setItem('vc_liveSaveVod', JSON.stringify(false))
+    localStorage.setItem('vc_livePrepSongs', JSON.stringify(false))
     show()
     await screen.findAllByTestId('target')
     fireEvent.change(screen.getByTestId('target-input'), { target: { value: 'twitch.tv/pokimane' } })
@@ -55,7 +56,7 @@ describe('Targets', () => {
     await waitFor(() => expect(sent('/api/targets/add')).toHaveLength(1))
     const b = sent('/api/targets/add')[0]!
     expect(b.source).toBe('twitch.tv/pokimane')
-    expect(b.settings).toMatchObject({ frequency: 'lots', save_vod: false, mode: 'hands' })
+    expect(b.settings).toMatchObject({ frequency: 'lots', save_vod: false, prep_songs: false, mode: 'hands' })
     expect(b.params.opts).toBeDefined()
     expect(await screen.findAllByTestId('target')).toHaveLength(3)
   })
@@ -77,8 +78,24 @@ describe('Targets', () => {
     const form = await screen.findByTestId('target-settings')
     fireEvent.click(within(form).getByRole('radio', { name: 'Review each clip' }))
     await waitFor(() => expect(sent('/api/targets/update')).toContainEqual({ id: 't1', settings: { mode: 'review' } }))
+    // Recognise songs while recording (5.8): its own setting, explained under it
+    const songs = within(form).getByTestId('target-songs') as HTMLInputElement
+    expect(songs.checked).toBe(true)
+    expect(songs.closest('label')?.textContent).toMatch(/Shazam/)
+    fireEvent.click(songs)
+    await waitFor(() => expect(sent('/api/targets/update')).toContainEqual({ id: 't1', settings: { prep_songs: false } }))
     fireEvent.click(within(form).getByTestId('target-vod'))
     await waitFor(() => expect(sent('/api/targets/update')).toContainEqual({ id: 't1', settings: { save_vod: false } }))
+  })
+
+  it("songs can't be recognised while recording without saving the whole stream", async () => {
+    show()
+    const rows = await screen.findAllByTestId('target')
+    fireEvent.click(within(rows[1]!).getByTestId('target-edit'))
+    const songs = within(await screen.findByTestId('target-settings')).getByTestId('target-songs') as HTMLInputElement
+    expect(songs.disabled).toBe(true)
+    expect(songs.checked).toBe(false)
+    expect(songs.closest('label')?.textContent).toMatch(/Needs Save the whole stream/)
   })
 
   it('opening Home brings every target up to date with your render style', async () => {

@@ -202,7 +202,7 @@ class LiveSession:
                  chat_delay="auto", chat_weight: float = 60, max_height: int = 1080, cookies: str = "",
                  warmup: float = 90, buffer_minutes: float = 15, wait_for_live: bool = False,
                  events: bool = True, on_moment: Callable = None, log: Callable = None, min_quality: int = 0,
-                 on_end: Callable = None, save_vod: bool = False, save_vod_note: str = ""):
+                 on_end: Callable = None, save_vod: bool = False, save_vod_note: str = "", prep_songs: bool = False):
         self.id = sid
         self.source = source.strip()
         import sources
@@ -320,6 +320,18 @@ class LiveSession:
                     self.events = audio_events.Scanner()
             except Exception:
                 self.events = None
+        # Recognise songs while recording (5.8, livesongs.py): only for a stream that's saved whole, and with the
+        # sound model, which is what hears the music
+        self.prep_songs = bool(prep_songs)
+        self.songs = None
+        if self.prep_songs and self.save_vod and self.events is not None:
+            try:
+                import livesongs
+                import locations
+                if livesongs.available():
+                    self.songs = livesongs.LiveSongs(lambda: self.segments, locations.temp_dir("songs"), log=self.log)
+            except Exception:
+                self.songs = None
 
     # ------------------------------------------------------------------ utils
     def set_frequency(self, level: str):
@@ -387,7 +399,15 @@ class LiveSession:
             "forming": sorted(self.forming.values(), key=lambda f: f["at"]),
             "latency": self.latency_summary(), "latency_last": dict(self.last_lat), "skipped": dict(self.skipped),
             "save_vod": self.save_vod, "vod": dict(self.vod),
+            "songs": self._songs_state(),
         }
+
+    def _songs_state(self) -> dict:
+        """Recognise songs while recording, for the session page: on, and how many songs are known so far."""
+        if self.songs is None:
+            return {"on": False, "named": 0, "pending": 0}
+        res = self.songs.results()
+        return {"on": True, "named": sum(1 for r in res if r.get("song")), "pending": self.songs.pending()}
 
     # ------------------------------------------------------------------ latency and chat health
     def note_latency(self, stage: str, seconds: Optional[float]):
@@ -598,6 +618,7 @@ class LiveSession:
         """Finding moments must never stop the recording: log what went wrong and carry on."""
         try:
             self._detect(final)
+            self._songs_tick(final)
             if not final:
                 self._cleanup()
         except Exception as e:
@@ -1028,6 +1049,32 @@ class LiveSession:
             return [detect.quality(r) for r in ranks]
         return analysis.grades(self._graded_an, [float(r) for r in ranks])
 
+    def _songs_tick(self, final: bool = False):
+        """Recognise songs while recording: the music stretches that are over go to livesongs' worker."""
+        if self.songs is None or self.events is None or (self._vod_upto is not None and not final):
+            return
+        n = len(self.loud)
+        ev = self.events.result(n)
+        self.songs.update(ev.get("music"), ev.get("speech"), n, final=final)
+
+    def _hand_over_music(self, wd: str, out: str, dur: float):
+        """The saved stream's copyright scan from the music heard while recording (5.8, livesongs.py), so Export VOD
+        doesn't listen to the whole stream again; with the songs recognised so far, and the rest added once they are."""
+        if self.events is None:
+            return
+        import livesongs
+        n = len(self.loud)
+        ev = self.events.result(n)
+        music, speech = ev.get("music"), ev.get("speech")
+        if music is None or not len(music):
+            return
+        if self.songs is None:
+            livesongs.write(wd, out, livesongs.scan_for(music, speech, dur))
+            return
+        self.songs.video = out                 # the pieces are let go next: the rest is read from the saved stream
+        livesongs.write(wd, out, livesongs.scan_for(music, speech, dur, self.songs.results(), complete=False))
+        livesongs.merge_later(wd, out, self.songs, music, speech, dur, log=self.log)
+
     def _detect(self, final: bool = False):
         n = len(self.loud)
         if n < 5:
@@ -1350,6 +1397,11 @@ class LiveSession:
                 pass
         self.vod.update(state="saved", path=out, title=title, duration=round(dur, 1))
         self.log(f"Full stream saved: {out}")
+        try:
+            self._hand_over_music(wd, out, dur)
+        except Exception:
+            import errorlog
+            errorlog.exc("live:songs", channel=self.channel or self.source)
         return True
 
     def _finish_recording(self):

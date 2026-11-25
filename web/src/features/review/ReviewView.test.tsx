@@ -242,13 +242,18 @@ describe('Review', () => {
         if (path.endsWith('/settings')) hands = !!body!.hands_free
         if (path.endsWith('/clip') || path.endsWith('/stop')) return new Response(JSON.stringify({ ok: true }))
         return new Response(JSON.stringify({ id: 's1', channel: 'somechannel', status: 'recording', recorded: 300, curve: [1, 2, 3],
-          chat_connected: true, chat_per_min: 42, chat_state: 'ok', hands_free: hands, clips }))
+          chat_connected: true, chat_per_min: 42, chat_state: 'ok', hands_free: hands, clips,
+          songs: { on: true, named: 3, pending: 1 } }))
       }
       return base(path, init)
     }))
     render(<ToastProvider><ConfirmProvider><ReviewView pid="s1" live /></ConfirmProvider></ToastProvider>)
     expect(await screen.findByRole('heading', { name: 'somechannel' })).toBeTruthy()
     expect(screen.getByTestId('rv-live-state').textContent).toBe('Live')
+    // Recognise songs while recording (5.8): the songs named so far, and what's still being recognised on hover
+    const songs = screen.getByTestId('rv-live-songs')
+    expect(songs.textContent).toBe('Songs 3')
+    expect(songs.getAttribute('title')).toBe('1 music stretch still being recognised')
     await waitFor(() => expect((screen.getByTestId('rv-title-input') as HTMLInputElement).value).toBe('Moment 1'))
     clips = [...clips, moment(1, 'm2', 200)]
     await waitFor(() => expect(screen.getAllByTestId('rv-row')).toHaveLength(2), { timeout: 3000 })

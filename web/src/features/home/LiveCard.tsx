@@ -24,6 +24,7 @@ export function LiveCard({ status }: { status: Status | undefined }) {
   const [wait, setWait] = useState(() => pref('liveWait', true))
   const [keep, setKeep] = useState(() => pref('liveKeep', false))
   const [saveVod, setSaveVod] = useState(() => pref('liveSaveVod', true))
+  const [prepSongs, setPrepSongs] = useState(() => pref('livePrepSongs', true))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const twitch = usePoll(loadTwitch, 60_000).data
@@ -41,7 +42,7 @@ export function LiveCard({ status }: { status: Status | undefined }) {
     try {
       const v = await api(Ref, '/api/live/start', {
         source, length: Number(length), frequency: freq, events: getPref('events', true), hands_free: mode === 'hands',
-        wait_for_live: wait, keep_watching: keep, save_vod: saveVod, opts, model: opts.whisper_model, language: opts.language,
+        wait_for_live: wait, keep_watching: keep, save_vod: saveVod, prep_songs: saveVod && prepSongs, opts, model: opts.whisper_model, language: opts.language,
         max_height: Number(getPref('maxh', '1080')), cookies: getPref('cookies', ''),
         chat_delay: delay === '' ? 'auto' : Number(delay), preset, emotes: getPref('useEmotes', true), min_quality: Number(minQ),
       })
@@ -94,6 +95,10 @@ export function LiveCard({ status }: { status: Status | undefined }) {
         <span>Keep watching after the stream ends<small>Waits for the channel's next stream and starts again.</small></span></label>
       <label className="chk"><input type="checkbox" checked={saveVod} onChange={e => save('liveSaveVod', setSaveVod)(e.target.checked)} />
         <span>Save the whole stream<small>Keeps the full recording and saves it as one video when the stream ends, ready in Export VOD. About 3 GB an hour at 1080p.</small></span></label>
+      <label className="chk"><input type="checkbox" checked={saveVod && prepSongs} disabled={!saveVod}
+                                    onChange={e => save('livePrepSongs', setPrepSongs)(e.target.checked)} data-testid="live-songs" />
+        <span>Recognise songs while recording<small>{saveVod ? 'Each song that plays is recognised in the background as the stream goes on, so the saved stream opens in Export VOD with its music found and its songs named, ready to erase. Sends a few 12-second samples of each song to Shazam.'
+          : 'Needs Save the whole stream.'}</small></span></label>
       <p className="fine">
         {twitch?.signed_in
           ? twitch.turbo ? <>Signed in to Twitch as <b>{twitch.login}</b> with Turbo: recordings come without ads.</>

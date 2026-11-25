@@ -23,6 +23,8 @@ export function LiveHead({ live: L, moments, onSettings, onClip, onStop }: {
           <span>Recorded <b className="tnum">{fmt(L.recorded)}</b></span>
           <span>Chat <b className="tnum">{L.chat_connected ? L.chat_per_min : '–'}</b>/min</span>
           <span><b className="tnum">{moments}</b> {moments === 1 ? 'moment' : 'moments'}</span>
+          {L.songs.on && <span title={L.songs.pending ? `${plural(L.songs.pending, 'music stretch', 'music stretches')} still being recognised` : 'Songs recognised while recording, named in Export VOD'}
+                               data-testid="rv-live-songs">Songs <b className="tnum">{L.songs.named}</b></span>}
           {L.ads_skipped > 0 && <span title="Ads Twitch put in the stream, kept out of the recording">Ads skipped <b className="tnum">{fmt(L.ads_skipped)}</b></span>}
         </span>
       </div>

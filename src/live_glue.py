@@ -237,6 +237,7 @@ def start_live_session(src: str, body: dict):
         cookies=body.get("cookies") or "", warmup=float(body.get("warmup", 90)),
         buffer_minutes=float(body.get("buffer_minutes", 15)),
         wait_for_live=bool(body.get("wait_for_live", False)), save_vod=save_vod, save_vod_note=vod_note,
+        prep_songs=bool(body.get("prep_songs", True)),
         on_moment=live_on_moment, on_end=autopilot.session_ended,      # Keep watching: autopilot_steps.keep_watching
         log=lambda m: print("  [live] " + m, flush=True))
     if body.get("chat_channel"):

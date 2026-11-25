@@ -179,6 +179,7 @@ export const Ref = z.looseObject({ pid: z.string().optional(), id: z.string().op
 export const TargetSettings = z.object({
   mode: z.enum(['hands', 'review']).catch('hands'), frequency: z.string().default('normal'), preset: z.string().default('any'),
   min_quality: z.number().default(0), length: z.number().default(0), save_vod: z.boolean().default(true),
+  prep_songs: z.boolean().default(true),         // Recognise songs while recording (5.8)
 })
 export type TargetSettings = z.infer<typeof TargetSettings>
 export const Target = z.looseObject({
@@ -639,6 +640,9 @@ export const LiveView = z.looseObject({
   // Save the whole stream: off | keeping | stopped (disk nearly full, kept up to `upto` s) | saving | saved | failed
   vod: z.looseObject({ state: z.string().default('off'), upto: z.number().nullish(), path: z.string().default(''),
     title: z.string().default(''), note: z.string().default('') }).default({ state: 'off', path: '', title: '', note: '' }),
+  // Recognise songs while recording (5.8): songs named so far, stretches still being recognised
+  songs: z.looseObject({ on: z.boolean().default(false), named: z.number().default(0), pending: z.number().default(0) })
+    .default({ on: false, named: 0, pending: 0 }),
 })
 export type LiveView = z.infer<typeof LiveView>
 /** Detection settings › Try: what other settings would suggest, next to the list you have. */

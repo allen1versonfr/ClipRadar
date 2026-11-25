@@ -110,6 +110,9 @@ class Handler(BaseHTTPRequestHandler):
         # (which this server never answers), so it can't reach the API even if Origin is missing.
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
+            # read what was sent before refusing it (5.8.0): on Windows, closing a connection with the body still
+            # unread resets it, and the client could lose the 415 answer
+            self.rfile.read(n)
             raise ValueError("expected application/json")
         return json.loads(self.rfile.read(n) or b"{}")
 

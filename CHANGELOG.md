@@ -5,6 +5,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [5.8.0] - 2026-11-25
+
+### Added
+- **Recognise songs while recording** (Home › Live stream, and each target's settings in Home › Targets; on by
+  default, and only with Save the whole stream). While a stream records, each music stretch is recognised as soon as
+  it ends, or once it has played for a minute: a few 12-second samples go to Shazam, and the song's recording is
+  found on YouTube, in the background. When the stream is saved, it opens in Export VOD with its songs already named,
+  so Erase song can take each recording out without the Recognise songs step first. The song eraser model isn't run
+  while recording (it would compete with the recording for the processor); a song it would have been needed for is
+  recognised in Export VOD as before. The live session's header counts the songs named so far.
+
+### Changed
+- **A saved stream opens in Export VOD with its copyright scan already done.** The live session already ran the sound
+  model on everything it recorded (for laughter), and that model hears music too. The music it heard is now saved
+  with the stream as its copyright scan, so Export VOD doesn't listen to the whole stream again. This needs the sound
+  model (Settings › Downloads and tools), and doesn't depend on the new setting.
+
+### Fixed
+- **A refused request could lose its answer on Windows.** A request whose body isn't JSON is refused (415), but its body
+  was left unread, and closing a connection with unread data resets it on Windows, so the refusal could arrive as a
+  broken connection instead. The body is now read before the answer.
+
+### Tests
+- `tests/test_live_songs.py`: when a stretch is recognised (over, or a minute in), only once, without the eraser model,
+  from the recorded pieces and then the saved stream; the scan saved with the stream, with its songs; a scan made in
+  Export VOD meanwhile isn't overwritten; the setting reaches the session.
+- `tests/test_targets.py`, `TargetsCard.test.tsx`, `ReviewView.test.tsx`: the setting on targets, and the song count.
+- `tests/test_studio_handoff.py` waits for Press Post for me to be saved before uploading, instead of a fixed 400 ms
+  that a slow test machine could miss.
+
 ## [5.7.8] - 2026-11-22
 
 ### Fixed

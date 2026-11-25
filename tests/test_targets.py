@@ -45,7 +45,9 @@ check("a single video or a VOD isn't", targets.parse("https://www.youtube.com/wa
       and targets.parse("https://www.twitch.tv/videos/123456789") is None)
 s = targets.clean_settings({"mode": "review", "frequency": "lots", "min_quality": 500, "length": "45", "save_vod": False, "x": 1})
 check("settings are checked", s == {"mode": "review", "frequency": "lots", "preset": "any", "min_quality": 100, "length": 45,
-                                    "save_vod": False}, s)
+                                    "save_vod": False, "prep_songs": True}, s)
+check("Recognise songs while recording is on unless turned off (5.8)",
+      targets.clean_settings({"prep_songs": False})["prep_songs"] is False and targets.clean_settings({})["prep_songs"] is True)
 
 # ---- the list
 a = targets.add("shroud", {"mode": "hands", "save_vod": False}, {"opts": {"layout": "split"}, "model": "small", "junk": 1})
@@ -108,7 +110,7 @@ TW["shroud"] = "111"
 round_()
 check("a target that goes live starts clipping with its own settings", len(started) == 1
       and started[0].source == "https://www.twitch.tv/shroud" and started[0].body["hands_free"] is True
-      and started[0].body["save_vod"] is False and started[0].body["opts"] == {"layout": "split"} and started[0].body["target"] == a["id"],
+      and started[0].body["save_vod"] is False and started[0].body["prep_songs"] is True and started[0].body["opts"] == {"layout": "split"} and started[0].body["target"] == a["id"],
       started[0].body if started else None)
 round_()
 check("and only once while it's being clipped", len(started) == 1)

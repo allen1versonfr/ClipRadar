@@ -24,7 +24,7 @@ function liveParams() {
 function liveDefaults(): TargetSettings {
   return { mode: getPref<string>('liveMode', 'hands') === 'review' ? 'review' : 'hands', frequency: getPref('liveFreq', 'normal'),
     preset: getPref('livePreset', 'any'), min_quality: Number(getPref('liveMinQ', '0')), length: Number(getPref('liveLength2', '0')),
-    save_vod: getPref('liveSaveVod', true) }
+    save_vod: getPref('liveSaveVod', true), prep_songs: getPref('livePrepSongs', true) }
 }
 
 const load = () => api(Targets, '/api/targets')
@@ -129,6 +129,10 @@ function TargetSettingsForm({ s, name, onChange }: { s: TargetSettings; name: st
       </div>
       <label className="chk"><input type="checkbox" checked={s.save_vod} onChange={e => onChange({ save_vod: e.target.checked })} data-testid="target-vod" />
         <span>Save the whole stream<small>Keeps the full recording and saves it as one video when the stream ends, ready in Export VOD. About 3 GB an hour at 1080p.</small></span></label>
+      <label className="chk"><input type="checkbox" checked={s.save_vod && s.prep_songs} disabled={!s.save_vod}
+                                    onChange={e => onChange({ prep_songs: e.target.checked })} data-testid="target-songs" />
+        <span>Recognise songs while recording<small>{s.save_vod ? 'Each song that plays is recognised in the background as the stream goes on, so the saved stream opens in Export VOD with its music found and its songs named, ready to erase. Sends a few 12-second samples of each song to Shazam.'
+          : 'Needs Save the whole stream.'}</small></span></label>
     </div>
   )
 }
