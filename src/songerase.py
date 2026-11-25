@@ -441,15 +441,17 @@ def keep_mask(stems: np.ndarray, strength: float = STRENGTH) -> np.ndarray:
     return rest / np.maximum(rest + strength * mus, 1e-10)
 
 
-def erase_block(ctx: np.ndarray, strength: float = STRENGTH) -> np.ndarray:
-    """ctx: [2, SEG] (1 s before, the 10 s block, 1 s after) -> the block with the song erased, [2, GEN]."""
+def erase_block(ctx: np.ndarray, strength: float = STRENGTH, whole: bool = False) -> np.ndarray:
+    """ctx: [2, SEG] (1 s before, the 10 s block, 1 s after) -> the block with the song erased, [2, GEN].
+    whole: all SEG of it, the seconds heard only on one side too (5.7.8: the YouTube check's 12 s samples, one run each)."""
     m = _load()
     spec = stft(ctx)                                     # [2, bins, frames]
     mono = spec.mean(axis=0)
     x = np.stack([mono.real, mono.imag])[None].astype(np.float32)
     stems = m.run(x)[0]
     keep = keep_mask(stems, strength)
-    return istft(spec * keep[None], SEG)[:, CTX:CTX + GEN]
+    y = istft(spec * keep[None], SEG)
+    return y if whole else y[:, CTX:CTX + GEN]
 
 
 # ----------------------------------------------------------------- a whole sound track

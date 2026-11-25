@@ -1100,7 +1100,10 @@ def render_range(S, job: dict, pr: dict, o: dict, a: float, b: float, path: str,
             voice_src = os.path.join(tmpdir, f"voice_{uuid.uuid4().hex[:8]}.flac")
             t0 = time.time()
             fn = songerase.erase if eraser else voicekeep.keep_voice
-            tr.plan["erase"] = total / exporteta.rate("voderase")[0]     # it may have grown: parts the recording wasn't heard in
+            # it may have grown: parts the recording wasn't heard in (5.7.8: grow, not set on the plan alone, which failed
+            # the eraser's first move; and at the card's speed when it runs there)
+            blk = exporteta._eraser_block() if eraser else None
+            tr.grow("erase", total / (10.0 / blk if blk else exporteta.rate("voderase")[0]))
             to_erase = tr.step("erase")
             if eraser and songerase.needs_trial():
                 # 5.7.6: said, since the bar stands still while it happens (it looked stuck)
